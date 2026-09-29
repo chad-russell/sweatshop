@@ -32,4 +32,7 @@ export default defineAgent({
       }),
     },
   }),
+  // better-sqlite3 is a native addon — keep it external (Node resolution)
+  // instead of bundled into the compiled runtime.
+  build: { externalDependencies: ["better-sqlite3"] },
 });
