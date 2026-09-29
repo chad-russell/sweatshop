@@ -3,24 +3,14 @@
 import { MessageSquare, Search, SquarePen, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SearchHit } from "@/db/search";
+import { useMounted } from "@/lib/use-mounted";
 
 export interface SidebarItem {
   id: string;
   title: string | null;
   updatedAt: number;
-}
-
-// Hydration-safe mounted gate (container TZ vs browser TZ make any
-// server-rendered time string a mismatch risk).
-const emptySubscribe = () => () => {};
-function useMounted() {
-  return useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false,
-  );
 }
 
 function relativeTime(ms: number): string {

@@ -42,6 +42,7 @@ import {
 } from "@/components/ai-elements/tool";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Spinner } from "@/components/ui/spinner";
+import { useMounted } from "@/lib/use-mounted";
 
 /** eve status → the ChatStatus shape PromptInputSubmit understands. */
 function toChatStatus(status: UseEveAgentStatus): ChatStatus {
@@ -145,6 +146,10 @@ export const EveMessageView = memo(function EveMessageView({
 export function ChatSurface({ sessionId }: { sessionId?: string }) {
   const router = useRouter();
   const pathname = usePathname();
+  // With resume: true the hook's client-first status is "resuming" while
+  // the server rendered "ready" — render a deterministic "ready" until
+  // hydration completes so disabled states can't mismatch.
+  const mounted = useMounted();
 
   const agent = useEveAgent({
     initialSession: sessionId ? { sessionId, streamIndex: 0 } : undefined,
@@ -158,9 +163,9 @@ export function ChatSurface({ sessionId }: { sessionId?: string }) {
     },
   });
 
-  const status = agent.status;
-  const isBusy = status === "submitted" || status === "streaming";
-  const isResuming = status === "resuming";
+  const displayStatus = mounted ? agent.status : "ready";
+  const isBusy = displayStatus === "submitted" || displayStatus === "streaming";
+  const isResuming = displayStatus === "resuming";
   const inputDisabled = isResuming;
   const messages = agent.data.messages;
 
@@ -206,7 +211,7 @@ export function ChatSurface({ sessionId }: { sessionId?: string }) {
 
       <Conversation className="min-h-0 flex-1">
         <ConversationContent>
-          {messages.length === 0 && status === "ready" && !agent.error && (
+          {messages.length === 0 && displayStatus === "ready" && !agent.error && (
             <ConversationEmptyState
               icon={<MessageSquarePlus className="size-6" />}
               title="sweatshop"
@@ -216,7 +221,7 @@ export function ChatSurface({ sessionId }: { sessionId?: string }) {
           {messages.map((message) => (
             <EveMessageView key={message.id} message={message} />
           ))}
-          {isThinking(status, messages) && (
+          {isThinking(displayStatus, messages) && (
             <div
               className="flex items-center gap-2 py-2 text-sm text-muted-foreground"
               role="status"
@@ -241,7 +246,7 @@ export function ChatSurface({ sessionId }: { sessionId?: string }) {
             disabled={inputDisabled}
           />
           <PromptInputSubmit
-            status={toChatStatus(status)}
+            status={toChatStatus(displayStatus)}
             onStop={() => void agent.cancel()}
           />
         </PromptInput>

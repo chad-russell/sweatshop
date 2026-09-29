@@ -2,19 +2,8 @@
 
 import { Palette } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useSyncExternalStore } from "react";
 import { THEMES } from "@/components/theme-provider";
-
-// Hydration-safe mounted gate without setState-in-effect: the client
-// snapshot flips to true after hydration, the server snapshot stays false.
-const emptySubscribe = () => () => {};
-function useMounted() {
-  return useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false,
-  );
-}
+import { useMounted } from "@/lib/use-mounted";
 
 /**
  * Minimal theme cycler: clickhouse → cal → nova. A dropdown can replace it
