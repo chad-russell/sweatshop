@@ -1,0 +1,278 @@
+"use client";
+
+import type { ChatStatus } from "ai";
+import { MessageSquarePlus, SquarePen } from "lucide-react";
+import { memo, useState } from "react";
+import type { ClientSessionState, MessageStreamEvent } from "eve/client";
+import {
+  useEveAgent,
+  type EveDynamicToolPart,
+  type EveMessage,
+  type UseEveAgentStatus,
+} from "eve/react";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
+import {
+  PromptInput,
+  type PromptInputMessage,
+  PromptInputSubmit,
+  PromptInputTextarea,
+} from "@/components/ai-elements/prompt-input";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+  type ToolPart,
+} from "@/components/ai-elements/tool";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Spinner } from "@/components/ui/spinner";
+
+/** eve status → the ChatStatus shape PromptInputSubmit understands. */
+function toChatStatus(status: UseEveAgentStatus): ChatStatus {
+  // "resuming" disables submission anyway; "submitted" gives the right
+  // disabled-submit presentation while catch-up runs.
+  return status === "resuming" ? "submitted" : status;
+}
+
+/** True while a turn is running but no answer text has started. */
+function isThinking(status: UseEveAgentStatus, messages: readonly EveMessage[]) {
+  if (status === "submitted") return true;
+  if (status !== "streaming") return false;
+  const last = messages[messages.length - 1];
+  return !(
+    last?.role === "assistant" &&
+    last.parts.some((part) => part.type === "text" && part.text)
+  );
+}
+
+/** One tool call, collapsed by default: header (name + lifecycle state),
+ *  expandable to the JSON input and output/error. */
+const ToolCallView = ({ part }: { part: EveDynamicToolPart }) => {
+  const input = part.state === "input-streaming" ? undefined : part.input;
+  const output = part.state === "output-available" ? part.output : undefined;
+  const errorText =
+    part.state === "output-error" ? (part.errorText ?? "tool failed") : undefined;
+  return (
+    <Tool>
+      {/* eve's state union is a superset of the kit's (approval states);
+          the kit's badges cover the overlap. */}
+      <ToolHeader
+        type="dynamic-tool"
+        state={part.state as ToolPart["state"]}
+        toolName={part.toolName}
+      />
+      <ToolContent>
+        {input !== undefined && <ToolInput input={input} />}
+        {(output !== undefined || errorText !== undefined) && (
+          <ToolOutput
+            output={output as ToolPart["output"]}
+            errorText={errorText as ToolPart["errorText"]}
+          />
+        )}
+      </ToolContent>
+    </Tool>
+  );
+};
+
+/**
+ * Render one eve message with the AI Elements kit. EveMessage parts follow
+ * the UIMessage rendering convention: text streams through
+ * MessageResponse, model reasoning through the collapsible Reasoning kit,
+ * tool calls through the Tool kit. Parts we don't render yet (HITL
+ * approval prompts, authorization challenges) are skipped.
+ *
+ * Memoized on message identity: eve's reducer clones only the streaming
+ * message per delta, so during a turn every completed message — including
+ * its markdown re-parse — skips re-render.
+ */
+export const EveMessageView = memo(function EveMessageView({
+  message,
+}: {
+  message: EveMessage;
+}) {
+  return (
+    <Message
+      from={message.role}
+      className="[content-visibility:auto] [contain-intrinsic-size:auto_80px]"
+    >
+      <MessageContent>
+        {message.parts.map((part, i) => {
+          if (part.type === "text") {
+            return <MessageResponse key={i}>{part.text}</MessageResponse>;
+          }
+          if (part.type === "reasoning" && part.text) {
+            return (
+              <Reasoning key={i} isStreaming={part.state === "streaming"}>
+                <ReasoningTrigger />
+                <ReasoningContent>{part.text}</ReasoningContent>
+              </Reasoning>
+            );
+          }
+          if (part.type === "dynamic-tool") {
+            return <ToolCallView key={i} part={part} />;
+          }
+          return null;
+        })}
+      </MessageContent>
+    </Message>
+  );
+});
+
+const STORAGE_KEY = "sweatshop-chat";
+
+type SavedChat = {
+  events?: readonly MessageStreamEvent[];
+  session?: ClientSessionState;
+};
+
+function loadSaved(): SavedChat {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as SavedChat) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The sweatshop chat surface: one durable eve session per conversation,
+ * driven by useEveAgent. The session cursor (and event log for fast
+ * rehydration) persists to localStorage so a reload resumes the durable
+ * conversation; "New chat" drops the cursor so the next send creates a
+ * fresh session.
+ */
+export function ChatSurface() {
+  // Lazy-init once; later storage writes go through onFinish/onSessionChange.
+  const [saved] = useState<SavedChat>(loadSaved);
+
+  const agent = useEveAgent({
+    initialEvents: saved.events ?? [],
+    initialSession: saved.session,
+    resume: saved.session !== undefined,
+    onFinish(snapshot) {
+      if (!snapshot.session) return;
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          events: snapshot.events,
+          session: snapshot.session,
+        } satisfies SavedChat),
+      );
+    },
+    onSessionChange(session) {
+      if (!session) return;
+      // Persist the cursor as soon as the session exists so a reload
+      // mid-turn resumes it; drop the event log when the session changed.
+      const prev = loadSaved();
+      const sameSession =
+        prev.session?.sessionId === session.sessionId && prev.events;
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          events: sameSession ? prev.events : [],
+          session,
+        } satisfies SavedChat),
+      );
+    },
+  });
+
+  const status = agent.status;
+  const isBusy = status === "submitted" || status === "streaming";
+  const isResuming = status === "resuming";
+  const inputDisabled = isResuming;
+  const messages = agent.data.messages;
+
+  const handleSubmit = (message: PromptInputMessage) => {
+    const text = message.text?.trim();
+    if (!text || inputDisabled) return;
+    void agent.send(text, isBusy ? { turnPolicy: "steer" } : undefined);
+  };
+
+  const handleNewChat = () => {
+    window.localStorage.removeItem(STORAGE_KEY);
+    agent.reset();
+  };
+
+  return (
+    <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
+      <header className="flex items-center justify-between border-b px-4 py-3">
+        <span className="font-mono text-sm text-muted-foreground">
+          sweatshop
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="New chat"
+            title="New chat"
+            disabled={isResuming}
+            onClick={handleNewChat}
+            className="inline-flex size-9 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            <SquarePen className="size-4" />
+          </button>
+          <ThemeToggle />
+        </div>
+      </header>
+
+      <Conversation className="min-h-0 flex-1">
+        <ConversationContent>
+          {messages.length === 0 && status === "ready" && !agent.error && (
+            <ConversationEmptyState
+              icon={<MessageSquarePlus className="size-6" />}
+              title="sweatshop"
+              description="A conversation with your agent. Say anything to begin."
+            />
+          )}
+          {messages.map((message) => (
+            <EveMessageView key={message.id} message={message} />
+          ))}
+          {isThinking(status, messages) && (
+            <div
+              className="flex items-center gap-2 py-2 text-sm text-muted-foreground"
+              role="status"
+            >
+              <Spinner className="size-4" />
+              Thinking…
+            </div>
+          )}
+          {agent.error && (
+            <p className="py-2 text-sm text-destructive">
+              {agent.error.message}
+            </p>
+          )}
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
+
+      <div className="border-t p-4">
+        <PromptInput onSubmit={handleSubmit}>
+          <PromptInputTextarea
+            placeholder="Message sweatshop…"
+            disabled={inputDisabled}
+          />
+          <PromptInputSubmit
+            status={toChatStatus(status)}
+            onStop={() => void agent.cancel()}
+          />
+        </PromptInput>
+      </div>
+    </div>
+  );
+}

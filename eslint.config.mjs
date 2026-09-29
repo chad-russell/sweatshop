@@ -18,6 +18,10 @@ const eslintConfig = defineConfig([
     // Vendored skill demos under .agents/ are reference material, not
     // product code — not held to house lint rules.
     ".agents/**",
+    // Registry-managed components (ai-elements/shadcn add) — overwritten
+    // by their CLIs, not held to house lint rules.
+    "components/ai-elements/**",
+    "components/ui/**",
   ]),
 ]);
 
