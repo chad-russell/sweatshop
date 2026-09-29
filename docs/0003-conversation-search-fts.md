@@ -1,8 +1,6 @@
 # 0003 — Conversation search (FTS5)
 
-Status: **approved by direction** (2026-09-29) — Chad: "add the FTS next,
-should be easy and not require much design." Sized light accordingly; this
-doc records the decisions, it does not gate them.
+Status: **shipped** (2026-09-29).
 
 ## Goal
 
@@ -32,13 +30,22 @@ box in the sidebar. The payoff the 0002 event mirror was built for.
 Role/date filters, pagination, in-transcript highlighting, search over
 reasoning text, titles-only matching tweaks.
 
-## Verification
+## Verification (2026-09-29)
 
-- Mirror writes `messages` rows for user + assistant text; duplicates
-  insert nothing.
-- Backfill populates from existing events; re-running changes nothing.
-- `/api/search?q=` returns bm25-ranked conversation hits with snippets;
-  crafted input (quotes, `NEAR`, `*`) cannot break the query.
-- Sidebar search shows results live; clearing restores the recents list.
-- typecheck + lint + tests green (new tests: extraction, idempotency,
-  search match/sanitize).
+- `/api/search?q=` returns bm25-ranked conversation hits with marked
+  snippets; a brand-new session became searchable live (no backfill), and
+  crafted input (`"NEAR" OR * && x`) returns empty — no 500, no injection.
+- Backfill extracted from existing mirrored events; re-running inserts
+  nothing (idempotent, ULID-keyed).
+- 16 tests green (7 new: extraction roles, replay idempotency, match +
+  grouping + snippet, empty/unmatched, phrase-quoting, crafted input).
+- **Found and fixed during verification:** `snippet()` is an FTS5
+  auxiliary function and cannot be used in a GROUP BY query ("unable to
+  use function snippet in the requested context") — the SQL is now flat
+  per-row matches and grouping happens in TypeScript.
+- **Operational gotcha recorded:** eve's dev watcher rebuilds authored
+  artifacts on `agent/`-tree changes, but the mirror hook imports
+  `db/mirror.ts` outside that tree — editing it does NOT trigger a
+  recompile, and the running runtime keeps stale code. Symptom: events
+  mirrored but no message rows. Fix: restart `./dev` (fresh compile) and
+  run `npm run db:backfill` to heal the gap. Noted in AGENTS.md.

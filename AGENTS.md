@@ -75,6 +75,9 @@ Nothing is installed on the host; all development happens in podman:
   container root (rootless podman maps it to the host user), `.env.local`
   via `--env-file`, host port 3300 → container 3000.
 - eve requires Node ≥ 24.
+- eve's dev watcher rebuilds authored artifacts on `agent/`-tree changes
+  only. Code the agent imports from outside that tree (e.g. `db/mirror.ts`)
+  needs a `./dev` restart to take effect in the running runtime.
 - Agent shells must run podman under escalated (full-access) file
   permissions — podman writes runtime state under `/run`.
 - eve's canonical docs ship inside the package: read them with
