@@ -24,10 +24,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   layout change, anything that sets precedent — gets a numbered design doc
   under `docs/` (`docs/NNNN-slug.md`) approved by Chad before
   implementation starts.
-- **Quality bar:** `npm run typecheck` and `npm run lint` pass before every
-  commit (run inside the container — see Environment). No test suite yet;
-  when one arrives, build a mock LLM first so tests never wait on a real
-  model call.
+- **Quality bar:** `npm run typecheck`, `npm run lint`, and `npm run test`
+  pass before every commit (run inside the container — see Environment).
+  Store-layer tests run against per-worker temp databases; when the first
+  agent-behavior test arrives, build a mock LLM first so tests never wait
+  on a real model call.
 - **No sloppy growth:** prefer deleting over accumulating. Ask before
   adding a dependency. Every file earns its place.
 
@@ -49,8 +50,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   verifier before any internet exposure.**
 - Persistence north star: SQLite (single db, or split where it makes
   sense) + S3 object storage. **No postgres and no other backends — ever.**
-  Nothing app-level persists yet (eve owns session durability); add SQLite
-  when a feature actually needs it.
+- The app store lives in `data/sweatshop.db` (better-sqlite3 + drizzle,
+  migrations in `drizzle/`, apply with `npm run db:migrate`): a
+  `conversations` index plus the append-only `conversation_events` mirror
+  of eve's stream, written by `agent/hooks/mirror.ts`. The mirror is a
+  derived, rebuildable view of eve's authoritative stream — the dual-write
+  invariants in docs/0002 govern it. Transcripts replay from eve, never
+  from the mirror.
 
 ## Environment
 
