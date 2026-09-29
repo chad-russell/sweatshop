@@ -2,8 +2,8 @@
 
 import type { ChatStatus } from "ai";
 import { MessageSquarePlus, SquarePen } from "lucide-react";
-import { memo, useState } from "react";
-import type { ClientSessionState, MessageStreamEvent } from "eve/client";
+import { usePathname, useRouter } from "next/navigation";
+import { memo } from "react";
 import {
   useEveAgent,
   type EveDynamicToolPart,
@@ -134,62 +134,27 @@ export const EveMessageView = memo(function EveMessageView({
   );
 });
 
-const STORAGE_KEY = "sweatshop-chat";
-
-type SavedChat = {
-  events?: readonly MessageStreamEvent[];
-  session?: ClientSessionState;
-};
-
-function loadSaved(): SavedChat {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as SavedChat) : {};
-  } catch {
-    return {};
-  }
-}
-
 /**
- * The sweatshop chat surface: one durable eve session per conversation,
- * driven by useEveAgent. The session cursor (and event log for fast
- * rehydration) persists to localStorage so a reload resumes the durable
- * conversation; "New chat" drops the cursor so the next send creates a
- * fresh session.
+ * The sweatshop chat surface (0002): one durable eve session per
+ * conversation, driven by useEveAgent. Conversations are URL-addressed —
+ * `/` starts fresh and the URL is replaced with `/c/[sessionId]` once the
+ * first send creates the session (no remount, per the generated-web-chat
+ * pattern); opening `/c/[sessionId]` resumes by replaying the durable
+ * stream from index 0.
  */
-export function ChatSurface() {
-  // Lazy-init once; later storage writes go through onFinish/onSessionChange.
-  const [saved] = useState<SavedChat>(loadSaved);
+export function ChatSurface({ sessionId }: { sessionId?: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
 
   const agent = useEveAgent({
-    initialEvents: saved.events ?? [],
-    initialSession: saved.session,
-    resume: saved.session !== undefined,
-    onFinish(snapshot) {
-      if (!snapshot.session) return;
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          events: snapshot.events,
-          session: snapshot.session,
-        } satisfies SavedChat),
-      );
-    },
+    initialSession: sessionId ? { sessionId, streamIndex: 0 } : undefined,
+    resume: sessionId !== undefined,
     onSessionChange(session) {
-      if (!session) return;
-      // Persist the cursor as soon as the session exists so a reload
-      // mid-turn resumes it; drop the event log when the session changed.
-      const prev = loadSaved();
-      const sameSession =
-        prev.session?.sessionId === session.sessionId && prev.events;
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          events: sameSession ? prev.events : [],
-          session,
-        } satisfies SavedChat),
-      );
+      // From the landing page, adopt the new session's URL without
+      // remounting the active stream. On /c/[sessionId] the URL is
+      // already correct.
+      if (!session || sessionId) return;
+      window.history.replaceState(null, "", `/c/${session.sessionId}`);
     },
   });
 
@@ -206,8 +171,16 @@ export function ChatSurface() {
   };
 
   const handleNewChat = () => {
-    window.localStorage.removeItem(STORAGE_KEY);
-    agent.reset();
+    if (pathname === "/") {
+      // Still on the landing route (URL may have been replaced to /c/...):
+      // reset local state and the URL in place — the prior durable session
+      // remains available at its URL.
+      window.history.replaceState(null, "", "/");
+      agent.reset();
+    } else {
+      // On /c/[sessionId]: navigate to the sessionless landing route.
+      router.push("/");
+    }
   };
 
   return (

@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 import { withEve } from "eve/next";
 
 const nextConfig: NextConfig = {
+  // better-sqlite3 is a native addon; keep it out of the bundler.
+  serverExternalPackages: ["better-sqlite3"],
   // Next dev 403-blocks /_next/* assets whose Origin/Referer host isn't
   // allowlisted — the app HTML loads but no JS hydrates, so forms fall
   // back to native GET submits. Allow the hosts we reach the dev server
