@@ -80,10 +80,12 @@ Nothing is installed on the host; all development happens in podman:
   needs a `./dev` restart to take effect in the running runtime.
 - Agent shells must run podman under escalated (full-access) file
   permissions — podman writes runtime state under `/run`.
-- eve's canonical docs ship inside the package: read them with
-  `./dev exec -- cat node_modules/eve/docs/README.md` and follow the index
-  there. Never trust memory over those docs; they match the installed
-  version exactly.
+- eve's canonical docs are vendored at `vendor/eve/docs/` — read and grep
+  them on the host. The `VERSION` file records which eve they document;
+  re-sync with `npm run docs:eve` whenever the installed eve version
+  changes. The same docs live inside the container at
+  `node_modules/eve/docs`. `https://eve.dev/docs/llms.txt` tracks the
+  LATEST release — use it for upgrade checks, not daily reference.
 
 ## Old repo policy
 
