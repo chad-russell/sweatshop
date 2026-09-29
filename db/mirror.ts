@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./index";
-import { conversationEvents, conversations } from "./schema";
+import { conversationEvents, conversations, messages } from "./schema";
 
 /**
  * The 0002 event mirror: a derived, append-only projection of eve's
@@ -99,5 +99,35 @@ function mirrorUnchecked(sessionId: string, event: StreamEventEnvelope): void {
       .set({ updatedAt: now, eventCount: sql`${conversations.eventCount} + 1` })
       .where(eq(conversations.id, sessionId))
       .run();
+
+    // 0003: extract searchable message text (user input, finalized
+    // assistant blocks) from genuinely-new events. The FTS index updates
+    // via the messages_ai trigger. Runtime-authored background-task input
+    // is not conversation text.
+    if (
+      event.type === "message.received" ||
+      event.type === "message.completed"
+    ) {
+      const data = event.data as
+        | { message?: unknown; kind?: unknown }
+        | undefined;
+      if (
+        data?.kind !== "execution.background_task" &&
+        typeof data?.message === "string" &&
+        data.message.trim()
+      ) {
+        db()
+          .insert(messages)
+          .values({
+            id,
+            conversationId: sessionId,
+            role: event.type === "message.received" ? "user" : "assistant",
+            text: data.message,
+            at,
+          })
+          .onConflictDoNothing()
+          .run();
+      }
+    }
   }
 }
