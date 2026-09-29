@@ -50,6 +50,28 @@ export const conversationEvents = sqliteTable(
   ],
 );
 
+/**
+ * Extracted conversation text (0003): one row per user message
+ * (`message.received`) or finalized assistant block (`message.completed`),
+ * keyed on the event ULID so extraction is idempotent. `messages_fts`
+ * (defined in the migration, not here — drizzle has no FTS5 type) is an
+ * external-content index over this table kept in sync by triggers.
+ */
+export const messages = sqliteTable(
+  "messages",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    /** "user" | "assistant". */
+    role: text("role").notNull(),
+    text: text("text").notNull(),
+    at: integer("at").notNull(),
+  },
+  (table) => [index("messages_conversation_idx").on(table.conversationId)],
+);
+
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type ConversationEvent = typeof conversationEvents.$inferSelect;

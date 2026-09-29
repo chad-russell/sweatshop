@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
+    "db:backfill": "node scripts/backfill-messages.mjs",
     "test": "vitest run"
   },
   "dependencies": {
