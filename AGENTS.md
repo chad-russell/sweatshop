@@ -57,15 +57,17 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 Nothing is installed on the host; all development happens in podman:
 
 - `./dev` — install deps if needed, then run the dev server attached
-  (Ctrl-C stops). App on http://localhost:3000.
+  (Ctrl-C stops). App on http://localhost:3300 (host 3000 is taken by an
+  unrelated service; override with `SWEATSHOP_PORT`).
 - `./dev install` — `npm install` inside the container.
 - `./dev exec -- <cmd>` — one-off command in a container with the same
   mounts (works whether or not the dev container is running).
 - `./dev shell` — interactive shell in the dev container.
 - `./dev clean` — remove the dev container; node_modules volume survives.
 - Container: `node:24-trixie-slim`, repo bind-mounted at `/workspace`,
-  node_modules in a named volume so the host tree stays clean,
-  `--userns=keep-id`, `.env.local` via `--env-file`, port 3000.
+  node_modules in a named volume so the host tree stays clean, run as
+  container root (rootless podman maps it to the host user), `.env.local`
+  via `--env-file`, host port 3300 → container 3000.
 - eve requires Node ≥ 24.
 - Agent shells must run podman under escalated (full-access) file
   permissions — podman writes runtime state under `/run`.

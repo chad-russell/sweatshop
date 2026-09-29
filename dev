@@ -14,6 +14,9 @@ IMAGE=docker.io/library/node:24-trixie-slim
 CONTAINER=sweatshop-dev
 MODULES_VOLUME=sweatshop-node-modules
 CACHE_VOLUME=sweatshop-npm-cache
+# Host port for the dev server (3000 is taken by an unrelated host
+# next-server on bee). Override with SWEATSHOP_PORT.
+PORT="${SWEATSHOP_PORT:-3300}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ENV_ARGS=()
@@ -41,7 +44,7 @@ common_args=(
 case "${1:-run}" in
   run)
     exec podman run --rm --init --replace --name "$CONTAINER" \
-      -p 3000:3000 "${common_args[@]}" "$IMAGE" \
+      -p "$PORT":3000 "${common_args[@]}" "$IMAGE" \
       sh -lc 'npm install --no-audit --no-fund && exec npm run dev'
     ;;
   install)

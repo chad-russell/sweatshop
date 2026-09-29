@@ -66,8 +66,10 @@ One container, no compose (graduate when a second service appears):
 - Repo bind-mounted rw at `/workspace` (live reload); named volume
   `sweatshop-node-modules` mounted at `/workspace/node_modules` so the host
   tree never contains dependencies.
-- `--userns=keep-id` so container-written files stay owned by crussell.
-- `--env-file .env.local`, `-p 3000:3000`, `--init`.
+- `--user 0:0` (rootless root maps to the host user — same ownership
+  outcome as keep-id, which hits a crun bug on bee), `--env-file
+  .env.local`, `-p 3300:3000` (host 3000 is occupied by an unrelated
+  service), `--init`.
 - `withEve()` boots the eve dev server inside the container alongside
   `next dev`; the browser only ever sees the Next.js origin.
 
