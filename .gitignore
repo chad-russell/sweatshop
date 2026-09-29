@@ -16,6 +16,9 @@ next-env.d.ts
 *.pem
 npm-debug.log*
 
+# app database (0002) — sqlite lives in the bind mount, never committed
+/data/
+
 # vercel
 .vercel
 

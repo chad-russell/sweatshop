@@ -1,6 +1,23 @@
 # 0002 — Conversation persistence (SQLite)
 
-Status: **proposed** — awaiting approval before implementation.
+Status: **approved** (2026-09-29) — implementing.
+
+## Amendments (pre-implementation, from eve docs verification)
+
+- **Write path is `agent/hooks/mirror.ts` (a `defineHook` stream observer),
+  not the channel `events` option.** The channel observer receives only
+  pre-stamp event data (no `meta.id`); authored hooks receive the full
+  envelope, and eve's docs name `meta.id` + `on conflict do nothing` as the
+  canonical db-ingestion key. Same transport-level property: hooks fire for
+  sessions from any client.
+- **`conversation_events` primary key is `id` (the `evt_` ULID), not
+  `(conversation_id, seq)`** — the envelope carries no stream index, and
+  ULID PKs keep inserts clustered (per the envelope doc). Ingestion order
+  is the SQLite `rowid`. `conversations.max_seq` becomes `event_count`
+  (rows mirrored); the authoritative completeness check remains
+  rebuild-from-stream-replay.
+- Retried steps re-emit under new ids (documented eve behavior); the
+  mirror stores both attempts — ids identify events, not intent.
 
 ## Goal
 
