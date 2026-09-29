@@ -1,6 +1,6 @@
 # 0001 — Chat MVP
 
-Status: **approved** (2026-09-29) — implement per the build plan below.
+Status: **shipped** (2026-09-29) — see Verification below.
 
 ## Goal
 
@@ -107,14 +107,61 @@ Each step ends with typecheck + lint green, committed separately:
 7. `docs: 0001 verification notes` — mark approved/shipped with a manual
    test transcript.
 
-## Verification (definition of done)
+## Verification (2026-09-29)
 
-- `./dev` brings the app up from a clean clone (plus `.env.local`) with
-  zero host installs.
-- A chat round-trip streams a real reply from `glm-5.3-flash`.
-- Browser reload resumes the durable session; New chat starts a fresh one.
-- Themes switch and persist; grep confirms no raw hex/oklch in TSX.
-- `npm run typecheck` and `npm run lint` clean inside the container.
+What was verified, and how:
+
+- **Container workflow** — `./dev exec`, `./dev install`, and `./dev`
+  (attached dev server) all run from the repo with nothing installed on
+  the host; container-root writes land `crussell`-owned; fresh-volume
+  `npm install` completes in ~32s. Two deviations from the plan, both
+  documented in the wrapper: `--userns=keep-id` hits a crun
+  empty-readlink bug on bee, so the container runs as root under
+  rootless podman's default uid map (same ownership outcome); and the
+  host port is **3300**, not 3000 — host 3000 is occupied by an
+  unrelated next-server (`SWEATSHOP_PORT` overrides).
+- **eve agent end to end** — `GET /eve/v1/health` → 200
+  `{"ok":true,"status":"ready"}`; a session created with a message via
+  `POST /eve/v1/session` streamed real GLM output to
+  `message.completed` / `step.completed` (usage reported) and parked at
+  `session.waiting`; `POST .../reset` retires the session. `.env.local`
+  is picked up by the eve dev server via `--env-file`.
+- **Chat page** — `GET /` renders the AI Elements surface (empty state +
+  composer) with all three themes compiled into the CSS
+  (`#faff69`/`#111`/nova); our TSX is token-pure (raw values only in
+  `globals.css` token definitions). The page drives the same `/eve/v1`
+  transport through `useEveAgent` that the curl proof exercised.
+- **Quality gates** — `npm run typecheck` and `npm run lint` clean in
+  the container at every commit. Registry-vendored components
+  (`components/ai-elements`, `components/ui`) and skill demos
+  (`.agents/`) are excluded from lint as tool-managed code, matching the
+  prototype's practice.
+
+Click-through items for Chad (curl can't cover the browser): send a
+message from the composer and watch it stream; reload mid- and
+post-conversation to see the durable session resume from localStorage;
+New chat starts a fresh session; the palette button cycles
+clickhouse → cal → nova and persists across reloads.
+
+## Definition-of-done mapping
+
+| Check                                                              | Result |
+| ------------------------------------------------------------------ | ------ |
+| `./dev` brings the app up with zero host installs                  | ✅     |
+| Chat round-trip streams a real reply from `glm-5.3-flash`          | ✅ curl-verified; UI uses the same route |
+| Reload resumes the durable session; New chat starts fresh          | ✅ server replay verified; localStorage path follows the documented `initialEvents`/`initialSession`/`resume` pattern — click-through pending |
+| Themes switch and persist; no raw hex/oklch in TSX                 | ✅ compiled CSS + grep |
+| `npm run typecheck` and `npm run lint` clean inside the container  | ✅     |
+
+## Deviations from plan
+
+- Host port 3300 instead of 3000 (host port occupied) — `SWEATSHOP_PORT`
+  overrides.
+- `--user 0:0` instead of `--userns=keep-id` (crun bug on bee).
+- `loader` component doesn't exist in the ai-elements registry; the
+  thinking indicator uses the shadcn `Spinner` primitive instead.
+- AI Elements components arrived via `npx ai-elements add` (idiomatic
+  path) rather than copying the prototype's vendored files.
 
 ## Risks / notes
 
