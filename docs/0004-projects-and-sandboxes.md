@@ -1,8 +1,8 @@
 # 0004 — Projects & Sandboxes (planning)
 
-Status: **draft** — requirements captured from Chad 2026-09-29; open
-questions below must be answered before this becomes an implementation
-plan. Out of scope for this feature: coding harness, coding tools/skills,
+Status: **planned** — requirements and decisions locked with Chad
+(2026-09-29). Implementation starts at Phase A (infra spike) on his word.
+Out of scope for this feature: coding harness, coding tools/skills,
 subagents, workflows.
 
 ## Vision
@@ -124,28 +124,42 @@ mount the rootless podman socket, set `DOCKER_HOST`. The Docker sandbox
 provider then creates project sandbox containers as podman siblings.
 This must be proven first (Phase A spike) — it is the riskiest unknown.
 
-## Staging proposal
+## Staging plan
 
 - **Phase A — infra spike (no schema, no UI).** Podman socket → eve
   Docker sandbox boots inside our dev container; a hardcoded selector
-  clones one scratch repo and runs `git log` via the agent's bash tool.
-  Go/no-go on the whole plan.
-- **Phase B — entities + GitHost.** Schema/migrations; `GitHost`
-  interface + github/forgejo `installAuth`; credential injection into a
-  sandbox (verified with a real push to a scratch repo). Management
-  surface per open question 1.
-- **Phase C — session binding + UX.** Project header → principal →
-   selector; conversation-in-project flow in the UI; conversations
-   `project_id`; project grouping in the sidebar.
+  opens a sandbox from the shared image and clones one scratch repo; the
+  agent's bash tool runs `git log`. Go/no-go on the whole plan.
+- **Phase B — entities + GitHost.** Schema/migrations
+  (projects/project_repos/sandbox_configs/git_credentials) + seed script;
+  `GitHost` interface + github/forgejo `installAuth`; selector resolves
+  project → config → repos → credentials and injects auth; verified with
+  a real push to a scratch repo.
+- **Phase C — session binding + UX.** `x-sweatshop-project` header →
+  principal → selector; `conversations.project_id`; conversation-in-
+  project flow in the UI; project grouping in the sidebar.
 - **Phase D — PRs.** `createPR` on GitHost implementations.
+- **Later (recorded direction, not scheduled):** web config UI;
+  agent-managed entities through tools; per-project Dockerfiles; warm
+  cross-session caches via a custom sandbox provider; subagents sharing
+  a parent sandbox; coding harness/skills.
 
-## Open questions
+## Decisions (2026-09-29)
 
-1. Management surface for projects/configs/credentials in v1: minimal web
-   UI vs. seed script + CLI vs. agent-managed (it edits its own db)?
-2. Sandbox base image: one shared image + per-session setup vs.
-   per-project Dockerfile baked via `prepare`?
-3. Credential secret storage: plaintext column in sqlite (LAN personal
-   tool, same posture as `.env.local`) vs. encrypted-at-rest vs. external
-   (Proton Pass / agenix)?
-4. Do non-project conversations get any sandbox at all in v1?
+1. **Management surface — seed script / db-first in v1.** Entities are
+   rows created by a seed script (or direct db edits) until the flow is
+   proven. Direction recorded for later: BOTH a web config UI and
+   agent-managed config through tools are eventual requirements — the
+   schema and GitHost seam are designed so both can sit on the same
+   store without migration.
+2. **Base image — one shared image first.** A single node-based sandbox
+   image for every project; per-repo dependency setup happens per
+   conversation. The `sandbox_configs` schema already carries an optional
+   image ref so per-project Dockerfiles can arrive later without a
+   migration.
+3. **Credential secrets — plaintext column in sqlite.** Same posture as
+   `.env.local` today: LAN-only personal tool, db gitignored, host-backed
+   up. Reversible later via a re-encryption migration if exposure grows.
+4. **Non-project conversations get no sandbox.** The agent stays
+   conversational unless a project is bound; the bash tool exists only in
+   project sessions.
