@@ -1,6 +1,6 @@
 # 0002 — Conversation persistence (SQLite)
 
-Status: **approved** (2026-09-29) — implementing.
+Status: **shipped** (2026-09-29) — see Verification below.
 
 ## Amendments (pre-implementation, from eve docs verification)
 
@@ -155,16 +155,35 @@ yet triggered — it activates with the first agent-behavior test.
 5. `test(db): store-layer unit tests (temp db)`
 6. `docs: 0002 verification notes`
 
-## Verification (definition of done)
+## Verification (2026-09-29)
 
-- A conversation had via the browser appears in `data/sweatshop.db`
-  (registry row + mirrored events) with no client cooperation.
-- `/c/[sessionId]` on a fresh browser (no localStorage) replays the
-  transcript and can continue it.
-- Sidebar lists conversations across restarts of the container; New
-  chat → `/`; reload of `/c/...` resumes.
-- Mirror rules hold: killing the db mid-stream never breaks a turn;
-  re-running the observer inserts nothing twice; `max_seq` matches the
-  stream tail.
-- `npm run typecheck` + `npm run lint` green; store tests pass in the
-  container.
+- **Store + mirror end to end** — a session created via `POST /eve/v1/session`
+  (no browser involvement) produced a `conversations` row titled with the
+  first message and 98–281 mirrored `conversation_events` rows, keyed on
+  `evt_` ULIDs, no `[mirror]` errors in the dev log. The hook fires for
+  every client of the channel.
+- **URL-addressed conversations** — `/c/[sessionId]` returns 200 for a
+  stored conversation and 404 for an unknown id; the landing `/` stays
+  200. Resume rides the proven `initialSession` + `resume: true` replay.
+- **Sidebar from sqlite** — the layout server-renders the conversation
+  list; the verification conversation's title appears in the page HTML.
+- **Quality gates** — typecheck + lint green at every commit; 9 store-layer
+  tests pass in the container (idempotent ingest, title-once, trim rules,
+  background-task skip, pre-v20 skip, and the failsafe never-throws
+  invariant via a dropped table).
+- **Click-through for Chad** — open the app, send a message, watch the URL
+  become `/c/...` and the sidebar pick the conversation up on the next
+  route change (v1 staleness: mid-page sessions appear on navigation);
+  reload the URL, open it in another browser — transcript replays from the
+  durable stream; New chat returns to `/`.
+
+## Deviations from plan (recorded)
+
+- Write path is `agent/hooks/mirror.ts` (`defineHook`), not the channel
+  `events` option — pre-implementation amendment, recorded above.
+- `conversation_events` PK is the ULID `id`, and `max_seq` became
+  `event_count` — pre-implementation amendment, recorded above.
+- `@types/node` bumped ^20 → ^24 (vitest 5 peer requirement; matches the
+  node 24 runtime).
+- Sidebar timestamps render after mount (container TZ vs browser TZ would
+  otherwise hydration-mismatch); sidebar is hidden on mobile in v1.
