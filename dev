@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# sweatshop dev wrapper — everything runs in podman; nothing installs on the
+# host. The repo is bind-mounted at /workspace and node_modules live in a
+# named volume so the host tree never contains dependencies.
+#
+#   ./dev              install deps if needed, then run the dev server (attached)
+#   ./dev install      npm install inside the container
+#   ./dev exec -- CMD  one-off CMD in a container with the same mounts
+#   ./dev shell        interactive shell in a fresh container
+#   ./dev clean        remove the dev container (volumes survive)
+set -euo pipefail
+
+IMAGE=docker.io/library/node:24-trixie-slim
+CONTAINER=sweatshop-dev
+MODULES_VOLUME=sweatshop-node-modules
+CACHE_VOLUME=sweatshop-npm-cache
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+ENV_ARGS=()
+if [[ -f "$ROOT/.env.local" ]]; then
+  ENV_ARGS=(--env-file "$ROOT/.env.local")
+elif [[ ! -f "$ROOT/.env.example" ]]; then
+  echo "error: create .env.local (copy .env.example) before running sweatshop" >&2
+  exit 1
+fi
+
+# Common mounts/identity for every invocation. Rootless podman maps
+# container uid 0 to the host user, so container-root writes land
+# host-owned; --user 0:0 keeps npm (and .next/, .eve/ artifacts in the
+# bind mount) owned by crussell. (--userns=keep-id hits a crun
+# empty-readlink bug on this host.)
+common_args=(
+  --user 0:0
+  -v "$ROOT":/workspace
+  -v "$MODULES_VOLUME":/workspace/node_modules
+  -v "$CACHE_VOLUME":/root/.npm
+  -w /workspace
+  "${ENV_ARGS[@]}"
+)
+
+case "${1:-run}" in
+  run)
+    exec podman run --rm --init --replace --name "$CONTAINER" \
+      -p 3000:3000 "${common_args[@]}" "$IMAGE" \
+      sh -lc 'npm install --no-audit --no-fund && exec npm run dev'
+    ;;
+  install)
+    exec podman run --rm "${common_args[@]}" "$IMAGE" \
+      sh -lc 'npm install --no-audit --no-fund'
+    ;;
+  exec)
+    shift
+    [[ "${1:-}" == "--" ]] && shift
+    exec podman run --rm "${common_args[@]}" "$IMAGE" "$@"
+    ;;
+  shell)
+    exec podman run --rm -it "${common_args[@]}" "$IMAGE" bash
+    ;;
+  clean)
+    podman rm -f "$CONTAINER" 2>/dev/null || true
+    ;;
+  *)
+    echo "usage: ./dev [run|install|exec -- CMD|shell|clean]" >&2
+    exit 2
+    ;;
+esac
