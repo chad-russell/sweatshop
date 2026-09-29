@@ -1,0 +1,97 @@
+# AGENTS.md — sweatshop
+
+Instructions for agents working in this repo. Read before doing anything.
+
+## What this is
+
+sweatshop is a **dynamic workspace**: a single eve agent — personal
+assistant, work/coding assistant, and coordinator — at the heart of a web
+app. Conversations/sessions are the spine; workflows are tools; artifacts
+are outputs. Less kanban, no multi-agent factory.
+
+It is being built slowly and deliberately from an empty repo — properly
+engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
+(see "Old repo policy").
+
+Day-to-day purpose for Chad: day-job coding, moving existing projects
+forward, homelab maintenance, dinner planning, research — all of it,
+eventually. Near-term direction after the chat MVP: a per-conversation GLM
+model picker.
+
+## Ground rules
+
+- **Branch:** all work on `main` unless told otherwise. There is no remote
+  yet; that's fine.
+- **Commits:** conventional commits — `type(scope): subject` (feat, fix,
+  docs, chore, refactor…). Commit often enough that history reads as a
+  logical sequence of small steps.
+- **Process (hybrid by size):** small or mechanical changes go straight to
+  commits. Anything architectural — new subsystem, dependency decision,
+  layout change, anything that sets precedent — gets a numbered design doc
+  under `docs/` (`docs/NNNN-slug.md`) approved by Chad before
+  implementation starts.
+- **Quality bar:** `npm run typecheck` and `npm run lint` pass before every
+  commit (run inside the container — see Environment). No test suite yet;
+  when one arrives, build a mock LLM first so tests never wait on a real
+  model call.
+- **No sloppy growth:** prefer deleting over accumulating. Ask before
+  adding a dependency. Every file earns its place.
+
+## Architecture (current state)
+
+- Single Next.js (App Router) app at the repo root; the eve agent lives in
+  `agent/` beside the app code; `next.config.ts` wraps `withEve()` so the
+  agent's HTTP API mounts at same-origin `/eve/v1/*`.
+- The browser talks to the agent exclusively through `useEveAgent()` from
+  `eve/react` (the eve channel transport — there is no `/api/chat` route).
+- UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
+  `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
+  TSX; themes `clickhouse` (default), `cal`, `nova`.
+- Model: Z.AI GLM coding plan via `zhipu-ai-provider` on the
+  Anthropic-compatible coding endpoint; default `glm-5.3-flash`; key in
+  `ZAI_API_KEY` (`.env.local`).
+- Auth: LAN-only personal tool. `agent/channels/eve.ts` admits every caller
+  via `none()` as a synthetic principal. **Hard rule: replace with a real
+  verifier before any internet exposure.**
+- Persistence north star: SQLite (single db, or split where it makes
+  sense) + S3 object storage. **No postgres and no other backends — ever.**
+  Nothing app-level persists yet (eve owns session durability); add SQLite
+  when a feature actually needs it.
+
+## Environment
+
+Nothing is installed on the host; all development happens in podman:
+
+- `./dev` — install deps if needed, then run the dev server attached
+  (Ctrl-C stops). App on http://localhost:3000.
+- `./dev install` — `npm install` inside the container.
+- `./dev exec -- <cmd>` — one-off command in a container with the same
+  mounts (works whether or not the dev container is running).
+- `./dev shell` — interactive shell in the dev container.
+- `./dev clean` — remove the dev container; node_modules volume survives.
+- Container: `node:24-trixie-slim`, repo bind-mounted at `/workspace`,
+  node_modules in a named volume so the host tree stays clean,
+  `--userns=keep-id`, `.env.local` via `--env-file`, port 3000.
+- eve requires Node ≥ 24.
+- Agent shells must run podman under escalated (full-access) file
+  permissions — podman writes runtime state under `/run`.
+- eve's canonical docs ship inside the package: read them with
+  `./dev exec -- cat node_modules/eve/docs/README.md` and follow the index
+  there. Never trust memory over those docs; they match the installed
+  version exactly.
+
+## Old repo policy
+
+The prototype lives at `~/sweatshop`. It is a valid reference for
+implementation details (Z.AI/zhipu provider wiring, channel auth patterns,
+what specific eve APIs do) but **not** for design — it accreted spaghetti
+and cruft, which is why this repo exists. Extract the specific fact you
+need; write it fresh here. Never copy structure or code wholesale.
+
+## Skills
+
+Vendored under `.agents/skills/` (tracked by `skills-lock.json`):
+
+- `ai-sdk` — load before writing any AI SDK / provider code.
+- `ai-elements` — load before any chat UI work.
+- `eve` — load before any agent work; it defers to the bundled docs above.
