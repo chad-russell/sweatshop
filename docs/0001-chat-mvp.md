@@ -1,6 +1,6 @@
 # 0001 — Chat MVP
 
-Status: **proposed** — awaiting approval before implementation.
+Status: **approved** (2026-09-29) — implement per the build plan below.
 
 ## Goal
 

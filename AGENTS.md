@@ -4,19 +4,13 @@ Instructions for agents working in this repo. Read before doing anything.
 
 ## What this is
 
-sweatshop is a **dynamic workspace**: a single eve agent — personal
-assistant, work/coding assistant, and coordinator — at the heart of a web
-app. Conversations/sessions are the spine; workflows are tools; artifacts
-are outputs. Less kanban, no multi-agent factory.
+sweatshop is an evolving set of additions and tools around an idiomatic deployment of vercel's Eve agent.
+It uses established tools where possible, preferring  build over buy and preferring libraries and SDKs from 
+the vercel AI ecosystem where they exist.
 
 It is being built slowly and deliberately from an empty repo — properly
 engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 (see "Old repo policy").
-
-Day-to-day purpose for Chad: day-job coding, moving existing projects
-forward, homelab maintenance, dinner planning, research — all of it,
-eventually. Near-term direction after the chat MVP: a per-conversation GLM
-model picker.
 
 ## Ground rules
 
