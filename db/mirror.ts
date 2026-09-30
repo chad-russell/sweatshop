@@ -32,19 +32,27 @@ export function titleFromMessage(message: unknown): string | null {
 /**
  * Mirror one stream event. Failsafe by rule 4: write failures are logged
  * (stable [mirror] prefix) and never propagate into the stream.
+ *
+ * `binding.projectId` stamps the conversation's project (0004) — applied
+ * only at row creation; the binding is immutable for the session's life.
  */
 export function mirrorStreamEvent(
   sessionId: string,
   event: StreamEventEnvelope,
+  binding?: { projectId?: string | null },
 ): void {
   try {
-    mirrorUnchecked(sessionId, event);
+    mirrorUnchecked(sessionId, event, binding);
   } catch (err) {
     console.error("[mirror] write failed", sessionId, event.type, err);
   }
 }
 
-function mirrorUnchecked(sessionId: string, event: StreamEventEnvelope): void {
+function mirrorUnchecked(
+  sessionId: string,
+  event: StreamEventEnvelope,
+  binding?: { projectId?: string | null },
+): void {
   // Events predating stream version 20 carry no meta.id and cannot be
   // deduplicated (envelope docs) — skip rather than risk duplicate rows.
   const id = event.meta?.id;
@@ -54,10 +62,16 @@ function mirrorUnchecked(sessionId: string, event: StreamEventEnvelope): void {
   const at = event.meta?.at ? (Date.parse(event.meta.at) || now) : now;
 
   // Ensure the conversation row exists — hooks also observe sessions
-  // created before the mirror did (idempotent upsert).
+  // created before the mirror did (idempotent upsert). Project binding
+  // rides the insert only; conflicts never rewrite it.
   db()
     .insert(conversations)
-    .values({ id: sessionId, createdAt: now, updatedAt: now })
+    .values({
+      id: sessionId,
+      ...(binding?.projectId ? { projectId: binding.projectId } : {}),
+      createdAt: now,
+      updatedAt: now,
+    })
     .onConflictDoNothing()
     .run();
 

@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { openDb } from "../db";
-import { conversations, conversationEvents } from "../db/schema";
+import { conversations, conversationEvents, projects } from "../db/schema";
 import { mirrorStreamEvent, titleFromMessage } from "../db/mirror";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
+
+// FK targets for project-binding tests.
+for (const id of ["spike", "other"]) {
+  tdb
+    .insert(projects)
+    .values({ id, name: id, createdAt: Date.now() })
+    .onConflictDoNothing()
+    .run();
+}
 
 let seq = 0;
 function envelope(
@@ -100,6 +109,20 @@ describe("mirrorStreamEvent", () => {
       .where(eq(conversationEvents.conversationId, id))
       .all();
     expect(events).toHaveLength(0);
+  });
+
+  it("stamps the project binding at creation and never rewrites it", () => {
+    const id = conv();
+    mirrorStreamEvent(id, envelope("session.started"), { projectId: "spike" });
+    // A later event claiming a different project must not rebind.
+    mirrorStreamEvent(id, envelope("message.received", { message: "hi" }), {
+      projectId: "other",
+    });
+
+    const row = tdb.query.conversations.findFirst({
+      where: eq(conversations.id, id),
+    }).sync();
+    expect(row?.projectId).toBe("spike");
   });
 });
 

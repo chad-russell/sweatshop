@@ -14,6 +14,9 @@ export const conversations = sqliteTable(
     id: text("id").primaryKey(),
     /** First user message, trimmed (~60 chars); null until it arrives. */
     title: text("title"),
+    /** Project this conversation is bound to at creation (0004);
+     *  immutable for the session's life. */
+    projectId: text("project_id").references(() => projects.id),
     /** Unix ms. */
     createdAt: integer("created_at").notNull(),
     /** Unix ms, bumped on each newly mirrored event. */
@@ -21,7 +24,10 @@ export const conversations = sqliteTable(
     /** Rows mirrored for this conversation (gap audit via rebuild). */
     eventCount: integer("event_count").notNull().default(0),
   },
-  (table) => [index("conversations_updated_at_idx").on(table.updatedAt)],
+  (table) => [
+    index("conversations_updated_at_idx").on(table.updatedAt),
+    index("conversations_project_idx").on(table.projectId),
+  ],
 );
 
 export const conversationEvents = sqliteTable(
