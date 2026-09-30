@@ -63,6 +63,16 @@ upsert("project_repos", {
   created_at: now(),
 });
 
+// Throwaway push target for sandbox verification (Chad: anything here is
+// fair game).
+upsert("project_repos", {
+  id: "spike/scratch",
+  project_id: "spike",
+  url: "https://git.crussell.io/chad/sweatshop-e2e-scratch.git",
+  name: "scratch",
+  created_at: now(),
+});
+
 // --- git credentials (env-gated) --------------------------------------
 if (process.env.GITHUB_TOKEN && process.env.GITHUB_USERNAME) {
   upsert("git_credentials", {
