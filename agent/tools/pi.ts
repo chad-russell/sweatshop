@@ -142,7 +142,7 @@ export default defineTool({
       return {
         text: result.text,
         toolCalls,
-        harnessUrl: `/h/${ctx.session.id}`,
+        harnessUrl: `/h/pi/${ctx.session.id}`,
         eventLogUrl: `/api/harness/${ctx.session.id}?harness=pi`,
         note: "pi session continues across calls in this conversation.",
       };

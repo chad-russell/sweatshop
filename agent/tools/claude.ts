@@ -185,7 +185,7 @@ export default defineTool({
       return {
         text: result.text,
         toolCalls,
-        harnessUrl: `/h/${ctx.session.id}/claude`,
+        harnessUrl: `/h/claude/${ctx.session.id}`,
         eventLogUrl: `/api/harness/${ctx.session.id}?harness=claude`,
         note: "claude session continues across calls in this conversation.",
       };
