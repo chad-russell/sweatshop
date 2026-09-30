@@ -224,6 +224,41 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
   passthrough into the runtime container; the AI SDK SandboxSession
   adapter and provisioner lib make the swap invisible to Path A/B.
 
+## Path B shipped (2026-09-30, arc complete)
+
+`withEve(withWorkflow(...))` coexist cleanly (spiked with a hello
+workflow). Version alignment matters: `@ai-sdk/workflow@2.0.53` pins
+exactly the `provider-utils@5.0.51`/`ai@7.0.122` line the rest of the
+app uses — a mismatched version nests a second provider-utils and
+splits every tool type (fixed by choosing the matched build, not by
+casts).
+
+**run_ticket** (`workflows/run-ticket.ts`): raw Workflow SDK pipeline —
+provision (step: `provisionProjectSandbox` from our own
+`localhost/sweatshop-sandbox` image) → plan (WorkflowAgent +
+`experimental_sandbox` over our adapter, bash tool reading
+`options.experimental_sandbox`) → **approval gate** (`defineHook`,
+token = ticketId; the run suspends and the UI resumes it) → implement →
+QA → push → PR (`openPR` step, credential-matched repo). The workflow
+transform enforces the discipline at build time: Node-touching code
+lives only in `"use step"` functions (first attempt put `loadProjectPlan`
+and adapter construction in the body — build error, restructured).
+
+Status lives in `ticket_runs` (the db IS the run status): trigger
+`POST /api/tickets`, poll `GET /api/tickets/:id`, approve
+`POST /api/tickets/:id/approval`. UI: arrow button on the project page
+opens the ticket dialog; `/t/[ticketId]` is the live run view with the
+approval card.
+
+**Verified end-to-end (2026-09-30):** trigger → plan (sandbox cloned
+both repos) → gate suspension + approval resume → implement → QA PASS →
+push → **PR #30 opened automatically**
+(git.crussell.io/chad/sweatshop-e2e-scratch/pulls/30); run view shows
+completed + PR link; workflow container cleaned up (0 strays); 31 tests
+green. First run surfaced and fixed two real bugs: openPR must target
+the credential-matched repo (repos[0] was the credential-less github
+repo), and all-Node-in-steps (above).
+
 ## Day-to-day operation model (design note, 2026-09-30)
 
 Where work happens is decided by **where the session is bound**, not by
