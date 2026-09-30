@@ -147,10 +147,12 @@ export function ChatSurface({
   sessionId,
   projectId,
   projectName,
+  headerExtra,
 }: {
   sessionId?: string;
   projectId?: string;
   projectName?: string;
+  headerExtra?: React.ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -213,6 +215,7 @@ export function ChatSurface({
           sweatshop{projectName ? ` / ${projectName}` : ""}
         </span>
         <div className="flex items-center gap-2">
+          {headerExtra}
           <button
             type="button"
             aria-label="New chat"

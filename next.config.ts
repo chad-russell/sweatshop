@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { withEve } from "eve/next";
+import { withWorkflow } from "workflow/next";
 
 const nextConfig: NextConfig = {
   // better-sqlite3 is a native addon; keep it out of the bundler.
@@ -12,4 +13,4 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["10.10.0.12", "192.168.20.105"],
 };
 
-export default withEve(nextConfig);
+export default withEve(withWorkflow(nextConfig));

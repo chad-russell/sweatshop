@@ -25,6 +25,40 @@ function randomName(projectId: string): string {
   return `sweatshop-wf-${projectId}-${suffix}`;
 }
 
+/** Re-attach to an existing container by name (stateless wrappers). */
+export function attachSandbox(containerName: string): ProvisionedSandbox {
+  return {
+    containerName,
+    plan: undefined,
+    run(command: string) {
+      return execSandbox(containerName, command);
+    },
+    async remove() {
+      await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
+    },
+  };
+}
+
+async function execSandbox(
+  containerName: string,
+  command: string,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  try {
+    const { stdout, stderr } = await exec(
+      "docker",
+      ["exec", containerName, "sh", "-lc", command],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+    return { exitCode: 0, stdout, stderr };
+  } catch (err) {
+    const e = err as { code?: number; stdout?: string; stderr?: string; message: string };
+    if (typeof e.code === "number" && (e.stdout !== undefined || e.stderr !== undefined)) {
+      return { exitCode: e.code, stdout: e.stdout ?? "", stderr: e.stderr ?? "" };
+    }
+    return { exitCode: 1, stdout: "", stderr: e.message };
+  }
+}
+
 export async function provisionProjectSandbox(
   projectId: string,
 ): Promise<ProvisionedSandbox> {
@@ -37,22 +71,7 @@ export async function provisionProjectSandbox(
     SANDBOX_IMAGE,
   ]);
 
-  const run = async (command: string) => {
-    try {
-      const { stdout, stderr } = await exec(
-        "docker",
-        ["exec", containerName, "sh", "-lc", command],
-        { maxBuffer: 64 * 1024 * 1024 },
-      );
-      return { exitCode: 0, stdout, stderr };
-    } catch (err) {
-      const e = err as { code?: number; stdout?: string; stderr?: string; message: string };
-      if (typeof e.code === "number" && (e.stdout !== undefined || e.stderr !== undefined)) {
-        return { exitCode: e.code, stdout: e.stdout ?? "", stderr: e.stderr ?? "" };
-      }
-      return { exitCode: 1, stdout: "", stderr: e.message };
-    }
-  };
+  const run = (command: string) => execSandbox(containerName, command);
   const remove = async () => {
     await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
   };
