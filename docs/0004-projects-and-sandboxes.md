@@ -235,8 +235,20 @@ BOTH paths.
   one kickoff turn. Best when the conversation IS the surface.
 - **Path B (raw SDK, future):** pipeline-centric. `start()` from a
   button/API/tool — zero agent-session shim; per-phase agents are
-  `WorkflowAgent`s whose exec tools target one container provisioned at
-  run start. Best for headless state machines and direct triggers.
+  `WorkflowAgent`s. **`WorkflowAgent` takes
+  `experimental_sandbox: Experimental_SandboxSession`** (agent-level
+  default + per-stream override, passed through to tool execution) —
+  verified against @ai-sdk/workflow 2.0.49 types — so standard
+  sandbox-aware tools (bash/read_file/write_file) work with NO custom
+  wrapper tool. All phases share one sandbox by passing the same
+  session. `Experimental_SandboxSession` is a small structural
+  interface (description, file reads/writes, run/spawn) that eve's own
+  docker bindings deliberately mirror; official provider packages are
+  Vercel-hosted (cloud-only) or just-bash (no isolation), so the right
+  implementation for us is a thin adapter over the podman container
+  our provisioner creates — both paths then consume identical
+  provisioned sandboxes. Caveat: `experimental_` prefix — pin versions
+  and expect API drift.
 - **Durability of the sandbox across suspensions:** a container is a
   poor durable object (would have to outlive multi-day HITL waits).
   The pipeline's true durable state is **git** — branch + commits are
