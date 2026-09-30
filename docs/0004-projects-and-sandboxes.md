@@ -212,6 +212,35 @@ sandbox.
   session handles) and returns its conversation URL. Lineage-based
   specialist binding cannot work from an unbound parent (null
   project_id by definition).
+
+## Workflow invocation (design note, 2026-09-30)
+
+**A workflow tool run is always owned by an agent session** — that is
+where ctx.ask renders to the user, where task receipts and auth ride,
+and (decisively for us) where sandbox binding lives. Direct
+workflow-without-session invocation is not in eve's model, and for OUR
+workflows the session is not a shim: it is the pipeline's addressable
+surface (stream to watch, approvals to answer, URL to return to).
+
+Consequences:
+
+- **run_ticket cannot be called from unbound main directly** — its
+  phases need the project sandbox, sandbox binding rides session
+  creation, and an unbound session (and its ctx.agent children) have
+  none. That is the isolation guarantee working, not a limitation to
+  engineer around.
+- **The invocation primitive is: project-bound session + kickoff
+  message.** The kickoff costs one cheap model turn (flash) whose job
+  is to call the tool — shaped deterministically by instructions
+  ("first message = RUN_TICKET payload → call run_ticket verbatim").
+  Everything durable after that is the workflow's.
+- **Trigger surfaces all funnel into the same primitive**, and more
+  than one is supported: (a) the bridge tool called by the model in
+  unbound main; (b) a UI button calling the eve channel API directly
+  (POST /eve/v1/session with x-sweatshop-project + kickoff message —
+  no agent involvement at all before the kickoff turn); (c) schedules
+  for cron-driven work. Unbound main never relays or hosts the
+  pipeline — it drops a URL.
 - Durable workflow state stays in eve's local world (`.workflow-data/`,
   file-backed — no postgres needed, consistent with the north star;
   `@workflow/world-postgres` exists and stays unused).
