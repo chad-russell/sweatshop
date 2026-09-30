@@ -3,6 +3,10 @@ import { z } from "zod";
 import type { Experimental_SandboxSession } from "ai";
 import { HarnessAgent } from "@ai-sdk/harness/agent";
 import { createPi } from "@ai-sdk/harness-pi";
+import {
+  clipHarnessText,
+  recordHarnessEvent,
+} from "../../lib/harness-events";
 import { toSandboxSession } from "../../lib/sandboxes/ai-sdk-adapter";
 
 /**
@@ -81,9 +85,47 @@ export default defineTool({
     });
 
     const { agent, session } = await getHarness(ctx.session.id, sandboxSession);
-    const result = await agent.generate({ session, prompt: task });
+
+    // Full harness event stream (0005 visibility): every model step and
+    // tool call is recorded per conversation and served at
+    // /api/harness/<sessionId> — attach while running or read after.
+    let toolCalls = 0;
+    const result = await agent.generate({
+      session,
+      prompt: task,
+      onStart: () => recordHarnessEvent(ctx.session.id, { kind: "start" }),
+      onStepStart: () =>
+        recordHarnessEvent(ctx.session.id, { kind: "step-start" }),
+      onStepEnd: ({ text }) =>
+        recordHarnessEvent(ctx.session.id, {
+          kind: "step-end",
+          text: clipHarnessText(text, 500),
+        }),
+      onToolExecutionStart: ({ toolCall }) => {
+        toolCalls += 1;
+        recordHarnessEvent(ctx.session.id, {
+          kind: "tool-start",
+          toolName: toolCall.toolName,
+          input: clipHarnessText(toolCall.input, 1000),
+        });
+      },
+      onToolExecutionEnd: ({ toolCall, toolOutput }) =>
+        recordHarnessEvent(ctx.session.id, {
+          kind: "tool-end",
+          toolName: toolCall.toolName,
+          output: clipHarnessText(
+            "output" in (toolOutput ?? {})
+              ? (toolOutput as { output?: unknown }).output
+              : toolOutput,
+            2000,
+          ),
+        }),
+      onEnd: () => recordHarnessEvent(ctx.session.id, { kind: "end" }),
+    });
     return {
       text: result.text,
+      toolCalls,
+      eventLogUrl: `/api/harness/${ctx.session.id}`,
       note: "pi session continues across calls in this conversation.",
     };
   },
