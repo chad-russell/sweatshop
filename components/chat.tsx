@@ -349,9 +349,10 @@ export function ChatSurface({
   // This surface holds a session once resumed by id or after the first
   // send adopts one — from then on its model is fixed (the channel
   // attributes the initiator carried at creation are immutable), so the
-  // picker locks.
+  // picker locks. (agent.session is optional: absent before the first
+  // send, not null.)
   const conversationBound =
-    sessionId !== undefined || agent.session !== null;
+    sessionId !== undefined || Boolean(agent.session);
 
   // What a bound session actually runs: the concrete modelId of its
   // latest model step (each public step.started carries it,
