@@ -1,10 +1,9 @@
 # 0006 — Claude harness on project sandboxes
 
-Status: **implemented; bridge verified (2026-09-30)** — the `claude`
-tool, multi-harness store, and private bridge seam are in, and the
-opt-in spike proves bootstrap + WS handshake on bee. Live Claude turns
-remain gated on an authorized `ANTHROPIC_API_KEY` (Console key); see
-Verification.
+Status: **shipped + verified live (2026-09-30)** — the `claude` tool,
+multi-harness store, private bridge, and OAuth-token auth (amendment
+below) are in and proven end to end on bee: spike turn plus a real
+project conversation with same-workspace evidence.
 
 ## Goal and boundaries
 
@@ -115,12 +114,33 @@ project-bound Eve conversation
   `docker exec -e` flags (`mkdir "$BOOTSTRAP_DIR"`), and Go templates
   need `{{(index .Networks "name").IPAddress}}` (dashes break field
   access).
-- **Not yet verified live:** a real Claude turn. `ANTHROPIC_API_KEY`
-  (Console) is unset; the tool errors actionably until it is provided.
-  When it is: `CLAUDE_SPIKE=1 CLAUDE_SPIKE_LIVE=1` runs one bounded
-  generate in the spike, then a project conversation exercises the
-  `claude` tool end-to-end (edit + commit read back through eve bash —
-  same-workspace evidence).
+- **Live verification — end to end (2026-09-30, after the auth
+  amendment):** the spike with `CLAUDE_SPIKE_LIVE=1` ran a real Claude
+  turn (file created and verified in-sandbox, 30s). Then a real project
+  conversation (spike project, `x-sweatshop-project` header, driven via
+  `eve/client`): the foreman called `claude`, which — through the
+  bridge, in the SAME session sandbox — ran git status, created branch
+  `claude/live`, wrote `claude-live.txt`, and committed (`88fba54`,
+  4 tool calls, 20 events, run `completed`); the foreman's own bash in
+  the same container read back `claude/live` + `claude live verified`
+  (same-workspace evidence, mirroring 0005's pi verification).
+  `/h/<id>/claude` SSR carries the evidence; `/api/harness/<id>?harness=
+  claude` serves the run; the old pi link still resolves (200) and an
+  unknown harness 404s.
+- **Found and fixed during live verification (three real integration
+  bugs):** (1) eve's compiler inlines imported packages into its
+  dev-runtime snapshots, so the adapter's `new URL("./bridge/…",
+  import.meta.url)` asset reads resolved into `authored-modules/` where
+  `bridge/` never exists — ENOENT on `index.mjs`, then
+  `pnpm-lock.yaml`. Fix: `build.externalDependencies` (eve's sanctioned
+  knob for package-relative assets, same pattern as better-sqlite3);
+  externalized packages need a `./dev` restart to replace. (2) podman's
+  already-connected wording ("network is already connected") didn't
+  match the docker-compat regex, so a second claude call in the same
+  conversation failed the network join — both phrasings now accepted.
+  (3) One transient eve dev-runtime snapshot swap mid-turn (ENOENT on
+  the compiled tool itself) — a fresh `./dev` compile cleared it; watch
+  for recurrence, no code change.
 - Operational notes: `./dev` must be restarted once to join the harness
   network (the tool detects and reports this). First claude session per
   sandbox bootstraps the bridge (minutes); the bridge process idles in
