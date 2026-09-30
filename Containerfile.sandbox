@@ -1,0 +1,17 @@
+# sweatshop sandbox image — the shared base for directly provisioned
+# project sandboxes (0004 Path B). Built on host podman via the mounted
+# socket: ./dev exec -- docker build -t localhost/sweatshop-sandbox -f
+# Containerfile.sandbox .  (The eve sandbox selector uses eve's own
+# prepared image; this one is for workflow-provisioned containers.)
+FROM docker.io/library/node:24-trixie-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Project repos clone here (same convention as eve session sandboxes).
+RUN mkdir -p /workspace
+WORKDIR /workspace
+
+# Keep the container alive; commands enter via docker exec.
+CMD ["sleep", "infinity"]
