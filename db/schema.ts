@@ -76,3 +76,75 @@ export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type ConversationEvent = typeof conversationEvents.$inferSelect;
 export type NewConversationEvent = typeof conversationEvents.$inferInsert;
+
+/**
+ * 0004 — projects & sandboxes. Projects break up types of work; a
+ * project is defined by one or more git repos, references a shareable
+ * sandbox config, and its repos' remotes resolve credentials by host.
+ * Ids are human-readable slugs (seed-script-managed for now).
+ */
+export const sandboxConfigs = sqliteTable("sandbox_configs", {
+  /** Slug, e.g. "default". */
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Sandbox provider, e.g. "docker". */
+  provider: text("provider").notNull().default("docker"),
+  /** Optional image override; unset = provider default (eve's image). */
+  imageRef: text("image_ref"),
+  /** Coarse egress policy for live sandbox containers. */
+  networkPolicy: text("network_policy").notNull().default("allow-all"),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const projects = sqliteTable("projects", {
+  /** Slug, e.g. "sweatshop". */
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  /** FK sandbox_configs.id; null = the "default" config. */
+  sandboxConfigId: text("sandbox_config_id").references(
+    () => sandboxConfigs.id,
+  ),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const projectRepos = sqliteTable(
+  "project_repos",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id),
+    /** https or ssh remote URL. */
+    url: text("url").notNull(),
+    /** Directory name under /workspace. */
+    name: text("name").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [index("project_repos_project_idx").on(table.projectId)],
+);
+
+/**
+ * Credentials resolve by git host (0004 refinement 1): a github kind
+ * matches github.com, a forgejo kind matches its instance host. Multiple
+ * accounts per host are out of scope. Secret is plaintext per decision 3
+ * (LAN-only personal tool; reversible via re-encryption migration).
+ */
+export const gitCredentials = sqliteTable("git_credentials", {
+  /** Slug, e.g. "github-chad". */
+  id: text("id").primaryKey(),
+  /** "github" | "forgejo" — selects the GitHost implementation. */
+  kind: text("kind").notNull(),
+  label: text("label").notNull(),
+  username: text("username").notNull(),
+  secret: text("secret").notNull(),
+  /** Instance base URL (forgejo); null for github. */
+  baseUrl: text("base_url"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export type SandboxConfig = typeof sandboxConfigs.$inferSelect;
+export type Project = typeof projects.$inferSelect;
+export type ProjectRepo = typeof projectRepos.$inferSelect;
+export type GitCredential = typeof gitCredentials.$inferSelect;
