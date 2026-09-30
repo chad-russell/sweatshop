@@ -102,8 +102,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   One harness session per conversation × harness (module cache; a moved
   bridge endpoint evicts rather than silently reuses). Harness activity
   persists in `harness_events` + `harness_runs` keyed (session, harness)
-  — `/h/<eveSessionId>` is pi forever, others live at
-  `/h/<eveSessionId>/<harness>`; failures record as failed with a
+  — `/h/<harness>/<eveSessionId>` is the one shape for every harness
+  (pi, claude; re-decided 2026-10-01); legacy `/h/<id>` and
+  `/h/<id>/<harness>` URLs permanent-redirect. Failures record as failed
+  with a
   clipped error, events page by id cursor. Packaging pins:
   `pi-coding-agent` exactly 0.85.1; harness-pi 1.0.134 / harness
   1.0.132 / harness-claude-code 1.0.136. Adapter rules: env goes as

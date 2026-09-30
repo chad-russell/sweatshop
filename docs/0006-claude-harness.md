@@ -148,6 +148,18 @@ project-bound Eve conversation
   endpoint (sandbox restart) evicts the cached session — Claude history
   does not survive it (v1 contract).
 
+## Amendment (2026-10-01): harness-first routes
+
+Chad re-decided the URL scheme: every harness now lives at
+`/h/<harness>/<eveSessionId>`, pi included. The 0006 rule "keep Pi's
+historical `/h/<eveSessionId>` links stable" is honored by redirects
+instead of URL shape: the legacy one-segment `/h/<id>` 308s to
+`/h/pi/<id>` when a pi run exists, and the old two-segment order
+`/h/<id>/<harness>` is detected by run lookup and 308'd to the swapped
+canonical form (the target's run exists, so it can never loop). Tool
+cards link the canonical shape directly; unknown harness/session pairs
+404 as before.
+
 ## Independent follow-ups
 
 - **Approval cards:** `permissionMode` applies to adapter-native tools; `toolApproval` covers host-executed tools. A harness approval pauses an inner turn; today's `claude`/`pi` tool would be a plain Eve tool, not a durable Eve workflow tool. Design the persisted request/response/continuation and Eve HITL UI before claiming action-level approvals. An Eve approval on the outer `claude` call is a different gate. Do not use `allow-all` as a substitute for a reviewed permission policy when the integration is made available beyond a trusted local sandbox.

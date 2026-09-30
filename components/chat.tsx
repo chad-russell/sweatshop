@@ -74,11 +74,7 @@ function HarnessToolCard({
   const running = part.state === "input-streaming" || part.state === "input-available";
   const task = (part.input as { task?: unknown } | undefined)?.task;
   const taskText = typeof task === "string" ? task : undefined;
-  const url = conversationId
-    ? part.toolName === "pi"
-      ? `/h/${conversationId}`
-      : `/h/${conversationId}/${part.toolName}`
-    : null;
+  const url = conversationId ? `/h/${part.toolName}/${conversationId}` : null;
 
   return (
     <div className="my-1 rounded-lg border border-info/40 bg-card px-3 py-2.5 text-card-foreground">
