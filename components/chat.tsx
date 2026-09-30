@@ -143,7 +143,15 @@ export const EveMessageView = memo(function EveMessageView({
  * pattern); opening `/c/[sessionId]` resumes by replaying the durable
  * stream from index 0.
  */
-export function ChatSurface({ sessionId }: { sessionId?: string }) {
+export function ChatSurface({
+  sessionId,
+  projectId,
+  projectName,
+}: {
+  sessionId?: string;
+  projectId?: string;
+  projectName?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   // With resume: true the hook's client-first status is "resuming" while
@@ -154,8 +162,13 @@ export function ChatSurface({ sessionId }: { sessionId?: string }) {
   const agent = useEveAgent({
     initialSession: sessionId ? { sessionId, streamIndex: 0 } : undefined,
     resume: sessionId !== undefined,
+    // Project binding rides session creation: the channel lifts the
+    // header into the session principal (immutable for its life).
+    headers: projectId
+      ? () => ({ "x-sweatshop-project": projectId })
+      : undefined,
     onSessionChange(session) {
-      // From the landing page, adopt the new session's URL without
+      // From a landing page, adopt the new session's URL without
       // remounting the active stream. On /c/[sessionId] the URL is
       // already correct.
       if (!session || sessionId) return;
@@ -176,7 +189,12 @@ export function ChatSurface({ sessionId }: { sessionId?: string }) {
   };
 
   const handleNewChat = () => {
-    if (pathname === "/") {
+    if (projectId) {
+      // On a project page (or its adopted /c/... URL): reset in place —
+      // the project header rebinds the next session to the same project.
+      window.history.replaceState(null, "", `/p/${projectId}`);
+      agent.reset();
+    } else if (pathname === "/") {
       // Still on the landing route (URL may have been replaced to /c/...):
       // reset local state and the URL in place — the prior durable session
       // remains available at its URL.
@@ -192,7 +210,7 @@ export function ChatSurface({ sessionId }: { sessionId?: string }) {
     <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
       <header className="flex items-center justify-between border-b px-4 py-3">
         <span className="font-mono text-sm text-muted-foreground">
-          sweatshop
+          sweatshop{projectName ? ` / ${projectName}` : ""}
         </span>
         <div className="flex items-center gap-2">
           <button
