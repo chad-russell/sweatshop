@@ -62,9 +62,9 @@ function isThinking(status: UseEveAgentStatus, messages: readonly EveMessage[]) 
   );
 }
 
-/** One pi-harness delegation, rendered as a branded card (0005):
- *  status (running/completed) + a link to the /h session view. */
-function PiToolCard({
+/** One coding-harness delegation, rendered as a branded card (0005/0006):
+ *  status (running/done) + a link to that harness's /h session view. */
+function HarnessToolCard({
   part,
   conversationId,
 }: {
@@ -74,14 +74,18 @@ function PiToolCard({
   const running = part.state === "input-streaming" || part.state === "input-available";
   const task = (part.input as { task?: unknown } | undefined)?.task;
   const taskText = typeof task === "string" ? task : undefined;
-  const url = conversationId ? `/h/${conversationId}` : null;
+  const url = conversationId
+    ? part.toolName === "pi"
+      ? `/h/${conversationId}`
+      : `/h/${conversationId}/${part.toolName}`
+    : null;
 
   return (
     <div className="my-1 rounded-lg border border-info/40 bg-card px-3 py-2.5 text-card-foreground">
       <div className="flex items-center justify-between gap-3">
         <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
           <Bot className="size-4 shrink-0 text-info" aria-hidden />
-          <span className="shrink-0">pi harness</span>
+          <span className="shrink-0">{part.toolName} harness</span>
           <span
             className={
               "shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase " +
@@ -176,9 +180,12 @@ export const EveMessageView = memo(function EveMessageView({
               </Reasoning>
             );
           }
-          if (part.type === "dynamic-tool" && part.toolName === "pi") {
+          if (
+            part.type === "dynamic-tool" &&
+            (part.toolName === "pi" || part.toolName === "claude")
+          ) {
             return (
-              <PiToolCard key={i} part={part} conversationId={conversationId ?? null} />
+              <HarnessToolCard key={i} part={part} conversationId={conversationId ?? null} />
             );
           }
           if (part.type === "dynamic-tool") {

@@ -1,4 +1,10 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * sweatshop's own store (0002). The conversations table is the app-level
@@ -192,6 +198,8 @@ export const harnessEvents = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     /** eve sessionId of the owning conversation. */
     sessionId: text("session_id").notNull(),
+    /** Harness discriminator — "pi" | "claude" (0006). Pre-0006 rows are pi. */
+    harness: text("harness").notNull().default("pi"),
     at: integer("at").notNull(),
     kind: text("kind").notNull(),
     toolName: text("tool_name"),
@@ -199,24 +207,36 @@ export const harnessEvents = sqliteTable(
     output: text("output"),
     text: text("text"),
   },
-  (table) => [index("harness_events_session_idx").on(table.sessionId)],
+  (table) => [
+    index("harness_events_session_idx").on(table.sessionId, table.harness),
+  ],
 );
 
 /**
- * One row per harness session per conversation (0005): the index the UI
- * reads for status and the /h/[sessionId] view validates against.
+ * One row per harness per conversation (0006): the index the UI reads for
+ * status and the /h/[sessionId]/[harness] view validates against.
  */
 export const harnessRuns = sqliteTable(
   "harness_runs",
   {
-    /** eve sessionId of the owning conversation. */
-    sessionId: text("session_id").primaryKey(),
-    /** Harness kind — "pi" today. */
+    /** eve sessionId of the owning conversation; one row per (session,
+     *  harness) via the unique index below (rowid table — composite
+     *  primary keys trip drizzle-kit 0.31's snapshot generator). */
+    sessionId: text("session_id").notNull(),
+    /** Harness discriminator — same meaning as harness_events.harness. */
     kind: text("kind").notNull(),
-    /** "running" | "completed". */
+    /** "running" | "completed" | "failed". */
     status: text("status").notNull(),
     toolCalls: integer("tool_calls").notNull().default(0),
     startedAt: integer("started_at").notNull(),
     lastAt: integer("last_at").notNull(),
+    /** Bounded, redacted failure description; null on success (0006). */
+    error: text("error"),
   },
+  (table) => [
+    uniqueIndex("harness_runs_session_kind_idx").on(
+      table.sessionId,
+      table.kind,
+    ),
+  ],
 );

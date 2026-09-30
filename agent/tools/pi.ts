@@ -88,33 +88,35 @@ export default defineTool({
 
     const { agent, session } = await getHarness(ctx.session.id, sandboxSession);
 
-    // Full harness event stream (0005 visibility): every model step and
-    // tool call is recorded per conversation into sqlite and served at
-    // /h/<sessionId> (raw JSON: /api/harness/<sessionId>).
+    // Full harness event stream (0005 visibility, 0006 multi-harness):
+    // every model step and tool call is recorded per conversation ×
+    // harness into sqlite and served at /h/<sessionId> (raw JSON:
+    // /api/harness/<sessionId>?harness=pi).
     recordHarnessRunStart(ctx.session.id, "pi");
     let toolCalls = 0;
+    let failure: string | undefined;
     try {
       const result = await agent.generate({
         session,
         prompt: task,
-        onStart: () => recordHarnessEvent(ctx.session.id, { kind: "start" }),
+        onStart: () => recordHarnessEvent(ctx.session.id, "pi", { kind: "start" }),
         onStepStart: () =>
-          recordHarnessEvent(ctx.session.id, { kind: "step-start" }),
+          recordHarnessEvent(ctx.session.id, "pi", { kind: "step-start" }),
         onStepEnd: ({ text }) =>
-          recordHarnessEvent(ctx.session.id, {
+          recordHarnessEvent(ctx.session.id, "pi", {
             kind: "step-end",
             text: clipHarnessText(text, 500),
           }),
         onToolExecutionStart: ({ toolCall }) => {
           toolCalls += 1;
-          recordHarnessEvent(ctx.session.id, {
+          recordHarnessEvent(ctx.session.id, "pi", {
             kind: "tool-start",
             toolName: toolCall.toolName,
             input: clipHarnessText(toolCall.input, 1000),
           });
         },
         onToolExecutionEnd: ({ toolCall, toolOutput }) =>
-          recordHarnessEvent(ctx.session.id, {
+          recordHarnessEvent(ctx.session.id, "pi", {
             kind: "tool-end",
             toolName: toolCall.toolName,
             output: clipHarnessText(
@@ -124,17 +126,27 @@ export default defineTool({
               2000,
             ),
           }),
-        onEnd: () => recordHarnessEvent(ctx.session.id, { kind: "end" }),
+        onEnd: () => recordHarnessEvent(ctx.session.id, "pi", { kind: "end" }),
       });
       return {
         text: result.text,
         toolCalls,
         harnessUrl: `/h/${ctx.session.id}`,
-        eventLogUrl: `/api/harness/${ctx.session.id}`,
+        eventLogUrl: `/api/harness/${ctx.session.id}?harness=pi`,
         note: "pi session continues across calls in this conversation.",
       };
+    } catch (err) {
+      // 0006: failures are failures — keep the transcript, record why.
+      failure = err instanceof Error ? err.message : String(err);
+      throw err;
     } finally {
-      recordHarnessRunEnd(ctx.session.id, "pi", toolCalls);
+      recordHarnessRunEnd(
+        ctx.session.id,
+        "pi",
+        toolCalls,
+        failure ? "failed" : "completed",
+        failure,
+      );
     }
   },
 });

@@ -20,6 +20,7 @@ interface HarnessRun {
   toolCalls: number;
   startedAt: number;
   lastAt: number;
+  error?: string | null;
 }
 
 /** One harness tool call, collapsed by default (ai-elements tool style). */
@@ -78,10 +79,11 @@ function HarnessToolCall({
 }
 
 /**
- * The pi (harness) session view (0005): the harness event stream rendered
- * conversation-style — turn boundaries, model texts, tool calls with
- * inputs/outputs — branded so it reads as a distinct agent session.
- * Polls while the run is active.
+ * The harness session view (0005/0006): one harness's event stream for
+ * a conversation rendered conversation-style — turn boundaries, model
+ * texts, tool calls with inputs/outputs — branded so it reads as a
+ * distinct agent session. Polls incrementally (event-id cursor) while
+ * the run is active.
  */
 export function HarnessSessionView({
   initialRun,
@@ -97,25 +99,32 @@ export function HarnessSessionView({
     if (run.status !== "running") return;
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/harness/${run.sessionId}`, {
-          cache: "no-store",
-        });
+        const after = events.length > 0 ? events[events.length - 1].id : 0;
+        const params = new URLSearchParams({ harness: run.kind });
+        if (after > 0) params.set("after", String(after));
+        const res = await fetch(
+          `/api/harness/${run.sessionId}?${params.toString()}`,
+          { cache: "no-store" },
+        );
         if (res.ok) {
           const body = (await res.json()) as {
             run: HarnessRun | null;
             events: HarnessEvent[];
           };
           if (body.run) setRun(body.run);
-          setEvents(body.events);
+          if (body.events.length > 0) {
+            setEvents((prev) => [...prev, ...body.events]);
+          }
         }
       } catch {
         /* transient — keep polling */
       }
     }, 2000);
     return () => clearInterval(timer);
-  }, [run.status, run.sessionId]);
+  }, [run.status, run.sessionId, run.kind, events]);
 
   const running = run.status === "running";
+  const failed = run.status === "failed";
 
   return (
     <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
@@ -134,12 +143,21 @@ export function HarnessSessionView({
             {running && (
               <Loader2 className="size-3.5 animate-spin text-info" aria-hidden />
             )}
-            <span className={running ? "text-info" : "text-success"}>
+            <span
+              className={
+                running ? "text-info" : failed ? "text-destructive" : "text-success"
+              }
+            >
               {run.status}
             </span>
             <span className="text-muted-foreground">{run.toolCalls} calls</span>
           </span>
         </div>
+        {failed && run.error && (
+          <p className="mt-2 break-words rounded-md bg-destructive/10 px-2 py-1 font-mono text-[11px] text-destructive">
+            {run.error}
+          </p>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
