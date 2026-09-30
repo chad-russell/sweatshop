@@ -42,9 +42,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
   `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
   TSX; themes `clickhouse` (default), `cal`, `nova`.
-- Model: Z.AI GLM coding plan via `zhipu-ai-provider` on the
-  Anthropic-compatible coding endpoint; default `glm-5.3-flash`; key in
-  `ZAI_API_KEY` (`.env.local`).
+- Model (eve agent): Z.AI GLM coding plan via `zhipu-ai-provider` on
+  the coding plan's OpenAI-compatible endpoint
+  (`api.z.ai/api/coding/paas/v4`); default `glm-5.3-flash`; key in
+  `ZAI_API_KEY` (`.env.local`). (The pi harness separately uses the
+  Anthropic Messages surface — see 0005.)
 - Auth: LAN-only personal tool. `agent/channels/eve.ts` admits every caller
   via `none()` as a synthetic principal. **Hard rule: replace with a real
   verifier before any internet exposure.**
