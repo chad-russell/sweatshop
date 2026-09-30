@@ -144,11 +144,26 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
   a 404 repo (clone with `GIT_TERMINAL_PROMPT=0`); a selector throw fails
   every subsequent tool call at sandbox-bind time (bootstrap errors
   should be clear). **Go.**
-- **Phase B — entities + GitHost.** Schema/migrations
-  (projects/project_repos/sandbox_configs/git_credentials) + seed script;
-  `GitHost` interface + github/forgejo `installAuth`; selector resolves
-  project → config → repos → credentials and injects auth; verified with
-  a real push to a scratch repo.
+- **Phase B — entities + GitHost ✅ (2026-09-29).** Schema (migration
+  0002: `projects`, `project_repos`, `sandbox_configs`,
+  `git_credentials`) + idempotent seed script (`npm run db:seed`,
+  secrets only from env) + the `GitHost` seam
+  (`lib/git-hosts/`: interface, remote parsing, ssh→https
+  normalization, credential-store injection, host-scoped resolution;
+  `github.ts`, `forgejo.ts`) + the project-driven selector. Verified
+  live end to end: a fresh session's sandbox cloned BOTH spike-project
+  repos (anonymous github + credential-authenticated forgejo — the
+  forgejo credential seeded from the Proton Pass `git.crussell.io`
+  item via a root-only temp env file, shredded after), then the agent
+  created branch `sweatshop/sandbox-spike`, committed, and **pushed to
+  git.crussell.io** — `git ls-remote` confirms matching SHAs
+  (`b54a315`). 25 tests green (remote parsing, host scoping,
+  credential-line encoding). Notes: git identity comes from
+  `GIT_USER_NAME`/`GIT_USER_EMAIL` (defaults `sweatshop agent`
+  / `agent@sweatshop.local`); GitHub has no credential yet (vault has
+  none) — github auth is exercised whenever one is added via seed;
+  `image_ref` on sandbox_configs is schema-ready but unused (shared
+  base image, decision 2).
 - **Phase C — session binding + UX.** `x-sweatshop-project` header →
   principal → selector; `conversations.project_id`; conversation-in-
   project flow in the UI; project grouping in the sidebar.
