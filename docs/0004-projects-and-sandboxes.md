@@ -186,12 +186,17 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
   account password OR PAT via Basic; `Authorization: token` requires a
   PAT, which the vault item is not) + `repoPath` parsing + injected-fetch
   tests (31 total). `agent/tools/create_pr.ts` is the thin project-aware
-  wrapper (project → repo → host-scoped credential → createPR). Verified
-  live: PR #29 opened on the scratch repo
-  (`git.crussell.io/chad/sweatshop-e2e-scratch/pulls/29`,
-  `sweatshop/sandbox-spike` → `main`) — amusingly the agent improvised a
-  direct API call from the sandbox credential while the 401 existed, then
-  the fixed tool correctly returned 409-already-exists on retry.
+  wrapper (project → repo → host-scoped credential → createPR).
+  Verification history, accurately: the first live attempt 401'd
+  (vault secret is an account password; `Authorization: token` needs a
+  PAT) and the AGENT improvised a bash curl from the sandbox credential
+  to open PR #29 — the tool did not create it. After the Basic-auth fix
+  the tool retried into a correct 409-already-exists. The tool's first
+  true success: PR #31
+  (git.crussell.io/chad/sweatshop-e2e-scratch/pulls/31, branch
+  `tool-verify/phase-d`, commit `e7b2460`) opened end-to-end by the
+  tool. The underlying `GitHost.createPR` call was separately proven by
+  the Path B pipeline's PR #30.
 
 ## Sandbox lifecycle findings (2026-09-30 experiments)
 
