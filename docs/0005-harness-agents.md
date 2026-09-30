@@ -115,6 +115,29 @@ conversation (project-bound, /p/[id])
   harnesses, streaming pi output into the chat UI, durable harness
   reattach across dev-server restarts (module cache only).
 
+## Harness session view (2026-09-30)
+
+- **Route `/h/<eveSessionId>`** (deliberately not `/c/` — different data
+  source and semantics; same visual family): conversation-styled
+  rendering of the harness event stream — turn boundaries, model texts,
+  collapsible tool calls with inputs/outputs — under a branded header
+  ("pi harness session" badge, live status, tool-call count). Polls
+  every 2s while the run is active. Unknown ids 404.
+- **Branded tool card in the parent conversation:** `pi` tool calls
+  render as a card (bot icon, running/done badge from the part state,
+  task text) with a "View session →" link to /h — visible while the
+  harness runs and after.
+- **Persistence, conversation-parity:** `harness_events` (the full
+  transcript) + `harness_runs` (status index: running/completed, tool
+  calls, timestamps) — both sqlite, written live by the pi tool; the
+  view survives restarts and replays from the store.
+- Verified live: mid-run status running with events streaming; post-run
+  completed (8 events, 1 tool call); /h SSR contains branding + commit
+  evidence; bogus ids 404.
+- Still open: SSE push (polling suffices today), harness approval cards
+  (toolApproval → eve input.requested), multi-harness routes
+  (/h assumes one harness per conversation).
+
 ## Harness visibility (2026-09-30, post-ship)
 
 The pi tool records its full event stream (start/step/tool calls with

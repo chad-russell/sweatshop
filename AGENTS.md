@@ -86,9 +86,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`https://api.z.ai/api/anthropic`), driving the SAME session sandbox
   through the shared AI SDK adapter (`toSandboxSession` — accepts any
   `{ run(command, env?) }` shell). One harness session per
-  conversation (module cache). Packaging pins: `pi-coding-agent`
-  exactly 0.85.1; harness-pi 1.0.134 / harness 1.0.132. Adapter rules:
-  env goes as `docker exec -e` flags, and exec uses `bash` not `sh`.
+  conversation (module cache). Harness activity persists in
+  `harness_events` + `harness_runs` (sqlite; cross-process transport),
+  rendered at `/h/<eveSessionId>` (branded session view; polls while
+  running) with a branded tool card in the parent conversation.
+  Packaging pins: `pi-coding-agent` exactly 0.85.1; harness-pi 1.0.134 /
+  harness 1.0.132. Adapter rules: env goes as `docker exec -e` flags,
+  and exec uses `bash` not `sh`.
 
 ## Environment
 
