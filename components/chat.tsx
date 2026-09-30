@@ -1,9 +1,9 @@
 "use client";
 
 import type { ChatStatus } from "ai";
-import { Bot, MessageSquarePlus, SquarePen } from "lucide-react";
+import { Bot, Check, ChevronsUpDown, MessageSquarePlus, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { memo } from "react";
+import { memo, useMemo, useState } from "react";
 import {
   useEveAgent,
   type EveDynamicToolPart,
@@ -41,8 +41,23 @@ import {
   type ToolPart,
 } from "@/components/ai-elements/tool";
 import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  CHAT_MODELS,
+  DEFAULT_CHAT_MODEL,
+  findChatModel,
+} from "@/lib/model";
+import { cn } from "@/lib/utils";
 import { useMounted } from "@/lib/use-mounted";
+
+/** localStorage key for the chosen model (applies to new conversations). */
+const MODEL_STORAGE_KEY = "sweatshop.model";
 
 /** eve status → the ChatStatus shape PromptInputSubmit understands. */
 function toChatStatus(status: UseEveAgentStatus): ChatStatus {
@@ -195,6 +210,65 @@ export const EveMessageView = memo(function EveMessageView({
 });
 
 /**
+ * Chat model picker. The selection binds at session creation
+ * (x-sweatshop-model → channel principal attributes, immutable for the
+ * session's life — same contract as the project binding), so the picker
+ * is disabled once this surface holds a live session; the label then
+ * shows the model the session actually runs, derived from its stream.
+ */
+function ModelPicker({
+  selectedId,
+  onSelect,
+  disabled,
+  displayLabel,
+}: {
+  selectedId: string;
+  onSelect: (id: string) => void;
+  disabled: boolean;
+  displayLabel: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label="Chat model"
+          title={disabled ? "Model is fixed for this conversation" : "Chat model"}
+          className="inline-flex h-9 max-w-full items-center gap-1 rounded-md border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span className="truncate">{displayLabel}</span>
+          <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {CHAT_MODELS.map((model) => (
+          <DropdownMenuItem
+            key={model.id}
+            onSelect={() => onSelect(model.id)}
+            className="items-start py-2"
+          >
+            <Check
+              className={cn(
+                "mt-0.5",
+                model.id === selectedId ? "opacity-100" : "opacity-0",
+              )}
+              aria-hidden
+            />
+            <span className="flex flex-col">
+              <span>{model.label}</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                {model.description}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
  * The sweatshop chat surface (0002): one durable eve session per
  * conversation, driven by useEveAgent. Conversations are URL-addressed —
  * `/` starts fresh and the URL is replaced with `/c/[sessionId]` once the
@@ -220,14 +294,39 @@ export function ChatSurface({
   // hydration completes so disabled states can't mismatch.
   const mounted = useMounted();
 
+  // Model for the NEXT session this surface creates, restored from
+  // localStorage (lazily, client-side). The rendered label is gated on
+  // `mounted` below so hydration stays deterministic; the headers
+  // callback re-resolves on every request, and no request can precede
+  // mount, so the stored choice applies to the first send.
+  const [storedModelId, setStoredModelId] = useState<string>(() => {
+    if (typeof window === "undefined") return DEFAULT_CHAT_MODEL.id;
+    return (
+      window.localStorage.getItem(MODEL_STORAGE_KEY) ?? DEFAULT_CHAT_MODEL.id
+    );
+  });
+  // A stored id can go stale when the model table changes — resolve to
+  // a real model rather than sending an unknown id.
+  const modelId = findChatModel(storedModelId)?.id ?? DEFAULT_CHAT_MODEL.id;
+  const selectModel = (id: string) => {
+    setStoredModelId(id);
+    window.localStorage.setItem(MODEL_STORAGE_KEY, id);
+  };
+
   const agent = useEveAgent({
     initialSession: sessionId ? { sessionId, streamIndex: 0 } : undefined,
     resume: sessionId !== undefined,
-    // Project binding rides session creation: the channel lifts the
-    // header into the session principal (immutable for its life).
-    headers: projectId
-      ? () => ({ "x-sweatshop-project": projectId })
-      : undefined,
+    // Session-creation bindings ride the channel auth (immutable for the
+    // session's life): the project from the page, the model from the
+    // picker. The header is sent on every request, but only the creating
+    // request's principal becomes the session's initiator.
+    headers: () => {
+      const headers: Record<string, string> = {
+        "x-sweatshop-model": modelId,
+      };
+      if (projectId) headers["x-sweatshop-project"] = projectId;
+      return headers;
+    },
     onSessionChange(session) {
       // From a landing page, adopt the new session's URL without
       // remounting the active stream. On /c/[sessionId] the URL is
@@ -246,6 +345,40 @@ export function ChatSurface({
   const isResuming = displayStatus === "resuming";
   const inputDisabled = isResuming;
   const messages = agent.data.messages;
+
+  // This surface holds a session once resumed by id or after the first
+  // send adopts one — from then on its model is fixed (the channel
+  // attributes the initiator carried at creation are immutable), so the
+  // picker locks.
+  const conversationBound =
+    sessionId !== undefined || agent.session !== null;
+
+  // What a bound session actually runs: the concrete modelId of its
+  // latest model step (each public step.started carries it,
+  // provider-prefixed, e.g. "zhipu/glm-5.3-flash"). Null before the
+  // first step — then the picker falls back to the selected label.
+  const sessionModelId = useMemo(() => {
+    for (let i = agent.events.length - 1; i >= 0; i--) {
+      const event = agent.events[i] as {
+        type: string;
+        data?: { modelId?: unknown };
+      };
+      if (event.type !== "step.started") continue;
+      if (typeof event.data?.modelId === "string") {
+        return event.data.modelId.split("/").pop() ?? event.data.modelId;
+      }
+    }
+    return null;
+  }, [agent.events]);
+  const displayModel = conversationBound
+    ? sessionModelId !== null
+      ? (findChatModel(sessionModelId)?.label ?? sessionModelId)
+      : mounted
+        ? (findChatModel(modelId)?.label ?? modelId)
+        : DEFAULT_CHAT_MODEL.label
+    : mounted
+      ? (findChatModel(modelId)?.label ?? modelId)
+      : DEFAULT_CHAT_MODEL.label;
 
   const handleSubmit = (message: PromptInputMessage) => {
     const text = message.text?.trim();
@@ -273,10 +406,18 @@ export function ChatSurface({
 
   return (
     <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <span className="font-mono text-sm text-muted-foreground">
-          sweatshop{projectName ? ` / ${projectName}` : ""}
-        </span>
+      <header className="flex items-center justify-between gap-3 border-b px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 font-mono text-sm text-muted-foreground">
+            sweatshop{projectName ? ` / ${projectName}` : ""}
+          </span>
+          <ModelPicker
+            selectedId={conversationBound ? (sessionModelId ?? modelId) : modelId}
+            onSelect={selectModel}
+            disabled={conversationBound}
+            displayLabel={displayModel}
+          />
+        </div>
         <div className="flex items-center gap-2">
           {headerExtra}
           <button
