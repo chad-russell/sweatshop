@@ -32,7 +32,11 @@ export default defineAgent({
       }),
     },
   }),
-  // better-sqlite3 is a native addon — keep it external (Node resolution)
-  // instead of bundled into the compiled runtime.
-  build: { externalDependencies: ["better-sqlite3"] },
+  // better-sqlite3 is a native addon; @ai-sdk/harness-claude-code loads
+  // package-relative bridge assets (dist/bridge/*) via import.meta.url —
+  // bundling either into the compiled runtime breaks them, so both stay
+  // external (normal Node resolution, 0006).
+  build: {
+    externalDependencies: ["better-sqlite3", "@ai-sdk/harness-claude-code"],
+  },
 });
