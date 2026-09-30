@@ -5,6 +5,7 @@ import { HarnessAgent } from "@ai-sdk/harness/agent";
 import { createPi } from "@ai-sdk/harness-pi";
 import {
   clipHarnessText,
+  getActiveHarnessRun,
   recordHarnessEvent,
   recordHarnessRunEnd,
   recordHarnessRunStart,
@@ -73,6 +74,15 @@ export default defineTool({
     if (typeof attributes?.project !== "string") {
       throw new Error(
         "pi requires a project conversation — start one from a project page",
+      );
+    }
+
+    // v1 concurrency contract: one harness at a time per sandbox (0006).
+    const active = getActiveHarnessRun(ctx.session.id);
+    if (active) {
+      throw new Error(
+        `a ${active.kind} harness run is already active in this conversation — ` +
+          "wait for it to finish before starting pi",
       );
     }
 
