@@ -82,19 +82,34 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `@ai-sdk/workflow` aligned with the installed `ai` line (2.0.53 ↔
   ai 7.0.122 / provider-utils 5.0.51) or tool types split across nested
   package copies.
-- Harness agents (0005): project conversations have a `pi` tool — the
-  pi coding harness (`@ai-sdk/harness-pi`) running in-process on GLM
-  via the Z.AI coding plan's Anthropic Messages surface
-  (`https://api.z.ai/api/anthropic`), driving the SAME session sandbox
-  through the shared AI SDK adapter (`toSandboxSession` — accepts any
-  `{ run(command, env?) }` shell). One harness session per
-  conversation (module cache). Harness activity persists in
-  `harness_events` + `harness_runs` (sqlite; cross-process transport),
-  rendered at `/h/<eveSessionId>` (branded session view; polls while
-  running) with a branded tool card in the parent conversation.
-  Packaging pins: `pi-coding-agent` exactly 0.85.1; harness-pi 1.0.134 /
-  harness 1.0.132. Adapter rules: env goes as `docker exec -e` flags,
-  and exec uses `bash` not `sh`.
+- Harness agents (0005/0006): project conversations have `pi` and
+  `claude` tools — separate coding harnesses on the SAME session
+  sandbox. pi (`@ai-sdk/harness-pi`) runs in-process on GLM via the
+  Z.AI coding plan's Anthropic Messages surface
+  (`https://api.z.ai/api/anthropic`), through the shared AI SDK adapter
+  (`toSandboxSession` — accepts any `{ run(command, env?) }` shell plus
+  an optional AI-SDK-shaped streaming `spawn`). claude
+  (`@ai-sdk/harness-claude-code`, pinned exactly 1.0.136) runs the
+  official Agent SDK as an in-sandbox bridge process; the eve runtime
+  reaches it over the private `sweatshop-harness` podman network (host
+  processes have no route to podman bridge subnets; Eve's Docker
+  provider publishes no ports — membership is the boundary, never a
+  published LAN port). claude auth is an isolated
+  `{ ANTHROPIC_API_KEY }` record (Console key; NOT a subscription
+  setup-token — see 0006's gate); the tool is env-gated off until set.
+  One harness session per conversation × harness (module cache; a moved
+  bridge endpoint evicts rather than silently reuses). Harness activity
+  persists in `harness_events` + `harness_runs` keyed (session, harness)
+  — `/h/<eveSessionId>` is pi forever, others live at
+  `/h/<eveSessionId>/<harness>`; failures record as failed with a
+  clipped error, events page by id cursor. Packaging pins:
+  `pi-coding-agent` exactly 0.85.1; harness-pi 1.0.134 / harness
+  1.0.132 / harness-claude-code 1.0.136. Adapter rules: env goes as
+  `docker exec -e` flags, exec uses `bash` not `sh`, and bridge
+  processes need the real streaming spawn (run-to-completion replay
+  cannot host one). Opt-in spike:
+  `CLAUDE_SPIKE=1 npx vitest run tests/claude-spike.integration.test.ts`
+  (+ `CLAUDE_SPIKE_LIVE=1 ANTHROPIC_API_KEY=…` for a bounded turn).
 
 ## Environment
 
@@ -117,6 +132,9 @@ Nothing is installed on the host; all development happens in podman:
   container 3000. When the host rootless podman socket exists it is
   mounted at `/var/run/docker.sock`, so the eve Docker sandbox provider
   creates session sandboxes as sibling containers on host podman.
+  `./dev` also ensures a private `sweatshop-harness` podman network and
+  puts every invocation on it (0006 — bridge harness connectivity;
+  restart `./dev` after network changes for the runtime to join).
 - eve requires Node ≥ 24.
 - eve's dev watcher rebuilds authored artifacts on `agent/`-tree changes
   only. Code the agent imports from outside that tree (e.g. `db/mirror.ts`)
