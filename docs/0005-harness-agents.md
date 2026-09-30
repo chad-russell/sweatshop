@@ -115,6 +115,30 @@ conversation (project-bound, /p/[id])
   harnesses, streaming pi output into the chat UI, durable harness
   reattach across dev-server restarts (module cache only).
 
+## Harness visibility (2026-09-30, post-ship)
+
+The pi tool records its full event stream (start/step/tool calls with
+inputs+outputs/step texts/end) via HarnessAgent callbacks into
+`harness_events` (sqlite) — **sqlite is the cross-process transport**:
+the eve runtime writes, the Next server reads; an in-process Map failed
+exactly because of that process split. Events land as they happen, so
+`GET /api/harness/<eveSessionId>` works live (poll) and after the run;
+the pi tool result carries the URL + tool-call count. Callback shapes
+worth remembering: tool events carry `{ toolCall }` (name + input) and
+`{ toolCall, toolOutput }` (output via `"output" in toolOutput`).
+
+**Harness tools:** `HarnessAgent` accepts host-executed `tools` in the
+constructor (README pattern) — create_pr can be handed to pi when a
+task warrants in-loop PRs. Current stance: pi codes, the calling agent
+coordinates and PRs (it holds conversation context; create_pr is a
+trivial post-hoc call). Revisit per work-type, especially in pipeline
+phases.
+
+**Still open:** in-chat rendering of the event log (URL suffices for
+now), SSE for push-style live attach (polling works today), forwarding
+harness permission requests (`toolApproval`) into the chat as eve
+approval cards.
+
 ## Risks / unknowns (pre-build; see Verification for outcomes)
 
 - **ProviderConfig shape** (from `@earendil-works/pi-coding-agent`) —
