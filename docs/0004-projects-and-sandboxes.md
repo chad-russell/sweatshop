@@ -190,6 +190,46 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
   cross-session caches via a custom sandbox provider; subagents sharing
   a parent sandbox; coding harness/skills.
 
+## Future composition notes (doc-verified 2026-09-30)
+
+**Subagents × sandboxes.** Three delegation kinds, three sandbox
+answers ([subagents doc](../vendor/eve/docs/subagents/index.mdx)):
+
+- Root-copy children (built-in `agent` tool) **reuse the parent's
+  sandbox** — an un-sandboxed root's copies are un-sandboxed too. No
+  escape hatch into a project sandbox.
+- **Declared subagents** (`agent/subagents/<id>/`) never inherit the
+  root's authored sandbox — they author their own `sandbox.ts` (or use
+  the framework default), or explicitly share the parent's via
+  `defineParentSandbox()`. So an un-sandboxed coordinator root CAN
+  spawn a project-sandboxed specialist. Binding design for that child:
+  its selector reads `ctx.session.parent?.sessionId` and looks up the
+  parent conversation's `project_id` in our store (the mirror already
+  records it) — deterministic, no assumption about attribute
+  propagation into child sessions. Verify attribute propagation when
+  built; the parent-lineage path works regardless.
+- **Remote agents** are separate deployments: their sandbox is entirely
+  the remote's concern; identity can be forwarded
+  (`forwardPrincipal`) but our project store does not reach them.
+
+**Workflows × sandboxes.** Workflow tools
+([workflows doc](../vendor/eve/docs/tools/workflows.mdx)) deliberately
+have **no sandbox access** — `getSandbox` is unavailable in the
+workflow body and in `"use step"` helpers (steps must stay replayable).
+The Plan → Implement → QA shape composes instead:
+
+- The workflow tool orchestrates (`ctx.ask` for approvals between
+  phases, `sleep`/webhooks for waits, all durable).
+- Each phase is `ctx.agent(target, { message, agentId?, outputSchema })`
+  — a subagent invocation that IS a durable workflow operation.
+- Sandbox topology per need: root-copy targets (`"agent"`) all reuse
+  the root session's project sandbox — one shared working tree across
+  phases (sequential phases can continue one `agentId`); declared
+  phase-subagents get fresh isolated clones (e.g., QA against a clean
+  checkout of what Implement pushed). "The sandbox resumes after every
+  pending call in the current batch settles" — sandbox lifecycle is
+  workflow-aware across durable suspensions.
+
 ## Decisions (2026-09-29)
 
 1. **Management surface — seed script / db-first in v1.** Entities are
