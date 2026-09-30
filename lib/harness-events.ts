@@ -1,10 +1,14 @@
+import { asc, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { harnessEvents } from "@/db/schema";
+
 /**
- * 0005 harness visibility: in-process event buffers per conversation,
- * filled by HarnessAgent callbacks and served by
- * GET /api/harness/[sessionId]. Bounded per conversation. Buffers live
- * with the dev server; durable harness logs can mirror these later.
+ * 0005 harness visibility: pi/harness events per conversation, stored in
+ * sqlite — the eve runtime writes, the Next server reads (WAL is the
+ * cross-process transport), and the log is durable.
  */
 export interface HarnessEvent {
+  readonly id: number;
   readonly at: number;
   readonly kind:
     | "start"
@@ -13,14 +17,11 @@ export interface HarnessEvent {
     | "tool-end"
     | "step-end"
     | "end";
-  readonly toolName?: string;
-  readonly input?: string;
-  readonly output?: string;
-  readonly text?: string;
+  readonly toolName?: string | null;
+  readonly input?: string | null;
+  readonly output?: string | null;
+  readonly text?: string | null;
 }
-
-const MAX_PER_KEY = 500;
-const buffers = new Map<string, HarnessEvent[]>();
 
 function clip(value: unknown, max = 2000): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -30,17 +31,31 @@ function clip(value: unknown, max = 2000): string | undefined {
 }
 
 export function recordHarnessEvent(
-  key: string,
-  event: Omit<HarnessEvent, "at">,
+  sessionId: string,
+  event: Omit<HarnessEvent, "id" | "at">,
 ): void {
-  const list = buffers.get(key) ?? [];
-  list.push({ at: Date.now(), ...event });
-  if (list.length > MAX_PER_KEY) list.splice(0, list.length - MAX_PER_KEY);
-  buffers.set(key, list);
+  db()
+    .insert(harnessEvents)
+    .values({
+      sessionId,
+      at: Date.now(),
+      kind: event.kind,
+      toolName: event.toolName ?? null,
+      input: event.input ?? null,
+      output: event.output ?? null,
+      text: event.text ?? null,
+    })
+    .run();
 }
 
-export function getHarnessEvents(key: string): readonly HarnessEvent[] {
-  return buffers.get(key) ?? [];
+export function getHarnessEvents(sessionId: string): readonly HarnessEvent[] {
+  return db()
+    .select()
+    .from(harnessEvents)
+    .where(eq(harnessEvents.sessionId, sessionId))
+    .orderBy(asc(harnessEvents.id))
+    .limit(1000)
+    .all() as HarnessEvent[];
 }
 
 export const clipHarnessText = clip;

@@ -178,3 +178,26 @@ export const ticketRuns = sqliteTable("ticket_runs", {
 });
 
 export type TicketRun = typeof ticketRuns.$inferSelect;
+
+/**
+ * 0005 harness visibility: the pi (and future harness) event stream per
+ * conversation — every model step, tool call, input, and output. Written
+ * by the pi tool from the eve runtime; read by /api/harness/[sessionId]
+ * from the Next server — sqlite (WAL) is the cross-process transport.
+ */
+export const harnessEvents = sqliteTable(
+  "harness_events",
+  {
+    /** AUTOINCREMENT rowid — ingestion order. */
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** eve sessionId of the owning conversation. */
+    sessionId: text("session_id").notNull(),
+    at: integer("at").notNull(),
+    kind: text("kind").notNull(),
+    toolName: text("tool_name"),
+    input: text("input"),
+    output: text("output"),
+    text: text("text"),
+  },
+  (table) => [index("harness_events_session_idx").on(table.sessionId)],
+);
