@@ -1,19 +1,38 @@
+import { eq } from "drizzle-orm";
 import { defineSandbox } from "eve/sandbox";
 import { DockerSandbox } from "eve/sandbox/docker";
+import { db } from "../db";
+import {
+  gitCredentials,
+  projectRepos,
+  projects,
+  type Project,
+  type ProjectRepo,
+  type GitCredential,
+} from "../db/schema";
+import { forgejoHost } from "../lib/git-hosts/forgejo";
+import { githubHost } from "../lib/git-hosts/github";
+import { httpsRemote, resolveCredential } from "../lib/git-hosts/index";
 
 /**
- * 0004 Phase A spike — hardcoded, project-free proof of the sandbox
- * plane: eve's Docker provider drives the docker CLI inside the dev
- * container, which talks to the host rootless podman socket, so this
- * sandbox runs as a SIBLING container on host podman. Every durable
- * session opens its own instance.
- *
- * Phase B replaces the hardcoded clone with project entities + GitHost
- * credential injection; the structure below is the shape it keeps.
+ * 0004 project sandbox (Phase B): every durable session opens its own
+ * sibling container on host podman (see docs/0004 Phase A) and gets the
+ * bound project's repos cloned into /workspace/<repo> with host-scoped
+ * git credentials installed. Phase C replaces the hardcoded project
+ * binding with the session's project attribute.
  */
+const HOSTS = [githubHost, forgejoHost];
+/** Phase B stand-in for session binding (Phase C: session auth attribute). */
+const BOUND_PROJECT = "spike";
+
+const GIT_USER_NAME = process.env.GIT_USER_NAME ?? "sweatshop agent";
+const GIT_USER_EMAIL = process.env.GIT_USER_EMAIL ?? "agent@sweatshop.local";
+
 export const environment = DockerSandbox.environment({
   // Bake git into the prepared image if the base image lacks it (prepare
-  // runs once per environment generation, not per session).
+  // runs once per environment generation, not per session). image_ref on
+  // sandbox_configs is schema-ready but unused in v1 (shared base image,
+  // decision 2).
   prepare: async (sandbox) => {
     const check = await sandbox.run({ command: "command -v git" });
     if (check.exitCode === 0) return;
@@ -25,20 +44,80 @@ export const environment = DockerSandbox.environment({
   },
 });
 
-const SPIKE_REPO = "https://github.com/jonschlinkert/is-odd";
+interface ProjectSandboxPlan {
+  project: Project;
+  repos: ProjectRepo[];
+  credentials: GitCredential[];
+  networkPolicy: "allow-all" | "deny-all";
+}
+
+function loadPlan(): ProjectSandboxPlan | null {
+  const project = db()
+    .query.projects.findFirst({ where: eq(projects.id, BOUND_PROJECT) })
+    .sync();
+  if (!project) return null;
+
+  const repos = db()
+    .select()
+    .from(projectRepos)
+    .where(eq(projectRepos.projectId, project.id))
+    .all();
+  const credentials = db().select().from(gitCredentials).all();
+
+  // v1 egress is coarse: any repo needing auth implies allow-all (clones
+  // and pushes need egress). deny-all only when nothing needs the network.
+  const networkPolicy = repos.length > 0 ? "allow-all" : "deny-all";
+  return { project, repos, credentials, networkPolicy };
+}
+
+async function run(sandbox: Awaited<ReturnType<typeof environment.open>>, command: string, context: string) {
+  const result = await sandbox.run({ command });
+  if (result.exitCode !== 0) {
+    // Bootstrap failures surface as the failure of every later tool
+    // call, so they must carry their own context (Phase A gotcha).
+    throw new Error(
+      `${context} failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`,
+    );
+  }
+  return result;
+}
 
 export default defineSandbox(async () => {
-  // allow-all: the clone needs egress (Docker supports only coarse
-  // allow/deny; fine-grained egress arrives with a custom provider).
-  const sandbox = await environment.open({ networkPolicy: "allow-all" });
-
-  // Idempotent-ish session setup: clone the scratch repo if absent.
-  // GIT_TERMINAL_PROMPT=0 keeps clone failures clean instead of hanging
-  // on an interactive credential prompt.
-  const clone = await sandbox.run({
-    command: `[ -d /workspace/repo ] || GIT_TERMINAL_PROMPT=0 git clone --depth 5 ${SPIKE_REPO} /workspace/repo`,
+  const plan = loadPlan();
+  const sandbox = await environment.open({
+    networkPolicy: plan?.networkPolicy ?? "deny-all",
   });
-  if (clone.exitCode !== 0) throw new Error(clone.stderr);
+
+  if (!plan) return sandbox;
+
+  await run(
+    sandbox,
+    `git config --global user.name ${JSON.stringify(GIT_USER_NAME)} && ` +
+      `git config --global user.email ${JSON.stringify(GIT_USER_EMAIL)}`,
+    "git identity",
+  );
+
+  // Install host-scoped credentials once each (dedup by credential id).
+  const installed = new Set<string>();
+  for (const repo of plan.repos) {
+    const resolved = resolveCredential(repo.url, plan.credentials, HOSTS);
+    if (resolved && !installed.has(resolved.credential.id)) {
+      await resolved.host.installAuth(
+        { run: (command) => sandbox.run({ command }) },
+        resolved.credential,
+      );
+      installed.add(resolved.credential.id);
+    }
+  }
+
+  for (const repo of plan.repos) {
+    await run(
+      sandbox,
+      `[ -d /workspace/${repo.name} ] || ` +
+        `GIT_TERMINAL_PROMPT=0 git clone -- ${httpsRemote(repo.url)} /workspace/${repo.name}`,
+      `cloning ${repo.name} (${repo.url})`,
+    );
+  }
 
   return sandbox;
 });
