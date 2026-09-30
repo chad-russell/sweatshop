@@ -129,10 +129,21 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
 
 ## Staging plan
 
-- **Phase A — infra spike (no schema, no UI).** Podman socket → eve
-  Docker sandbox boots inside our dev container; a hardcoded selector
-  opens a sandbox from the shared image and clones one scratch repo; the
-  agent's bash tool runs `git log`. Go/no-go on the whole plan.
+- **Phase A — infra spike ✅ (2026-09-29).** Proven end to end: the dev
+  container image now bakes the docker CLI (`Containerfile.dev` →
+  `localhost/sweatshop-dev`; trixie's `docker.io` only *recommends*
+  `docker-cli`, so it is named explicitly), the wrapper mounts the host
+  rootless podman socket at `/var/run/docker.sock`, and the eve Docker
+  provider — which shells out to `docker` — creates session sandboxes as
+  SIBLING containers on host podman (observed: `eve-sbx-…` from
+  `eve-sandbox-template:…`). Environment `prepare` baked git into the
+  prepared image once; the hardcoded selector cloned
+  `jonschlinkert/is-odd` into `/workspace/repo` and the agent ran
+  `git log --oneline -5` through the bash tool, returning real commits
+  (`a80ee0d 3.0.1`, …). Gotchas recorded: git prompts for credentials on
+  a 404 repo (clone with `GIT_TERMINAL_PROMPT=0`); a selector throw fails
+  every subsequent tool call at sandbox-bind time (bootstrap errors
+  should be clear). **Go.**
 - **Phase B — entities + GitHost.** Schema/migrations
   (projects/project_repos/sandbox_configs/git_credentials) + seed script;
   `GitHost` interface + github/forgejo `installAuth`; selector resolves

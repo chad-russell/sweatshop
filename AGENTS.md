@@ -69,11 +69,16 @@ Nothing is installed on the host; all development happens in podman:
 - `./dev exec -- <cmd>` — one-off command in a container with the same
   mounts (works whether or not the dev container is running).
 - `./dev shell` — interactive shell in the dev container.
+- `./dev build` — rebuild the dev image from `Containerfile.dev`.
 - `./dev clean` — remove the dev container; node_modules volume survives.
-- Container: `node:24-trixie-slim`, repo bind-mounted at `/workspace`,
-  node_modules in a named volume so the host tree stays clean, run as
-  container root (rootless podman maps it to the host user), `.env.local`
-  via `--env-file`, host port 3300 → container 3000.
+- Container: image `localhost/sweatshop-dev` (built from
+  `Containerfile.dev` — node:24-trixie-slim + docker-cli), repo
+  bind-mounted at `/workspace`, node_modules in a named volume so the
+  host tree stays clean, run as container root (rootless podman maps it
+  to the host user), `.env.local` via `--env-file`, host port 3300 →
+  container 3000. When the host rootless podman socket exists it is
+  mounted at `/var/run/docker.sock`, so the eve Docker sandbox provider
+  creates session sandboxes as sibling containers on host podman.
 - eve requires Node ≥ 24.
 - eve's dev watcher rebuilds authored artifacts on `agent/`-tree changes
   only. Code the agent imports from outside that tree (e.g. `db/mirror.ts`)
