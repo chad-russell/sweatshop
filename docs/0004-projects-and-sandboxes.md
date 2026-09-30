@@ -190,6 +190,32 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
   cross-session caches via a custom sandbox provider; subagents sharing
   a parent sandbox; coding harness/skills.
 
+## Day-to-day operation model (design note, 2026-09-30)
+
+Where work happens is decided by **where the session is bound**, not by
+the delegation syntax: root-copy children share the root session's
+sandbox.
+
+- **Project work starts from `/p/<id>`** (the operational home): the
+  root session owns the project sandbox. Single-run work = the root
+  working directly with bash, or delegating to the built-in `agent`
+  tool (a root-copy child on the same tree, as a durable background
+  task). Pipeline work = an authored `defineWorkflowTool` state machine
+  (ctx.ask gates between phases, ctx.agent root-copies sharing the one
+  tree; phase specialists with fresh clones where isolation is wanted).
+  Both shapes coexist as tools; model/user picks per task.
+- **The unbound main chat is the coordinator layer** — it has no
+  sandbox and neither do its root copies. Bridging "paste a ticket in
+  main chat → work happens on a project sandbox" is a later design
+  item; the sanctioned mechanic is a custom tool that starts a new
+  project-bound session via the local eve API (channel operations /
+  session handles) and returns its conversation URL. Lineage-based
+  specialist binding cannot work from an unbound parent (null
+  project_id by definition).
+- Durable workflow state stays in eve's local world (`.workflow-data/`,
+  file-backed — no postgres needed, consistent with the north star;
+  `@workflow/world-postgres` exists and stays unused).
+
 ## Future composition notes (doc-verified 2026-09-30)
 
 **Subagents × sandboxes.** Three delegation kinds, three sandbox
