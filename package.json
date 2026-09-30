@@ -12,6 +12,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:backfill": "node scripts/backfill-messages.mjs",
     "db:seed": "node scripts/seed.mjs",
+    "sandbox:gc": "node scripts/sandbox-gc.mjs",
     "docs:eve": "bash scripts/sync-eve-docs.sh",
     "test": "vitest run"
   },
