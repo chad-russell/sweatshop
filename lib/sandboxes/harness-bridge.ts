@@ -126,7 +126,15 @@ export async function connectSandboxToHarnessNetwork(args: {
 
   await docker(["network", "connect", HARNESS_NETWORK, containerId]).catch(
     (err: { stderr?: string }) => {
-      if (!/already exists in network/i.test(err.stderr ?? "")) throw err;
+      // docker-compatible daemons say "already exists in network";
+      // podman says "network is already connected". Both mean joined.
+      if (
+        !/already exists in network|network is already connected/i.test(
+          err.stderr ?? "",
+        )
+      ) {
+        throw err;
+      }
     },
   );
 
