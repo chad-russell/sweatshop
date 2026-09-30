@@ -10,6 +10,15 @@ export interface SandboxShellLike {
     command: string,
     env?: Record<string, string>,
   ): PromiseLike<{ exitCode: number; stdout: string; stderr: string }>;
+
+  /**
+   * Real long-lived process support (0006): when the backing sandbox
+   * exposes one (eve session sandboxes do — streams, env, wait/kill),
+   * pass it through for bridge-backed harnesses. Without it the adapter
+   * falls back to run-to-completion replay, which cannot host a
+   * long-lived bridge process.
+   */
+  spawn?: Experimental_SandboxSession["spawn"];
 }
 
 /**
@@ -100,9 +109,11 @@ export function toSandboxSession(
     },
 
     async spawn(options) {
-      // v1: no streaming exec — run to completion and replay via
-      // synthetic streams. Suitable for non-interactive phase commands.
-      const result = await sandbox.run(options.command);
+      // Real streaming spawn when the backing sandbox provides one
+      // (0006: the claude bridge is a long-lived process); otherwise
+      // run to completion and replay via synthetic streams.
+      if (sandbox.spawn) return sandbox.spawn(options);
+      const result = await sandbox.run(options.command, options.env);
       const encoder = new TextEncoder();
       return {
         stdout: replayStream(encoder.encode(result.stdout)),
@@ -111,7 +122,7 @@ export function toSandboxSession(
           return { exitCode: result.exitCode };
         },
         async kill() {
-          /* process already exited in v1 */
+          /* process already exited in the replay fallback */
         },
       };
     },

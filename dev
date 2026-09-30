@@ -28,6 +28,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # first use so plain ./dev just works.
 podman image exists "$IMAGE" || podman build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
 
+# Private network shared by the dev container (eve runtime) and session
+# sandboxes (0006): bridge-backed harnesses (claude, later cursor) connect
+# over it. Never published to the LAN — membership is the boundary.
+HARNESS_NET=sweatshop-harness
+podman network exists "$HARNESS_NET" 2>/dev/null || podman network create "$HARNESS_NET" >/dev/null
+
 ENV_ARGS=()
 if [[ -f "$ROOT/.env.local" ]]; then
   ENV_ARGS=(--env-file "$ROOT/.env.local")
@@ -43,6 +49,7 @@ fi
 # empty-readlink bug on this host.)
 common_args=(
   --user 0:0
+  --network "$HARNESS_NET"
   -v "$ROOT":/workspace
   -v "$MODULES_VOLUME":/workspace/node_modules
   -v "$CACHE_VOLUME":/root/.npm
