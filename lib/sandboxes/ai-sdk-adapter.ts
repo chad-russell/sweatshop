@@ -1,20 +1,31 @@
 import type { Experimental_SandboxSession } from "ai";
-import type { ProvisionedSandbox } from "@/lib/sandboxes/provision";
 
 /**
- * Adapt a directly provisioned container (0004 Path B) to the AI SDK's
- * structural `Experimental_SandboxSession` contract, so WorkflowAgent's
- * `experimental_sandbox` and sandbox-aware tools work unchanged over our
- * podman containers. All operations are `docker exec`/stdin writes.
+ * Minimal shell surface the adapter needs — implemented by
+ * ProvisionedSandbox (Path B) and by a thin wrapper over an eve session
+ * sandbox (Path A), so both paths present identical AI SDK sessions.
+ */
+export interface SandboxShellLike {
+  run(
+    command: string,
+    env?: Record<string, string>,
+  ): PromiseLike<{ exitCode: number; stdout: string; stderr: string }>;
+}
+
+/**
+ * Adapt a shell-capable sandbox (0004/0005) to the AI SDK's structural
+ * `Experimental_SandboxSession` contract, so WorkflowAgent's
+ * `experimental_sandbox` and sandbox-aware tools work unchanged over
+ * our containers. Operations are `docker exec`/stdin writes.
  */
 export function toSandboxSession(
-  sandbox: ProvisionedSandbox,
+  sandbox: SandboxShellLike,
 ): Experimental_SandboxSession {
   return {
     description:
-      `Sandboxed Linux container ${sandbox.containerName} with the ` +
-      `project's git repositories cloned under /workspace. Commands run ` +
-      `from / via sh; use absolute or /workspace-relative paths.`,
+      `Sandboxed Linux environment with the project's git repositories ` +
+      `cloned under /workspace. Commands run via bash; use absolute or ` +
+      `/workspace-relative paths.`,
 
     async run(options) {
       // Env rides through execSandbox as docker exec -e flags (a shell
@@ -112,7 +123,7 @@ function replayStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
 }
 
 async function readBinary(
-  sandbox: ProvisionedSandbox,
+  sandbox: SandboxShellLike,
   path: string,
 ): Promise<Uint8Array | null> {
   // Binary-safe read via base64 through the shell.
