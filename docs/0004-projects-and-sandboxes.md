@@ -213,6 +213,41 @@ sandbox.
   specialist binding cannot work from an unbound parent (null
   project_id by definition).
 
+## Two pipeline architectures (design note, 2026-09-30)
+
+The raw Workflow SDK docs (docs/workflows/) show a second first-class
+path: **WorkflowAgent** agents inside plain Workflow SDK workflows —
+normal functions startable via `start()` from any API route, tool, or
+button, with tools as durable steps, HITL via `defineHook`/
+`createWebhook`, and chat sessions modeled as workflow-per-session with
+resumable streams. No eve session is required for the pipeline.
+
+**The raw SDK has no sandbox concept** (steps get host Node.js access;
+neither doc mentions sandboxes) — on that path we own sandboxing. The
+design unlock: extract provisioning from `agent/sandbox.ts` into a
+shared lib (`provisionProjectSandbox(projectId)` → container handle,
+reusing GitHost credentials + the Phase A podman plane), consumed by
+BOTH paths.
+
+- **Path A (eve-native, built):** conversation-centric. Session-owned
+  sandbox; phases via `ctx.agent` (each a durable, mirrored, streamed
+  eve session); `ctx.ask` renders in our existing chat UI. Cost: the
+  one kickoff turn. Best when the conversation IS the surface.
+- **Path B (raw SDK, future):** pipeline-centric. `start()` from a
+  button/API/tool — zero agent-session shim; per-phase agents are
+  `WorkflowAgent`s whose exec tools target one container provisioned at
+  run start. Best for headless state machines and direct triggers.
+- **Durability of the sandbox across suspensions:** a container is a
+  poor durable object (would have to outlive multi-day HITL waits).
+  The pipeline's true durable state is **git** — branch + commits are
+  recoverable, so the sandbox can be ephemeral: provision at phase
+  start (checkout the branch), destroy after; "durable sandbox"
+  becomes "durable worktree via git." Keep-alive is the simple
+  alternative when phases are chatty.
+- Both paths share every lower layer: project entities, GitHost,
+  credentials store, podman plane, model wiring. The choice is per
+  work-type, not per system.
+
 ## Workflow invocation (design note, 2026-09-30)
 
 **A workflow tool run is always owned by an agent session** — that is
