@@ -15,15 +15,14 @@ import { githubHost } from "../lib/git-hosts/github";
 import { httpsRemote, resolveCredential } from "../lib/git-hosts/index";
 
 /**
- * 0004 project sandbox (Phase B): every durable session opens its own
- * sibling container on host podman (see docs/0004 Phase A) and gets the
- * bound project's repos cloned into /workspace/<repo> with host-scoped
- * git credentials installed. Phase C replaces the hardcoded project
- * binding with the session's project attribute.
+ * 0004 project sandbox (Phase C): every durable session opens its own
+ * sibling container on host podman (Phase A) and gets the BOUND
+ * project's repos cloned into /workspace/<repo> with host-scoped git
+ * credentials installed. Binding comes from the session's initiating
+ * principal (x-sweatshop-project → channel auth attributes), immutable
+ * for the session's life.
  */
 const HOSTS = [githubHost, forgejoHost];
-/** Phase B stand-in for session binding (Phase C: session auth attribute). */
-const BOUND_PROJECT = "spike";
 
 const GIT_USER_NAME = process.env.GIT_USER_NAME ?? "sweatshop agent";
 const GIT_USER_EMAIL = process.env.GIT_USER_EMAIL ?? "agent@sweatshop.local";
@@ -51,9 +50,9 @@ interface ProjectSandboxPlan {
   networkPolicy: "allow-all" | "deny-all";
 }
 
-function loadPlan(): ProjectSandboxPlan | null {
+function loadPlan(projectId: string): ProjectSandboxPlan | null {
   const project = db()
-    .query.projects.findFirst({ where: eq(projects.id, BOUND_PROJECT) })
+    .query.projects.findFirst({ where: eq(projects.id, projectId) })
     .sync();
   if (!project) return null;
 
@@ -82,13 +81,29 @@ async function run(sandbox: Awaited<ReturnType<typeof environment.open>>, comman
   return result;
 }
 
-export default defineSandbox(async () => {
-  const plan = loadPlan();
-  const sandbox = await environment.open({
-    networkPolicy: plan?.networkPolicy ?? "deny-all",
-  });
+export default defineSandbox(async ({ session }) => {
+  const attributes = session.auth.initiator?.attributes as
+    | { project?: unknown }
+    | undefined;
+  const projectId =
+    typeof attributes?.project === "string" ? attributes.project : null;
 
-  if (!plan) return sandbox;
+  // Decision 4: non-project conversations get no sandbox — the error must
+  // be self-explanatory because it surfaces as the failure of whatever
+  // tool call first touched the sandbox (Phase A gotcha).
+  if (!projectId) {
+    throw new Error(
+      "no project bound to this conversation — bash/file tools are only available in project conversations (start one from a project page)",
+    );
+  }
+  const plan = loadPlan(projectId);
+  if (!plan) {
+    throw new Error(
+      `project "${projectId}" does not exist in the sweatshop store — fix the project id or re-seed`,
+    );
+  }
+
+  const sandbox = await environment.open({ networkPolicy: plan.networkPolicy });
 
   await run(
     sandbox,
