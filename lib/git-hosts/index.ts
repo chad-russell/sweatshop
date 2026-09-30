@@ -8,11 +8,27 @@ export interface SandboxShell {
   run(command: string): PromiseLike<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
+/** Input for opening a pull/merge request (0004 Phase D). */
+export interface CreatePRInput {
+  /** Repo remote URL in any accepted form (https or ssh). */
+  remoteUrl: string;
+  /** Branch containing the work. */
+  head: string;
+  /** Target branch; defaults to the host's default ("main"). */
+  base?: string;
+  title: string;
+  body?: string;
+}
+
+export interface CreatePRResult {
+  url: string;
+}
+
 /**
  * The pluggable VCS seam (0004): projects and repos never know which
  * implementation serves them — credentials resolve by host, auth installs
  * into a session sandbox, and provider-specific actions (createPR, …)
- * arrive here later, exposed to the agent as thin tools.
+ * live here, exposed to the agent as thin tools.
  */
 export interface GitHost {
   readonly kind: GitCredential["kind"];
@@ -20,6 +36,45 @@ export interface GitHost {
   matchesHost(remoteUrl: string, credential: GitCredential): boolean;
   /** Install the credential into the sandbox so git can authenticate. */
   installAuth(sandbox: SandboxShell, credential: GitCredential): Promise<void>;
+  /** Open a pull request. `fetchImpl` is injectable for tests. */
+  createPR(
+    credential: GitCredential,
+    input: CreatePRInput,
+    fetchImpl?: typeof fetch,
+  ): Promise<CreatePRResult>;
+}
+
+/** Parse {host, owner, repo} from an https or ssh remote URL. */
+export function repoPath(
+  remoteUrl: string,
+): { host: string; owner: string; repo: string } | null {
+  const host = remoteHost(remoteUrl);
+  if (!host) return null;
+  const match = remoteUrl.match(/[/:]([^/]+)\/([^/#?]+?)(?:\.git)?$/);
+  if (!match) return null;
+  return { host, owner: match[1], repo: match[2] };
+}
+
+/** POST JSON and require a 2xx, surfacing the provider's error body. */
+export async function postJSON(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  fetchImpl: typeof fetch,
+): Promise<Record<string, unknown>> {
+  const res = await fetchImpl(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  const json: Record<string, unknown> = text ? JSON.parse(text) : {};
+  if (!res.ok) {
+    const message =
+      typeof json.message === "string" ? json.message : res.statusText;
+    throw new Error(`${url} → ${res.status}: ${message}`);
+  }
+  return json;
 }
 
 /** Extract the hostname from an https or ssh remote URL. */

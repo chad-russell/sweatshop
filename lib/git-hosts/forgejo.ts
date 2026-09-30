@@ -1,6 +1,10 @@
 import {
   installCredentialStore,
+  postJSON,
   remoteHost,
+  repoPath,
+  type CreatePRInput,
+  type CreatePRResult,
   type GitHost,
 } from "@/lib/git-hosts/index";
 
@@ -18,5 +22,27 @@ export const forgejoHost: GitHost = {
     const host = remoteHost(credential.baseUrl);
     if (!host) throw new Error(`unparseable forgejo baseUrl: ${credential.baseUrl}`);
     await installCredentialStore(sandbox, host, credential);
+  },
+  async createPR(credential, input: CreatePRInput, fetchImpl = fetch) {
+    if (!credential.baseUrl) {
+      throw new Error("forgejo credential requires baseUrl");
+    }
+    const path = repoPath(input.remoteUrl);
+    if (!path) throw new Error(`unparseable remote: ${input.remoteUrl}`);
+    const base = credential.baseUrl.replace(/\/$/, "");
+    const json = await postJSON(
+      `${base}/api/v1/repos/${path.owner}/${path.repo}/pulls`,
+      { authorization: `token ${credential.secret}` },
+      {
+        head: input.head,
+        base: input.base ?? "main",
+        title: input.title,
+        body: input.body ?? "",
+      },
+      fetchImpl,
+    );
+    const url = json.html_url;
+    if (typeof url !== "string") throw new Error("forgejo PR response missing html_url");
+    return { url } satisfies CreatePRResult;
   },
 };
