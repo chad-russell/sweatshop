@@ -30,9 +30,14 @@ export const forgejoHost: GitHost = {
     const path = repoPath(input.remoteUrl);
     if (!path) throw new Error(`unparseable remote: ${input.remoteUrl}`);
     const base = credential.baseUrl.replace(/\/$/, "");
+    // Basic auth (username + secret): Forgejo accepts an account password
+    // OR a PAT here, unlike `Authorization: token` which requires a PAT.
+    const basic = Buffer.from(
+      `${credential.username}:${credential.secret}`,
+    ).toString("base64");
     const json = await postJSON(
       `${base}/api/v1/repos/${path.owner}/${path.repo}/pulls`,
-      { authorization: `token ${credential.secret}` },
+      { authorization: `Basic ${basic}` },
       {
         head: input.head,
         base: input.base ?? "main",

@@ -157,7 +157,7 @@ describe("GitHost.createPR", () => {
     });
   });
 
-  it("forgejo posts to the instance API with token auth", async () => {
+  it("forgejo posts to the instance API with basic auth", async () => {
     const { impl, calls } = stubFetch(201, { html_url: "https://git.example.com/o/r/pulls/2" });
     const fj = cred({
       id: "fj",
@@ -171,7 +171,8 @@ describe("GitHost.createPR", () => {
     );
     expect(result.url).toBe("https://git.example.com/o/r/pulls/2");
     expect(calls[0]?.url).toBe("https://git.example.com/api/v1/repos/o/r/pulls");
-    expect(calls[0]?.headers.authorization).toBe("token tok");
+    const expected = Buffer.from("chad:tok").toString("base64");
+    expect(calls[0]?.headers.authorization).toBe(`Basic ${expected}`);
   });
 
   it("surfaces provider errors with status and message", async () => {
