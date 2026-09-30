@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus } from "ai";
-import { Bot, Check, ChevronsUpDown, MessageSquarePlus, SquarePen } from "lucide-react";
+import { Bot, Check, ChevronsUpDown, Lock, MessageSquarePlus, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { memo, useMemo, useState } from "react";
 import {
@@ -212,30 +212,42 @@ export const EveMessageView = memo(function EveMessageView({
 /**
  * Chat model picker. The selection binds at session creation
  * (x-sweatshop-model → channel principal attributes, immutable for the
- * session's life — same contract as the project binding), so the picker
- * is disabled once this surface holds a live session; the label then
- * shows the model the session actually runs, derived from its stream.
+ * session's life — same contract as the project binding), so once this
+ * surface holds a session the picker is replaced by a plain locked
+ * badge — not a disabled control — to make "choose at the start" the
+ * visible affordance. The badge shows the model the session actually
+ * runs, derived from its stream.
  */
 function ModelPicker({
   selectedId,
   onSelect,
-  disabled,
+  locked,
   displayLabel,
 }: {
   selectedId: string;
   onSelect: (id: string) => void;
-  disabled: boolean;
+  locked: boolean;
   displayLabel: string;
 }) {
+  if (locked) {
+    return (
+      <span
+        className="inline-flex h-9 max-w-full items-center gap-1.5 px-1 text-sm text-muted-foreground"
+        title="Model is fixed for this conversation — it's chosen when the conversation starts"
+      >
+        <Lock className="size-3 shrink-0" aria-hidden />
+        <span className="truncate">{displayLabel}</span>
+      </span>
+    );
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          disabled={disabled}
           aria-label="Chat model"
-          title={disabled ? "Model is fixed for this conversation" : "Chat model"}
-          className="inline-flex h-9 max-w-full items-center gap-1 rounded-md border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          title="Model for this conversation — fixed once you send"
+          className="inline-flex h-9 max-w-full items-center gap-1 rounded-md border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <span className="truncate">{displayLabel}</span>
           <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
@@ -346,13 +358,17 @@ export function ChatSurface({
   const inputDisabled = isResuming;
   const messages = agent.data.messages;
 
-  // This surface holds a session once resumed by id or after the first
-  // send adopts one — from then on its model is fixed (the channel
+  // This surface holds a conversation once resumed by id, after the
+  // first send adopts a session, or as soon as any message is projected
+  // (the optimistic first send covers the window before the session
+  // cursor lands) — from then on its model is fixed (the channel
   // attributes the initiator carried at creation are immutable), so the
-  // picker locks. (agent.session is optional: absent before the first
-  // send, not null.)
+  // picker locks. agent.session is optional: absent before the first
+  // send, not null.
   const conversationBound =
-    sessionId !== undefined || Boolean(agent.session);
+    sessionId !== undefined ||
+    Boolean(agent.session) ||
+    messages.length > 0;
 
   // What a bound session actually runs: the concrete modelId of its
   // latest model step (each public step.started carries it,
@@ -415,7 +431,7 @@ export function ChatSurface({
           <ModelPicker
             selectedId={conversationBound ? (sessionModelId ?? modelId) : modelId}
             onSelect={selectModel}
-            disabled={conversationBound}
+            locked={conversationBound}
             displayLabel={displayModel}
           />
         </div>
