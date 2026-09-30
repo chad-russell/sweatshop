@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus } from "ai";
-import { MessageSquarePlus, SquarePen } from "lucide-react";
+import { Bot, MessageSquarePlus, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { memo } from "react";
 import {
@@ -62,6 +62,55 @@ function isThinking(status: UseEveAgentStatus, messages: readonly EveMessage[]) 
   );
 }
 
+/** One pi-harness delegation, rendered as a branded card (0005):
+ *  status (running/completed) + a link to the /h session view. */
+function PiToolCard({
+  part,
+  conversationId,
+}: {
+  part: EveDynamicToolPart;
+  conversationId: string | null;
+}) {
+  const running = part.state === "input-streaming" || part.state === "input-available";
+  const task = (part.input as { task?: unknown } | undefined)?.task;
+  const taskText = typeof task === "string" ? task : undefined;
+  const url = conversationId ? `/h/${conversationId}` : null;
+
+  return (
+    <div className="my-1 rounded-lg border border-info/40 bg-card px-3 py-2.5 text-card-foreground">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+          <Bot className="size-4 shrink-0 text-info" aria-hidden />
+          <span className="shrink-0">pi harness</span>
+          <span
+            className={
+              "shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase " +
+              (running
+                ? "animate-pulse bg-info/15 text-info"
+                : "bg-success/15 text-success")
+            }
+          >
+            {running ? "running" : "done"}
+          </span>
+          {taskText && (
+            <span className="truncate text-xs font-normal text-muted-foreground">
+              {taskText}
+            </span>
+          )}
+        </span>
+        {url && (
+          <a
+            href={url}
+            className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
+          >
+            View session →
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** One tool call, collapsed by default: header (name + lifecycle state),
  *  expandable to the JSON input and output/error. */
 const ToolCallView = ({ part }: { part: EveDynamicToolPart }) => {
@@ -104,8 +153,10 @@ const ToolCallView = ({ part }: { part: EveDynamicToolPart }) => {
  */
 export const EveMessageView = memo(function EveMessageView({
   message,
+  conversationId,
 }: {
   message: EveMessage;
+  conversationId?: string | null;
 }) {
   return (
     <Message
@@ -123,6 +174,11 @@ export const EveMessageView = memo(function EveMessageView({
                 <ReasoningTrigger />
                 <ReasoningContent>{part.text}</ReasoningContent>
               </Reasoning>
+            );
+          }
+          if (part.type === "dynamic-tool" && part.toolName === "pi") {
+            return (
+              <PiToolCard key={i} part={part} conversationId={conversationId ?? null} />
             );
           }
           if (part.type === "dynamic-tool") {
@@ -179,6 +235,10 @@ export function ChatSurface({
   });
 
   const displayStatus = mounted ? agent.status : "ready";
+  // Conversation id for harness links: the /c route param, else the
+  // live session cursor once the first send creates it.
+  const conversationId =
+    sessionId ?? agent.session?.sessionId ?? null;
   const isBusy = displayStatus === "submitted" || displayStatus === "streaming";
   const isResuming = displayStatus === "resuming";
   const inputDisabled = isResuming;
@@ -240,7 +300,11 @@ export function ChatSurface({
             />
           )}
           {messages.map((message) => (
-            <EveMessageView key={message.id} message={message} />
+            <EveMessageView
+              key={message.id}
+              message={message}
+              conversationId={conversationId}
+            />
           ))}
           {isThinking(displayStatus, messages) && (
             <div

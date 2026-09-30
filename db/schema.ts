@@ -201,3 +201,22 @@ export const harnessEvents = sqliteTable(
   },
   (table) => [index("harness_events_session_idx").on(table.sessionId)],
 );
+
+/**
+ * One row per harness session per conversation (0005): the index the UI
+ * reads for status and the /h/[sessionId] view validates against.
+ */
+export const harnessRuns = sqliteTable(
+  "harness_runs",
+  {
+    /** eve sessionId of the owning conversation. */
+    sessionId: text("session_id").primaryKey(),
+    /** Harness kind — "pi" today. */
+    kind: text("kind").notNull(),
+    /** "running" | "completed". */
+    status: text("status").notNull(),
+    toolCalls: integer("tool_calls").notNull().default(0),
+    startedAt: integer("started_at").notNull(),
+    lastAt: integer("last_at").notNull(),
+  },
+);

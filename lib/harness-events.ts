@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { harnessEvents } from "@/db/schema";
+import { harnessEvents, harnessRuns } from "@/db/schema";
 
 /**
  * 0005 harness visibility: pi/harness events per conversation, stored in
@@ -59,3 +59,62 @@ export function getHarnessEvents(sessionId: string): readonly HarnessEvent[] {
 }
 
 export const clipHarnessText = clip;
+
+/** Harness run index (harness_runs): status for the UI + /h validity. */
+export function recordHarnessRunStart(sessionId: string, kind: string): void {
+  const now = Date.now();
+  db()
+    .insert(harnessRuns)
+    .values({
+      sessionId,
+      kind,
+      status: "running",
+      startedAt: now,
+      lastAt: now,
+    })
+    .onConflictDoUpdate({
+      target: harnessRuns.sessionId,
+      set: { status: "running", lastAt: now },
+    })
+    .run();
+}
+
+export function recordHarnessRunEnd(
+  sessionId: string,
+  kind: string,
+  toolCalls: number,
+): void {
+  const now = Date.now();
+  db()
+    .insert(harnessRuns)
+    .values({
+      sessionId,
+      kind,
+      status: "completed",
+      toolCalls,
+      startedAt: now,
+      lastAt: now,
+    })
+    .onConflictDoUpdate({
+      target: harnessRuns.sessionId,
+      set: { status: "completed", toolCalls, lastAt: now },
+    })
+    .run();
+}
+
+export interface HarnessRun {
+  sessionId: string;
+  kind: string;
+  status: string;
+  toolCalls: number;
+  startedAt: number;
+  lastAt: number;
+}
+
+export function getHarnessRun(sessionId: string): HarnessRun | null {
+  return (
+    (db()
+      .query.harnessRuns.findFirst({ where: eq(harnessRuns.sessionId, sessionId) })
+      .sync() as HarnessRun | undefined) ?? null
+  );
+}
