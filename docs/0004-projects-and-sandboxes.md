@@ -53,15 +53,18 @@ session's life.
 1. **Credentials resolve by git host, not by sandbox config.** A GitHub
    credential matches every `github.com` remote; a Forgejo credential
    matches its instance host. Configure once — every project and sandbox
-   that touches that host uses it, no per-config wiring. Keep an explicit
-   per-repo override for edge cases (two GitHub accounts). This is a
-   slight re-statement of "referenced by our sandbox configs" that removes
-   bookkeeping; the pluggable seam is unchanged.
+   that touches that host uses it, no per-config wiring. Multiple
+   accounts per host are explicitly out of scope (single-user tool);
+   if ever needed, host resolution gains scoping rather than per-repo
+   overrides.
 2. **Fresh clone per conversation.** Because sandboxes are session-owned,
    each conversation in a project starts from a clean clone of the
    project's repos at `/workspace/<repo>`. That is *why* parallel work
-   can't collide, and it means no cleanup discipline. Cost: clone +
-   dependency-install time per conversation (see open question 2).
+   can't collide, and it means no cleanup discipline. Known cost: clone +
+   dependency-install (`npm install` et al.) per conversation — accepted
+   for v1; if it bites, the two sanctioned remedies are per-project
+   Dockerfiles baking deps (later) or warm cross-session caches via a
+   custom provider (later).
 3. **Sandbox configs are shareable first-class entities** (a table rows
    reference, not embedded config): most projects point at one personal
    default; a project *may* define its own. Matches the credentials
@@ -138,7 +141,10 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
 - **Phase C — session binding + UX.** `x-sweatshop-project` header →
   principal → selector; `conversations.project_id`; conversation-in-
   project flow in the UI; project grouping in the sidebar.
-- **Phase D — PRs.** `createPR` on GitHost implementations.
+- **Phase D — provider actions as agent tools.** `createPR` (and other
+  provider-specific abilities) land on the `GitHost` implementations and
+  are exposed to the agent as `defineTool` wrappers over that interface —
+  tools are thin; GitHost is the logic.
 - **Later (recorded direction, not scheduled):** web config UI;
   agent-managed entities through tools; per-project Dockerfiles; warm
   cross-session caches via a custom sandbox provider; subagents sharing
