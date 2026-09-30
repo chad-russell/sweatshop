@@ -1,6 +1,6 @@
 # 0005 — Harness agents on project sandboxes (pi first)
 
-Status: **approved** (2026-09-30) — Phase A starting.
+Status: **shipped (Phases A–C)** (2026-09-30) — see Verification.
 
 ## Endpoint decision (researched 2026-09-30)
 
@@ -92,7 +92,30 @@ conversation (project-bound, /p/[id])
 - **Phase D — docs** (0005 verification, AGENTS.md, vendored pi docs if
   the package ships none useful).
 
-## Risks / unknowns
+## Verification (2026-09-30)
+
+- **Phase A (spike, `tests/pi-spike.integration.test.ts`, PI_SPIKE=1):**
+  pi on GLM via Anthropic Messages against a provisioned container —
+  branch `pi/spike`, commit `4b78cb8`, file content verified in-sandbox.
+  Two adapter bugs found and fixed en route: run() must pass env as
+  `docker exec -e` flags (POSIX expands `K=V cmd "$K"` before the
+  assignment applies) and must use `bash`, not `sh` (pi emits
+  bash-isms; dash errors on `(`).
+- **Phases B–C (live conversation, transcript-level evidence):** the
+  eve agent called the `pi` tool; pi created the file and committed on
+  `pi/conversation` (`3291321`); the agent's own bash in the SAME
+  sandbox confirmed branch + content — shared workspace confirmed.
+  pi noted its write tool is scoped to its workdir and used its shell
+  tool instead — expected shared-workspace behavior.
+- **Packaging notes:** `@earendil-works/pi-coding-agent` pinned exactly
+  `0.85.1` (newer versions break `@ai-sdk/harness-pi@1.0.134`'s
+  imports); `@ai-sdk/harness-pi@1.0.134` + `@ai-sdk/harness@1.0.132`
+  dedupe against our provider-utils 5.0.51 line.
+- **Out of scope remains:** run_ticket pipeline adoption of pi, other
+  harnesses, streaming pi output into the chat UI, durable harness
+  reattach across dev-server restarts (module cache only).
+
+## Risks / unknowns (pre-build; see Verification for outcomes)
 
 - **ProviderConfig shape** (from `@earendil-works/pi-coding-agent`) —
   exact fields for an Anthropic-compatible custom endpoint are

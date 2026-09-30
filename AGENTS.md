@@ -80,6 +80,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `@ai-sdk/workflow` aligned with the installed `ai` line (2.0.53 ↔
   ai 7.0.122 / provider-utils 5.0.51) or tool types split across nested
   package copies.
+- Harness agents (0005): project conversations have a `pi` tool — the
+  pi coding harness (`@ai-sdk/harness-pi`) running in-process on GLM
+  via the Z.AI coding plan's Anthropic Messages surface
+  (`https://api.z.ai/api/anthropic`), driving the SAME session sandbox
+  through the shared AI SDK adapter (`toSandboxSession` — accepts any
+  `{ run(command, env?) }` shell). One harness session per
+  conversation (module cache). Packaging pins: `pi-coding-agent`
+  exactly 0.85.1; harness-pi 1.0.134 / harness 1.0.132. Adapter rules:
+  env goes as `docker exec -e` flags, and exec uses `bash` not `sh`.
 
 ## Environment
 
