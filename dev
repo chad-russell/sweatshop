@@ -7,17 +7,26 @@
 #   ./dev install      npm install inside the container
 #   ./dev exec -- CMD  one-off CMD in a container with the same mounts
 #   ./dev shell        interactive shell in a fresh container
+#   ./dev build        rebuild the dev image (Containerfile.dev)
 #   ./dev clean        remove the dev container (volumes survive)
 set -euo pipefail
 
-IMAGE=docker.io/library/node:24-trixie-slim
+IMAGE=localhost/sweatshop-dev
 CONTAINER=sweatshop-dev
 MODULES_VOLUME=sweatshop-node-modules
 CACHE_VOLUME=sweatshop-npm-cache
+# Host rootless podman socket, mounted into the dev container at the
+# docker CLI's default path so the eve Docker sandbox provider creates
+# sibling containers on host podman.
+PODMAN_SOCK="${PODMAN_SOCK:-/run/user/1000/podman/podman.sock}"
 # Host port for the dev server (3000 is taken by an unrelated host
 # next-server on bee). Override with SWEATSHOP_PORT.
 PORT="${SWEATSHOP_PORT:-3300}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# The dev image bakes the docker CLI (see Containerfile.dev); build it on
+# first use so plain ./dev just works.
+podman image exists "$IMAGE" || podman build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
 
 ENV_ARGS=()
 if [[ -f "$ROOT/.env.local" ]]; then
@@ -41,6 +50,13 @@ common_args=(
   "${ENV_ARGS[@]}"
 )
 
+# Mount the host podman socket when present: the eve Docker sandbox
+# provider shells out to `docker`, which talks to this socket; sandboxes
+# run as siblings on host podman (no nesting).
+if [[ -S "$PODMAN_SOCK" ]]; then
+  common_args+=(-v "$PODMAN_SOCK":/var/run/docker.sock)
+fi
+
 case "${1:-run}" in
   run)
     exec podman run --rm --init --replace --name "$CONTAINER" \
@@ -59,11 +75,14 @@ case "${1:-run}" in
   shell)
     exec podman run --rm -it "${common_args[@]}" "$IMAGE" bash
     ;;
+  build)
+    exec podman build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
+    ;;
   clean)
     podman rm -f "$CONTAINER" 2>/dev/null || true
     ;;
   *)
-    echo "usage: ./dev [run|install|exec -- CMD|shell|clean]" >&2
+    echo "usage: ./dev [run|install|exec -- CMD|shell|build|clean]" >&2
     exit 2
     ;;
 esac

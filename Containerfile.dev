@@ -1,0 +1,13 @@
+# sweatshop dev container — stock node image plus the docker CLI the eve
+# Docker sandbox provider shells out to. The daemon is NOT here: the
+# wrapper bind-mounts the host rootless podman socket to
+# /var/run/docker.sock, so provider-created sandboxes run as sibling
+# containers on host podman.
+FROM docker.io/library/node:24-trixie-slim
+
+# docker-cli only — the CLI the eve Docker sandbox provider shells out
+# through; no daemon (trixie's docker.io only *recommends* docker-cli,
+# so name it explicitly).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends docker-cli \
+  && rm -rf /var/lib/apt/lists/*
