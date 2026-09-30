@@ -189,6 +189,20 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
   agent-managed entities through tools; per-project Dockerfiles; warm
   cross-session caches via a custom sandbox provider; subagents sharing
   a parent sandbox; coding harness/skills.
+- **Sandbox provider evolution (long-term direction):** migrate from
+  Docker to real VMs — self-hosted, easier to back up/checkpoint/
+  restore, and able to run docker inside. Three tiers behind the
+  existing provider seam (sandbox_configs.provider picks per project;
+  no schema change): Docker (today) → **microsandbox** (eve built-in:
+  libkrun microVMs from OCI images, KVM hosts, snapshot-based session
+  lifecycle = checkpoint/restore, DOMAIN network policies — finer than
+  docker's allow/deny-all; prototype-proven on this hardware incl.
+  in-VM installs and per-host egress control) → **heavy VM tier** (full
+  guests via a custom `defineSandboxProvider` over cloud-hypervisor/
+  QEMU on bees' KVM) for sandbox tasks that need docker-inside —
+  unproven in libkrun microVMs; spike item. Infra notes: /dev/kvm
+  passthrough into the runtime container; the AI SDK SandboxSession
+  adapter and provisioner lib make the swap invisible to Path A/B.
 
 ## Day-to-day operation model (design note, 2026-09-30)
 
