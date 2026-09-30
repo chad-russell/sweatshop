@@ -57,15 +57,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   derived, rebuildable view of eve's authoritative stream — the dual-write
   invariants in docs/0002 govern it. Transcripts replay from eve, never
   from the mirror.
-- Projects & sandboxes (0004, Phases A–B shipped): `projects` (1+ git
+- Projects & sandboxes (0004, Phases A–C shipped): `projects` (1+ git
   repos) reference shareable `sandbox_configs`; git credentials resolve
   by host through the pluggable `GitHost` seam (`lib/git-hosts/` —
-  github + forgejo). The sandbox selector (`agent/sandbox.ts`) opens a
-  session-owned sibling container on host podman, clones the bound
-  project's repos into `/workspace/<repo>`, and injects credentials.
-  Entities are managed db-first via `npm run db:seed` (secrets from env
-  only). Session binding to projects (Phase C) is not wired to the UI
-  yet — the selector currently binds a hardcoded spike project.
+  github + forgejo). Conversations bind to a project at creation via
+  the `x-sweatshop-project` header (channel principal attributes,
+  immutable for the session); the sandbox selector
+  (`agent/sandbox.ts`) then opens a session-owned sibling container on
+  host podman, clones the project's repos into `/workspace/<repo>`, and
+  injects credentials. Unbound conversations get no sandbox — bash
+  fails with a self-explanatory error. Entities are managed db-first
+  via `npm run db:seed` (secrets from env only); `/p/[projectId]`
+  starts a project conversation.
 
 ## Environment
 

@@ -164,9 +164,23 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
   none) — github auth is exercised whenever one is added via seed;
   `image_ref` on sandbox_configs is schema-ready but unused (shared
   base image, decision 2).
-- **Phase C — session binding + UX.** `x-sweatshop-project` header →
-  principal → selector; `conversations.project_id`; conversation-in-
-  project flow in the UI; project grouping in the sidebar.
+- **Phase C — session binding + UX ✅ (2026-09-30).** The channel lifts
+  `x-sweatshop-project` into the session's initiating principal
+  (immutable for its life); the sandbox selector binds from
+  `session.auth.initiator.attributes.project` (selector context carries
+  auth — verified against the 0.67.2 types) and throws a
+  self-explanatory error for unbound sessions (decision 4: no sandbox
+  without a project); the mirror stamps `conversations.project_id` at
+  row creation only (never rewritten; FK to projects; 26 tests).
+  UI: `/p/[projectId]` starts a bound conversation (ChatSurface sends
+  the header on session creation; New chat resets in place within the
+  project; 404s on unknown ids), and the sidebar groups conversations
+  by project with the group header linking to the project page.
+  Verified live: a bound session cloned both spike repos and read the
+  scratch repo's real history (`bb3abdd base moves`); an unbound
+  session's bash failed with the designed error and the agent explained
+  it; db rows show `spike` vs `null` exactly per binding; `/p/spike`
+  200, `/p/bogus` 404, sidebar renders the project group.
 - **Phase D — provider actions as agent tools.** `createPR` (and other
   provider-specific abilities) land on the `GitHost` implementations and
   are exposed to the agent as `defineTool` wrappers over that interface —
