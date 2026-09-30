@@ -232,7 +232,7 @@ function ModelPicker({
   if (locked) {
     return (
       <span
-        className="inline-flex h-9 max-w-full items-center gap-1.5 px-1 text-sm text-muted-foreground"
+        className="inline-flex h-9 max-w-full cursor-not-allowed items-center gap-1.5 rounded-md border border-border px-2.5 text-sm text-muted-foreground"
         title="Model is fixed for this conversation — it's chosen when the conversation starts"
       >
         <Lock className="size-3 shrink-0" aria-hidden />
