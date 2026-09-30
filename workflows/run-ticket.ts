@@ -6,10 +6,8 @@ import { defineHook } from "workflow";
 import { db } from "@/db";
 import { gitCredentials, projectRepos, ticketRuns } from "@/db/schema";
 import { glmFlash } from "@/lib/model";
-import { toSandboxSession } from "@/lib/sandboxes/ai-sdk-adapter";
-import { attachSandbox } from "@/lib/sandboxes/provision";
-import { GIT_HOSTS, loadProjectPlan } from "@/lib/sandboxes/setup";
-import { httpsRemote, resolveCredential } from "@/lib/git-hosts/index";
+import { resolveCredential } from "@/lib/git-hosts/index";
+import { GIT_HOSTS } from "@/lib/sandboxes/setup";
 
 /**
  * 0004 Path B — run_ticket: a raw Workflow SDK pipeline that provisions
@@ -17,6 +15,10 @@ import { httpsRemote, resolveCredential } from "@/lib/git-hosts/index";
  * push+PR as WorkflowAgent phases sharing one container, and tracks
  * status in ticket_runs for the UI. Triggered directly by a button or
  * API — no agent session involved.
+ *
+ * Workflow-transform rule enforced at build time: the body may only
+ * orchestrate; every Node-touching operation (docker, sqlite, fs) lives
+ * in a `"use step"` function, with Node imports made inside steps.
  */
 
 export const planApprovalHook = defineHook({
@@ -36,8 +38,6 @@ export interface RunTicketInput {
 
 async function provision(input: RunTicketInput): Promise<string> {
   "use step";
-  // Import lazily so the bundler keeps docker-using code out of the
-  // deterministic body evaluation path.
   const { provisionProjectSandbox } = await import("@/lib/sandboxes/provision");
   const sb = await provisionProjectSandbox(input.projectId);
   return sb.containerName;
@@ -58,26 +58,26 @@ async function record(
 
 async function cleanupContainer(containerName: string) {
   "use step";
+  const { attachSandbox } = await import("@/lib/sandboxes/provision");
   await attachSandbox(containerName).remove();
 }
 
 async function openPR(
   projectId: string,
-  repoName: string,
   head: string,
   title: string,
   body: string,
-): Promise<string> {
+): Promise<{ url: string; repo: string }> {
   "use step";
   const repos = db()
     .select()
     .from(projectRepos)
     .where(eq(projectRepos.projectId, projectId))
     .all();
-  const repo = repos.find((r) => r.name === repoName);
-  if (!repo) throw new Error(`no repo "${repoName}" in project "${projectId}"`);
+  const repo = repos[0];
+  if (!repo) throw new Error(`project "${projectId}" has no repos`);
   const credentials = db().select().from(gitCredentials).all();
-  const resolved = resolveCredential(httpsRemote(repo.url), credentials, GIT_HOSTS);
+  const resolved = resolveCredential(repo.url, credentials, GIT_HOSTS);
   if (!resolved) throw new Error(`no credential matches the host of ${repo.url}`);
   const result = await resolved.host.createPR(resolved.credential, {
     remoteUrl: repo.url,
@@ -85,10 +85,10 @@ async function openPR(
     title,
     body,
   });
-  return result.url;
+  return { url: result.url, repo: repo.name };
 }
 
-// --- phase agents ---------------------------------------------------------
+// --- phase agents (run inside steps; Node imports stay here) -------------
 
 const bashTool = tool({
   description:
@@ -107,16 +107,21 @@ const bashTool = tool({
   },
 });
 
-async function runPhase(
+async function phase(
   containerName: string,
   instructions: string,
   message: string,
 ): Promise<string> {
+  "use step";
+  const [{ toSandboxSession }, { attachSandbox }] = await Promise.all([
+    import("@/lib/sandboxes/ai-sdk-adapter"),
+    import("@/lib/sandboxes/provision"),
+  ]);
   const session = toSandboxSession(attachSandbox(containerName));
   const agent = new WorkflowAgent({
     model: glmFlash(),
     instructions,
-    // ai@7.0.x (pinned under eve 0.67.2) vs @ai-sdk/workflow@2.0.54 Tool
+    // ai@7.0.x (pinned under eve 0.67.2) vs @ai-sdk/workflow Tool
     // generics drift type-level only; the runtime shape is identical.
     tools: { bash: bashTool } as unknown as ToolSet,
     experimental_sandbox: session,
@@ -139,19 +144,17 @@ async function runPhase(
   return "";
 }
 
-// --- the workflow ---------------------------------------------------------
+// --- the workflow (pure orchestration) ------------------------------------
 
 export async function runTicketWorkflow(input: RunTicketInput) {
   "use workflow";
   const { ticketId, projectId, ticket } = input;
-  const plan = loadProjectPlan(projectId);
-  if (!plan) throw new Error(`unknown project "${projectId}"`);
 
   await record(ticketId, "planning");
   const containerName = await provision(input);
 
   try {
-    const planText = await runPhase(
+    const planText = await phase(
       containerName,
       "You are the planning phase of a ticket pipeline. Inspect the repos " +
         "under /workspace with bash. Produce a concise implementation plan. " +
@@ -178,7 +181,7 @@ export async function runTicketWorkflow(input: RunTicketInput) {
     }
 
     await record(ticketId, "implementing");
-    await runPhase(
+    await phase(
       containerName,
       "You are the implementation phase of a ticket pipeline. You have a " +
         "bash tool in a sandbox with the project's repos at /workspace. " +
@@ -189,7 +192,7 @@ export async function runTicketWorkflow(input: RunTicketInput) {
     );
 
     await record(ticketId, "qa");
-    const qaText = await runPhase(
+    const qaText = await phase(
       containerName,
       "You are the QA phase of a ticket pipeline. Verify the work on the " +
         "current branch in /workspace (run any available tests/build; at " +
@@ -203,22 +206,21 @@ export async function runTicketWorkflow(input: RunTicketInput) {
     }
 
     await record(ticketId, "finishing");
-    await runPhase(
+    await phase(
       containerName,
       "You are the final phase of a ticket pipeline. Push the current " +
         "branch to origin with bash (credentials are installed).",
       `Push branch ${branch} to origin.`,
     );
 
-    const prUrl = await openPR(
+    const pr = await openPR(
       projectId,
-      plan.repos[0]!.name,
       branch,
       `Ticket run ${ticketId}: ${ticket.split("\n")[0]!.slice(0, 60)}`,
       `Automated ticket run.\n\nTicket:\n\n${ticket}`,
     );
-    await record(ticketId, "completed", { prUrl });
-    return { prUrl, reason: "completed" };
+    await record(ticketId, "completed", { prUrl: pr.url });
+    return { prUrl: pr.url, reason: "completed" };
   } catch (err) {
     await record(ticketId, "failed", {
       detail: err instanceof Error ? err.message : String(err),
