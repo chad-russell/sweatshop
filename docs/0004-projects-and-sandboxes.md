@@ -181,10 +181,30 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
   session's bash failed with the designed error and the agent explained
   it; db rows show `spike` vs `null` exactly per binding; `/p/spike`
   200, `/p/bogus` 404, sidebar renders the project group.
-- **Phase D — provider actions as agent tools.** `createPR` (and other
-  provider-specific abilities) land on the `GitHost` implementations and
-  are exposed to the agent as `defineTool` wrappers over that interface —
-  tools are thin; GitHost is the logic.
+- **Phase D — provider actions as agent tools ✅ (2026-09-30).**
+  `GitHost.createPR` (github Bearer, forgejo Basic — Forgejo accepts
+  account password OR PAT via Basic; `Authorization: token` requires a
+  PAT, which the vault item is not) + `repoPath` parsing + injected-fetch
+  tests (31 total). `agent/tools/create_pr.ts` is the thin project-aware
+  wrapper (project → repo → host-scoped credential → createPR). Verified
+  live: PR #29 opened on the scratch repo
+  (`git.crussell.io/chad/sweatshop-e2e-scratch/pulls/29`,
+  `sweatshop/sandbox-spike` → `main`) — amusingly the agent improvised a
+  direct API call from the sandbox credential while the 401 existed, then
+  the fixed tool correctly returned 409-already-exists on retry.
+
+## Sandbox lifecycle findings (2026-09-30 experiments)
+
+- Stopping a session's sandbox container is NOT a transparent pause: the
+  next access re-runs the selector into a NEW container. Uncommitted
+  worktree state is orphaned; pushed git state survives — git is the
+  durable state, validated even here.
+- Container names carry no session id (sha256 derivation ruled out, no
+  env labels), so per-session cleanup is impossible → age-based reaping.
+- `npm run sandbox:gc` (scripts/sandbox-gc.mjs): dry-run by default,
+  `GC_APPLY=1` to remove, `GC_AGE_HOURS` cutoff (24h). Auto-detects
+  docker (in-container, socket) vs podman (host). Agent instructions
+  now direct prompt commit/push.
 - **Later (recorded direction, not scheduled):** web config UI;
   agent-managed entities through tools; per-project Dockerfiles; warm
   cross-session caches via a custom sandbox provider; subagents sharing
