@@ -74,18 +74,38 @@ async function openPR(
     .from(projectRepos)
     .where(eq(projectRepos.projectId, projectId))
     .all();
-  const repo = repos[0];
-  if (!repo) throw new Error(`project "${projectId}" has no repos`);
+  if (repos.length === 0) throw new Error(`project "${projectId}" has no repos`);
   const credentials = db().select().from(gitCredentials).all();
-  const resolved = resolveCredential(repo.url, credentials, GIT_HOSTS);
-  if (!resolved) throw new Error(`no credential matches the host of ${repo.url}`);
-  const result = await resolved.host.createPR(resolved.credential, {
-    remoteUrl: repo.url,
+
+  // The repo whose remote host has a matching credential — repos without
+  // one (e.g. a public github repo with no github token seeded) can't be
+  // PR'd.
+  let target: { url: string; name: string } | null = null;
+  let host: (typeof GIT_HOSTS)[number] | undefined;
+  let credential: (typeof credentials)[number] | undefined;
+  for (const repo of repos) {
+    const resolved = resolveCredential(repo.url, credentials, GIT_HOSTS);
+    if (resolved) {
+      target = repo;
+      host = resolved.host;
+      credential = resolved.credential;
+      break;
+    }
+  }
+  if (!target || !host || !credential) {
+    throw new Error(
+      `no git credential matches any repo host of project "${projectId}" ` +
+        `(repos: ${repos.map((r) => r.url).join(", ")})`,
+    );
+  }
+
+  const result = await host.createPR(credential, {
+    remoteUrl: target.url,
     head,
     title,
     body,
   });
-  return { url: result.url, repo: repo.name };
+  return { url: result.url, repo: target.name };
 }
 
 // --- phase agents (run inside steps; Node imports stay here) -------------
