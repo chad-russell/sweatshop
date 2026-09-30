@@ -16,9 +16,9 @@ const exec = promisify(execFile);
  *
  * Proves: bridge bootstrap inside the sandbox (node/pnpm present in the
  * eve image), authenticated WS handshake from this container, session
- * create/destroy, and cleanup. No model call — auth stays gated on a
- * Console API key; set CLAUDE_SPIKE_LIVE=1 AND ANTHROPIC_API_KEY to
- * additionally run one bounded generate.
+ * create/destroy, and cleanup. No model call by default; set
+ * CLAUDE_SPIKE_LIVE=1 (and CLAUDE_CODE_OAUTH_TOKEN) to additionally
+ * run one bounded generate.
  */
 const run = process.env.CLAUDE_SPIKE === "1" ? describe : describe.skip;
 
@@ -125,9 +125,14 @@ run("claude harness bridge spike (0006)", () => {
         });
 
         const harness = createClaudeCode({
-          auth: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" },
+          // 0006 amendment: setup-token rides the env channel, auth
+          // route pinned to direct (no gateway, no host discovery).
+          auth: "direct",
           port: 4000,
           portEndpoint: { url: `ws://${ip}:4000` },
+          env: {
+            CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
+          },
         });
         const agent = new HarnessAgent({
           harness,
@@ -143,8 +148,8 @@ run("claude harness bridge spike (0006)", () => {
 
         if (process.env.CLAUDE_SPIKE_LIVE === "1") {
           expect(
-            process.env.ANTHROPIC_API_KEY,
-            "CLAUDE_SPIKE_LIVE requires ANTHROPIC_API_KEY",
+            process.env.CLAUDE_CODE_OAUTH_TOKEN,
+            "CLAUDE_SPIKE_LIVE requires CLAUDE_CODE_OAUTH_TOKEN",
           ).toBeTruthy();
           const result = await agent.generate({
             session,

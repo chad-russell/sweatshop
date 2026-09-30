@@ -27,7 +27,25 @@ Chad confirmed the credential was printed by `claude setup-token`. Anthropic doc
 
 A Console API key is a distinct credential with API billing. The Claude adapter documents `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, gateway variables, and native host subscription discovery, but does **not** document forwarding `CLAUDE_CODE_OAUTH_TOKEN` as an auth environment setting. It uses the Claude Agent SDK. Anthropic's [Agent SDK guidance](https://code.claude.com/docs/en/agent-sdk/overview.md) says that, absent prior approval, third-party developers may not offer claude.ai login or subscription rate limits in their products built with the SDK, and recommends API-key authentication. The fact that an unmodified CLI can consume a setup-token in scripts does not establish whether this embedded product may consume it. This is a product-use question, not a claim that Chad has done anything improper.
 
-**V1 go/no-go:** select a verified, authorized Console API key or approved gateway/enterprise arrangement for this integration; otherwise pause implementation pending clarification or approval from Anthropic. Do not reinterpret a subscription setup-token as `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, silently fall back to the host's native subscription, or hard-code auth into the sandbox image. For a Console key, choose the adapter's isolated `auth: { ANTHROPIC_API_KEY: ... }` rather than its host-environment `auto` mode (which can prefer a gateway or discover a host subscription). Keep the secret in app server configuration, inject it only for the Claude process, and redact it from logs, events, errors, and tool outputs. The adapter's `credentialForwarding` hook is not a restriction on host-side credential discovery; review the actual forwarding mode before a live run. With our basic Podman adapter, assume the bridge process receives the credential until proven otherwise. See [Claude Code authentication](https://code.claude.com/docs/en/authentication.md) and [adapter authentication](https://ai-sdk.dev/providers/ai-sdk-harnesses/claude-code.md#authentication).
+**V1 go/no-go → amended 2026-09-30 (Chad's explicit decision).** The
+approved go/no-go called for a Console API key or approved gateway. A
+Console key was tried first and could not be used: the credential
+available was the setup-token, which the Messages API rejects as
+`ANTHROPIC_API_KEY` (HTTP 401 — it is an OAuth token, not an API key).
+Chad then decided, with the Agent SDK clause's "offer … for their
+products" language in view, to use the setup-token through its honest
+mechanism: `CLAUDE_CODE_OAUTH_TOKEN` via the adapter's `env` channel
+(merged into the in-sandbox CLI process; `auth: "direct"` so there is
+no gateway route and no host-side credential discovery). Rationale on
+record: sweatshop is a single-user, self-hosted personal tool, offered
+to no one — Chad runs his own token against his own plan. If sweatshop
+is ever productized, the rule is per-user credentials for per-user
+work (as sandbox-provider products like exe.dev/Daytona do), and this
+decision must be revisited then. The token is never sent as
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`, never baked into an image,
+and is redacted from events/errors like any secret. See [Claude Code
+authentication](https://code.claude.com/docs/en/authentication.md) and
+[adapter authentication](https://ai-sdk.dev/providers/ai-sdk-harnesses/claude-code.md#authentication).
 
 ## Proposed architecture
 
@@ -123,9 +141,10 @@ project-bound Eve conversation
 2. **Accepted:** v1 ships without action-level approvals and without
    cross-restart turn continuity — failures and moved endpoints are
    surfaced, never silently reused.
-3. **Still open — auth:** Chad selected the Console-API-key route; the
-   `claude` tool stays env-gated off until an authorized key lands in
-   `.env.local`. The subscription setup-token is not used anywhere.
+3. **Resolved 2026-09-30 (amendment above):** the setup-token is used
+   via `CLAUDE_CODE_OAUTH_TOKEN` through the adapter's env channel,
+   per Chad's explicit single-user-use decision; the tool is env-gated
+   on that variable. Revisit on any productization.
 
 ## References
 

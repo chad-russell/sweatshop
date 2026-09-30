@@ -94,9 +94,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   reaches it over the private `sweatshop-harness` podman network (host
   processes have no route to podman bridge subnets; Eve's Docker
   provider publishes no ports — membership is the boundary, never a
-  published LAN port). claude auth is an isolated
-  `{ ANTHROPIC_API_KEY }` record (Console key; NOT a subscription
-  setup-token — see 0006's gate); the tool is env-gated off until set.
+  published LAN port). claude auth (0006 amendment): a claude
+  setup-token passed as `CLAUDE_CODE_OAUTH_TOKEN` through the adapter's
+  env channel (`auth: "direct"` — no gateway, no host discovery);
+  single-user personal use per Chad's recorded decision, revisit if
+  productized. The tool is env-gated off until the variable is set.
   One harness session per conversation × harness (module cache; a moved
   bridge endpoint evicts rather than silently reuses). Harness activity
   persists in `harness_events` + `harness_runs` keyed (session, harness)
@@ -109,7 +111,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   processes need the real streaming spawn (run-to-completion replay
   cannot host one). Opt-in spike:
   `CLAUDE_SPIKE=1 npx vitest run tests/claude-spike.integration.test.ts`
-  (+ `CLAUDE_SPIKE_LIVE=1 ANTHROPIC_API_KEY=…` for a bounded turn).
+  (+ `CLAUDE_SPIKE_LIVE=1` with `CLAUDE_CODE_OAUTH_TOKEN` set for a
+  bounded turn).
 
 ## Environment
 

@@ -20,9 +20,14 @@ import { connectSandboxToHarnessNetwork } from "../../lib/sandboxes/harness-brid
  * bridge process inside the sandbox; the eve runtime reaches it over the
  * private sweatshop-harness podman network (no published ports).
  *
- * Auth is the adapter's isolated record — an Anthropic API key from the
- * app environment (ANTHROPIC_API_KEY). No host-env scraping, no native
- * subscription fallback.
+ * Auth (0006 amendment, Chad's explicit decision 2026-09-30): the
+ * token is passed as CLAUDE_CODE_OAUTH_TOKEN — a claude setup-token
+ * (subscription OAuth) — through the adapter's env channel, which
+ * merges it into the in-sandbox Claude Code process. Rationale: this
+ * is a single-user, self-hosted personal tool, offered to no one; if
+ * sweatshop is ever productized, each user runs their own credential
+ * for their own work. No API-key disguise, no host-env scraping
+ * (auth: "direct" with no ANTHROPIC_* keys set).
  *
  * One harness session per conversation (module cache, lives while the
  * dev server lives). If the sandbox's bridge endpoint moves (container
@@ -52,11 +57,14 @@ async function getClaudeHarness(args: {
     claudeCache.delete(args.sessionId);
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
+  const token = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "";
   const harness = createClaudeCode({
-    auth: { ANTHROPIC_API_KEY: apiKey },
+    // Explicit direct route: no gateway, no native host-subscription
+    // discovery — the only credential is the env merge below.
+    auth: "direct",
     port: 4000,
     portEndpoint: { url: `ws://${args.ip}:4000` },
+    env: { CLAUDE_CODE_OAUTH_TOKEN: token },
   });
   const agent = new HarnessAgent({
     harness,
@@ -91,10 +99,10 @@ export default defineTool({
         "claude requires a project conversation — start one from a project page",
       );
     }
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {
       throw new Error(
-        "claude is not configured — set ANTHROPIC_API_KEY (Console API key) " +
-          "in the app environment",
+        "claude is not configured — set CLAUDE_CODE_OAUTH_TOKEN " +
+          "(claude setup-token) in the app environment",
       );
     }
 
