@@ -14,7 +14,10 @@ const exec = promisify(execFile);
 export interface ProvisionedSandbox {
   readonly containerName: string;
   readonly plan: ProjectPlan | undefined;
-  run(command: string): Promise<{ exitCode: number; stdout: string; stderr: string }>;
+  run(
+    command: string,
+    env?: Record<string, string>,
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
   remove(): Promise<void>;
 }
 
@@ -30,8 +33,8 @@ export function attachSandbox(containerName: string): ProvisionedSandbox {
   return {
     containerName,
     plan: undefined,
-    run(command: string) {
-      return execSandbox(containerName, command);
+    run(command: string, env?: Record<string, string>) {
+      return execSandbox(containerName, command, env);
     },
     async remove() {
       await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
@@ -42,11 +45,26 @@ export function attachSandbox(containerName: string): ProvisionedSandbox {
 async function execSandbox(
   containerName: string,
   command: string,
+  env?: Record<string, string>,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  // Env rides as `docker exec -e K=V` flags: a shell `K=V cmd` prefix
+  // does NOT work for expansions inside the command itself (POSIX
+  // expands before the temporary assignment applies).
+  const envArgs = Object.entries(env ?? {}).flatMap(([k, v]) => [
+    "-e",
+    `${k}=${v}`,
+  ]);
   try {
     const { stdout, stderr } = await exec(
       "docker",
-      ["exec", containerName, "sh", "-lc", command],
+      [
+        "exec",
+        ...envArgs,
+        containerName,
+        "bash",
+        "-lc",
+        command,
+      ],
       { maxBuffer: 64 * 1024 * 1024 },
     );
     return { exitCode: 0, stdout, stderr };
@@ -71,7 +89,8 @@ export async function provisionProjectSandbox(
     SANDBOX_IMAGE,
   ]);
 
-  const run = (command: string) => execSandbox(containerName, command);
+  const run = (command: string, env?: Record<string, string>) =>
+    execSandbox(containerName, command, env);
   const remove = async () => {
     await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
   };

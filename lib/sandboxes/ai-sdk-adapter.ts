@@ -17,13 +17,9 @@ export function toSandboxSession(
       `from / via sh; use absolute or /workspace-relative paths.`,
 
     async run(options) {
-      const cwd = options.workingDirectory ? `cd ${JSON.stringify(options.workingDirectory)} && ` : "";
-      const envPrefix = options.env
-        ? Object.entries(options.env)
-            .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-            .join(" ") + " "
-        : "";
-      return sandbox.run(`${cwd}${envPrefix}${options.command}`);
+      // Env rides through execSandbox as docker exec -e flags (a shell
+      // `K=V cmd` prefix would not expand inside the command itself).
+      return sandbox.run(options.command, options.env);
     },
 
     async readTextFile(options) {
