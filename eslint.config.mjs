@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // gitignored, and huge.
     ".eve/**",
     ".output/**",
+    // Workflow SDK transform output (generated flow routes).
+    "app/.well-known/**",
     // Vendored skill demos under .agents/ are reference material, not
     // product code — not held to house lint rules.
     ".agents/**",
