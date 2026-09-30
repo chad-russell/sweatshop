@@ -1,0 +1,355 @@
+---
+title: Chat Session Modeling
+description: Model WorkflowAgent chat sessions at different architectural layers to control state ownership and handle interruptions.
+type: guide
+summary: Choose between single-turn and multi-turn WorkflowAgent patterns for managing chat session state.
+prerequisites:
+  - /docs/ai
+  - /docs/foundations/workflows-and-steps
+related:
+  - /docs/ai/message-queueing
+  - /docs/ai/resumable-streams
+  - /docs/foundations/hooks
+  - /docs/api-reference/workflow/define-hook
+---
+
+# Chat Session Modeling
+
+
+
+Chat sessions can be modeled at different layers of your architecture. The choice determines who owns message history, how long a workflow run stays active, and how clients reconnect after an interruption.
+
+Workflow 5 applications should use AI SDK's [`WorkflowAgent`](https://ai-sdk.dev/v7/docs/agents/workflow-agent#workflowagent) for both patterns.
+
+## Single-turn workflows
+
+Each user turn starts a new workflow run. The client or API owns conversation history and sends the complete `UIMessage[]` array with every request.
+
+### Workflow
+
+Convert UI messages to model messages inside the workflow. `WorkflowAgent` writes durable `ModelCallStreamPart` values to the run stream.
+
+```typescript title="workflows/chat.ts" lineNumbers
+import { WorkflowAgent, type ModelCallStreamPart } from "@ai-sdk/workflow";
+import { convertToModelMessages, type UIMessage } from "ai";
+import { getWritable } from "workflow";
+import { flightBookingTools, FLIGHT_ASSISTANT_PROMPT } from "./tools";
+
+export async function chat(messages: UIMessage[]) {
+  "use workflow";
+
+  const agent = new WorkflowAgent({
+    model: "spacexai/grok-4.6",
+    instructions: FLIGHT_ASSISTANT_PROMPT,
+    tools: flightBookingTools,
+  });
+
+  return agent.stream({
+    messages: await convertToModelMessages(messages),
+    writable: getWritable<ModelCallStreamPart>(),
+  });
+}
+```
+
+### API route
+
+Convert the durable model-call stream to AI SDK UI chunks at the response boundary:
+
+```typescript title="app/api/chat/route.ts" lineNumbers
+import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
+import { createUIMessageStreamResponse, type UIMessage } from "ai";
+import { start } from "workflow/api";
+import { chat } from "@/workflows/chat";
+
+export async function POST(request: Request) {
+  const { messages }: { messages: UIMessage[] } = await request.json();
+  const run = await start(chat, [messages]);
+
+  return createUIMessageStreamResponse({
+    stream: run.readable.pipeThrough(createModelCallToUIChunkTransform()),
+    headers: { "x-workflow-run-id": run.runId },
+  });
+}
+```
+
+### Client
+
+`WorkflowChatTransport` reconnects when the HTTP connection ends before the workflow stream finishes:
+
+```tsx title="app/chat.tsx" lineNumbers
+"use client";
+
+import { useChat } from "@ai-sdk/react";
+import { WorkflowChatTransport } from "@ai-sdk/workflow";
+import { useMemo } from "react";
+
+export function Chat({ initialMessages }) {
+  const transport = useMemo(
+    () => new WorkflowChatTransport({ api: "/api/chat" }),
+    []
+  );
+  const { messages, sendMessage } = useChat({
+    messages: initialMessages,
+    transport,
+  });
+
+  // Render messages and call sendMessage({ text }) from your form.
+}
+```
+
+Persist `UIMessage[]` in your application database. `WorkflowAgent.stream()` returns `ModelMessage[]`, but there is no general conversion from model messages back to UI messages with all UI metadata intact.
+
+Use the single-turn pattern when:
+
+* Your application already owns chat history
+* Each turn should run on the latest deployment
+* You want a simple request-to-run mapping
+* Approval responses or client-side tool results arrive as another message turn
+
+## Multi-turn workflows
+
+A single workflow run can own the model-message history for the whole session. It waits on a Hook between turns, and external callers resume the Hook with the next message. The workflow run ID becomes the session identifier.
+
+```typescript title="workflows/chat-session.ts" lineNumbers
+import { WorkflowAgent, type ModelCallStreamPart } from "@ai-sdk/workflow";
+import { type ModelMessage } from "ai";
+import { defineHook, getWorkflowMetadata, getWritable } from "workflow";
+import { z } from "zod";
+import { flightBookingTools, FLIGHT_ASSISTANT_PROMPT } from "./tools";
+
+export const chatMessageHook = defineHook({
+  schema: z.object({ message: z.string() }),
+});
+
+export async function chatSession(initialMessages: ModelMessage[]) {
+  "use workflow";
+
+  const { workflowRunId } = getWorkflowMetadata();
+  const hook = chatMessageHook.create({ token: workflowRunId });
+  const writable = getWritable<ModelCallStreamPart>();
+  let messages = [...initialMessages];
+
+  const agent = new WorkflowAgent({
+    model: "spacexai/grok-4.6",
+    instructions: FLIGHT_ASSISTANT_PROMPT,
+    tools: flightBookingTools,
+  });
+
+  const maxTurns = 100;
+  for (let turn = 0; turn < maxTurns; turn++) {
+    const result = await agent.stream({
+      messages,
+      writable,
+      preventClose: true,
+      sendFinish: false,
+    });
+    messages = result.messages;
+
+    // Do not accept a follow-up that this run has no remaining turn to process.
+    if (turn === maxTurns - 1) break;
+
+    const { message } = await hook;
+    if (message === "/done") break;
+    messages = [...messages, { role: "user", content: message }];
+  }
+
+  return { messages };
+}
+```
+
+Create the Hook once, outside the loop. Recreating the same token on every turn causes a Hook conflict. Intermediate turns use `preventClose: true` with `sendFinish: false`; the workflow closes the durable stream and emits the final UI `finish` when the run returns.
+
+### Start and resume the session
+
+Use one route to create the run and a second route to deliver follow-up messages:
+
+```typescript title="app/api/chat/route.ts" lineNumbers
+import { convertToModelMessages, type UIMessage } from "ai";
+import { start } from "workflow/api";
+import { chatSession } from "@/workflows/chat-session";
+
+export async function POST(request: Request) {
+  const { messages }: { messages: UIMessage[] } = await request.json();
+  const run = await start(chatSession, [await convertToModelMessages(messages)]);
+  return Response.json({ runId: run.runId });
+}
+```
+
+```typescript title="app/api/chat/[runId]/message/route.ts" lineNumbers
+import { chatMessageHook } from "@/workflows/chat-session";
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ runId: string }> }
+) {
+  const { runId } = await params;
+  const { message }: { message: string } = await request.json();
+  await chatMessageHook.resume(runId, { message });
+  return Response.json({ success: true });
+}
+```
+
+### Reconnect to the stream
+
+`WorkflowChatTransport` counts transformed UI chunks, while the durable stream stores raw `ModelCallStreamPart` values. Always replay the raw stream from index `0` and apply the UI cursor in `createModelCallToUIChunkTransform()`:
+
+{/* @skip-typecheck: requires AI SDK 7 and @ai-sdk/workflow */}
+
+```typescript title="app/api/chat/[runId]/stream/route.ts" lineNumbers
+import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
+import { createUIMessageStreamResponse } from "ai";
+import { getRun } from "workflow/api";
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ runId: string }> }
+) {
+  const { runId } = await params;
+  const startIndex = Number(
+    new URL(request.url).searchParams.get("startIndex") ?? "0"
+  );
+
+  if (!Number.isSafeInteger(startIndex) || startIndex < 0) {
+    return Response.json(
+      { error: "startIndex must be a non-negative safe integer" },
+      { status: 400 }
+    );
+  }
+
+  const run = getRun(runId);
+  const stream = run
+    .getReadable({ startIndex: 0 })
+    .pipeThrough(createModelCallToUIChunkTransform({ uiStartIndex: startIndex }));
+
+  return createUIMessageStreamResponse({
+    stream,
+    headers: { "x-workflow-run-id": runId },
+  });
+}
+```
+
+Persist `UIMessage[]` separately if the client must reconstruct user messages and UI metadata after a refresh. The workflow-owned `ModelMessage[]` history is the model's durable context, not a replacement for an application chat table.
+
+### Persist and display the full session
+
+A multi-turn chat has three related records with different responsibilities:
+
+1. **Workflow model history**: `ModelMessage[]` is the durable context sent back to the model on each turn.
+2. **Workflow run stream**: `ModelCallStreamPart` values contain durable model and tool output for live delivery and reconnection.
+3. **Application chat history**: `UIMessage[]` preserves user messages, display metadata, attachments, and application-specific parts.
+
+When the user sends the first message, start the run, store its run ID with the application chat record, and connect to the run stream. For each follow-up, optimistically add and persist the user `UIMessage`, then resume `chatMessageHook` with the corresponding text. After a refresh, load the persisted UI messages and reconnect through the stream route above using the last persisted UI chunk cursor. If you persist only user messages, replay model output from the beginning and merge by stable message IDs.
+
+Do not treat the run stream as the only chat database. `WorkflowAgent` deliberately stores raw model-call parts, and user messages resumed through a Hook are not automatically written to that output stream. Keeping the application history separate avoids synthetic stream markers and preserves UI information that cannot be reconstructed from `ModelMessage[]`.
+
+<Callout type="info">
+  The reconnect route replays raw `ModelCallStreamPart` values from index `0` because raw parts and transformed UI chunks do not have matching indexes. `uiStartIndex` prevents already-delivered UI chunks from being sent to the client again, but the server still transforms the earlier raw history. For very long streams, split conversations into bounded runs until WorkflowAgent exposes a persisted raw-to-UI cursor mapping.
+</Callout>
+
+Use the multi-turn pattern when:
+
+* One workflow should own the session's model context
+* Backend events or other users need to inject messages through Hooks
+* Full-session tracing is more important than running every turn on the newest deployment
+* The application is prepared to manage a long-lived run and stream cursor
+
+## Choosing a pattern
+
+| Consideration         | Single-turn                    | Multi-turn                                                      |
+| --------------------- | ------------------------------ | --------------------------------------------------------------- |
+| State ownership       | Client or application database | Workflow for model context; application database for UI history |
+| Deployment version    | Latest deployment per turn     | Deployment that started the run                                 |
+| Message injection     | Start another run              | Resume a Hook                                                   |
+| Workflow complexity   | Lower                          | Higher                                                          |
+| Workflow time horizon | One model turn                 | Hours or longer                                                 |
+| Observability scope   | Per turn                       | Full session                                                    |
+
+**Multi-turn works well for new durable sessions.** The workflow owns model context, accepts messages from users and backend systems through the same Hook, and provides one full-session trace.
+
+**Single-turn works well when adapting an existing architecture.** If the application already manages message state and you want to adopt durable agents incrementally, one workflow run per turn requires fewer lifecycle changes and always uses the latest deployment.
+
+## Multiplayer chat sessions
+
+The multi-turn pattern also supports messages from system events, external services, and multiple users. Every source resumes the same Hook; the workflow queues those messages and processes them between model turns.
+
+<Tabs items={['System event', 'External service', 'Multiple users']}>
+  <Tab value="System event">
+    Scheduled tasks, background jobs, or database triggers can inject updates into an active conversation:
+
+    ```typescript title="app/api/internal/flight-update/route.ts" lineNumbers
+    import { chatMessageHook } from "@/workflows/chat-session";
+
+    export async function POST(request: Request) {
+      const { runId, flightNumber, newStatus } = await request.json();
+
+      await chatMessageHook.resume(runId, {
+        message: `[System] Flight ${flightNumber} status updated: ${newStatus}`,
+      });
+
+      return Response.json({ success: true });
+    }
+    ```
+  </Tab>
+
+  <Tab value="External service">
+    A third-party webhook can notify the conversation about an external event:
+
+    ```typescript title="app/api/webhooks/payment/route.ts" lineNumbers
+    import { chatMessageHook } from "@/workflows/chat-session";
+
+    export async function POST(request: Request) {
+      const { runId, paymentStatus, amount } = await request.json();
+
+      if (paymentStatus === "succeeded") {
+        await chatMessageHook.resume(runId, {
+          message: `[Payment] Payment of $${amount.toFixed(2)} received. Your booking is confirmed.`,
+        });
+      }
+
+      return Response.json({ received: true });
+    }
+    ```
+  </Tab>
+
+  <Tab value="Multiple users">
+    Multiple authenticated users can participate in the same workflow-owned session. Include attribution when resuming the Hook:
+
+    ```typescript title="app/api/chat/[runId]/message/route.ts" lineNumbers
+    import { chatMessageHook } from "@/workflows/chat-session";
+    import { getUser } from "@/lib/auth";
+
+    export async function POST(
+      request: Request,
+      { params }: { params: Promise<{ runId: string }> }
+    ) {
+      const { runId } = await params;
+      const { message } = await request.json();
+      const user = await getUser(request);
+
+      await chatMessageHook.resume(runId, {
+        message: `[${user.name}] ${message}`,
+      });
+
+      return Response.json({ success: true });
+    }
+    ```
+
+    To preserve structured attribution across refreshes, persist the corresponding `UIMessage` using the application-history approach described above.
+  </Tab>
+</Tabs>
+
+## Related documentation
+
+* [Building Durable AI Agents](/v5/docs/ai): Foundation guide for WorkflowAgent
+* [Message Queueing](/v5/docs/ai/message-queueing): Inject messages between model-call steps
+* [Resumable Streams](/v5/docs/ai/resumable-streams): Reconnect to durable output
+* [`WorkflowAgent`](https://ai-sdk.dev/v7/docs/agents/workflow-agent#workflowagent): AI SDK API for durable, resumable agents
+
+
+---
+
+For a semantic overview of all documentation, see [/sitemap.md](/sitemap.md)
+
+For an index of all available documentation, see [/llms.txt](/llms.txt)
+
+For agent-facing discovery, including API and MCP surfaces, see [/agents.md](/agents.md)

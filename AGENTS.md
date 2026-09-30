@@ -57,18 +57,29 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   derived, rebuildable view of eve's authoritative stream — the dual-write
   invariants in docs/0002 govern it. Transcripts replay from eve, never
   from the mirror.
-- Projects & sandboxes (0004, Phases A–C shipped): `projects` (1+ git
-  repos) reference shareable `sandbox_configs`; git credentials resolve
-  by host through the pluggable `GitHost` seam (`lib/git-hosts/` —
-  github + forgejo). Conversations bind to a project at creation via
-  the `x-sweatshop-project` header (channel principal attributes,
-  immutable for the session); the sandbox selector
+- Projects & sandboxes (0004, Phases A–D + Path B shipped): `projects`
+  (1+ git repos) reference shareable `sandbox_configs`; git credentials
+  resolve by host through the pluggable `GitHost` seam (`lib/git-hosts/`
+  — github + forgejo, `installAuth` + `createPR`). Conversations bind to
+  a project at creation via the `x-sweatshop-project` header (channel
+  principal attributes, immutable for the session); the sandbox selector
   (`agent/sandbox.ts`) then opens a session-owned sibling container on
   host podman, clones the project's repos into `/workspace/<repo>`, and
-  injects credentials. Unbound conversations get no sandbox — bash
-  fails with a self-explanatory error. Entities are managed db-first
-  via `npm run db:seed` (secrets from env only); `/p/[projectId]`
-  starts a project conversation.
+  injects credentials. Unbound conversations get no sandbox. Entities
+  are managed db-first via `npm run db:seed` (secrets from env only);
+  `/p/[projectId]` starts a project conversation; `create_pr` is the
+  agent's PR tool.
+- run_ticket pipelines (0004 Path B): raw Workflow SDK workflows
+  (`workflows/`) started directly by the UI button on project pages or
+  `POST /api/tickets` — no agent session. Phases are `WorkflowAgent`s
+  sharing one provisioned container (`lib/sandboxes/` — shared workspace
+  setup, direct provisioner, AI SDK SandboxSession adapter) with a
+  durable approval gate (`defineHook`); status lives in `ticket_runs`
+  and `/t/[ticketId]` is the live run view. Workflow-transform rule:
+  Node-touching code only inside `"use step"` functions. Keep
+  `@ai-sdk/workflow` aligned with the installed `ai` line (2.0.53 ↔
+  ai 7.0.122 / provider-utils 5.0.51) or tool types split across nested
+  package copies.
 
 ## Environment
 

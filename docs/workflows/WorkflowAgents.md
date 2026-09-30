@@ -1,0 +1,495 @@
+---
+title: Building Durable AI Agents
+description: Build AI agents that survive crashes, scale across requests, and maintain state with durable LLM tool-call loops.
+type: overview
+summary: Convert a basic AI chat app into a durable, resumable agent using Workflow SDK.
+related:
+  - /docs/foundations/workflows-and-steps
+  - /docs/foundations/streaming
+  - /docs/foundations/errors-and-retries
+  - /docs/ai/defining-tools
+  - /docs/ai/resumable-streams
+  - /docs/ai/human-in-the-loop
+  - /docs/getting-started/next
+---
+
+# Building Durable AI Agents
+
+
+
+AI agents are built on the primitive of LLM and tool-call loops, often with additional processes for data fetching, resource provisioning, or reacting to external events.
+
+Workflow SDK makes your agents production-ready, by turning them into durable, resumable workflows. It transforms your LLM calls, tool executions, and other async operations into retryable, scalable, and observable steps.
+
+<AgentTraces />
+
+This guide walks you through converting a basic AI chat app into a durable AI agent using Workflow SDK.
+
+## Why durable agents?
+
+Aside from the usual challenges of getting your long-running tasks to be production-ready, building mature AI agents typically requires solving several **additional challenges**:
+
+* **Statefulness**: Persisting chat sessions and turning LLM and tool calls into async jobs with workers and queues.
+* **Observability**: Using services to collect traces and metrics, and managing them separately from your messages and user history.
+* **Resumability**: Resuming streams requires not just storing your messages, but also storing streams, and piping them across services.
+* **Human-in-the-loop**: Your client, API, and async job orchestration need to work together to create, track, route to, and display human approval requests, or similar webhook operations.
+
+Workflow SDK provides all of these capabilities without additional infrastructure. Your agent becomes a workflow, your tools become steps, and the framework handles interplay with your existing infrastructure.
+
+## Getting started
+
+To make an Agent durable, we first need an Agent, which we'll be setting up here. If you already have an app you'd like to follow along with, you can skip this section.
+
+For our example, we'll need an app with a basic chat interface and an API route calling an LLM, so that we can add Workflow SDK to it. We'll use the [Flight Booking Agent](https://github.com/vercel/workflow-examples/tree/main/flight-booking-app) example as a starting point, which comes with a chat interface built using Next.js, AI SDK, and Shadcn UI.
+
+<Steps>
+  <Step>
+    ### Clone example app
+
+    We'll need an app with a basic chat interface and an API route calling an LLM, so that we can add Workflow SDK to it. For the follow-along steps, we'll use the [Flight Booking Agent](https://github.com/vercel/workflow-examples/tree/main/flight-booking-app) example as a starting point, which comes with a chat interface built using Next.js, AI SDK, and Shadcn UI.
+
+    If you have your own project, skip this step and apply the changes in the following steps to your project.
+
+    ```bash
+    git clone https://github.com/vercel/workflow-examples -b plain-ai-sdk
+    cd workflow-examples/flight-booking-app
+    ```
+  </Step>
+
+  <Step>
+    ### Configure model access
+
+    <Tabs items={['AI Gateway', 'Provider package']}>
+      <Tab value="AI Gateway">
+        AI SDK uses [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) as its default global provider, so plain `"provider/model"` strings need no provider-specific package. Vercel deployments authenticate with OIDC automatically. For local development, link the project and pull a short-lived OIDC token:
+
+        ```bash
+        vercel link
+        vercel env pull .env.local
+        ```
+
+        You can alternatively set `AI_GATEWAY_API_KEY` from the [AI Gateway authentication](https://vercel.com/docs/ai-gateway/authentication) page.
+      </Tab>
+
+      <Tab value="Provider package">
+        `WorkflowAgent` accepts any AI SDK provider. To use OpenAI, install its provider package:
+
+        <CodeBlockTabs defaultValue="npm">
+          <CodeBlockTabsList>
+            <CodeBlockTabsTrigger value="npm">
+              npm
+            </CodeBlockTabsTrigger>
+
+            <CodeBlockTabsTrigger value="pnpm">
+              pnpm
+            </CodeBlockTabsTrigger>
+
+            <CodeBlockTabsTrigger value="yarn">
+              yarn
+            </CodeBlockTabsTrigger>
+
+            <CodeBlockTabsTrigger value="bun">
+              bun
+            </CodeBlockTabsTrigger>
+          </CodeBlockTabsList>
+
+          <CodeBlockTab value="npm">
+            ```bash
+            npm i @ai-sdk/openai
+            ```
+          </CodeBlockTab>
+
+          <CodeBlockTab value="pnpm">
+            ```bash
+            pnpm add @ai-sdk/openai
+            ```
+          </CodeBlockTab>
+
+          <CodeBlockTab value="yarn">
+            ```bash
+            yarn add @ai-sdk/openai
+            ```
+          </CodeBlockTab>
+
+          <CodeBlockTab value="bun">
+            ```bash
+            bun add @ai-sdk/openai
+            ```
+          </CodeBlockTab>
+        </CodeBlockTabs>
+
+        Set the provider's API key:
+
+        ```bash title=".env.local" lineNumbers
+        OPENAI_API_KEY=...
+        ```
+
+        Then construct the model with the provider package:
+
+        ```typescript
+        import { openai } from "@ai-sdk/openai";
+
+        const model = openai("gpt-5.6-sol");
+        ```
+
+        See the [AI SDK provider guide](https://ai-sdk.dev/providers/ai-sdk-providers) for Anthropic, Google, Amazon Bedrock, and other providers.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step>
+    ### Get familiar with the code
+
+    Run the app with `npm run dev` and open [http://localhost:3000](http://localhost:3000) in your browser. You should see a basic chat interface to test.
+
+    The following sections break down the core code. You don't need to make changes yet.
+
+    <Tabs items={['API Route', 'Tools', 'Client']}>
+      <Tab value="API Route">
+        Our API route calls [AI SDK's `ToolLoopAgent` class](https://ai-sdk.dev/docs/agents/overview), which encapsulates the LLM call, tool execution loop, and stopping conditions on top of [AI SDK's `streamText` function](https://ai-sdk.dev/docs/reference/ai-sdk-core/stream-text#streamtext). This is also where we pass tools to the agent.
+
+        ```typescript title="app/api/chat/route.ts" lineNumbers
+        import { ToolLoopAgent } from "ai";
+        import type { UIMessage } from "ai";
+        import { convertToModelMessages, createUIMessageStreamResponse } from "ai";
+
+        export async function POST(req: Request) {
+          const { messages }: { messages: UIMessage[] } = await req.json();
+          const agent = new ToolLoopAgent({ // [!code highlight]
+            model: "spacexai/grok-4.6",
+            instructions: FLIGHT_ASSISTANT_PROMPT,
+            tools: flightBookingTools,
+          });
+          const modelMessages = await convertToModelMessages(messages);
+          const stream = await agent.stream({ messages: modelMessages }); // [!code highlight]
+          return createUIMessageStreamResponse({
+            stream: stream.toUIMessageStream(),
+          });
+        }
+        ```
+      </Tab>
+
+      <Tab value="Tools">
+        Our tools are mostly mocked out for the sake of the example. We use AI SDK's `tool` function to define the tool, and pass it to the agent. In your own app, this might be any kind of tool call, like database queries, calls to external services, etc.
+
+        ```typescript title="workflows/chat/steps/tools.ts" lineNumbers
+        import { tool } from "ai";
+        import { z } from "zod";
+
+        export const tools = {
+          searchFlights: tool({
+            description: "Search for flights",
+            inputSchema: z.object({ from: z.string(), to: z.string(), date: z.string() }),
+            execute: searchFlights,
+          }),
+        };
+
+        async function searchFlights({ from, to, date }: { from: string; to: string; date: string }) {
+          // ... generate some fake flights
+        }
+        ```
+      </Tab>
+
+      <Tab value="Client">
+        Our `ChatPage` component contains logic for displaying chat messages, but its core responsibility is managing input and output for the [`useChat` hook](https://ai-sdk.dev/docs/reference/ai-sdk-ui/use-chat#usechat) from AI SDK.
+
+        ```typescript title="app/chat.tsx" lineNumbers
+        "use client";
+
+        import { useChat } from "@ai-sdk/react";
+
+        export default function ChatPage() {
+          const { messages, input, handleInputChange, handleSubmit } = useChat({ // [!code highlight]
+            // ... other options ...
+          });
+
+          // ... more UI logic
+
+          return (
+            <div>
+              // This is a simplified example of the rendering logic
+              {messages.map((m) => (
+                <div key={m.id}>
+                  <strong>{m.role}:</strong>
+                  {m.parts.map((part, i) => {
+                    if (part.type === "text") { // [!code highlight]
+                      return <span key={i}>{part.text}</span>;
+                    }
+                    if (part.type === "tool-searchFlights") { // [!code highlight]
+                      // ... some special rendering for our tool results
+                    }
+                    return null;
+                  })}
+                </div>
+              ))}
+              <form onSubmit={handleSubmit}>
+                <input
+                  value={input}
+                  onChange={handleInputChange}
+                  placeholder="Type a message..."
+                />
+              </form>
+            </div>
+          );
+        }
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+## Integrating Workflow SDK
+
+Now that we have a basic agent using AI SDK, we can modify it to make it durable.
+
+<Steps>
+  <Step>
+    ### Install dependencies
+
+    Add the Workflow SDK packages to your project:
+
+    <CodeBlockTabs defaultValue="npm">
+      <CodeBlockTabsList>
+        <CodeBlockTabsTrigger value="npm">
+          npm
+        </CodeBlockTabsTrigger>
+
+        <CodeBlockTabsTrigger value="pnpm">
+          pnpm
+        </CodeBlockTabsTrigger>
+
+        <CodeBlockTabsTrigger value="yarn">
+          yarn
+        </CodeBlockTabsTrigger>
+
+        <CodeBlockTabsTrigger value="bun">
+          bun
+        </CodeBlockTabsTrigger>
+      </CodeBlockTabsList>
+
+      <CodeBlockTab value="npm">
+        ```bash
+        npm i workflow @ai-sdk/workflow
+        ```
+      </CodeBlockTab>
+
+      <CodeBlockTab value="pnpm">
+        ```bash
+        pnpm add workflow @ai-sdk/workflow
+        ```
+      </CodeBlockTab>
+
+      <CodeBlockTab value="yarn">
+        ```bash
+        yarn add workflow @ai-sdk/workflow
+        ```
+      </CodeBlockTab>
+
+      <CodeBlockTab value="bun">
+        ```bash
+        bun add workflow @ai-sdk/workflow
+        ```
+      </CodeBlockTab>
+    </CodeBlockTabs>
+
+    and extend the Next.js config to transform your workflow code (see [Getting Started](/v5/docs/getting-started/next) for more details).
+
+    ```typescript title="next.config.ts" lineNumbers
+    import { withWorkflow } from "workflow/next";
+    import type { NextConfig } from "next";
+
+    const nextConfig: NextConfig = {
+      // ... rest of your Next.js config
+    };
+
+    export default withWorkflow(nextConfig);
+    ```
+  </Step>
+
+  <Step>
+    ### Create a workflow function
+
+    Move the agent logic into a separate function, which will serve as our workflow definition.
+
+    ```typescript title="workflows/chat/workflow.ts" lineNumbers
+    import { WorkflowAgent, type ModelCallStreamPart } from "@ai-sdk/workflow"; // [!code highlight]
+    import { getWritable } from "workflow"; // [!code highlight]
+    import { flightBookingTools, FLIGHT_ASSISTANT_PROMPT } from "@/ai/tools";
+    import { convertToModelMessages, type UIMessage } from "ai";
+
+    export async function chatWorkflow(messages: UIMessage[]) {
+      "use workflow"; // [!code highlight]
+
+      const writable = getWritable<ModelCallStreamPart>(); // [!code highlight]
+
+      const agent = new WorkflowAgent({ // [!code highlight]
+        // Plain model strings use Vercel AI Gateway.
+        model: "spacexai/grok-4.6", // [!code highlight]
+        instructions: FLIGHT_ASSISTANT_PROMPT,
+        tools: flightBookingTools,
+      });
+
+      const modelMessages = await convertToModelMessages(messages); // [!code highlight]
+
+      await agent.stream({ // [!code highlight]
+        messages: modelMessages,
+        writable,
+      });
+    }
+    ```
+
+    <Callout type="info">
+      `WorkflowAgent` accepts any AI SDK provider. Import the provider and pass its model instance, for example `model: openai("gpt-5.6-sol")` from `@ai-sdk/openai`. The rest of the integration is unchanged.
+    </Callout>
+
+    Key changes:
+
+    * Add the `"use workflow"` directive to mark our Agent as a workflow function
+    * Replace the in-memory agent with [`WorkflowAgent`](https://ai-sdk.dev/v7/docs/agents/workflow-agent#workflowagent) from `@ai-sdk/workflow`. This runs the agent loop inside a workflow, persists state across step boundaries, and lets tool executions marked with `"use step"` retry automatically.
+    * Convert AI SDK `UIMessage` values to model messages inside the workflow before calling `agent.stream()`.
+    * Use [`getWritable()`](/v5/docs/api-reference/workflow/get-writable) to get a stream for agent output. `WorkflowAgent` writes `ModelCallStreamPart` chunks to this persistent stream, and API endpoints can read from a run's stream at any time.
+  </Step>
+
+  <Step>
+    ### Update the API route
+
+    Remove the agent call that we just extracted, and replace it with a call to `start()` to run the workflow:
+
+    ```typescript title="app/api/chat/route.ts" lineNumbers
+    import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
+    import { createUIMessageStreamResponse, type UIMessage } from "ai";
+    import { start } from "workflow/api";
+    import { chatWorkflow } from "@/workflows/chat/workflow";
+
+    export async function POST(req: Request) {
+      const { messages }: { messages: UIMessage[] } = await req.json();
+
+      const run = await start(chatWorkflow, [messages]); // [!code highlight]
+
+      return createUIMessageStreamResponse({
+        stream: run.readable.pipeThrough(createModelCallToUIChunkTransform()), // [!code highlight]
+      });
+    }
+    ```
+
+    Key changes:
+
+    * Call `start()` to run the workflow function. This returns a `Run` object, which contains the run ID and the readable stream (see [Starting Workflows](/v5/docs/foundations/starting-workflows) for more details on the `Run` object).
+    * Pass the `writable` to `agent.stream()` instead of returning a stream directly, ensuring all the Agent output is written to the run's stream.
+    * Pipe the readable stream through `createModelCallToUIChunkTransform()` so the raw model-call chunks become AI SDK UI message chunks before they are returned to the client.
+  </Step>
+
+  <Step>
+    ### Convert tools to steps
+
+    Mark all tool definitions with `"use step"` to make them durable. This enables automatic retries and observability for each tool call:
+
+    {/* @skip-typecheck: incomplete code sample */}
+
+    ```typescript title="workflows/chat/steps/tools.ts​" lineNumbers
+    // ...
+
+    export async function searchFlights(
+      // ... arguments
+    ) {
+      "use step"; // [!code highlight]
+
+      // ... rest of the tool code
+    }
+
+    export async function checkFlightStatus(
+      // ... arguments
+    ) {
+      "use step"; // [!code highlight]
+
+      // ... rest of the tool code
+    }
+
+    export async function getAirportInfo(
+      // ... arguments
+    ) {
+      "use step"; // [!code highlight]
+
+      // ... rest of the tool code
+    }
+
+    export async function bookFlight({
+      // ... arguments
+    }) {
+      "use step"; // [!code highlight]
+
+      // ... rest of the tool code
+    }
+
+    export async function checkBaggageAllowance(
+      // ... arguments
+    ) {
+        "use step"; // [!code highlight]
+
+        // ... rest of the tool code
+      }
+    }
+    ```
+
+    With `"use step"`:
+
+    * The tool execution runs as a durable step with full Node.js access. The combined runtime may execute it inline in the flow request or resume it through the workflow queue, and can scale queued work with your workload.
+    * Failed tool calls are automatically retried (up to 3 times by default). See [Errors and Retries](/v5/docs/foundations/errors-and-retries) for more details.
+    * Each tool execution appears as a discrete step in observability tools. See [Observability](/v5/docs/observability) for more details.
+  </Step>
+</Steps>
+
+Your basic AI SDK agent is now durable. Run your development server and send a chat message. The agent should respond as before, with added durability and observability.
+
+## Observability
+
+In your app directory, you can open up the observability dashboard to see your workflow in action, using the CLI:
+
+```bash
+npx workflow web
+```
+
+This opens a local dashboard showing all workflow runs and their status, as well as a trace viewer to inspect the workflow in detail, including retry attempts, and the data being passed between steps.
+
+## Next steps
+
+Now that you have a basic durable agent, it's only a short step to add these additional features:
+
+<Cards>
+  <Card title="Streaming Updates from Tools" href="/v5/docs/ai/streaming-updates-from-tools">
+    Stream progress updates from tools to the UI while they're executing.
+  </Card>
+
+  <Card title="Resumable Streams" href="/v5/docs/ai/resumable-streams">
+    Enable clients to reconnect to interrupted streams without losing data.
+  </Card>
+
+  <Card title="Sleep, Suspense, and Scheduling" href="/v5/docs/ai/sleep-and-delays">
+    Add native sleep, suspense, and scheduling functionality to your Agent and workflow.
+  </Card>
+
+  <Card title="Human-in-the-Loop" href="/v5/docs/ai/human-in-the-loop">
+    Implement approval steps to wait for human input or external events.
+  </Card>
+</Cards>
+
+## Complete example
+
+A complete example that includes all of the above, plus all of the "next steps" features is available on the main branch of the [Flight Booking Agent](https://github.com/vercel/workflow-examples/tree/main/flight-booking-app) example.
+
+## Related documentation
+
+* [Tools](/v5/docs/ai/defining-tools) - Patterns for defining tools for your agent
+* [`WorkflowAgent`](https://ai-sdk.dev/v7/docs/agents/workflow-agent#workflowagent) - AI SDK API for durable, resumable agents
+* [Workflows and Steps](/v5/docs/foundations/workflows-and-steps) - Core concepts
+* [Streaming](/v5/docs/foundations/streaming) - In-depth streaming guide
+* [Errors and Retries](/v5/docs/foundations/errors-and-retries) - Error handling patterns
+
+
+---
+
+For a semantic overview of all documentation, see [/sitemap.md](/sitemap.md)
+
+For an index of all available documentation, see [/llms.txt](/llms.txt)
+
+For agent-facing discovery, including API and MCP surfaces, see [/agents.md](/agents.md)
