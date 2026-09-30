@@ -1,6 +1,32 @@
 # 0005 — Harness agents on project sandboxes (pi first)
 
-Status: **proposed** — awaiting approval.
+Status: **approved** (2026-09-30) — Phase A starting.
+
+## Endpoint decision (researched 2026-09-30)
+
+Z.AI's coding plan exposes three protocol surfaces (docs.z.ai
+/devpack/tool/others — which also lists **pi as an officially
+supported tool**):
+
+| Protocol               | Base URL                          |
+| ---------------------- | --------------------------------- |
+| **Anthropic Messages** | `https://api.z.ai/api/anthropic`  |
+| OpenAI Chat Completions| `https://api.z.ai/api/coding/paas/v4` |
+| OpenAI Responses       | `https://api.z.ai/api/v1`         |
+
+**Chosen: Anthropic Messages.** The plan is productized around Claude
+Code (CC-Bench trajectories, anthropic surface listed first) — their
+best-tested agentic coding path; native thinking blocks map directly to
+pi's `thinkingLevel`; prompt caching carries a cheaper credit
+multiplier (long agentic sessions save real quota); pi-ai's anthropic
+provider is first-class. The OpenAI surface mirrors our zhipu wiring
+but pi needs its own ProviderConfig either way, so no reuse advantage.
+Fallback if pi's anthropic ProviderConfig has friction:
+openai-completions against `/api/coding/paas/v4`.
+
+(Note: the prototype's claude-code wiring pointed at
+`/api/coding/paas/v4` as "Anthropic-compatible" — the endpoint layout
+has evolved since; today's table is authoritative.)
 
 ## Goal
 
