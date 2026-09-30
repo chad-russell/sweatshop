@@ -89,10 +89,11 @@ export default defineTool({
     const eveSandbox = await ctx.getSandbox();
     // Bridge eve's session sandbox to the AI SDK session shape.
     const sandboxSession = toSandboxSession({
-      run: (command, env) =>
+      run: (command, env, workingDirectory) =>
         eveSandbox.run({
           command,
           ...(env ? { env } : {}),
+          ...(workingDirectory ? { workingDirectory } : {}),
         }),
     });
 

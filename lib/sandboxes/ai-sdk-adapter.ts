@@ -9,6 +9,7 @@ export interface SandboxShellLike {
   run(
     command: string,
     env?: Record<string, string>,
+    workingDirectory?: string,
   ): PromiseLike<{ exitCode: number; stdout: string; stderr: string }>;
 
   /**
@@ -38,8 +39,13 @@ export function toSandboxSession(
 
     async run(options) {
       // Env rides through execSandbox as docker exec -e flags (a shell
-      // `K=V cmd` prefix would not expand inside the command itself).
-      return sandbox.run(options.command, options.env);
+      // `K=V cmd` prefix would not expand inside the command itself);
+      // harness bootstrap recipes run commands in a working directory.
+      return sandbox.run(
+        options.command,
+        options.env,
+        options.workingDirectory,
+      );
     },
 
     async readTextFile(options) {

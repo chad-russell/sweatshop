@@ -109,8 +109,12 @@ export default defineTool({
 
     const eveSandbox = await ctx.getSandbox();
     const sandboxSession = toSandboxSession({
-      run: (command, env) =>
-        eveSandbox.run({ command, ...(env ? { env } : {}) }),
+      run: (command, env, workingDirectory) =>
+        eveSandbox.run({
+          command,
+          ...(env ? { env } : {}),
+          ...(workingDirectory ? { workingDirectory } : {}),
+        }),
       spawn: (options) => eveSandbox.spawn(options),
     });
 

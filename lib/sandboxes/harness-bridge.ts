@@ -57,12 +57,12 @@ export async function assertRuntimeOnHarnessNetwork(): Promise<void> {
     [
       "inspect",
       "-f",
-      `{{index .NetworkSettings.Networks "${HARNESS_NETWORK}"}}`,
+      `{{(index .NetworkSettings.Networks "${HARNESS_NETWORK}").IPAddress}}`,
       hostname,
     ],
     EXEC_OPTS,
   );
-  if (!stdout.trim() || stdout.includes("no such network")) {
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(stdout.trim())) {
     throw new Error(
       `this runtime container is not on the ${HARNESS_NETWORK} network — ` +
         `restart ./dev (it joins the network at startup)`,
@@ -133,7 +133,8 @@ export async function connectSandboxToHarnessNetwork(args: {
   const { stdout: ipOut } = await docker([
     "inspect",
     "-f",
-    `{{.NetworkSettings.Networks.${HARNESS_NETWORK}.IPAddress}}`,
+    // Map key contains a dash — Go templates need index, not field access.
+    `{{(index .NetworkSettings.Networks "${HARNESS_NETWORK}").IPAddress}}`,
     containerId,
   ]);
   const ip = ipOut.trim();

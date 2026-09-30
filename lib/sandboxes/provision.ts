@@ -17,6 +17,7 @@ export interface ProvisionedSandbox {
   run(
     command: string,
     env?: Record<string, string>,
+    workingDirectory?: string,
   ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
   remove(): Promise<void>;
 }
@@ -33,8 +34,8 @@ export function attachSandbox(containerName: string): ProvisionedSandbox {
   return {
     containerName,
     plan: undefined,
-    run(command: string, env?: Record<string, string>) {
-      return execSandbox(containerName, command, env);
+    run(command: string, env?: Record<string, string>, workingDirectory?: string) {
+      return execSandbox(containerName, command, env, workingDirectory);
     },
     async remove() {
       await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
@@ -46,6 +47,7 @@ async function execSandbox(
   containerName: string,
   command: string,
   env?: Record<string, string>,
+  workingDirectory?: string,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   // Env rides as `docker exec -e K=V` flags: a shell `K=V cmd` prefix
   // does NOT work for expansions inside the command itself (POSIX
@@ -54,11 +56,13 @@ async function execSandbox(
     "-e",
     `${k}=${v}`,
   ]);
+  const workdirArgs = workingDirectory ? ["-w", workingDirectory] : [];
   try {
     const { stdout, stderr } = await exec(
       "docker",
       [
         "exec",
+        ...workdirArgs,
         ...envArgs,
         containerName,
         "bash",
@@ -89,8 +93,11 @@ export async function provisionProjectSandbox(
     SANDBOX_IMAGE,
   ]);
 
-  const run = (command: string, env?: Record<string, string>) =>
-    execSandbox(containerName, command, env);
+  const run = (
+    command: string,
+    env?: Record<string, string>,
+    workingDirectory?: string,
+  ) => execSandbox(containerName, command, env, workingDirectory);
   const remove = async () => {
     await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
   };
