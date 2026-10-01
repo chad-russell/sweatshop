@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus } from "ai";
-import { Bot, Check, ChevronsUpDown, Lock, MessageSquarePlus, SquarePen } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronsUpDown, GitPullRequest, Lock, MessageSquarePlus, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { memo, useMemo, useState } from "react";
 import {
@@ -41,6 +41,7 @@ import {
   type ToolPart,
 } from "@/components/ai-elements/tool";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -126,6 +127,146 @@ function HarnessToolCard({
   );
 }
 
+/** owner/repo + number read off a PR web URL (github /pull/N, forgejo /pulls/N). */
+function prUrlCoords(url: string): { repo: string; number: string } | null {
+  const match = url.match(/^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\/pulls?\/(\d+)/);
+  return match ? { repo: `${match[1]}/${match[2]}`, number: match[3] } : null;
+}
+
+/** One create_pr call, rendered as a PR card (same slot as the harness
+ *  cards): status pill, title, and a link out to the VCS — url/number ride
+ *  the tool output, title/body/branches the tool input. Expanding shows the
+ *  description, branch chips, and the raw JSON the generic view would have. */
+function PullRequestToolCard({ part }: { part: EveDynamicToolPart }) {
+  const running =
+    part.state === "input-streaming" || part.state === "input-available";
+  const failed = part.state === "output-error";
+  const denied = part.state === "output-denied";
+  const waiting =
+    part.state === "approval-requested" || part.state === "approval-responded";
+  const showInput = part.state !== "input-streaming";
+  const input = (showInput ? part.input : undefined) as {
+    title?: unknown;
+    body?: unknown;
+    head?: unknown;
+    base?: unknown;
+    repo?: unknown;
+  } | undefined;
+  const title = typeof input?.title === "string" ? input.title : undefined;
+  const body = typeof input?.body === "string" ? input.body : undefined;
+  const head = typeof input?.head === "string" ? input.head : undefined;
+  const base = typeof input?.base === "string" ? input.base : "main";
+  const repoDir = typeof input?.repo === "string" ? input.repo : undefined;
+  const output =
+    part.state === "output-available"
+      ? (part.output as { url?: unknown; number?: unknown } | undefined)
+      : undefined;
+  const url = typeof output?.url === "string" ? output.url : undefined;
+  const prNumber =
+    typeof output?.number === "number" ? output.number : undefined;
+  const coords = url ? prUrlCoords(url) : null;
+  const numberText = coords?.number ?? (prNumber !== undefined ? String(prNumber) : undefined);
+  const errorText = failed ? (part.errorText ?? "create_pr failed") : undefined;
+
+  return (
+    <Tool className={cn("my-1", (failed || denied) && "border-destructive/40")}>
+      <div className="flex w-full items-center justify-between gap-3 px-3 py-2.5">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <GitPullRequest
+            className={cn(
+              "size-4 shrink-0",
+              failed || denied
+                ? "text-destructive"
+                : running
+                  ? "text-info"
+                  : "text-success",
+            )}
+            aria-hidden
+          />
+          <span className="truncate font-medium">
+            {title ?? (running ? "Opening pull request…" : "Pull request")}
+          </span>
+          <span
+            className={
+              "shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase " +
+              (failed || denied
+                ? "bg-destructive/15 text-destructive"
+                : running
+                  ? "animate-pulse bg-info/15 text-info"
+                  : waiting
+                    ? "bg-warning/15 text-warning"
+                    : "bg-success/15 text-success")
+            }
+          >
+            {failed
+              ? "failed"
+              : denied
+                ? "denied"
+                : running
+                  ? "opening"
+                  : waiting
+                    ? "awaiting approval"
+                    : "opened"}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {(coords?.repo || numberText) && (
+            <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
+              {[coords?.repo, numberText && `#${numberText}`]
+                .filter(Boolean)
+                .join(" ")}
+            </span>
+          )}
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
+            >
+              View PR →
+            </a>
+          )}
+          <CollapsibleTrigger
+            aria-label="Toggle create_pr details"
+            title="Details"
+            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <ChevronDown
+              className="size-4 transition-transform group-data-[state=open]:rotate-180"
+              aria-hidden
+            />
+          </CollapsibleTrigger>
+        </div>
+      </div>
+      <ToolContent>
+        {head && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{head}</span>
+            <span aria-hidden>→</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{base}</span>
+            {!coords?.repo && repoDir && (
+              <span className="font-mono">{repoDir}</span>
+            )}
+          </div>
+        )}
+        {body && (
+          <div className="text-sm text-muted-foreground">
+            <MessageResponse>{body}</MessageResponse>
+          </div>
+        )}
+        {showInput && input && <ToolInput input={part.input} />}
+        {(output !== undefined || errorText !== undefined) && (
+          <ToolOutput
+            output={output as ToolPart["output"]}
+            errorText={errorText as ToolPart["errorText"]}
+          />
+        )}
+      </ToolContent>
+    </Tool>
+  );
+}
+
 /** One tool call, collapsed by default: header (name + lifecycle state),
  *  expandable to the JSON input and output/error. */
 const ToolCallView = ({ part }: { part: EveDynamicToolPart }) => {
@@ -198,6 +339,9 @@ export const EveMessageView = memo(function EveMessageView({
             return (
               <HarnessToolCard key={i} part={part} conversationId={conversationId ?? null} />
             );
+          }
+          if (part.type === "dynamic-tool" && part.toolName === "create_pr") {
+            return <PullRequestToolCard key={i} part={part} />;
           }
           if (part.type === "dynamic-tool") {
             return <ToolCallView key={i} part={part} />;
