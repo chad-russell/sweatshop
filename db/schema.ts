@@ -161,6 +161,63 @@ export type ConversationEvent = typeof conversationEvents.$inferSelect;
 export type NewConversationEvent = typeof conversationEvents.$inferInsert;
 
 /**
+ * 0010 Phase 2: sandboxes as explicit, provider-agnostic resources.
+ * A row is a live lease — created on first acquire, updated on stop/
+ * resume, DELETED on destroy (this is a registry, not an audit log; run
+ * and harness history live in their own tables). `ref` is opaque to
+ * everything above the SandboxProvider seam (podman container name
+ * today, a VM id later). One dedicated sandbox per owner.
+ */
+export const sandboxes = sqliteTable(
+  "sandboxes",
+  {
+    /** sbx_… */
+    id: text("id").primaryKey(),
+    /** SandboxProvider kind, e.g. "podman". */
+    provider: text("provider").notNull(),
+    /** Provider-opaque reference (container name today). */
+    ref: text("ref").notNull(),
+    /** "conversation" | "machine_run". */
+    ownerKind: text("owner_kind").notNull(),
+    ownerId: text("owner_id").notNull(),
+    projectId: text("project_id").references(() => projects.id),
+    /** "creating" | "running" | "stopped". */
+    status: text("status").notNull(),
+    /** Unix ms; bumped on every acquire (idle reaping's signal). */
+    lastUsedAt: integer("last_used_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("sandboxes_owner_idx").on(table.ownerKind, table.ownerId),
+    index("sandboxes_status_idx").on(table.status),
+  ],
+);
+
+/**
+ * 0010 Phase 2: a conversation attached to a sandbox it does not own
+ * (explicit "join" from the composer dropdown or an agent tool). The
+ * attacher works in its own workdir but shares ports and processes.
+ */
+export const sandboxAttachments = sqliteTable(
+  "sandbox_attachments",
+  {
+    sandboxId: text("sandbox_id")
+      .notNull()
+      .references(() => sandboxes.id),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    /** Workdir inside the sandbox: /work/<conversationId>. */
+    workdir: text("workdir").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("sandbox_attachments_idx").on(table.sandboxId, table.conversationId),
+    index("sandbox_attachments_conversation_idx").on(table.conversationId),
+  ],
+);
+
+/**
  * 0004 — projects & sandboxes. Projects break up types of work; a
  * project is defined by one or more git repos, references a shareable
  * sandbox config, and its repos' remotes resolve credentials by host.
