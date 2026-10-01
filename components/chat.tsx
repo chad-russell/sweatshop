@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus } from "ai";
-import { Bot, Check, ChevronDown, ChevronsUpDown, GitPullRequest, Lock, MessageSquarePlus, SquarePen } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronsUpDown, Copy, GitPullRequest, Lock, MessageSquarePlus, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,6 +18,8 @@ import {
 } from "@/components/ai-elements/conversation";
 import {
   Message,
+  MessageAction,
+  MessageActions,
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
@@ -296,6 +298,45 @@ const ToolCallView = ({ part }: { part: EveDynamicToolPart }) => {
   );
 };
 
+/** Copy affordance for one message: hover/keyboard revealed, self-contained
+ *  state (a 2s check confirmation). A silent no-op when the clipboard is
+ *  denied — navigator.clipboard needs a secure context, which a LAN
+ *  http origin is not. */
+function MessageCopyAction({ text, alignEnd }: { text: string; alignEnd: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<number>(0);
+  useEffect(() => () => window.clearTimeout(timeoutRef.current), []);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Denied or unavailable — the button just does nothing.
+    }
+  };
+
+  return (
+    <MessageActions
+      className={cn(
+        "opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
+        alignEnd && "self-end",
+      )}
+    >
+      <MessageAction
+        type="button"
+        tooltip={copied ? "Copied" : "Copy message"}
+        aria-label="Copy message"
+        onClick={() => void copy()}
+      >
+        {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+      </MessageAction>
+    </MessageActions>
+  );
+}
+
 /**
  * Render one eve message with the AI Elements kit. EveMessage parts follow
  * the UIMessage rendering convention: text streams through
@@ -314,6 +355,18 @@ export const EveMessageView = memo(function EveMessageView({
   message: EveMessage;
   conversationId?: string | null;
 }) {
+  // Concatenated text parts — the clipboard payload for the copy action.
+  // Tool-only messages have none and get no action row.
+  const text = useMemo(
+    () =>
+      message.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n\n")
+        .trim(),
+    [message.parts],
+  );
+
   return (
     <Message
       from={message.role}
@@ -349,6 +402,9 @@ export const EveMessageView = memo(function EveMessageView({
           return null;
         })}
       </MessageContent>
+      {text && (
+        <MessageCopyAction text={text} alignEnd={message.role === "user"} />
+      )}
     </Message>
   );
 });
