@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { openDb } from "../db";
 import { mirrorStreamEvent } from "../db/mirror";
 import { searchConversations, toFtsPhrase } from "../db/search";
+import { eq } from "drizzle-orm";
+import { createFolder, moveConversation, setArchived, setTrashed } from "../db/organize";
+import { conversations, projects } from "../db/schema";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 
@@ -121,5 +124,70 @@ describe("toFtsPhrase", () => {
     expect(crafted.endsWith('"')).toBe(true);
     // Executing the crafted query does not throw and matches nothing.
     expect(() => searchConversations(tdb, 'a" OR 1=1 --')).not.toThrow();
+  });
+});
+
+describe("organization-aware search (0007)", () => {
+  const setMeta = (id: string, title: string, summary: string | null) =>
+    tdb.update(conversations).set({ title, summary }).where(eq(conversations.id, id)).run();
+
+  it("matches on title/summary and ranks those above body-only matches", () => {
+    seedConversation("wrun_rank_body", "tell me about small marsupials", "The quokka is a small marsupial.");
+    seedConversation("wrun_rank_title", "unrelated opening", "unrelated reply");
+    setMeta("wrun_rank_title", "Quokka habitat notes", "One-line summary about quokkas.");
+
+    const hits = searchConversations(tdb, "quokka");
+    const ids = hits.map((h) => h.conversationId);
+    expect(ids.indexOf("wrun_rank_title")).toBeLessThan(ids.indexOf("wrun_rank_body"));
+    expect(hits.find((h) => h.conversationId === "wrun_rank_title")?.matchedIn).toBe("title");
+    expect(hits.find((h) => h.conversationId === "wrun_rank_body")?.matchedIn).toBe("body");
+  });
+
+  it("keeps the title index in sync on later updates", () => {
+    seedConversation("wrun_fts_sync", "plain opener", "plain reply");
+    expect(searchConversations(tdb, "capybaras")).toEqual([]);
+    setMeta("wrun_fts_sync", "All about capybaras", null);
+    expect(searchConversations(tdb, "capybaras").map((h) => h.conversationId)).toContain(
+      "wrun_fts_sync",
+    );
+    setMeta("wrun_fts_sync", "Renamed away", null);
+    expect(searchConversations(tdb, "capybaras")).toEqual([]);
+  });
+
+  it("excludes trash, includes archive (flagged) unless filtered out", () => {
+    seedConversation("wrun_vis_arch", "narwhal tusk facts", "narwhals have one tusk");
+    seedConversation("wrun_vis_trash", "narwhal trash chat", "narwhals again");
+    setArchived(tdb, "wrun_vis_arch", true);
+    setTrashed(tdb, "wrun_vis_trash", true);
+
+    const all = searchConversations(tdb, "narwhal");
+    expect(all.map((h) => h.conversationId)).toContain("wrun_vis_arch");
+    expect(all.map((h) => h.conversationId)).not.toContain("wrun_vis_trash");
+    expect(all.find((h) => h.conversationId === "wrun_vis_arch")?.archived).toBe(true);
+
+    const live = searchConversations(tdb, "narwhal", { includeArchived: false });
+    expect(live.map((h) => h.conversationId)).not.toContain("wrun_vis_arch");
+  });
+
+  it("filters by project and folder subtree and reports the folder path", () => {
+    tdb.insert(projects).values({ id: "srch-p", name: "Search P", createdAt: 1 }).onConflictDoNothing().run();
+    seedConversation("wrun_flt_in", "ocelot spotting", "ocelots are nocturnal");
+    seedConversation("wrun_flt_out", "ocelot elsewhere", "ocelots again");
+    tdb.update(conversations).set({ projectId: "srch-p" }).where(eq(conversations.id, "wrun_flt_in")).run();
+    const top = createFolder(tdb, { projectId: "srch-p", parentId: null, name: "Cats" });
+    const sub = createFolder(tdb, { projectId: "srch-p", parentId: top.id, name: "Wild" });
+    moveConversation(tdb, "wrun_flt_in", sub.id);
+
+    const byProject = searchConversations(tdb, "ocelot", { project: "srch-p" });
+    expect(byProject.map((h) => h.conversationId)).toEqual(["wrun_flt_in"]);
+    expect(byProject[0].path).toEqual(["Cats", "Wild"]);
+    expect(byProject[0].projectName).toBe("Search P");
+
+    // Filtering by the *parent* folder includes the subfolder's conversation.
+    const byFolder = searchConversations(tdb, "ocelot", { folder: top.id });
+    expect(byFolder.map((h) => h.conversationId)).toEqual(["wrun_flt_in"]);
+
+    const unbound = searchConversations(tdb, "ocelot", { project: "none" });
+    expect(unbound.map((h) => h.conversationId)).toEqual(["wrun_flt_out"]);
   });
 });

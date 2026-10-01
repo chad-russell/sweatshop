@@ -1,11 +1,32 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import type { Db } from "./index";
+import { folderPath, folderSubtreeIds } from "./organize";
+import { conversations, folders, projects } from "./schema";
 
 export interface SearchHit {
   conversationId: string;
   title: string | null;
   snippet: string;
+  /** Matching message rows (body hits); 0 for a title/summary-only match. */
   hits: number;
+  /** Where the best match was found. */
+  matchedIn: "title" | "body";
+  projectId: string | null;
+  projectName: string | null;
+  /** Folder breadcrumb within the group, e.g. ["Spikes", "Sandbox"]. */
+  path: string[];
+  archived: boolean;
+  updatedAt: number;
+}
+
+export interface SearchOptions {
+  limit?: number;
+  /** Restrict to one project id; "none" restricts to unbound (Chats). */
+  project?: string;
+  /** Restrict to a folder and everything below it. */
+  folder?: string;
+  /** Include archived conversations (default true). Trashed never match. */
+  includeArchived?: boolean;
 }
 
 /**
@@ -16,56 +37,151 @@ export function toFtsPhrase(query: string): string {
   return `"${query.replaceAll('"', '""')}"`;
 }
 
+/** SQL filter fragment over the `c` (conversations) alias. */
+function filterClause(db: Db, options: SearchOptions): SQL {
+  const parts: SQL[] = [sql`c.trashed_at is null`];
+  if (options.includeArchived === false) parts.push(sql`c.archived_at is null`);
+  if (options.project === "none") parts.push(sql`c.project_id is null`);
+  else if (options.project) parts.push(sql`c.project_id = ${options.project}`);
+  if (options.folder) {
+    const ids = folderSubtreeIds(db, options.folder);
+    parts.push(
+      sql`c.folder_id in (${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `,
+      )})`,
+    );
+  }
+  return sql.join(parts, sql` and `);
+}
+
 /**
- * Search conversation text (0003): FTS5 match over `messages`, grouped to
- * one hit per conversation in TypeScript — snippet() is an FTS5 auxiliary
- * function and only works on a concrete matched row, so the SQL stays
- * flat (per-row matches, bm25-ordered) and the grouping happens here.
+ * Search conversations (0003 + 0007). Two indexes feed one ranked list:
+ *
+ * - `conversations_fts` over title + summary — what a conversation is
+ *   *about*; these matches rank first;
+ * - `messages_fts` over message text, bm25-ordered, grouped to one hit
+ *   per conversation in TypeScript (snippet() is an FTS5 auxiliary
+ *   function and only works on a concrete matched row, so the SQL stays
+ *   flat).
+ *
+ * Trashed conversations are excluded; archived ones are included unless
+ * `includeArchived` is false.
  */
 export function searchConversations(
   db: Db,
   query: string,
-  limit = 20,
+  options: SearchOptions = {},
 ): SearchHit[] {
   const trimmed = query.trim();
   if (!trimmed) return [];
+  const limit = options.limit ?? 20;
+  const phrase = toFtsPhrase(trimmed);
+  const where = filterClause(db, options);
 
-  const rows = db.all<{
-    conversationId: string;
-    title: string | null;
-    snippet: string;
-    at: number;
-  }>(sql`
+  const metaRows = db.all<{ conversationId: string; snippet: string }>(sql`
+    select c.id as conversationId,
+           coalesce(
+             nullif(snippet(conversations_fts, 1, '[', ']', '…', 12), ''),
+             snippet(conversations_fts, 0, '[', ']', '…', 12)
+           ) as snippet
+    from conversations_fts
+    join conversations c on c.rowid = conversations_fts.rowid
+    where conversations_fts match ${phrase} and ${where}
+    order by bm25(conversations_fts, 4.0, 1.0)
+    limit ${limit}
+  `);
+
+  const bodyRows = db.all<{ conversationId: string; snippet: string }>(sql`
     select m.conversation_id as conversationId,
-           c.title as title,
-           snippet(messages_fts, 0, '[', ']', '…', 12) as snippet,
-           m.at as at
+           snippet(messages_fts, 0, '[', ']', '…', 12) as snippet
     from messages_fts
     join messages m on m.rowid = messages_fts.rowid
     join conversations c on c.id = m.conversation_id
-    where messages_fts match ${toFtsPhrase(trimmed)}
+    where messages_fts match ${phrase} and ${where}
     order by bm25(messages_fts), m.at desc
     limit 100
   `);
 
-  const byConversation = new Map<string, SearchHit>();
-  for (const row of rows) {
-    const existing = byConversation.get(row.conversationId);
+  // Merge: title/summary matches first (their rank order), then body
+  // matches in bm25 order; body row counts accrue to every conversation.
+  const order: string[] = [];
+  const found = new Map<
+    string,
+    { snippet: string; hits: number; matchedIn: "title" | "body" }
+  >();
+  for (const row of metaRows) {
+    order.push(row.conversationId);
+    found.set(row.conversationId, {
+      snippet: row.snippet,
+      hits: 0,
+      matchedIn: "title",
+    });
+  }
+  for (const row of bodyRows) {
+    const existing = found.get(row.conversationId);
     if (existing) {
       existing.hits += 1;
       continue;
     }
-    // rows arrive bm25-ordered, so the first row per conversation carries
-    // the best snippet; stop admitting new conversations at the limit but
-    // keep counting hits for admitted ones.
-    if (byConversation.size >= limit) continue;
-    byConversation.set(row.conversationId, {
-      conversationId: row.conversationId,
-      title: row.title,
+    if (found.size >= limit) continue;
+    order.push(row.conversationId);
+    found.set(row.conversationId, {
       snippet: row.snippet,
       hits: 1,
+      matchedIn: "body",
     });
   }
+  if (order.length === 0) return [];
 
-  return [...byConversation.values()];
+  const folderIndex = new Map(
+    db
+      .select()
+      .from(folders)
+      .all()
+      .map((f) => [f.id, f]),
+  );
+  const projectName = new Map(
+    db
+      .select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .all()
+      .map((p) => [p.id, p.name]),
+  );
+  const meta = new Map(
+    db
+      .select({
+        id: conversations.id,
+        title: conversations.title,
+        projectId: conversations.projectId,
+        folderId: conversations.folderId,
+        archivedAt: conversations.archivedAt,
+        updatedAt: conversations.updatedAt,
+      })
+      .from(conversations)
+      .all()
+      .map((c) => [c.id, c]),
+  );
+
+  return order.flatMap((id): SearchHit[] => {
+    const c = meta.get(id);
+    const f = found.get(id);
+    if (!c || !f) return [];
+    return [
+      {
+        conversationId: id,
+        title: c.title,
+        snippet: f.snippet,
+        hits: f.hits,
+        matchedIn: f.matchedIn,
+        projectId: c.projectId,
+        projectName: c.projectId
+          ? (projectName.get(c.projectId) ?? c.projectId)
+          : null,
+        path: folderPath(folderIndex, c.folderId),
+        archived: c.archivedAt !== null,
+        updatedAt: c.updatedAt,
+      },
+    ];
+  });
 }
