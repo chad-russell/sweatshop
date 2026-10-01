@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChatStatus } from "ai";
-import { Bot, Check, ChevronDown, ChevronsUpDown, Copy, GitPullRequest, Lock, MessageSquarePlus, SquarePen } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronsUpDown, Copy, GitPullRequest, Lock, MessageSquarePlus, RotateCcw, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
@@ -375,7 +375,13 @@ export const EveMessageView = memo(function EveMessageView({
   return (
     <Message
       from={message.role}
-      className="[content-visibility:auto] [contain-intrinsic-size:auto_80px]"
+      className={cn(
+        "[content-visibility:auto] [contain-intrinsic-size:auto_80px]",
+        // A submission that never reached the server stays projected with
+        // status "failed" — mute it so the retry's live copy reads as the
+        // real one.
+        message.metadata?.status === "failed" && "opacity-60",
+      )}
     >
       <MessageContent>
         {message.parts.map((part, i) => {
@@ -628,6 +634,31 @@ export function ChatSurface({
     void agent.send(text, isBusy ? { turnPolicy: "steer" } : undefined);
   };
 
+  // Text of the newest user message — the retry payload. A submission that
+  // died in transport stays projected as a failed optimistic message; a
+  // server-side turn failure leaves the confirmed user message last. Either
+  // way this is "what was being asked", and send() re-asks it (eve exposes
+  // no reload/truncate, so the transcript gains the resend — the failed
+  // attempt is muted above).
+  const lastUserText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message.role !== "user") continue;
+      const text = message.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("")
+        .trim();
+      return text || null;
+    }
+    return null;
+  }, [messages]);
+
+  const handleRetry = () => {
+    if (!lastUserText || inputDisabled) return;
+    void agent.send(lastUserText);
+  };
+
   // ── Draft persistence ────────────────────────────────────────────────
   // Restored imperatively after mount: reading localStorage during render
   // would mismatch the server-rendered HTML. Saved on every keystroke, so
@@ -795,9 +826,22 @@ export function ChatSurface({
             </div>
           )}
           {agent.error && (
-            <p className="py-2 text-sm text-destructive">
-              {agent.error.message}
-            </p>
+            <div
+              role="alert"
+              className="flex flex-wrap items-center gap-3 py-2 text-sm text-destructive"
+            >
+              <span className="min-w-0 flex-1 break-words">{agent.error.message}</span>
+              {lastUserText && (
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 text-xs font-medium transition-colors hover:bg-destructive/10"
+                >
+                  <RotateCcw className="size-3.5" aria-hidden />
+                  Retry
+                </button>
+              )}
+            </div>
           )}
         </ConversationContent>
         <ConversationScrollButton />
