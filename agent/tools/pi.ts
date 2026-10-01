@@ -11,6 +11,7 @@ import {
   recordHarnessRunEnd,
 } from "../../lib/harness-events";
 import { toSandboxSession } from "../../lib/sandboxes/ai-sdk-adapter";
+import { sandboxContainerIdentity } from "../../lib/sandboxes/identity";
 
 /**
  * 0005: the pi coding harness, attached to THIS conversation's project
@@ -21,7 +22,11 @@ import { toSandboxSession } from "../../lib/sandboxes/ai-sdk-adapter";
  *
  * One harness session per conversation (module cache; lives while the
  * dev server lives). pi keeps its own turn history, so successive calls
- * continue one coding session.
+ * continue one coding session. When the sandbox container is replaced
+ * (age-based gc + selector re-run), the cached session is evicted and
+ * a fresh one starts on the new container — never silently reused
+ * against a dead sandbox (the pi-side twin of claude's bridge-IP
+ * eviction).
  */
 
 const PI_MODEL = process.env.PI_MODEL ?? "zai-glm/glm-5.3-flash";
@@ -29,16 +34,27 @@ const PI_MODEL = process.env.PI_MODEL ?? "zai-glm/glm-5.3-flash";
 interface CachedHarness {
   agent: HarnessAgent;
   session: Awaited<ReturnType<HarnessAgent["createSession"]>>;
+  /** Container identity the session was built against. */
+  identity: string | null;
 }
 
 const harnessCache = new Map<string, CachedHarness>();
 
 async function getHarness(
   sessionId: string,
+  identity: string | null,
   sandboxSession: Experimental_SandboxSession,
 ): Promise<CachedHarness> {
   const cached = harnessCache.get(sessionId);
-  if (cached) return cached;
+  if (cached && identity !== null && cached.identity === identity) {
+    return cached;
+  }
+  if (cached) {
+    // Sandbox replaced under us: drop the stale session rather than
+    // continuing pi history that talks to a dead container.
+    await cached.session.destroy().catch(() => undefined);
+    harnessCache.delete(sessionId);
+  }
 
   const pi = createPi({
     providers: {
@@ -53,8 +69,9 @@ async function getHarness(
   });
   const agent = new HarnessAgent({ harness: pi, id: `pi-${sessionId}`, model: PI_MODEL });
   const session = await agent.createSession({ sandboxSession });
-  harnessCache.set(sessionId, { agent, session });
-  return { agent, session };
+  const entry = { agent, session, identity };
+  harnessCache.set(sessionId, entry);
+  return entry;
 }
 
 export default defineTool({
@@ -92,6 +109,9 @@ export default defineTool({
     let failure: string | undefined;
     try {
       const eveSandbox = await ctx.getSandbox();
+      // Cache identity: the container's hostname — it changes exactly
+      // when the sandbox container is replaced (see module doc).
+      const identity = await sandboxContainerIdentity(eveSandbox);
       // Bridge eve's session sandbox to the AI SDK session shape.
       const sandboxSession = toSandboxSession({
         run: (command, env, workingDirectory) =>
@@ -102,7 +122,11 @@ export default defineTool({
           }),
       });
 
-      const { agent, session } = await getHarness(ctx.session.id, sandboxSession);
+      const { agent, session } = await getHarness(
+        ctx.session.id,
+        identity,
+        sandboxSession,
+      );
 
       // Full harness event stream (0005 visibility, 0006 multi-harness):
       // every model step and tool call is recorded per conversation ×
