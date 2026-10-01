@@ -3,7 +3,7 @@
 import type { ChatStatus } from "ai";
 import { Bot, Check, ChevronDown, ChevronsUpDown, Copy, GitPullRequest, Lock, MessageSquarePlus, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   useEveAgent,
   type EveDynamicToolPart,
@@ -61,6 +61,11 @@ import { useMounted } from "@/lib/use-mounted";
 
 /** localStorage key for the chosen model (applies to new conversations). */
 const MODEL_STORAGE_KEY = "sweatshop.model";
+
+/** localStorage prefix for per-conversation composer drafts. The suffix is
+ *  the conversation id once known, else the project id (project landing) or
+ *  "new" (the bare landing) — so drafts never leak across conversations. */
+const DRAFT_PREFIX = "sweatshop.draft.";
 
 /** eve status → the ChatStatus shape PromptInputSubmit understands. */
 function toChatStatus(status: UseEveAgentStatus): ChatStatus {
@@ -613,7 +618,36 @@ export function ChatSurface({
   const handleSubmit = (message: PromptInputMessage) => {
     const text = message.text?.trim();
     if (!text || inputDisabled) return;
+    // The draft left the composer — stop persisting it.
+    window.localStorage.removeItem(draftKey);
     void agent.send(text, isBusy ? { turnPolicy: "steer" } : undefined);
+  };
+
+  // ── Draft persistence ────────────────────────────────────────────────
+  // Restored imperatively after mount: reading localStorage during render
+  // would mismatch the server-rendered HTML. Saved on every keystroke, so
+  // navigating away mid-thought and back (or a reload) keeps the text. The
+  // key follows the conversation — the route param, else the live session
+  // once the first send adopts it, else the project landing, else "new".
+  const draftKey = DRAFT_PREFIX + (conversationId ?? projectId ?? "new");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(draftKey);
+    // Only seed an empty composer — form.reset() emptied it on the send
+    // that adopted the session, so a live keystroke is never clobbered.
+    if (saved && textareaRef.current && textareaRef.current.value === "") {
+      textareaRef.current.value = saved;
+    }
+  }, [draftKey]);
+
+  const handleDraftChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.currentTarget.value;
+    if (value.trim()) {
+      window.localStorage.setItem(draftKey, value);
+    } else {
+      window.localStorage.removeItem(draftKey);
+    }
   };
 
   const handleNewChat = () => {
@@ -701,6 +735,8 @@ export function ChatSurface({
       <div className="border-t p-4">
         <PromptInput onSubmit={handleSubmit}>
           <PromptInputTextarea
+            ref={textareaRef}
+            onChange={handleDraftChange}
             placeholder="Message sweatshop…"
             disabled={inputDisabled}
           />
