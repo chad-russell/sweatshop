@@ -14,7 +14,8 @@
     "db:seed": "node scripts/seed.mjs",
     "sandbox:gc": "node scripts/sandbox-gc.mjs",
     "docs:eve": "bash scripts/sync-eve-docs.sh",
-    "test": "vitest run"
+    "test": "vitest run",
+    "chat:import": "node scripts/import-eve-conversations.mjs"
   },
   "dependencies": {
     "@ai-sdk/harness": "1.0.132",
