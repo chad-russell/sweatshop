@@ -48,6 +48,10 @@ export const conversations = sqliteTable(
     lastSeenAt: integer("last_seen_at").notNull().default(0),
     /** Rows mirrored for this conversation (gap audit via rebuild). */
     eventCount: integer("event_count").notNull().default(0),
+    /** 0010 spike: the conversation's running turn workflow (new chat
+     *  runtime), null when idle. Route-set, cleared by the turn's
+     *  persist step (or cancel). */
+    activeRunId: text("active_run_id"),
   },
   (table) => [
     index("conversations_updated_at_idx").on(table.updatedAt),
@@ -123,9 +127,31 @@ export const messages = sqliteTable(
     /** "user" | "assistant". */
     role: text("role").notNull(),
     text: text("text").notNull(),
+    /** 0010 spike: serialized ModelMessage this row came from (new chat
+     *  runtime); null on mirror-extracted rows. The new runtime's source
+     *  of truth — `text` stays the plain-text extraction for search. */
+    modelMessage: text("model_message"),
     at: integer("at").notNull(),
   },
   (table) => [index("messages_conversation_idx").on(table.conversationId)],
+);
+
+/**
+ * 0010 spike: steer messages queued while a turn is running (or before
+ * the next one starts). Drained by the running turn's prepareStep (mid-
+ * turn) or folded into the next turn's loaded history.
+ */
+export const steerQueue = sqliteTable(
+  "steer_queue",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    text: text("text").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [index("steer_queue_conversation_idx").on(table.conversationId)],
 );
 
 export type Folder = typeof folders.$inferSelect;
