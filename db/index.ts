@@ -24,8 +24,8 @@ export function openDb(dbPath: string = resolveDbPath()) {
 
 let singleton: Db | null = null;
 
-/** Process-wide connection (Next RSC + eve hook share one process under
- * withEve). Tests use openDb() against a temp path instead. */
+/** Process-wide connection (the Next server is the one process now —
+ * 0010). Tests use openDb() against a temp path instead. */
 export function db(): Db {
   singleton ??= openDb();
   return singleton;
