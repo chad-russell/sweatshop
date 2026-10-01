@@ -3,7 +3,7 @@
 import type { ChatStatus } from "ai";
 import { Bot, Check, ChevronDown, ChevronsUpDown, GitPullRequest, Lock, MessageSquarePlus, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   useEveAgent,
   type EveDynamicToolPart,
@@ -469,6 +469,10 @@ export function ChatSurface({
     window.localStorage.setItem(MODEL_STORAGE_KEY, id);
   };
 
+  // Sidebar live-refresh bookkeeping: the session id whose layout refresh
+  // has already been triggered (see onSessionChange).
+  const refreshedSessionRef = useRef<string | null>(null);
+
   const agent = useEveAgent({
     initialSession: sessionId ? { sessionId, streamIndex: 0 } : undefined,
     resume: sessionId !== undefined,
@@ -489,6 +493,15 @@ export function ChatSurface({
       // already correct.
       if (!session || sessionId) return;
       window.history.replaceState(null, "", `/c/${session.sessionId}`);
+      // A conversation started mid-page shows up in the sidebar now, not
+      // on the next navigation: refresh the server layout (a refresh
+      // re-renders RSC payload but preserves client state, so the live
+      // stream is untouched). Once per session id — the session cursor
+      // advances as the stream does.
+      if (refreshedSessionRef.current !== session.sessionId) {
+        refreshedSessionRef.current = session.sessionId;
+        router.refresh();
+      }
     },
   });
 

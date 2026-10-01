@@ -34,8 +34,8 @@ const FOOTER_BUTTON =
  * conversations split by age. Archive and Trash are separate views from
  * the footer. Server-rendered by the layout from sqlite; every mutation
  * goes through the organization API and refreshes the layout. A
- * conversation started mid-page appears on the next route change —
- * accepted staleness.
+ * conversation started mid-page triggers a layout refresh from the
+ * chat surface once its session is adopted.
  */
 export function ConversationSidebar({ data }: { data: SidebarData }) {
   const pathname = usePathname();
