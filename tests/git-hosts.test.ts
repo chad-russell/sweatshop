@@ -7,10 +7,13 @@ import {
   repoPath,
   resolveCredential,
 } from "../lib/git-hosts";
+import { GIT_HOSTS } from "../lib/git-hosts/hosts";
 import { forgejoHost } from "../lib/git-hosts/forgejo";
 import { githubHost } from "../lib/git-hosts/github";
 
-const HOSTS = [githubHost, forgejoHost];
+// The canonical registry — the same array production code resolves
+// against, so a host missing from it fails here too.
+const HOSTS = GIT_HOSTS;
 
 const cred = (over: Partial<GitCredential>): GitCredential => ({
   id: "test",

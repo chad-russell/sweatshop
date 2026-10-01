@@ -1,5 +1,6 @@
 import { defineHook } from "eve/hooks";
 import { mirrorStreamEvent } from "../../db/mirror";
+import { sessionProjectId } from "../../lib/session-attributes";
 import { scheduleTitleGeneration } from "../../lib/titles";
 
 /**
@@ -15,12 +16,9 @@ import { scheduleTitleGeneration } from "../../lib/titles";
 export default defineHook({
   events: {
     "*": (event, ctx) => {
-      const attributes = ctx.session.auth.initiator?.attributes as
-        | { project?: unknown }
-        | undefined;
-      const projectId =
-        typeof attributes?.project === "string" ? attributes.project : null;
-      mirrorStreamEvent(ctx.session.id, event, { projectId });
+      mirrorStreamEvent(ctx.session.id, event, {
+        projectId: sessionProjectId(ctx.session),
+      });
       // 0007: label the conversation after an assistant reply lands —
       // fire-and-forget, so the stream never waits on a model call.
       if (event.type === "message.completed") {

@@ -1,12 +1,13 @@
 import type { GitCredential } from "@/db/schema";
+import type { SandboxShell } from "@/lib/sandbox-shell";
 
 /**
- * Minimal shell surface GitHost implementations may use. Structural (not
- * eve's SandboxSession) so hosts are unit-testable against a fake.
+ * Minimal shell surface GitHost implementations may use — the canonical
+ * SandboxShell seam (lib/sandbox-shell.ts), re-exported so existing
+ * imports keep working. Structural (not eve's SandboxSession) so hosts
+ * are unit-testable against a fake.
  */
-export interface SandboxShell {
-  run(command: string): PromiseLike<{ exitCode: number; stdout: string; stderr: string }>;
-}
+export type { SandboxShell };
 
 /** Input for opening a pull/merge request (0004 Phase D). */
 export interface CreatePRInput {

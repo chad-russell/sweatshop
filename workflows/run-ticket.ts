@@ -7,7 +7,7 @@ import { db } from "@/db";
 import { gitCredentials, projectRepos, ticketRuns } from "@/db/schema";
 import { glmFlash } from "@/lib/model";
 import { resolveCredential } from "@/lib/git-hosts/index";
-import { GIT_HOSTS } from "@/lib/sandboxes/setup";
+import { GIT_HOSTS } from "@/lib/git-hosts/hosts";
 
 /**
  * 0004 Path B — run_ticket: a raw Workflow SDK pipeline that provisions

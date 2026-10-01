@@ -1,17 +1,13 @@
 import type { Experimental_SandboxSession } from "ai";
+import type { SandboxShell } from "@/lib/sandbox-shell";
 
 /**
- * Minimal shell surface the adapter needs — implemented by
- * ProvisionedSandbox (Path B) and by a thin wrapper over an eve session
- * sandbox (Path A), so both paths present identical AI SDK sessions.
+ * The canonical SandboxShell seam plus real long-lived process support
+ * (0006) — implemented by ProvisionedSandbox (Path B) and by a thin
+ * wrapper over an eve session sandbox (Path A), so both paths present
+ * identical AI SDK sessions.
  */
-export interface SandboxShellLike {
-  run(
-    command: string,
-    env?: Record<string, string>,
-    workingDirectory?: string,
-  ): PromiseLike<{ exitCode: number; stdout: string; stderr: string }>;
-
+export interface SandboxShellLike extends SandboxShell {
   /**
    * Real long-lived process support (0006): when the backing sandbox
    * exposes one (eve session sandboxes do — streams, env, wait/kill),

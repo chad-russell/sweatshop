@@ -3,11 +3,9 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { db } from "../../db";
 import { gitCredentials, projectRepos, projects } from "../../db/schema";
-import { forgejoHost } from "../../lib/git-hosts/forgejo";
-import { githubHost } from "../../lib/git-hosts/github";
+import { GIT_HOSTS } from "../../lib/git-hosts/hosts";
 import { resolveCredential } from "../../lib/git-hosts/index";
-
-const HOSTS = [githubHost, forgejoHost];
+import { sessionProjectId } from "../../lib/session-attributes";
 
 /**
  * 0004 Phase D: open a pull request on one of the bound project's repos.
@@ -26,11 +24,7 @@ export default defineTool({
     body: z.string().optional(),
   }),
   async execute({ repo, head, base, title, body }, ctx) {
-    const attributes = ctx.session.auth.initiator?.attributes as
-      | { project?: unknown }
-      | undefined;
-    const projectId =
-      typeof attributes?.project === "string" ? attributes.project : null;
+    const projectId = sessionProjectId(ctx.session);
     if (!projectId) {
       throw new Error("no project bound to this conversation");
     }
@@ -53,7 +47,7 @@ export default defineTool({
     }
 
     const credentials = db().select().from(gitCredentials).all();
-    const resolved = resolveCredential(repoRow.url, credentials, HOSTS);
+    const resolved = resolveCredential(repoRow.url, credentials, GIT_HOSTS);
     if (!resolved) {
       throw new Error(
         `no git credential matches the remote host of ${repoRow.url} — seed one and retry`,

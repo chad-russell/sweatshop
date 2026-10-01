@@ -12,6 +12,7 @@ import {
 } from "../../lib/harness-events";
 import { toSandboxSession } from "../../lib/sandboxes/ai-sdk-adapter";
 import { sandboxContainerIdentity } from "../../lib/sandboxes/identity";
+import { sessionProjectId } from "../../lib/session-attributes";
 
 /**
  * 0005: the pi coding harness, attached to THIS conversation's project
@@ -85,10 +86,7 @@ export default defineTool({
     task: z.string().min(1).describe("The coding task, with enough context to act on."),
   }),
   async execute({ task }, ctx) {
-    const attributes = ctx.session.auth.initiator?.attributes as
-      | { project?: unknown }
-      | undefined;
-    if (typeof attributes?.project !== "string") {
+    if (!sessionProjectId(ctx.session)) {
       throw new Error(
         "pi requires a project conversation — start one from a project page",
       );

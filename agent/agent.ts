@@ -1,5 +1,6 @@
 import { defineAgent, defineDynamic } from "eve";
 import { resolveChatModel, zaiModel } from "../lib/model";
+import { sessionModelId } from "../lib/session-attributes";
 
 /**
  * Per-conversation model selection: the channel lifts x-sweatshop-model
@@ -17,10 +18,7 @@ export default defineAgent({
   model: defineDynamic({
     events: {
       "step.started": (_event, ctx) => {
-        const requested = ctx.session.auth.initiator?.attributes.model;
-        const model = resolveChatModel(
-          typeof requested === "string" ? requested : null,
-        );
+        const model = resolveChatModel(sessionModelId(ctx.session));
         return {
           model: zaiModel(model.id),
           modelContextWindowTokens: model.contextWindowTokens,

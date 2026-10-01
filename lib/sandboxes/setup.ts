@@ -8,9 +8,8 @@ import {
   type Project,
   type ProjectRepo,
 } from "@/db/schema";
-import type { SandboxShell } from "@/lib/git-hosts";
-import { forgejoHost } from "@/lib/git-hosts/forgejo";
-import { githubHost } from "@/lib/git-hosts/github";
+import type { SandboxShell } from "@/lib/sandbox-shell";
+import { GIT_HOSTS } from "@/lib/git-hosts/hosts";
 import { httpsRemote, resolveCredential } from "@/lib/git-hosts/index";
 
 /**
@@ -20,7 +19,6 @@ import { httpsRemote, resolveCredential } from "@/lib/git-hosts/index";
  * eve sandbox selector (Path A) and by directly provisioned containers
  * (Path B) so both see identical workspaces.
  */
-export const GIT_HOSTS = [githubHost, forgejoHost];
 
 const GIT_USER_NAME = process.env.GIT_USER_NAME ?? "sweatshop agent";
 const GIT_USER_EMAIL = process.env.GIT_USER_EMAIL ?? "agent@sweatshop.local";

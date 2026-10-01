@@ -1,5 +1,6 @@
 import { defineSandbox } from "eve/sandbox";
 import { DockerSandbox } from "eve/sandbox/docker";
+import { sessionProjectId } from "../lib/session-attributes";
 import { setupProjectWorkspace } from "../lib/sandboxes/setup";
 
 /**
@@ -28,11 +29,7 @@ export const environment = DockerSandbox.environment({
 });
 
 export default defineSandbox(async ({ session }) => {
-  const attributes = session.auth.initiator?.attributes as
-    | { project?: unknown }
-    | undefined;
-  const projectId =
-    typeof attributes?.project === "string" ? attributes.project : null;
+  const projectId = sessionProjectId(session);
 
   // Decision 4: non-project conversations get no sandbox — the error must
   // be self-explanatory because it surfaces as the failure of whatever

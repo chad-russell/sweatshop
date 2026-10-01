@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { SandboxShell } from "@/lib/sandbox-shell";
 
 const exec = promisify(execFile);
 
@@ -68,13 +69,6 @@ export async function assertRuntimeOnHarnessNetwork(): Promise<void> {
         `restart ./dev (it joins the network at startup)`,
     );
   }
-}
-
-export interface SandboxShell {
-  run(
-    command: string,
-    env?: Record<string, string>,
-  ): PromiseLike<{ exitCode: number; stdout: string; stderr: string }>;
 }
 
 /**
