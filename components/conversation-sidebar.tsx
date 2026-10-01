@@ -1,9 +1,9 @@
 "use client";
 
-import { Archive, ArrowLeft, MessageSquare, Search, SquarePen, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, MessageSquare, PanelLeft, Search, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { CommandPalette } from "@/components/sidebar/command-palette";
 import { SidebarContext } from "@/components/sidebar/context";
@@ -47,7 +47,21 @@ export function ConversationSidebar({ data }: { data: SidebarData }) {
   const [view, setView] = useState<View>("library");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<string | undefined>(undefined);
+  // Drawer state as "the pathname it was opened on": derived closed the
+  // moment the route changes (no effect-driven setState), with Escape as
+  // the explicit close.
+  const [drawerPath, setDrawerPath] = useState<string | null>(null);
+  const mobileOpen = drawerPath !== null && drawerPath === pathname;
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawerPath(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileOpen]);
 
   const searching = query.trim().length > 0;
   const results = useConversationSearch(query, {
@@ -83,18 +97,35 @@ export function ConversationSidebar({ data }: { data: SidebarData }) {
     <SidebarContext.Provider value={context}>
       <nav
         aria-label="Conversations"
-        className="hidden h-dvh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
+        {...(mobileOpen ? { role: "dialog", "aria-modal": "true" } : {})}
+        className={cn(
+          "h-dvh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+          mobileOpen
+            ? "fixed inset-y-0 left-0 z-50 flex animate-in slide-in-from-left duration-200 shadow-lg md:hidden"
+            : "hidden md:flex",
+        )}
       >
         <div className="flex items-center justify-between px-3 py-3">
           <span className="px-1 font-mono text-sm">sweatshop</span>
-          <Link
-            href="/"
-            aria-label="New chat"
-            title="New chat (no project)"
-            className="inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          >
-            <SquarePen className="size-4" />
-          </Link>
+          <span className="flex items-center gap-1">
+            <Link
+              href="/"
+              aria-label="New chat"
+              title="New chat (no project)"
+              className="inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              <SquarePen className="size-4" />
+            </Link>
+            {/* Drawer mode only (the nav is otherwise hidden below md). */}
+            <button
+              type="button"
+              aria-label="Close navigation"
+              onClick={() => setDrawerPath(null)}
+              className="inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
+            >
+              <X className="size-4" />
+            </button>
+          </span>
         </div>
 
         <div className="px-3 pb-2">
@@ -218,6 +249,27 @@ export function ConversationSidebar({ data }: { data: SidebarData }) {
           </span>
         </div>
       </nav>
+      {/* Mobile: fixed trigger in the layout-reserved gutter (md:hidden),
+          overlay drawer + backdrop while open. */}
+      {!mobileOpen && (
+        <button
+          type="button"
+          aria-label="Open conversations"
+          title="Conversations"
+          onClick={() => setDrawerPath(pathname)}
+          className="fixed top-3 left-3 z-30 inline-flex size-9 items-center justify-center rounded-md border border-sidebar-border bg-sidebar text-sidebar-foreground shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
+        >
+          <PanelLeft className="size-4" />
+        </button>
+      )}
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setDrawerPath(null)}
+          className="fixed inset-0 z-40 animate-in fade-in duration-200 bg-foreground/25 backdrop-blur-[2px] md:hidden"
+        />
+      )}
       <CommandPalette />
     </SidebarContext.Provider>
   );

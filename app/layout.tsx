@@ -30,7 +30,9 @@ export default async function RootLayout({
           <TooltipProvider>
             <div className="flex h-dvh w-full">
               <ConversationSidebar data={data} />
-              <main className="h-dvh min-w-0 flex-1">{children}</main>
+              {/* max-md gutter reserves the strip the floating sidebar
+                  trigger lives in (fixed top-left), on every page. */}
+              <main className="h-dvh min-w-0 flex-1 max-md:pl-12">{children}</main>
             </div>
           </TooltipProvider>
         </ThemeProvider>
