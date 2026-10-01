@@ -1,7 +1,8 @@
 # 0010 — Drop eve: AI SDK + Workflow SDK runtime, explicit sandboxes
 
-Status: **proposed** — direction agreed in chat with Chad; this doc is
-the formal approval gate before Phase 1.
+Status: **approved (2026-10-01)** — direction agreed in chat, doc
+approved as written; both open questions resolved at the end. Phase 1
+spike remains the go/no-go gate before anything is torn up.
 
 ## Goal
 
@@ -188,10 +189,11 @@ eve's built-in sandbox providers.
 
 If any fails, we stop before anything is torn up.
 
-## Open questions
+## Resolved questions (approval, 2026-10-01)
 
-1. Import existing eve transcripts into `messages` (recommended), or
-   keep them read-only? Import is best-effort: text + tool calls; eve-
-   specific parts that don't map are dropped.
-2. Idle windows: proposed stop after 30 min, destroy after 14 days
-   idle. Tunable later.
+1. **Transcript import: best-effort only if it falls out trivially.**
+   Chad: everything so far is simple test conversations — if porting is
+   super easy, do it; otherwise skip. Everything gets re-tested on the
+   new runtime anyway. No design effort to be spent here.
+2. **Idle windows approved:** stop after 30 min idle, destroy after
+   14 days idle. Tunable later.
