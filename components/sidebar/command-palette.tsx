@@ -4,6 +4,7 @@ import { Archive } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandInput,
@@ -50,7 +51,7 @@ export function CommandPalette() {
       description="Search conversation titles, summaries and messages"
       className="sm:max-w-xl"
     >
-      <div className="flex flex-col" data-slot="palette">
+      <Command shouldFilter={false} data-slot="palette">
         <CommandInput
           value={query}
           onValueChange={setQuery}
@@ -87,7 +88,7 @@ export function CommandPalette() {
             </CommandItem>
           ))}
         </CommandList>
-      </div>
+      </Command>
     </CommandDialog>
   );
 }
