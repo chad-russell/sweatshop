@@ -4,9 +4,12 @@ Instructions for agents working in this repo. Read before doing anything.
 
 ## What this is
 
-sweatshop is an evolving set of additions and tools around an idiomatic deployment of vercel's Eve agent.
-It uses established tools where possible, preferring  build over buy and preferring libraries and SDKs from 
-the vercel AI ecosystem where they exist.
+sweatshop is a personal software factory: a single Next.js app whose
+agent runtime is the Vercel AI SDK (`WorkflowAgent`) on the Workflow SDK
+(0010 — eve was removed 2026-10-01; docs/0010 records why and how). It
+uses established tools where possible, preferring build over buy and
+preferring libraries and SDKs from the vercel AI ecosystem where they
+exist.
 
 It is being built slowly and deliberately from an empty repo — properly
 engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
@@ -34,41 +37,48 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 
 ## Architecture (current state)
 
-- Single Next.js (App Router) app at the repo root; the eve agent lives in
-  `agent/` beside the app code; `next.config.ts` wraps `withEve()` so the
-  agent's HTTP API mounts at same-origin `/eve/v1/*`.
-- The browser talks to the agent exclusively through `useEveAgent()` from
-  `eve/react` (the eve channel transport — there is no `/api/chat` route).
+- Single Next.js (App Router) app at the repo root; `next.config.ts`
+  wraps `withWorkflow()` (workflow routes at `/.well-known/workflow/v1`).
+- Chat runtime (0010): one WorkflowAgent workflow run per turn
+  (`workflows/chat/turn.ts` — one model step per slice via
+  `stopWhen: isStepCount(1)`; steer messages drain between slices).
+  sqlite is the source of truth (`messages.model_message` rows); the
+  browser uses `useChat` + `WorkflowChatTransport` against
+  `/api/x/chat/*` (client imports MUST come from
+  `@ai-sdk/workflow/client` — the main entry pulls server modules into
+  the browser bundle). Approvals are `defineHook` suspensions answered
+  via `/api/x/input`; the model instance crosses step boundaries through
+  `SerializableChatModel` (@workflow/serde class protocol).
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
   `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
   TSX; themes `clickhouse` (default), `cal`, `nova`.
-- Model (eve agent): Z.AI GLM coding plan via `zhipu-ai-provider` on
-  the coding plan's OpenAI-compatible endpoint
+- Chat models (lib/model.ts): Z.AI GLM coding plan via
+  `zhipu-ai-provider` on the coding plan's OpenAI-compatible endpoint
   (`api.z.ai/api/coding/paas/v4`); default `glm-5.3-flash`; key in
-  `ZAI_API_KEY` (`.env.local`). (The pi harness separately uses the
+  `ZAI_API_KEY` (`.env.local`). Per-conversation choice is a plain
+  column (`conversations.model_id`). (Harnesses separately use the
   Anthropic Messages surface — see 0005.)
-- Auth: LAN-only personal tool. `agent/channels/eve.ts` admits every caller
-  via `none()` as a synthetic principal. **Hard rule: replace with a real
-  verifier before any internet exposure.**
+- Auth: LAN-only personal tool with no auth layer. **Hard rule: add a
+  real verifier before any internet exposure.**
 - Persistence north star: SQLite (single db, or split where it makes
   sense) + S3 object storage. **No postgres and no other backends — ever.**
 - The app store lives in `data/sweatshop.db` (better-sqlite3 + drizzle,
   migrations in `drizzle/`, apply with `npm run db:migrate`): a
-  `conversations` index plus the append-only `conversation_events` mirror
-  of eve's stream, written by `agent/hooks/mirror.ts`. The mirror is a
-  derived, rebuildable view of eve's authoritative stream — the dual-write
-  invariants in docs/0002 govern it. Transcripts replay from eve, never
-  from the mirror. 0010 Phase 1 added the new-runtime chat store
-  (`messages.model_message` rows, `steer_queue`,
-  `conversations.active_run_id`, store in `db/chat.ts`); 0010 Phase 2
-  added the sandbox lease registry (`sandboxes` +
-  `sandbox_attachments`, store in `db/sandboxes.ts`).
+  `conversations` index; chat history as `messages` rows carrying a
+  serialized ModelMessage (`db/chat.ts`, plus `steer_queue`,
+  `conversations.active_run_id`); and the sandbox lease registry
+  (`sandboxes` + `sandbox_attachments`, `db/sandboxes.ts`). The eve-era
+  `conversation_events` mirror is RETIRED (0010 Phase 6 — nothing writes
+  it; db/mirror.ts stays as the ingest utility for tests/historical
+  rebuilds, and 0002's dual-write invariants are historical). Eve-era
+  transcripts were imported into `messages` (`npm run chat:import`,
+  idempotent).
 - Conversation organization (0007): per-group (project, or Chats) folder
   trees (`folders`, `conversations.folder_id`), an "Unfiled" list per
   group split by age, archive (searchable) and trash (30-day lazy
   purge, not searchable), manual rename pinned via `title_source`, and
   GLM-Flash generated title+summary (`lib/titles.ts`, fired from the
-  mirror hook, max two calls per conversation). All invariants live in
+  chat turn after persisting, max two calls per conversation). All invariants live in
   `db/organize.ts`; routes under `app/api/{folders,conversations}`; the
   sidebar is `components/sidebar/*` with native drag and drop plus a
   "Move to…" menu; ⌘K palette shares `/api/search`.
@@ -76,11 +86,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (1+ git repos) reference shareable `sandbox_configs`; git credentials
   resolve by host through the pluggable `GitHost` seam (`lib/git-hosts/`
   — github + forgejo, `installAuth` + `createPR`). Conversations bind to
-  a project at creation via the `x-sweatshop-project` header (channel
-  principal attributes, immutable for the session); the sandbox selector
-  (`agent/sandbox.ts`) then opens a session-owned sibling container on
-  host podman, clones the project's repos into `/workspace/<repo>`, and
-  injects credentials. Unbound conversations get no sandbox. Entities
+  a project at creation (the plain `project_id` column,
+  set by the chat route on first send); sandboxed tools acquire the
+  conversation's own sandbox lazily through the 0010 lease seam
+  (`acquireSandbox`, dedicated per conversation, repos cloned into
+  `/work/<conversationId>`) — or join another owner's when the explicit
+  `sandbox_pref` says so (`none` omits the sandboxed tools entirely).
+  Entities
   are managed db-first via `npm run db:seed` (secrets from env only);
   `/p/[projectId]` starts a project conversation; `create_pr` is the
   agent's PR tool.
@@ -110,9 +122,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   target with a `transition` tool; the interpreter validates and commits
   it. Triggers: `/machines`, project/Chats run buttons, `POST
   /api/machine-runs`, the `start_machine` chat tool; `/r/<runId>` is
-  the run view. The eve runtime reaches workflows over the Next route
-  (`SWEATSHOP_APP_ORIGIN`, default `http://127.0.0.1:3000`).
-  Workflow-transform rule: Node-touching code only inside `"use step"`
+  the run view. Everything runs in the Next process — no cross-runtime
+  HTTP. Workflow-transform rule: Node-touching code only inside `"use step"`
   functions, and the workflow body imports harness packages type-only
   (a runtime import drags pi's raw-.ts deps into the bundle). Harness
   packages are `serverExternalPackages` in next.config. Keep
@@ -122,33 +133,32 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   satisfied by a scoped npm override). These pins are exact in
   package.json on purpose — a caret range would let a routine install
   break a load-bearing pairing; bump them deliberately, together.
-- Harness agents (0005/0006): project conversations have `pi` and
-  `claude` tools — separate coding harnesses on the SAME session
-  sandbox. pi (`@ai-sdk/harness-pi`) runs in-process on GLM via the
-  Z.AI coding plan's Anthropic Messages surface
+- Harness agents (0005/0006 + 0010 Phase 3): project conversations
+  have `pi` and `claude` tools — separate coding harnesses on the
+  conversation's sandbox (0010 lease seam; `harnessToolStep` in
+  `workflows/chat/harness-step.ts` is ONE `"use step"` per tool call:
+  acquire sandbox, claim the one-run-per-sandbox slot, advance the
+  harness turn by semantic steps via `runHarnessAgentStep` +
+  `isStepCount(1)`; cross-call continuity is durable — the terminal
+  state's `resumeFrom` handle persists in `chat_harness_state` and
+  seeds the next call). pi (`@ai-sdk/harness-pi`) runs in-process on
+  GLM via the Z.AI coding plan's Anthropic Messages surface
   (`https://api.z.ai/api/anthropic`), through the shared AI SDK adapter
-  (`toSandboxSession` — accepts any `{ run(command, env?) }` shell plus
-  an optional AI-SDK-shaped streaming `spawn`). claude
-  (`@ai-sdk/harness-claude-code`, pinned exactly 1.0.136) runs the
-  official Agent SDK as an in-sandbox bridge process; the eve runtime
-  reaches it over the private `sweatshop-harness` podman network (host
-  processes have no route to podman bridge subnets; Eve's Docker
-  provider publishes no ports — membership is the boundary, never a
-  published LAN port). claude auth (0006 amendment): a claude
-  setup-token passed as `CLAUDE_CODE_OAUTH_TOKEN` through the adapter's
-  env channel (`auth: "direct"` — no gateway, no host discovery);
-  single-user personal use per Chad's recorded decision, revisit if
-  productized. The tool is env-gated off until the variable is set.
-  One harness session per conversation × harness (module cache in the
-  shared factory `agent/lib/harness-tool.ts`; a replaced sandbox
-  container evicts rather than silently reuses — claude keys on the
-  bridge endpoint IP, pi on the container hostname). Harness activity
-  persists in `harness_events` + `harness_runs` keyed (session, harness)
-  — `/h/<harness>/<eveSessionId>` is the one shape for every harness
-  (pi, claude; re-decided 2026-10-01); legacy `/h/<id>` and
-  `/h/<id>/<harness>` URLs permanent-redirect. Failures record as failed
-  with a
-  clipped error, events page by id cursor. Packaging pins:
+  (`toSandboxSession`). claude (`@ai-sdk/harness-claude-code`, pinned
+  exactly 1.0.136) runs the official Agent SDK as an in-sandbox bridge
+  process reached over the private `sweatshop-harness` podman network
+  (host processes have no route to podman bridge subnets — membership
+  is the boundary, never a published LAN port). claude auth (0006
+  amendment): a claude setup-token passed as `CLAUDE_CODE_OAUTH_TOKEN`
+  through the adapter's env channel (`auth: "direct"` — no gateway, no
+  host discovery); single-user personal use per Chad's recorded
+  decision, revisit if productized. The tool is env-gated off until the
+  variable is set. Harness activity persists in `harness_events` +
+  `harness_runs` keyed (conversation, harness) —
+  `/h/<harness>/<conversationId>` is the one shape for every harness
+  (pi, claude); legacy `/h/<id>` and `/h/<id>/<harness>` URLs
+  permanent-redirect. Failures record as failed with a clipped error,
+  events page by id cursor. Packaging pins:
   `pi-coding-agent` exactly 0.85.1; harness-pi 1.0.134 / harness
   1.0.132 / harness-claude-code 1.0.136. Adapter rules: env goes as
   `docker exec -e` flags, exec uses `bash` not `sh`, and bridge
@@ -166,10 +176,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `conversations.last_seen_at`; opening a conversation marks it seen
   (`lib/use-mark-seen.ts`: only while the tab is visible AND focused),
   per-item mark read/unread via `PUT /api/conversations/[id]/seen`.
-  Pending requests are *derived* from mirrored `input.requested` /
-  `input.resolved` events (`db/attention.ts`) — nothing stored. Cards
+  New-runtime pending requests are rows (`pending_inputs`, written by
+  ask_chad through a step, resolved by `/api/x/input`); eve-era requests
+  are still derived from the retired mirror's events (`db/attention.ts`
+  folds both, `runtime` routes each card's endpoint). Cards
   (`components/inbox/`: approval / question / machine-gate / unread)
-  answer approvals by POSTing `inputResponses` to `/eve/v1/session/<id>`.
+  answer new-runtime approvals by POSTing to `/api/x/input`.
   The sidebar shows the same signal as dots (amber = needs you, filled =
   unread) on rows, rolled up on collapsed folders/groups, kept live by
   `lib/use-attention-sync.ts`: while the tab is visible it polls
@@ -196,23 +208,14 @@ Nothing is installed on the host; all development happens in podman:
   host tree stays clean, run as container root (rootless podman maps it
   to the host user), `.env.local` via `--env-file`, host port 3300 →
   container 3000. When the host rootless podman socket exists it is
-  mounted at `/var/run/docker.sock`, so the eve Docker sandbox provider
-  creates session sandboxes as sibling containers on host podman.
-  `./dev` also ensures a private `sweatshop-harness` podman network and
-  puts every invocation on it (0006 — bridge harness connectivity;
-  restart `./dev` after network changes for the runtime to join).
-- eve requires Node ≥ 24.
-- eve's dev watcher rebuilds authored artifacts on `agent/`-tree changes
-  only. Code the agent imports from outside that tree (e.g. `db/mirror.ts`)
-  needs a `./dev` restart to take effect in the running runtime.
+  mounted at `/var/run/docker.sock`, so the sandbox provider creates
+  lease containers as siblings on host podman. `./dev` also ensures a
+  private `sweatshop-harness` podman network and puts every invocation
+  on it (0006 — claude bridge connectivity).
 - Agent shells must run podman under escalated (full-access) file
   permissions — podman writes runtime state under `/run`.
-- eve's canonical docs are vendored at `vendor/eve/docs/` — read and grep
-  them on the host. The `VERSION` file records which eve they document;
-  re-sync with `npm run docs:eve` whenever the installed eve version
-  changes. The same docs live inside the container at
-  `node_modules/eve/docs`. `https://eve.dev/docs/llms.txt` tracks the
-  LATEST release — use it for upgrade checks, not daily reference.
+- Workflow SDK docs are vendored at `docs/workflows/` — read and grep
+  them on the host (also `node_modules/ai/docs` for the AI SDK).
 
 ## Old repo policy
 
@@ -228,4 +231,3 @@ Vendored under `.agents/skills/` (tracked by `skills-lock.json`):
 
 - `ai-sdk` — load before writing any AI SDK / provider code.
 - `ai-elements` — load before any chat UI work.
-- `eve` — load before any agent work; it defers to the bundled docs above.

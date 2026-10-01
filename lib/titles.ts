@@ -177,13 +177,3 @@ export async function maybeGenerateTitle(
     .run();
   return written.changes > 0 ? meta : null;
 }
-
-/**
- * Fire-and-forget entry for the stream hook: failsafe like the mirror
- * (stable [titles] log prefix, never throws into the stream).
- */
-export function scheduleTitleGeneration(conversationId: string): void {
-  void maybeGenerateTitle(conversationId).catch((err) => {
-    console.error("[titles] unexpected failure", conversationId, err);
-  });
-}

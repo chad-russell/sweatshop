@@ -1,5 +1,0 @@
-{
-  "title": "Memory",
-  "defaultOpen": false,
-  "pages": ["overview", "file", "../patterns/multi-tenant-memory", "custom-provider"]
-}

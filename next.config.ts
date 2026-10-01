@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import { withEve } from "eve/next";
 import { withWorkflow } from "workflow/next";
 
 const nextConfig: NextConfig = {
@@ -24,4 +23,4 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["10.10.0.12", "192.168.20.105"],
 };
 
-export default withEve(withWorkflow(nextConfig));
+export default withWorkflow(nextConfig);

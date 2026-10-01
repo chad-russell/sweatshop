@@ -1,8 +1,10 @@
 # 0010 — Drop eve: AI SDK + Workflow SDK runtime, explicit sandboxes
 
-Status: **approved (2026-10-01)** — direction agreed in chat, doc
-approved as written; both open questions resolved at the end. Phase 1
-spike remains the go/no-go gate before anything is torn up.
+Status: **shipped (2026-10-01)** — approved as written, all six
+phases built and verified (spike tests + live checks per phase; the
+phase 1 findings are recorded below). eve is gone: no runtime, no
+mirror, no vendored docs, no skill; AGENTS.md describes the AI SDK +
+Workflow SDK app that remains.
 
 ## Goal
 
