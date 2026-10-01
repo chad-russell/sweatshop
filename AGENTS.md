@@ -152,14 +152,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 - Inbox & attention (0008, no design doc — approved in chat): `/inbox`
   is a dashboard of what is waiting on Chad. **Needs you** = pending
   human-input requests (tool approval / question / session-limit) plus
-  ticket runs at their plan gate; stays until answered, opening the
+  machine runs waiting at a human stage (0009); stays until answered, opening the
   thread does not clear it. **Unread** = assistant output newer than
   `conversations.last_seen_at`; opening a conversation marks it seen
   (`lib/use-mark-seen.ts`: only while the tab is visible AND focused),
   per-item mark read/unread via `PUT /api/conversations/[id]/seen`.
   Pending requests are *derived* from mirrored `input.requested` /
   `input.resolved` events (`db/attention.ts`) — nothing stored. Cards
-  (`components/inbox/`: approval / question / ticket-gate / unread)
+  (`components/inbox/`: approval / question / machine-gate / unread)
   answer approvals by POSTing `inputResponses` to `/eve/v1/session/<id>`.
   The sidebar shows the same signal as dots (amber = needs you, filled =
   unread) on rows, rolled up on collapsed folders/groups, kept live by
