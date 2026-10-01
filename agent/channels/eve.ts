@@ -14,6 +14,9 @@ import { eveChannel } from "eve/channels/eve";
  * - `model` — x-sweatshop-model: the chat model this conversation runs
  *   on (agent/agent.ts resolves it at every model step; unknown ids
  *   fall back to the default there).
+ * - `machineVisit` — x-sweatshop-machine-visit: `<runId>:<seq>` when the
+ *   session IS an eve stage of a machine run (0009). Scopes the
+ *   `transition` tool to this session and names the hook it resumes.
  *
  * HARD RULE: replace this with a real verifier (httpBasic / jwtHmac /
  * oidc — see eve's Authentication docs) before any internet exposure.
@@ -24,6 +27,8 @@ const lanAuth: AuthFn<Request> = async (request) => {
   if (project) attributes.project = project;
   const model = request.headers.get("x-sweatshop-model")?.slice(0, 64);
   if (model) attributes.model = model;
+  const machineVisit = request.headers.get("x-sweatshop-machine-visit")?.slice(0, 80);
+  if (machineVisit) attributes.machineVisit = machineVisit;
   return {
     authenticator: "sweatshop-lan",
     principalId: "chad",

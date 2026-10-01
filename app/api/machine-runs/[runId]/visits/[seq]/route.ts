@@ -18,7 +18,7 @@ type Ctx = { params: Promise<{ runId: string; seq: string }> };
 export async function POST(request: Request, { params }: Ctx) {
   const { runId, seq: seqText } = await params;
   const seq = Number(seqText);
-  let body: { to?: unknown; comment?: unknown; reason?: unknown };
+  let body: { to?: unknown; comment?: unknown; reason?: unknown; auto?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -35,7 +35,12 @@ export async function POST(request: Request, { params }: Ctx) {
   const stage = run.definition.stages[visit.stageId];
   const targets = stage?.next.map((t) => t.to) ?? [];
   const to = typeof body.to === "string" ? body.to : null;
-  // Single/zero-target stages accept a bare "done" (to = null).
+  // `auto` = the eve turn-end nudge: only single-target eve stages
+  // advance that way (branching ones must choose via their tool).
+  if (body.auto === true && (visit.kind !== "eve" || targets.length > 1)) {
+    return NextResponse.json({ error: "this stage does not advance automatically" }, { status: 400 });
+  }
+  // Single/zero-target stages need no `to`.
   if (targets.length > 1 && (!to || !targets.includes(to))) {
     return NextResponse.json({ error: `to must be one of: ${targets.join(", ")}` }, { status: 400 });
   }

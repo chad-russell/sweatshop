@@ -33,3 +33,8 @@ export function sessionProjectId(session: SessionWithPrincipal): string | null {
 export function sessionModelId(session: SessionWithPrincipal): string | null {
   return stringAttribute(session, "model");
 }
+
+/** `<runId>:<seq>` when this session is a machine eve stage (0009). */
+export function sessionMachineVisit(session: SessionWithPrincipal): string | null {
+  return stringAttribute(session, "machineVisit");
+}

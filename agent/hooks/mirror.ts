@@ -1,6 +1,7 @@
 import { defineHook } from "eve/hooks";
 import { mirrorStreamEvent } from "../../db/mirror";
-import { sessionProjectId } from "../../lib/session-attributes";
+import { scheduleEveStageAdvance } from "../../lib/machines/eve-stage";
+import { sessionMachineVisit, sessionProjectId } from "../../lib/session-attributes";
 import { scheduleTitleGeneration } from "../../lib/titles";
 
 /**
@@ -23,6 +24,12 @@ export default defineHook({
       // fire-and-forget, so the stream never waits on a model call.
       if (event.type === "message.completed") {
         scheduleTitleGeneration(ctx.session.id);
+      }
+      // 0009: a single-target eve stage of a machine run hands off when
+      // its turn ends (branching stages hand off via `transition`).
+      if (event.type === "turn.completed") {
+        const visit = sessionMachineVisit(ctx.session);
+        if (visit) scheduleEveStageAdvance(visit);
       }
     },
   },
