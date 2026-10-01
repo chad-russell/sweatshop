@@ -124,7 +124,10 @@ function textOf(message: ModelMessage): string {
     .map((part) => {
       if (part.type === "text") return part.text;
       if (part.type === "tool-call") return `[tool ${part.toolName}]`;
-      if (part.type === "tool-result") return String(part.output);
+      if (part.type === "tool-result")
+        return typeof part.output === "string"
+          ? part.output
+          : JSON.stringify(part.output);
       return "";
     })
     .join("")

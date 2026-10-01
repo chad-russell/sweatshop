@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { WorkflowChatTransport } from "@ai-sdk/workflow";
+import { WorkflowChatTransport } from "@ai-sdk/workflow/client";
 import { useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 

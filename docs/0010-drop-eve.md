@@ -189,6 +189,53 @@ eve's built-in sandbox providers.
 
 If any fails, we stop before anything is torn up.
 
+## Phase 1 spike — proven (2026-10-01)
+
+All four risks answered, mock-LLM tests green in the normal gate
+(`tests/x-chat.test.ts`, real workflow runs under vitest) and verified
+live against GLM on `/x`:
+
+- **Full turn + history sharing** — a turn persists to `messages`
+  (model_message JSON + search text), and the next turn loads the full
+  conversation from sqlite.
+- **Approval hook in the tool loop** — a tool creates a `defineHook`
+  with the toolCallId as token; the turn suspends (durably) and resumes
+  on the answer. Verified live: the real model called `ask_chad`, the
+  stream replayed the tool part on reconnect, and `/api/x/input`
+  resumed the turn to completion.
+- **Steer** — queued messages are drained **between model slices** and
+  injected as user messages (persisted). If the turn has no further
+  slice, the row folds into the next turn's history — nothing is lost.
+- **Cancel** — `run.cancel()`; nothing from the turn persists.
+
+Findings that changed the implementation (kept here as the record):
+
+1. **prepareStep cannot steer.** It runs in the agent's context; a step
+   call from that nested closure never dispatches. The turn instead
+   runs **one model step per slice** (`stopWhen: isStepCount(1)`) and
+   drains the steer queue in the workflow body between slices — where
+   calling steps is legal.
+2. **The model instance crosses a step boundary** (`doStreamStep`
+   records its arguments) and must be workflow-serializable; raw
+   provider instances (zhipu v3, `MockLanguageModelV4`) are not.
+   `SerializableChatModel` (workflows/chat/model.ts) carries only the
+   recipe and rebuilds on deserialize (@workflow/serde class protocol).
+   Verified live with zhipu.
+3. **Workflow code may not touch Node APIs outside `"use step"`** — the
+   SDK's esbuild guard rejects it at build time (it caught our first
+   steer design). All sqlite access lives in steps.
+4. **Vitest runs real workflow runs** via a loopback executor
+   (`tests/helpers/workflow-executor.ts`): the SDK's own dev/workbench
+   pattern — prebuild the flow bundle with `@workflow/builders`, serve
+   its POST handler on an ephemeral port, point
+   `WORKFLOW_LOCAL_BASE_URL` at it. Adds `@workflow/builders` as an
+   exact-pinned devDependency.
+5. **Client import**: `WorkflowChatTransport` must come from
+   `@ai-sdk/workflow/client`; the main entry pulls server-only modules
+   into the browser bundle.
+6. Tool-result text extraction round-trips through `messages.text`
+   (searchable).
+
 ## Resolved questions (approval, 2026-10-01)
 
 1. **Transcript import: best-effort only if it falls out trivially.**
