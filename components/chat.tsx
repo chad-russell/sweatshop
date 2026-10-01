@@ -566,6 +566,18 @@ export function ChatSurface({
   // has already been triggered (see onSessionChange).
   const refreshedSessionRef = useRef<string | null>(null);
 
+  // True once handleNewChat resets this surface in place: the sessionId
+  // prop then describes a conversation this surface no longer holds, so
+  // URL adoption, the sidebar refresh, the model-picker lock, the draft
+  // key and harness links must all treat the surface as a landing page
+  // again. Mirrored into a ref for the useEveAgent callback.
+  const [landed, setLandedState] = useState(false);
+  const landedRef = useRef(false);
+  const setLanded = (value: boolean) => {
+    landedRef.current = value;
+    setLandedState(value);
+  };
+
   const agent = useEveAgent({
     initialSession: sessionId ? { sessionId, streamIndex: 0 } : undefined,
     resume: sessionId !== undefined,
@@ -583,8 +595,9 @@ export function ChatSurface({
     onSessionChange(session) {
       // From a landing page, adopt the new session's URL without
       // remounting the active stream. On /c/[sessionId] the URL is
-      // already correct.
-      if (!session || sessionId) return;
+      // already correct — unless handleNewChat reset the surface in
+      // place, after which it is a landing page again (`landed`).
+      if (!session || (sessionId && !landedRef.current)) return;
       window.history.replaceState(null, "", `/c/${session.sessionId}`);
       // A conversation started mid-page shows up in the sidebar now, not
       // on the next navigation: refresh the server layout (a refresh
@@ -600,9 +613,12 @@ export function ChatSurface({
 
   const displayStatus = mounted ? agent.status : "ready";
   // Conversation id for harness links: the /c route param, else the
-  // live session cursor once the first send creates it.
-  const conversationId =
-    sessionId ?? agent.session?.sessionId ?? null;
+  // live session cursor once the first send creates it. After an
+  // in-place reset the route param describes a conversation this
+  // surface no longer holds — ignore it.
+  const conversationId = landed
+    ? (agent.session?.sessionId ?? null)
+    : (sessionId ?? agent.session?.sessionId ?? null);
   const isBusy = displayStatus === "submitted" || displayStatus === "streaming";
   const isResuming = displayStatus === "resuming";
   const inputDisabled = isResuming;
@@ -637,9 +653,10 @@ export function ChatSurface({
   // cursor lands) — from then on its model is fixed (the channel
   // attributes the initiator carried at creation are immutable), so the
   // picker locks. agent.session is optional: absent before the first
-  // send, not null.
+  // send, not null. An in-place reset (`landed`) un-holds the resumed
+  // id — the next send starts an unbound conversation.
   const conversationBound =
-    sessionId !== undefined ||
+    (sessionId !== undefined && !landed) ||
     Boolean(agent.session) ||
     messages.length > 0;
 
@@ -783,16 +800,21 @@ export function ChatSurface({
 
   const handleNewChat = () => {
     if (projectId) {
-      // On a project page (or its adopted /c/... URL): reset in place —
-      // the project header rebinds the next session to the same project.
+      // Project-bound surface — a /p page, its adopted /c/... URL, or a
+      // /c/[sessionId] whose conversation carries the binding (the page
+      // resolves it from the store): reset in place on the project
+      // route, so ⌘⇧O / the header button start the next chat in the
+      // same project.
       window.history.replaceState(null, "", `/p/${projectId}`);
       agent.reset();
+      setLanded(true);
     } else if (pathname === "/") {
       // Still on the landing route (URL may have been replaced to /c/...):
       // reset local state and the URL in place — the prior durable session
       // remains available at its URL.
       window.history.replaceState(null, "", "/");
       agent.reset();
+      setLanded(true);
     } else {
       // On /c/[sessionId]: navigate to the sessionless landing route.
       router.push("/");

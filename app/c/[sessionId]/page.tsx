@@ -2,12 +2,17 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { ChatSurface } from "@/components/chat";
 import { db } from "@/db";
-import { conversations } from "@/db/schema";
+import { conversations, projects } from "@/db/schema";
 
 /**
  * Open a conversation by its durable address. The id must exist in the
  * sweatshop store (it was mirrored by the stream hook); the client then
  * replays the session from eve's authoritative stream (streamIndex 0).
+ *
+ * A conversation bound to a project carries that binding for its life
+ * (immutable session attribute, 0004) — surfacing it here lets the chat
+ * header show it and makes new-chat (⌘⇧O / header button) stay in the
+ * same project from a /c route, exactly as from the project page.
  */
 export default async function ConversationPage({
   params,
@@ -23,5 +28,19 @@ export default async function ConversationPage({
 
   if (!conversation) notFound();
 
-  return <ChatSurface sessionId={sessionId} />;
+  const project = conversation.projectId
+    ? db()
+        .query.projects.findFirst({
+          where: eq(projects.id, conversation.projectId),
+        })
+        .sync()
+    : undefined;
+
+  return (
+    <ChatSurface
+      sessionId={sessionId}
+      projectId={project?.id}
+      projectName={project?.name}
+    />
+  );
 }
