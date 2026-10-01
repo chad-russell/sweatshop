@@ -231,6 +231,10 @@ This must be proven first (Phase A spike) — it is the riskiest unknown.
 
 ## Path B shipped (2026-09-30, arc complete)
 
+> **Superseded by 0009 (2026-10-09):** run_ticket became the seeded
+> "ticket" machine; `workflows/run-ticket.ts`, `/api/tickets`, `/t` and
+> `ticket_runs` are deleted. The notes below are historical.
+
 `withEve(withWorkflow(...))` coexist cleanly (spiked with a hello
 workflow). Version alignment matters: `@ai-sdk/workflow@2.0.53` pins
 exactly the `provider-utils@5.0.51`/`ai@7.0.122` line the rest of the

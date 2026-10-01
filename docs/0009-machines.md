@@ -1,9 +1,8 @@
 # 0009 — Machines: durable stage machines on the Workflow SDK
 
-Status: **approved (2026-10-09)** as written, with one amendment from
-the same review: **eve stages are always unsandboxed in v1** and spike
-1b is dropped (see "Amendment" below). Phase 1a spike is in
-(`d062f7d`).
+Status: **shipped (2026-10-09)** — approved as written with one
+amendment (eve stages unsandboxed, spike 1b dropped, below); all phases
+built and verified live. See "Shipped" at the end.
 
 ## Amendment (2026-10-09): eve stages run unsandboxed
 
@@ -167,3 +166,38 @@ What it took (all in the spike commit):
 1. ~~Single eve provider~~ — moot (amendment).
 2. Run view location: `/r/<runId>` (decided at build time; one shape
    for project and non-project runs, like `/h`).
+
+## Shipped (2026-10-09)
+
+Commits `d062f7d` (spike) → the run_ticket port. Verified live on bee:
+
+- **smoke** (pi → pi with a branch back): write → check → end in one
+  container; files only in the container.
+- **think** (eve → eve → human): draft → critique → decide (sent back
+  with feedback) → critique applied it → decide → end. Single-target eve
+  stages advanced themselves on `turn.completed`.
+- **ticket** (the run_ticket port): plan (pi) → approve from the inbox
+  card → implement (claude) → verify (pi) → publish (pi + create_pr)
+  opened **sweatshop-e2e-scratch#32** (1 file, +1); container removed.
+- **start_machine** from a Chats conversation started think and replied
+  with `/r/<runId>`.
+
+Findings that shaped the build:
+
+- **Shared workdir:** without `sandboxConfig.workDir: "."`, a
+  HarnessAgent puts each session in a private `<harness>-<sessionId>`
+  directory, so stages can't see each other's files.
+- **Run root:** pi runs in-process and checks whether the sandbox
+  workdir also exists on the host. The dev runtime's `/workspace` is
+  the repo bind mount, so pi would have read and written the host
+  checkout. Run repos clone to `/work/<runId>` instead; the eve-session
+  `pi` tool keeps `/workspace` (0005).
+- **Bundler externals:** pi pulls `pi-mcp-adapter`, which exports raw
+  `.ts`, so the harness packages are `serverExternalPackages`. The
+  workflow body imports `@ai-sdk/workflow-harness` type-only.
+- **Turn text:** the harness state doesn't carry the agent's text. The
+  step reads text and the transition result from the UI chunk stream it
+  forwards to the run's output stream.
+- **ticket_runs dropped:** the table is gone (2 historical rows archived
+  to `data/ticket_runs-archive-0009.json`), and `/t/<id>` redirects to
+  `/machines`.

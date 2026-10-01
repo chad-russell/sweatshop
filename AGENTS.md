@@ -80,17 +80,37 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   are managed db-first via `npm run db:seed` (secrets from env only);
   `/p/[projectId]` starts a project conversation; `create_pr` is the
   agent's PR tool.
-- run_ticket pipelines (0004 Path B): raw Workflow SDK workflows
-  (`workflows/`) started directly by the UI button on project pages or
-  `POST /api/tickets` — no agent session. Phases are `WorkflowAgent`s
-  sharing one provisioned container (`lib/sandboxes/` — shared workspace
-  setup, direct provisioner, AI SDK SandboxSession adapter) with a
-  durable approval gate (`defineHook`); status lives in `ticket_runs`
-  and `/t/[ticketId]` is the live run view. Workflow-transform rule:
-  Node-touching code only inside `"use step"` functions. Keep
+- Machines (0009): user-editable stage machines — sqlite `machines`
+  rows holding a zod-validated JSON definition (`lib/machines/
+  definition.ts`; seeds in `lib/machines/seeds/*.json`, insert-only via
+  `npm run db:seed`); runs snapshot it (`machine_runs`,
+  `machine_stage_runs`, store `db/machines.ts`). `runMachine`
+  (`workflows/machines/`) is a raw Workflow SDK interpreter — no agent
+  session. Stage kinds: `harness` (pi/claude HarnessAgent, one
+  `"use step"` per semantic agent step via `@ai-sdk/workflow-harness`
+  `runHarnessAgentStep` + `stopWhen: isStepCount(1)`; project machines
+  only), `eve` (an ordinary UNSANDBOXED conversation, created with
+  `x-sweatshop-machine-visit`; single-target stages advance on
+  `turn.completed` via the mirror hook, branching ones get a
+  session-scoped dynamic `transition` tool), `human` (a `defineHook`
+  gate shown in `/inbox`). A project run provisions ONE container whose
+  repos clone to `/work/<runId>` — never `/workspace`: pi runs
+  in-process and treats a sandbox workdir that also exists on the host
+  as shared, and the dev runtime's `/workspace` is this repo. Every
+  harness stage shares that checkout. Branching agent stages pick a
+  target with a `transition` tool; the interpreter validates and commits
+  it. Triggers: `/machines`, project/Chats run buttons, `POST
+  /api/machine-runs`, the `start_machine` chat tool; `/r/<runId>` is
+  the run view. The eve runtime reaches workflows over the Next route
+  (`SWEATSHOP_APP_ORIGIN`, default `http://127.0.0.1:3000`).
+  Workflow-transform rule: Node-touching code only inside `"use step"`
+  functions, and the workflow body imports harness packages type-only
+  (a runtime import drags pi's raw-.ts deps into the bundle). Harness
+  packages are `serverExternalPackages` in next.config. Keep
   `@ai-sdk/workflow` aligned with the installed `ai` line (2.0.53 ↔
-  ai 7.0.122 / provider-utils 5.0.51) or tool types split across nested
-  package copies. That pairing and the harness-family pins are exact in
+  ai 7.0.122 / provider-utils 5.0.51), and `@ai-sdk/workflow-harness`
+  exactly on the harness line (1.0.132; its stale `workflow@4` peer is
+  satisfied by a scoped npm override). These pins are exact in
   package.json on purpose — a caret range would let a routine install
   break a load-bearing pairing; bump them deliberately, together.
 - Harness agents (0005/0006): project conversations have `pi` and
