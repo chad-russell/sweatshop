@@ -61,6 +61,8 @@ async function runChecked(
 export async function setupProjectWorkspace(
   sandbox: SandboxShell,
   projectId: string,
+  /** Directory the repos clone into (0009: machine runs use a per-run root). */
+  root = "/workspace",
 ): Promise<ProjectPlan> {
   const plan = loadProjectPlan(projectId);
   if (!plan) {
@@ -88,8 +90,8 @@ export async function setupProjectWorkspace(
   for (const repo of plan.repos) {
     await runChecked(
       sandbox,
-      `[ -d /workspace/${repo.name} ] || ` +
-        `GIT_TERMINAL_PROMPT=0 git clone -- ${httpsRemote(repo.url)} /workspace/${repo.name}`,
+      `mkdir -p ${root} && [ -d ${root}/${repo.name} ] || ` +
+        `GIT_TERMINAL_PROMPT=0 git clone -- ${httpsRemote(repo.url)} ${root}/${repo.name}`,
       `cloning ${repo.name} (${repo.url})`,
     );
   }

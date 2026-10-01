@@ -178,3 +178,41 @@ describe("seed machines", () => {
     }
   });
 });
+
+describe("briefs and transitions", async () => {
+  const { buildBrief, resolveTransition, transitionGuide } = await import("../lib/machines/brief");
+  const gate = coding.stages.gate!;
+  const plan = coding.stages.plan!;
+  const build = coding.stages.build!;
+
+  it("resolves single, terminal, and branching transitions", () => {
+    expect(resolveTransition(plan, null)).toBe("gate"); // one target: no choice needed
+    expect(resolveTransition(plan, "build")).toBe("gate"); // proposal ignored
+    expect(resolveTransition(build, null)).toBe("end"); // no next = end
+    expect(resolveTransition(gate, "build")).toBe("build");
+    expect(resolveTransition(gate, "end")).toBe("end");
+    expect(resolveTransition(gate, null)).toBeNull(); // must choose
+    expect(resolveTransition(gate, "plan")).toBeNull(); // not allowed
+  });
+
+  it("only guides branching stages", () => {
+    expect(transitionGuide(plan)).toBeNull();
+    expect(transitionGuide(gate)).toContain("`build` — approve");
+  });
+
+  it("carries the prompt, prior outcomes, feedback, and instructions", () => {
+    const brief = buildBrief({
+      prompt: "Fix the bug",
+      definition: coding,
+      stageId: "build",
+      history: [{ stageId: "plan", title: "Plan", outcome: "BRANCH: fix/x\nthe plan", transitionTo: "gate" }],
+      feedback: "also add a test",
+    });
+    expect(brief.indexOf("# Task")).toBeLessThan(brief.indexOf("# Earlier stages"));
+    expect(brief).toContain("## 1. Plan (plan) → gate");
+    expect(brief).toContain("BRANCH: fix/x");
+    expect(brief).toContain("# Feedback from Chad\n\nalso add a test");
+    expect(brief).toContain("# Your stage: Build\n\nbuild");
+    expect(brief).not.toContain("# Finishing");
+  });
+});

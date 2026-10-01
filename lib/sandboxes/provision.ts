@@ -33,15 +33,19 @@ function randomName(projectId: string): string {
   return `sweatshop-wf-${projectId}-${suffix}`;
 }
 
-/** Re-attach to an existing container by name (stateless wrappers). */
-export function attachSandbox(containerName: string): ProvisionedSandbox {
+/**
+ * Re-attach to an existing container by name (stateless wrappers).
+ * `root` becomes the default working directory of every command — the
+ * directory a harness resolves as its sandbox home via `pwd`.
+ */
+export function attachSandbox(containerName: string, root?: string): ProvisionedSandbox {
   return {
     containerName,
     plan: undefined,
     run(command: string, env?: Record<string, string>, workingDirectory?: string) {
-      return execSandbox(containerName, command, env, workingDirectory);
+      return execSandbox(containerName, command, env, workingDirectory ?? root);
     },
-    spawn: spawnInSandbox(containerName),
+    spawn: spawnInSandbox(containerName, root),
     async remove() {
       await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
     },
@@ -93,10 +97,12 @@ async function execSandbox(
  */
 export function spawnInSandbox(
   containerName: string,
+  root?: string,
 ): Experimental_SandboxSession["spawn"] {
   return async (options) => {
     const args = ["exec", "-i"];
-    if (options.workingDirectory) args.push("-w", options.workingDirectory);
+    const cwd = options.workingDirectory ?? root;
+    if (cwd) args.push("-w", cwd);
     for (const [k, v] of Object.entries(options.env ?? {})) {
       args.push("-e", `${k}=${v}`);
     }
@@ -119,6 +125,8 @@ export function spawnInSandbox(
 
 export async function provisionProjectSandbox(
   projectId: string,
+  /** Clone root (default /workspace); 0009 machine runs pass a per-run one. */
+  root?: string,
 ): Promise<ProvisionedSandbox> {
   const containerName = randomName(projectId);
   await exec("docker", [
@@ -133,17 +141,22 @@ export async function provisionProjectSandbox(
     command: string,
     env?: Record<string, string>,
     workingDirectory?: string,
-  ) => execSandbox(containerName, command, env, workingDirectory);
+  ) => execSandbox(containerName, command, env, workingDirectory ?? root);
   const remove = async () => {
     await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
   };
 
   let plan: ProjectPlan | undefined;
   try {
-    plan = await setupProjectWorkspace({ run }, projectId);
+    // The root must exist before any command can use it as a cwd.
+    if (root) {
+      const made = await execSandbox(containerName, `mkdir -p ${JSON.stringify(root)}`);
+      if (made.exitCode !== 0) throw new Error(`could not create ${root}: ${made.stderr}`);
+    }
+    plan = await setupProjectWorkspace({ run }, projectId, root);
   } catch (err) {
     await remove();
     throw err;
   }
-  return { containerName, plan, run, spawn: spawnInSandbox(containerName), remove };
+  return { containerName, plan, run, spawn: spawnInSandbox(containerName, root), remove };
 }

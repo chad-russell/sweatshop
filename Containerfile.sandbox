@@ -21,7 +21,9 @@ RUN useradd -m -s /bin/bash sandbox \
   && chmod 0440 /etc/sudoers.d/sandbox
 
 # Project repos clone here (same convention as eve session sandboxes).
-RUN mkdir -p /workspace && chown sandbox:sandbox /workspace
+# /work/<runId> holds machine runs' repos (0009: a root that never
+# collides with the dev runtime's own /workspace mount).
+RUN mkdir -p /workspace /work && chown sandbox:sandbox /workspace /work
 WORKDIR /workspace
 USER sandbox
 

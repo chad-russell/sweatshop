@@ -302,3 +302,15 @@ export function parseVisitToken(token: string): { runId: string; seq: number } |
 export function stageSessionId(runId: string, seq: number): string {
   return `${runId}_${seq}`;
 }
+
+/**
+ * Where a run's repos are cloned inside its container (0009). Not
+ * /workspace: pi runs in-process and probes whether the sandbox workdir
+ * is ALSO visible on the host — in the dev runtime /workspace is the
+ * repo bind mount, so pi would wrongly treat it as shared and read and
+ * write the host's checkout. A per-run root never exists on the host,
+ * so pi correctly mirrors through the sandbox.
+ */
+export function runWorkspaceRoot(runId: string): string {
+  return `/work/${runId}`;
+}
