@@ -90,7 +90,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   Node-touching code only inside `"use step"` functions. Keep
   `@ai-sdk/workflow` aligned with the installed `ai` line (2.0.53 ↔
   ai 7.0.122 / provider-utils 5.0.51) or tool types split across nested
-  package copies.
+  package copies. That pairing and the harness-family pins are exact in
+  package.json on purpose — a caret range would let a routine install
+  break a load-bearing pairing; bump them deliberately, together.
 - Harness agents (0005/0006): project conversations have `pi` and
   `claude` tools — separate coding harnesses on the SAME session
   sandbox. pi (`@ai-sdk/harness-pi`) runs in-process on GLM via the
