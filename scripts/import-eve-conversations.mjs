@@ -54,6 +54,9 @@ for (const id of conversations) {
     const insert = sqlite.prepare(
       "insert into messages (id, conversation_id, role, text, model_message, at) values (?, ?, ?, ?, ?, ?)",
     );
+    const deleteSuperseded = sqlite.prepare(
+      "delete from messages where conversation_id = ? and id not like 'imp_%' and model_message is null",
+    );
     const at = Date.now();
     const tx = sqlite.transaction(() => {
       for (const row of usable) {
@@ -66,6 +69,9 @@ for (const id of conversations) {
           at,
         );
       }
+      // The imported rows supersede the mirror-extracted originals (one
+      // lineage — display and search see each message once).
+      deleteSuperseded.run(id);
     });
     tx();
   }

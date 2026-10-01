@@ -32,6 +32,14 @@ export const conversations = sqliteTable(
     titleSource: text("title_source").notNull().default("auto"),
     /** 0007: titles generated so far (0, 1, or 2 — see lib/titles.ts). */
     titleGenerations: integer("title_generations").notNull().default(0),
+    /** 0010: the model this conversation runs (plain column — the
+     *  header→principal-attribute plumbing is gone). Null = default. */
+    modelId: text("model_id"),
+    /** 0010: explicit sandbox choice (docs/0010 "knobs above the SDK
+     *  layer"): null = the default (dedicated, lazy, project
+     *  conversations), "none" = no sandboxed tools, or
+     *  "attached:<sandboxId>" to join another owner's sandbox. */
+    sandboxPref: text("sandbox_pref"),
     /** 0007: user-visible folder; null = unfiled. Must belong to
      *  the same group (project) as the conversation. */
     folderId: text("folder_id").references((): AnySQLiteColumn => folders.id),

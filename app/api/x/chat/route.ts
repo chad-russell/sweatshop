@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
-import { nanoid } from "nanoid";
 import { getRun, start } from "workflow/api";
 import { db } from "@/db";
 import {
   ensureConversation,
   enqueueSteer,
   getActiveRun,
+  getConversation,
   listMessageTexts,
   setActiveRun,
+  updateConversationSettings,
 } from "@/db/chat";
 import { resolveChatModel } from "@/lib/model";
 import { chatTurn } from "@/workflows/chat/turn";
@@ -18,10 +19,13 @@ export const dynamic = "force-dynamic";
 const ACTIVE = new Set(["pending", "running"]);
 
 /**
- * 0010 spike turn starter. If a turn is live for the conversation, the
- * text is queued as steer (drained by the turn's prepareStep); otherwise
- * a new one-run-per-turn workflow starts. Stale active rows (a run that
- * finished before the route could clear it) are swept here.
+ * 0010 turn starter (Phase 4 cutover: the chat surface's transport).
+ * Project, model and sandbox pref are plain conversation columns — set
+ * here on send, no headers or principal attributes. If a turn is live
+ * for the conversation, the text is queued as steer (drained between
+ * slices); otherwise a new one-run-per-turn workflow starts. Stale
+ * active rows (a run that finished before the route could clear it) are
+ * swept here.
  */
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -30,6 +34,10 @@ export async function POST(request: Request) {
      * user message in `messages` (WorkflowChatTransport callers). */
     text?: string;
     modelId?: string;
+    /** Conversation-creation binding (landing pages). */
+    projectId?: string;
+    /** Explicit sandbox choice: "none" | "attached:<sandboxId>" | null. */
+    sandboxPref?: string | null;
     messages?: { role: string; parts?: { type: string; text?: string }[] }[];
   };
   const transportText = body.messages
@@ -44,7 +52,20 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const model = resolveChatModel(body.modelId ?? null);
+  if (body.sandboxPref != null && !isValidSandboxPref(body.sandboxPref)) {
+    return NextResponse.json({ error: "invalid sandboxPref" }, { status: 400 });
+  }
+
+  const existing = getConversation(db(), body.conversationId);
+  if (!existing) {
+    ensureConversation(db(), body.conversationId, body.projectId ?? null);
+  }
+  updateConversationSettings(db(), body.conversationId, {
+    ...(body.modelId ? { modelId: resolveChatModel(body.modelId).id } : {}),
+    ...(body.sandboxPref !== undefined ? { sandboxPref: body.sandboxPref } : {}),
+  });
+  const conversation = getConversation(db(), body.conversationId)!;
+  const model = resolveChatModel(conversation.modelId);
 
   let active = getActiveRun(db(), body.conversationId);
   if (active) {
@@ -56,12 +77,12 @@ export async function POST(request: Request) {
     active = null;
   }
 
-  ensureConversation(db(), body.conversationId);
   const run = await start(chatTurn, [
     {
       conversationId: body.conversationId,
       userText: text,
       modelId: model.id,
+      sandboxPref: conversation.sandboxPref,
     },
   ]);
   // The run may complete before this write lands (fast turns); that is
@@ -72,20 +93,22 @@ export async function POST(request: Request) {
   return NextResponse.json({ runId: run.runId, steered: false });
 }
 
-/** Message rows for the spike page (reload/initial render). */
+function isValidSandboxPref(value: string): boolean {
+  return value === "none" || value.startsWith("attached:");
+}
+
+/** Conversation state for the chat surface (reload/initial render). */
 export async function GET(request: Request) {
   const conversationId = new URL(request.url).searchParams.get("conversationId");
   if (!conversationId) {
     return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
   }
+  const conversation = getConversation(db(), conversationId);
   return NextResponse.json({
     messages: listMessageTexts(db(), conversationId),
     activeRunId: getActiveRun(db(), conversationId),
+    modelId: conversation?.modelId ?? null,
+    sandboxPref: conversation?.sandboxPref ?? null,
+    projectId: conversation?.projectId ?? null,
   });
-}
-
-/** Fresh conversation id for a new spike chat. */
-export async function PUT() {
-  const id = `c_${nanoid()}`;
-  return NextResponse.json({ conversationId: id });
 }

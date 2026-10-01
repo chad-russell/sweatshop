@@ -45,7 +45,6 @@ export async function harnessToolStep(
   const { conversationId, kind, task } = input;
   const [
     { createHarnessWorkflowState, runHarnessAgentStep },
-    { acquireSandbox },
     { toSandboxSession },
     { connectContainerToHarnessNetwork },
     { buildHarnessAgent },
@@ -58,7 +57,6 @@ export async function harnessToolStep(
     { z },
   ] = await Promise.all([
     import("@ai-sdk/workflow-harness"),
-    import("../../lib/sandboxes/lease"),
     import("../../lib/sandboxes/ai-sdk-adapter"),
     import("../../lib/sandboxes/harness-bridge"),
     import("../machines/harness-agent"),
@@ -95,14 +93,11 @@ export async function harnessToolStep(
   let toolCalls = 0;
   let failure: string | undefined;
   try {
-    // The conversation's dedicated sandbox (lazy; /work/<conversationId>
-    // is the cwd the harness resolves as its home).
-    const { handle } = await acquireSandbox({
-      mode: "dedicated",
-      ownerKind: "conversation",
-      ownerId: conversationId,
-      projectId: conversation.projectId,
-    });
+    // The conversation's sandbox — its explicit pref decides dedicated
+    // (lazy, /work/<conversationId> is the cwd the harness resolves as
+    // its home) or attached.
+    const { acquireConversationSandbox } = await import("../../lib/agent/tools/sandbox-pref");
+    const { handle } = await acquireConversationSandbox(conversationId, conversation.projectId);
     const sandboxSession = toSandboxSession(handle);
     const bridgeIp =
       kind === "claude" ? (await connectContainerToHarnessNetwork(handle.ref)).ip : undefined;

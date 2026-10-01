@@ -45,13 +45,33 @@ export function ensureConversation(
 export function getConversation(
   db: Db,
   id: string,
-): { id: string; projectId: string | null } | null {
+): {
+  id: string;
+  projectId: string | null;
+  modelId: string | null;
+  sandboxPref: string | null;
+} | null {
   const row = db
-    .select({ id: conversations.id, projectId: conversations.projectId })
+    .select({
+      id: conversations.id,
+      projectId: conversations.projectId,
+      modelId: conversations.modelId,
+      sandboxPref: conversations.sandboxPref,
+    })
     .from(conversations)
     .where(eq(conversations.id, id))
     .get();
   return row ?? null;
+}
+
+/** 0010: update the conversation's explicit knobs (model, sandbox pref). */
+export function updateConversationSettings(
+  db: Db,
+  id: string,
+  set: { modelId?: string; sandboxPref?: string | null },
+): void {
+  if (Object.keys(set).length === 0) return;
+  db.update(conversations).set(set).where(eq(conversations.id, id)).run();
 }
 
 /**
@@ -185,22 +205,29 @@ export function listModelMessages(db: Db, conversationId: string): ModelMessage[
   return rows.map((row) => JSON.parse(row.modelMessage!) as ModelMessage);
 }
 
-/** Simple {role, text} view of every message row (spike page reload). */
+/** Simple {role, text} view of every message row (reload/initial render). */
 export function listMessageTexts(
   db: Db,
   conversationId: string,
 ): { id: string; role: string; text: string; at: number }[] {
-  return db
+  const rows = db
     .select({
       id: messages.id,
       role: messages.role,
       text: messages.text,
       at: messages.at,
+      modelMessage: messages.modelMessage,
     })
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(sql`rowid`))
     .all();
+  // One lineage: once a conversation has model_message rows (new
+  // runtime or imported), older mirror-extracted rows are superseded.
+  if (rows.some((row) => row.modelMessage != null)) {
+    return rows.filter((row) => row.modelMessage != null);
+  }
+  return rows;
 }
 
 /** Queue a steer message for a conversation with a live turn. */

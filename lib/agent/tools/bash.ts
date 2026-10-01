@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { getConversation } from "@/db/chat";
-import { acquireSandbox } from "@/lib/sandboxes/lease";
+import { acquireConversationSandbox } from "@/lib/agent/tools/sandbox-pref";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /**
@@ -39,13 +39,9 @@ export async function runBash(
       "no project bound to this conversation — bash is only available in project conversations (start one from a project page)",
     );
   }
-  const { handle } = await acquireSandbox(
-    {
-      mode: "dedicated",
-      ownerKind: "conversation",
-      ownerId: conversationId,
-      projectId: conversation.projectId,
-    },
+  const { handle } = await acquireConversationSandbox(
+    conversationId,
+    conversation.projectId,
     provider,
   );
   const result = await handle.run(command);

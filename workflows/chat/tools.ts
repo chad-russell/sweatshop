@@ -24,8 +24,11 @@ import {
  * turn can suspend on the hook mid-loop and resume. The sandbox- and
  * db-touching tools ARE steps — only step bodies may use Node APIs, and
  * their results (clipped/POJO) serialize into the run log.
+ *
+ * sandboxPref "none" (an explicit composer choice) omits the sandboxed
+ * tools entirely; the tool cores resolve "attached:<id>" vs dedicated.
  */
-export function buildChatTools(conversationId: string) {
+export function buildChatTools(conversationId: string, sandboxPref?: string | null) {
   return {
     ask_chad: tool({
       description:
@@ -44,16 +47,6 @@ export function buildChatTools(conversationId: string) {
           ? `Chad approved${comment ? `: ${comment}` : " (no comment)"}. Question was: ${question}`
           : `Chad denied${comment ? `: ${comment}` : " (no comment)"}. Question was: ${question}`;
       },
-    }),
-
-    bash: tool({
-      description:
-        "Run a bash command in this conversation's sandbox (a fresh one is created on first use; " +
-        "the project's repos are cloned under /work/<conversation>). Not available without a project.",
-      inputSchema: z.object({
-        command: z.string().max(20_000).describe("The bash command to run."),
-      }),
-      execute: ({ command }) => bashStep(conversationId, command),
     }),
 
     create_pr: tool({
@@ -104,28 +97,40 @@ export function buildChatTools(conversationId: string) {
         ),
     }),
 
-    pi: tool({
-      description:
-        "Hand a coding task to the pi harness, which works in this conversation's sandbox " +
-        "(repos under the work root) with its own read/write/edit/bash tools and keeps context " +
-        "across calls. Use for non-trivial code changes; use plain bash for quick commands. " +
-        "The repo state is shared — pi's edits are immediately visible to bash.",
-      inputSchema: z.object({
-        task: z.string().min(1).describe("The coding task, with enough context to act on."),
+    ...(sandboxPref !== "none" && {
+      bash: tool({
+        description:
+          "Run a bash command in this conversation's sandbox (a fresh one is created on first use; " +
+          "the project's repos are cloned under /work/<conversation>). Not available without a project.",
+        inputSchema: z.object({
+          command: z.string().max(20_000).describe("The bash command to run."),
+        }),
+        execute: ({ command }) => bashStep(conversationId, command),
       }),
-      execute: ({ task }) => harnessToolStep({ conversationId, kind: "pi", task }),
-    }),
 
-    claude: tool({
-      description:
-        "Hand a coding task to the Claude Code harness, which works in this conversation's " +
-        "sandbox with its own read/edit/bash tools and keeps context across calls. Prefer for " +
-        "deep refactors or nuanced code review; use pi for quick edits and plain bash for " +
-        "one-off commands. The repo state is shared with bash and pi.",
-      inputSchema: z.object({
-        task: z.string().min(1).describe("The coding task, with enough context to act on."),
+      pi: tool({
+        description:
+          "Hand a coding task to the pi harness, which works in this conversation's sandbox " +
+          "(repos under the work root) with its own read/write/edit/bash tools and keeps context " +
+          "across calls. Use for non-trivial code changes; use plain bash for quick commands. " +
+          "The repo state is shared — pi's edits are immediately visible to bash.",
+        inputSchema: z.object({
+          task: z.string().min(1).describe("The coding task, with enough context to act on."),
+        }),
+        execute: ({ task }) => harnessToolStep({ conversationId, kind: "pi", task }),
       }),
-      execute: ({ task }) => harnessToolStep({ conversationId, kind: "claude", task }),
+
+      claude: tool({
+        description:
+          "Hand a coding task to the Claude Code harness, which works in this conversation's " +
+          "sandbox with its own read/edit/bash tools and keeps context across calls. Prefer for " +
+          "deep refactors or nuanced code review; use pi for quick edits and plain bash for " +
+          "one-off commands. The repo state is shared with bash and pi.",
+        inputSchema: z.object({
+          task: z.string().min(1).describe("The coding task, with enough context to act on."),
+        }),
+        execute: ({ task }) => harnessToolStep({ conversationId, kind: "claude", task }),
+      }),
     }),
 
     /** Trivial tool so the mock can force a second model step (steer test). */
