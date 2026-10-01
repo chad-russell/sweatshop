@@ -97,26 +97,52 @@ export function getHarnessEvents(
 
 export const clipHarnessText = clip;
 
-/** Harness run index (harness_runs): status for the UI + /h validity. */
-export function recordHarnessRunStart(
+/**
+ * Harness run index (harness_runs): status for the UI + /h validity.
+ *
+ * `claimHarnessRun` atomically claims the v1 concurrency slot — one
+ * harness at a time per conversation (0006). The check-then-start pair
+ * runs inside a single synchronous sqlite transaction, so two
+ * concurrent tool calls cannot both pass the guard; the claim also
+ * (re)writes this harness's row to running, resetting startedAt,
+ * toolCalls and error for a fresh run. Returns false when any harness
+ * already holds the slot.
+ */
+export function claimHarnessRun(
   sessionId: string,
   harness: HarnessKind,
-): void {
+): boolean {
   const now = Date.now();
-  db()
-    .insert(harnessRuns)
-    .values({
-      sessionId,
-      kind: harness,
-      status: "running",
-      startedAt: now,
-      lastAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [harnessRuns.sessionId, harnessRuns.kind],
-      set: { status: "running", error: null, lastAt: now },
-    })
-    .run();
+  return db().transaction((tx) => {
+    const active = tx.query.harnessRuns.findFirst({
+      where: and(
+        eq(harnessRuns.sessionId, sessionId),
+        eq(harnessRuns.status, "running"),
+      ),
+    }).sync();
+    if (active) return false;
+    tx.insert(harnessRuns)
+      .values({
+        sessionId,
+        kind: harness,
+        status: "running",
+        toolCalls: 0,
+        startedAt: now,
+        lastAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [harnessRuns.sessionId, harnessRuns.kind],
+        set: {
+          status: "running",
+          toolCalls: 0,
+          startedAt: now,
+          lastAt: now,
+          error: null,
+        },
+      })
+      .run();
+    return true;
+  });
 }
 
 export function recordHarnessRunEnd(

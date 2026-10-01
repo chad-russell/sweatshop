@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimHarnessRun,
   clipHarnessText,
   getActiveHarnessRun,
   getHarnessEvents,
@@ -8,7 +9,6 @@ import {
   listHarnessRuns,
   recordHarnessEvent,
   recordHarnessRunEnd,
-  recordHarnessRunStart,
 } from "../lib/harness-events";
 
 
@@ -45,9 +45,13 @@ describe("harness event store (0006)", () => {
     expect(rest.events[0].id).toBe(first.cursor! + 1);
   });
 
-  it("tracks run status per harness, including failures", () => {
-    recordHarnessRunStart("wrun_h3", "claude");
+  it("claims the one-run slot exclusively across harnesses", () => {
+    expect(claimHarnessRun("wrun_h3", "claude")).toBe(true);
     expect(getActiveHarnessRun("wrun_h3")?.kind).toBe("claude");
+    // The other harness (and a re-claim of the same one) is blocked
+    // while the slot is held.
+    expect(claimHarnessRun("wrun_h3", "pi")).toBe(false);
+    expect(claimHarnessRun("wrun_h3", "claude")).toBe(false);
 
     recordHarnessRunEnd("wrun_h3", "claude", 4, "failed", "boom");
     const run = getHarnessRun("wrun_h3", "claude");
@@ -56,18 +60,20 @@ describe("harness event store (0006)", () => {
     expect(run?.toolCalls).toBe(4);
     expect(getActiveHarnessRun("wrun_h3")).toBeNull();
 
-    // Same conversation, other harness, independent row.
-    expect(getHarnessRun("wrun_h3", "pi")).toBeNull();
-    recordHarnessRunStart("wrun_h3", "pi");
+    // Slot is free again — same or other harness may claim it.
+    expect(claimHarnessRun("wrun_h3", "pi")).toBe(true);
     expect(getActiveHarnessRun("wrun_h3")?.kind).toBe("pi");
+    // Other conversations are unaffected.
+    expect(claimHarnessRun("wrun_h3b", "claude")).toBe(true);
   });
 
-  it("marks a restarted run running again and clears the error", () => {
+  it("resets run counters and error when re-claiming after a failed run", () => {
     recordHarnessRunEnd("wrun_h4", "pi", 1, "failed", "earlier failure");
-    recordHarnessRunStart("wrun_h4", "pi");
+    expect(claimHarnessRun("wrun_h4", "pi")).toBe(true);
     const run = getHarnessRun("wrun_h4", "pi");
     expect(run?.status).toBe("running");
     expect(run?.error).toBeNull();
+    expect(run?.toolCalls).toBe(0);
   });
 
   it("clips stored error text and lists latest run per harness", () => {
@@ -76,7 +82,7 @@ describe("harness event store (0006)", () => {
     const errorText = getHarnessRun("wrun_h5", "claude")?.error;
     expect(errorText?.length).toBeLessThanOrEqual(501);
 
-    recordHarnessRunStart("wrun_h5", "pi");
+    claimHarnessRun("wrun_h5", "pi");
     const runs = listHarnessRuns("wrun_h5");
     expect(runs.map((r) => r.kind).sort()).toEqual(["claude", "pi"]);
   });

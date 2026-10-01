@@ -5,10 +5,10 @@ import { HarnessAgent } from "@ai-sdk/harness/agent";
 import { createPi } from "@ai-sdk/harness-pi";
 import {
   clipHarnessText,
+  claimHarnessRun,
   getActiveHarnessRun,
   recordHarnessEvent,
   recordHarnessRunEnd,
-  recordHarnessRunStart,
 } from "../../lib/harness-events";
 import { toSandboxSession } from "../../lib/sandboxes/ai-sdk-adapter";
 
@@ -78,35 +78,36 @@ export default defineTool({
     }
 
     // v1 concurrency contract: one harness at a time per sandbox (0006).
-    const active = getActiveHarnessRun(ctx.session.id);
-    if (active) {
+    // The claim is atomic (check + start in one sqlite transaction) so
+    // concurrent calls cannot both pass the guard.
+    if (!claimHarnessRun(ctx.session.id, "pi")) {
+      const active = getActiveHarnessRun(ctx.session.id);
       throw new Error(
-        `a ${active.kind} harness run is already active in this conversation — ` +
+        `a ${active?.kind ?? "harness"} run is already active in this conversation — ` +
           "wait for it to finish before starting pi",
       );
     }
 
-    const eveSandbox = await ctx.getSandbox();
-    // Bridge eve's session sandbox to the AI SDK session shape.
-    const sandboxSession = toSandboxSession({
-      run: (command, env, workingDirectory) =>
-        eveSandbox.run({
-          command,
-          ...(env ? { env } : {}),
-          ...(workingDirectory ? { workingDirectory } : {}),
-        }),
-    });
-
-    const { agent, session } = await getHarness(ctx.session.id, sandboxSession);
-
-    // Full harness event stream (0005 visibility, 0006 multi-harness):
-    // every model step and tool call is recorded per conversation ×
-    // harness into sqlite and served at /h/<sessionId> (raw JSON:
-    // /api/harness/<sessionId>?harness=pi).
-    recordHarnessRunStart(ctx.session.id, "pi");
     let toolCalls = 0;
     let failure: string | undefined;
     try {
+      const eveSandbox = await ctx.getSandbox();
+      // Bridge eve's session sandbox to the AI SDK session shape.
+      const sandboxSession = toSandboxSession({
+        run: (command, env, workingDirectory) =>
+          eveSandbox.run({
+            command,
+            ...(env ? { env } : {}),
+            ...(workingDirectory ? { workingDirectory } : {}),
+          }),
+      });
+
+      const { agent, session } = await getHarness(ctx.session.id, sandboxSession);
+
+      // Full harness event stream (0005 visibility, 0006 multi-harness):
+      // every model step and tool call is recorded per conversation ×
+      // harness into sqlite and served at /h/<sessionId> (raw JSON:
+      // /api/harness/<sessionId>?harness=pi).
       const result = await agent.generate({
         session,
         prompt: task,

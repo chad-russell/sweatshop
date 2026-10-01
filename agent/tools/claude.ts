@@ -5,10 +5,10 @@ import { HarnessAgent } from "@ai-sdk/harness/agent";
 import { createClaudeCode } from "@ai-sdk/harness-claude-code";
 import {
   clipHarnessText,
+  claimHarnessRun,
   getActiveHarnessRun,
   recordHarnessEvent,
   recordHarnessRunEnd,
-  recordHarnessRunStart,
 } from "../../lib/harness-events";
 import { toSandboxSession } from "../../lib/sandboxes/ai-sdk-adapter";
 import { connectSandboxToHarnessNetwork } from "../../lib/sandboxes/harness-bridge";
@@ -106,48 +106,49 @@ export default defineTool({
       );
     }
 
-    // v1 concurrency contract: one harness at a time per sandbox.
-    const active = getActiveHarnessRun(ctx.session.id);
-    if (active) {
+    // v1 concurrency contract: one harness at a time per sandbox. The
+    // claim is atomic (check + start in one sqlite transaction) so
+    // concurrent calls cannot both pass the guard.
+    if (!claimHarnessRun(ctx.session.id, "claude")) {
+      const active = getActiveHarnessRun(ctx.session.id);
       throw new Error(
-        `a ${active.kind} harness run is already active in this conversation — ` +
+        `a ${active?.kind ?? "harness"} run is already active in this conversation — ` +
           "wait for it to finish before starting claude",
       );
     }
 
-    const eveSandbox = await ctx.getSandbox();
-    const sandboxSession = toSandboxSession({
-      run: (command, env, workingDirectory) =>
-        eveSandbox.run({
-          command,
-          ...(env ? { env } : {}),
-          ...(workingDirectory ? { workingDirectory } : {}),
-        }),
-      spawn: (options) => eveSandbox.spawn(options),
-    });
-
-    // Private bridge endpoint on the shared harness network (0006).
-    const endpoint = await connectSandboxToHarnessNetwork({
-      sessionId: ctx.session.id,
-      sandbox: {
-        run: (command, env) =>
-          eveSandbox.run({ command, ...(env ? { env } : {}) }),
-      },
-    });
-
-    const { agent, session } = await getClaudeHarness({
-      sessionId: ctx.session.id,
-      sandboxSession,
-      ip: endpoint.ip,
-    });
-
-    // Event stream (0006 multi-harness): recorded per conversation ×
-    // harness into sqlite; served at /h/<sessionId>/claude (raw JSON:
-    // /api/harness/<sessionId>?harness=claude).
-    recordHarnessRunStart(ctx.session.id, "claude");
     let toolCalls = 0;
     let failure: string | undefined;
     try {
+      const eveSandbox = await ctx.getSandbox();
+      const sandboxSession = toSandboxSession({
+        run: (command, env, workingDirectory) =>
+          eveSandbox.run({
+            command,
+            ...(env ? { env } : {}),
+            ...(workingDirectory ? { workingDirectory } : {}),
+          }),
+        spawn: (options) => eveSandbox.spawn(options),
+      });
+
+      // Private bridge endpoint on the shared harness network (0006).
+      const endpoint = await connectSandboxToHarnessNetwork({
+        sessionId: ctx.session.id,
+        sandbox: {
+          run: (command, env) =>
+            eveSandbox.run({ command, ...(env ? { env } : {}) }),
+        },
+      });
+
+      const { agent, session } = await getClaudeHarness({
+        sessionId: ctx.session.id,
+        sandboxSession,
+        ip: endpoint.ip,
+      });
+
+      // Event stream (0006 multi-harness): recorded per conversation ×
+      // harness into sqlite; served at /h/<sessionId>/claude (raw JSON:
+      // /api/harness/<sessionId>?harness=claude).
       const result = await agent.generate({
         session,
         prompt: task,
