@@ -28,6 +28,31 @@ export interface ProvisionedSandbox {
 
 const SANDBOX_IMAGE = "localhost/sweatshop-sandbox";
 
+/** Container lifecycle primitives (0010 Phase 2): the podman provider
+ *  composes these; `ref` is the container name. */
+export async function createContainer(name: string): Promise<void> {
+  await exec("docker", ["run", "-d", "--name", name, SANDBOX_IMAGE]);
+}
+
+/** Stop a container, preserving its state (idle reaping). */
+export async function stopContainer(name: string): Promise<void> {
+  await exec("docker", ["stop", name]).catch(() => undefined);
+}
+
+/** Start a previously stopped container back up. */
+export async function startContainer(name: string): Promise<void> {
+  await exec("docker", ["start", name]);
+}
+
+/** Force-remove a container (destroy); a missing container is fine. */
+export async function removeContainer(name: string): Promise<void> {
+  await exec("docker", ["rm", "-f", name]).catch(() => undefined);
+}
+
+export function sandboxWorkRoot(ownerId: string): string {
+  return `/work/${ownerId}`;
+}
+
 function randomName(projectId: string): string {
   const suffix = Math.random().toString(36).slice(2, 10);
   return `sweatshop-wf-${projectId}-${suffix}`;
