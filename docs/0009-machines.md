@@ -1,9 +1,23 @@
 # 0009 — Machines: durable stage machines on the Workflow SDK
 
-Status: **proposed (2026-10-09)** — Chad approved the direction in chat
-(machines in the db, project and non-project machines, harness / eve /
-human stages). Phase 1a spike is in (`d062f7d`); everything below it
-awaits approval of this doc.
+Status: **approved (2026-10-09)** as written, with one amendment from
+the same review: **eve stages are always unsandboxed in v1** and spike
+1b is dropped (see "Amendment" below). Phase 1a spike is in
+(`d062f7d`).
+
+## Amendment (2026-10-09): eve stages run unsandboxed
+
+Chad: "99% of everything I'd want sandboxes for could use external
+harnesses only" — coding is harness work. So an `eve` stage is always
+a plain conversation with no sandbox, in project and non-project
+machines alike; only `harness` stages touch the run's container. This
+removes the custom attach-provider (and the one-environment question)
+from v1 entirely. A future VM sandbox tier does not change the
+calculus: the hard part was never container-vs-VM but that eve
+sessions own their sandbox, so attaching one to a run-owned resource
+needs a custom provider either way. If eve-in-the-workspace is ever
+wanted, it lands with that provider work (0004's sandbox-evolution
+direction), not here.
 
 ## Goal
 
@@ -24,7 +38,7 @@ phases. Machines generalize it and replace it.
 | Machine storage | sqlite `machines` row with a zod-validated JSON `definition` + `version`. Each run freezes a snapshot of the definition. | CRUD from the app (an `agent/` file would be authored code — rebuilt by eve's watcher, not user data). Snapshots make edits safe while runs are in flight. |
 | Workspace | Decided **per run** from the machine's `workspace`: `project` (one container provisioned at run start, the project's repos cloned, shared by **every** stage) or `none`. `scratch` (empty container, for pi in non-project machines) is reserved, not v1. | Chad's requirement: a project machine's stages all run in the project's sandbox. Project binding happens at run start, not on the machine, so one machine can serve any project. |
 | Stage kinds | `harness` (pi / claude), `eve` (an eve chat session), `human` (a pause for Chad). Terminal = a stage with no `next`. | The three kinds Chad named. |
-| Stage × workspace | `harness` requires `workspace: project` (rejected at validation otherwise). `eve` runs **in the run's container** for project machines and **with no sandbox** for `none`. `human` needs none. | Matches the requested matrix. |
+| Stage × workspace | `harness` requires `workspace: project` (rejected at validation otherwise). `eve` always runs **with no sandbox** (amendment). `human` needs none. | Coding = harness; eve stages are for thinking, drafting, triage. |
 | Transitions | Each stage lists `next: { to, when }[]`. One target → advance automatically. More than one → agent stages get a side-effect-free `transition({ to, reason })` tool (enum of allowed `to`); human stages render one button per target. The interpreter validates and commits. | The agent proposes, the workflow decides. A tool, not structured output — the harnesses don't uniformly support structured output. |
 | Bounds | `maxVisits` per stage (default 3) and a per-stage step cap (default 400). Hitting either parks the run as `needs-attention`. | Review→rework loops can't run forever. |
 | Context between stages | A fresh harness session / eve session per stage visit. The prompt is a **brief**: the run's original prompt, earlier stages' outcomes (final text, clipped), then the stage's instructions. Project machines also share the working tree itself. | "A new conversation per stage", without losing the thread. |
@@ -90,44 +104,20 @@ What it took (all in the spike commit):
   sudo**. Claude Code refuses its permission-skipping mode as root.
   This matches eve's own image (`vercel-sandbox`).
 
-## Not yet proven: eve stages in the run's container
+## Eve stages (unsandboxed, per the amendment)
 
-Harness stages share the container because the run hands them a
-handle. Eve sessions are different: each session **owns** its sandbox,
-and the built-in Docker environment always starts a new container. The
-eve docs give the supported way to share one: a custom provider
-(`defineSandboxProvider`) whose `start()` returns a *session-owned view*
-of an existing resource. It keeps the shared container outside that
-view's `stop` / `delete` hooks (`vendor/eve/docs/sandbox/index.mdx`,
-"Reuse native resources across sessions").
-
-The plan:
-
-- **Binding.** A machine-stage session is created with
-  `x-sweatshop-machine-run: <runId>` (lifted into principal attributes
-  like `project`).
-- **Attach.** The provider's `start()` looks up the run's container
-  name and returns an exec-backed handle. Session state is
-  `{ containerName }`; `resume()` reattaches. The stop and delete hooks
-  are no-ops, because the run owns the container.
-- **Open question.** Eve compiles one `environment` export per sandbox
-  module. If the selector can't choose between eve's Docker environment
-  and ours, the provider becomes **sweatshop's one container
-  provider**: it provisions with our provisioner for ordinary project
-  conversations and attaches for machine stages. That would also put
-  Path A and Path B on one image and one provisioner. That's a good end
-  state, but it's the biggest change here, so it gets its own spike
-  (1b) before anything depends on it.
-- **Completion.** Our mirror hook already sees every event. For
-  sessions with a machine-run attribute, `turn.completed` POSTs to a
-  Next route that resumes the stage hook (the token is the stage
-  visit). That keeps the Workflow world inside the Next process.
-  `operationId` makes the create idempotent, so a retried step finds
-  the same session.
-- **Transitions.** An eve-side `transition` tool, available only in
-  machine sessions, ends the stage the same way the harness tool does.
-  The stage is a real conversation, so Chad can talk to it before it
-  transitions.
+- A stage visit creates an ordinary eve session (`POST /eve/v1/session`)
+  with `x-sweatshop-machine-run: <runId>:<seq>` lifted into principal
+  attributes (like `project`), the brief as its first message, and
+  `operationId` = the stage visit so a retried step finds the same
+  session. No project binding → no sandbox, by construction.
+- It is a real conversation: it shows in the sidebar, Chad can talk to
+  it before it moves on.
+- **Completion:** an eve tool `transition({ to, reason })`, offered only
+  in machine sessions, records the proposal and resumes the stage's
+  workflow hook (token = stage visit). Single-target stages get the same
+  tool with one allowed value ("done"). The mirror hook stays model-free
+  and passive.
 
 ## Store
 
@@ -147,14 +137,12 @@ The plan:
 
 ## Phases
 
-1. **a ✅** Harness spike (above). **b** Eve attach-provider spike.
-   Answers the one-environment question and proves eve bash, pi and
-   claude all working in one container.
+1. **a ✅** Harness spike (above). (~~b~~ dropped by the amendment.)
 2. Schema + zod definition validation + store + `/api/machines` CRUD +
    seed machines.
 3. Engine: `runMachine` with harness and human stages, both workspace
    modes, bounds, transition tool, stage-hook routes.
-4. Eve stages, using whichever provider shape 1b chose.
+4. Eve stages (unsandboxed sessions + `transition` tool).
 5. UI: a machines list and editor (JSON editor first, form later), and
    a run view with a stage timeline that links each stage to its
    `/h/...` or conversation. Human gates go in `/inbox`.
@@ -176,9 +164,6 @@ The plan:
 
 ## Open questions
 
-1. If spike 1b shows eve needs a single provider, may it replace eve's
-   Docker environment for **all** project conversations? That would mean
-   our image (Debian node:24 + `sandbox` user) instead of eve's (Ubuntu
-   + `vercel-sandbox`).
-2. Where should the run view live? `/r/<runId>`, or under the project
-   (`/p/<id>/runs/<runId>`) with non-project runs elsewhere?
+1. ~~Single eve provider~~ — moot (amendment).
+2. Run view location: `/r/<runId>` (decided at build time; one shape
+   for project and non-project runs, like `/h`).
