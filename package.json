@@ -23,6 +23,7 @@
     "@ai-sdk/provider-utils": "5.0.51",
     "@ai-sdk/react": "^4.0.116",
     "@ai-sdk/workflow": "2.0.53",
+    "@ai-sdk/workflow-harness": "1.0.132",
     "@earendil-works/pi-coding-agent": "0.85.1",
     "@radix-ui/react-use-controllable-state": "^1.2.6",
     "@streamdown/cjk": "^1.0.3",
@@ -66,5 +67,10 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.2"
+  },
+  "overrides": {
+    "@ai-sdk/workflow-harness": {
+      "workflow": "$workflow"
+    }
   }
 }

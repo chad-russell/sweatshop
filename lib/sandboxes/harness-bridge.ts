@@ -83,9 +83,6 @@ export async function connectSandboxToHarnessNetwork(args: {
   sandbox: SandboxShell;
 }): Promise<{ ip: string; port: number; wsUrl: string }> {
   const { sessionId, sandbox } = args;
-  await ensureHarnessNetwork();
-  await assertRuntimeOnHarnessNetwork();
-
   const marker = `/tmp/.sweatshop-sbx-${sessionId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const write = await sandbox.run(
     `printf %s ${JSON.stringify(sessionId)} > ${JSON.stringify(marker)}`,
@@ -118,6 +115,20 @@ export async function connectSandboxToHarnessNetwork(args: {
     );
   }
 
+  return connectContainerToHarnessNetwork(containerId);
+}
+
+/**
+ * Join a known container (by id or name) to the harness network and
+ * return its bridge endpoint there. Directly provisioned sandboxes
+ * (workflow-owned, Path B) know their container name; eve session
+ * sandboxes are found by marker first (above).
+ */
+export async function connectContainerToHarnessNetwork(
+  containerId: string,
+): Promise<{ ip: string; port: number; wsUrl: string }> {
+  await ensureHarnessNetwork();
+  await assertRuntimeOnHarnessNetwork();
   await docker(["network", "connect", HARNESS_NETWORK, containerId]).catch(
     (err: { stderr?: string }) => {
       // docker-compatible daemons say "already exists in network";

@@ -1,5 +1,7 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn as nodeSpawn } from "node:child_process";
+import { Readable } from "node:stream";
 import { promisify } from "node:util";
+import type { Experimental_SandboxSession } from "ai";
 import { setupProjectWorkspace, type ProjectPlan } from "@/lib/sandboxes/setup";
 
 const exec = promisify(execFile);
@@ -19,6 +21,8 @@ export interface ProvisionedSandbox {
     env?: Record<string, string>,
     workingDirectory?: string,
   ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
+  /** Real long-lived process (0006 bridge harnesses need one). */
+  spawn: Experimental_SandboxSession["spawn"];
   remove(): Promise<void>;
 }
 
@@ -37,6 +41,7 @@ export function attachSandbox(containerName: string): ProvisionedSandbox {
     run(command: string, env?: Record<string, string>, workingDirectory?: string) {
       return execSandbox(containerName, command, env, workingDirectory);
     },
+    spawn: spawnInSandbox(containerName),
     async remove() {
       await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
     },
@@ -81,6 +86,37 @@ async function execSandbox(
   }
 }
 
+/**
+ * Streaming `docker exec -i` spawn: real stdout/stderr streams, exit
+ * wait and kill — what a bridge process (claude) needs; the run-to-
+ * completion replay fallback in the adapter cannot host one.
+ */
+export function spawnInSandbox(
+  containerName: string,
+): Experimental_SandboxSession["spawn"] {
+  return async (options) => {
+    const args = ["exec", "-i"];
+    if (options.workingDirectory) args.push("-w", options.workingDirectory);
+    for (const [k, v] of Object.entries(options.env ?? {})) {
+      args.push("-e", `${k}=${v}`);
+    }
+    args.push(containerName, "bash", "-lc", options.command);
+    const child = nodeSpawn("docker", args, { signal: options.abortSignal });
+    const exited = new Promise<{ exitCode: number }>((resolve) => {
+      child.on("exit", (code) => resolve({ exitCode: code ?? -1 }));
+      child.on("error", () => resolve({ exitCode: -1 }));
+    });
+    return {
+      stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+      stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
+      wait: () => exited,
+      kill: async () => {
+        child.kill("SIGKILL");
+      },
+    };
+  };
+}
+
 export async function provisionProjectSandbox(
   projectId: string,
 ): Promise<ProvisionedSandbox> {
@@ -109,5 +145,5 @@ export async function provisionProjectSandbox(
     await remove();
     throw err;
   }
-  return { containerName, plan, run, remove };
+  return { containerName, plan, run, spawn: spawnInSandbox(containerName), remove };
 }

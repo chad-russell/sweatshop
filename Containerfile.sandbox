@@ -6,12 +6,24 @@
 FROM docker.io/library/node:24-trixie-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates sudo \
   && rm -rf /var/lib/apt/lists/*
 
+# Bridge-backed harnesses (claude) bootstrap their in-sandbox bridge with
+# `pnpm install`; pinned to the version eve's own sandbox image ships.
+RUN npm install -g pnpm@11.5.2 && npm cache clean --force
+
+# Non-root agent user with passwordless sudo — the same shape as eve's
+# own sandbox image (vercel-sandbox). Claude Code refuses to run its
+# permission-skipping mode as root, so bridge harnesses need this.
+RUN useradd -m -s /bin/bash sandbox \
+  && echo "sandbox ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/sandbox \
+  && chmod 0440 /etc/sudoers.d/sandbox
+
 # Project repos clone here (same convention as eve session sandboxes).
-RUN mkdir -p /workspace
+RUN mkdir -p /workspace && chown sandbox:sandbox /workspace
 WORKDIR /workspace
+USER sandbox
 
 # Keep the container alive; commands enter via docker exec.
 CMD ["sleep", "infinity"]
