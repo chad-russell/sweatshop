@@ -82,6 +82,71 @@ export async function drainSteerStep(conversationId: string): Promise<string[]> 
 }
 
 /**
+ * 0010 Phase 3: run a bash command in the conversation's dedicated
+ * sandbox (created on first use). Output is clipped by the tool core
+ * (step results serialize into the run log).
+ */
+export async function bashStep(
+  conversationId: string,
+  command: string,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  "use step";
+  const { runBash } = await import("../../lib/agent/tools/bash");
+  return runBash(conversationId, command);
+}
+
+/** 0010 Phase 3: open a PR on one of the bound project's repos (0004 D). */
+export async function createPrStep(
+  conversationId: string,
+  input: {
+    repo: string;
+    head: string;
+    base?: string;
+    title: string;
+    body?: string;
+  },
+): Promise<unknown> {
+  "use step";
+  const [{ db }, { getConversation }, { openProjectPR }] = await Promise.all([
+    import("../../db"),
+    import("../../db/chat"),
+    import("../../lib/git-hosts/open-pr"),
+  ]);
+  const projectId = getConversation(db(), conversationId)?.projectId;
+  if (!projectId) throw new Error("no project bound to this conversation");
+  return openProjectPR({ projectId, ...input });
+}
+
+/** 0010 Phase 3: machines available in this conversation (0009). */
+export async function listMachinesStep(
+  conversationId: string,
+): Promise<unknown> {
+  "use step";
+  const { listAvailableMachines } = await import("../../lib/agent/tools/start-machine");
+  return listAvailableMachines(conversationId);
+}
+
+/** 0010 Phase 3: start a machine run directly, in-process (0009). */
+export async function startMachineStep(
+  conversationId: string,
+  input: { machineId: string; prompt: string },
+): Promise<{ runId: string; url: string }> {
+  "use step";
+  const { startMachineRun } = await import("../../lib/agent/tools/start-machine");
+  return startMachineRun({ conversationId, ...input });
+}
+
+/** 0010 Phase 3: attach to another owner's sandbox (explicit choice). */
+export async function attachSandboxStep(
+  conversationId: string,
+  target: { ownerKind: "conversation" | "machine_run"; ownerId: string } | { sandboxId: string },
+): Promise<{ sandboxId: string; ref: string; workdir: string }> {
+  "use step";
+  const { attachConversationSandbox } = await import("../../lib/agent/tools/attach-sandbox");
+  return attachConversationSandbox(conversationId, target);
+}
+
+/**
  * Persist the turn's new messages (result.messages tail — includes
  * mid-turn steer injections) and clear the conversation's active run.
  * Exactly one turn runs per conversation at a time (route-enforced), so

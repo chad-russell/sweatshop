@@ -33,11 +33,12 @@ class DevBuilder extends BaseBuilder {
       inputFiles,
       stepsOutfile,
       flowOutfile,
-      format: "esm",
-      // Match nitro dev: let the import of the output modules resolve the
-      // workflow runtime from this repo's node_modules, not a copy.
+      // Self-contained: bundle non-step modules (with tsconfig paths
+      // resolved) so the executor needs no bundler aliases at runtime —
+      // plain Node loads steps.mjs and everything local is already in it.
+      tsconfigPath: await this.findTsConfigPath(),
       bundleFinalOutput: false,
-      externalizeNonSteps: true,
+      externalizeNonSteps: false,
     });
   }
 }

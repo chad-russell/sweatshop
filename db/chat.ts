@@ -35,6 +35,19 @@ export function ensureConversation(
     .run();
 }
 
+/** The conversation row (new-runtime store reads; null when absent). */
+export function getConversation(
+  db: Db,
+  id: string,
+): { id: string; projectId: string | null } | null {
+  const row = db
+    .select({ id: conversations.id, projectId: conversations.projectId })
+    .from(conversations)
+    .where(eq(conversations.id, id))
+    .get();
+  return row ?? null;
+}
+
 /** Append message rows for one conversation (order = insertion order). */
 export function appendMessages(
   db: Db,

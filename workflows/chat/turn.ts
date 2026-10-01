@@ -3,7 +3,7 @@ import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { buildTurnModel } from "./model";
-import { chatTools } from "./tools";
+import { buildChatTools } from "./tools";
 import { drainSteerStep, loadTurnHistory, persistTurn, recordUserMessage } from "./steps";
 
 /**
@@ -46,7 +46,7 @@ export async function chatTurn(input: ChatTurnInput) {
   const agent = new WorkflowAgent({
     model,
     instructions: INSTRUCTIONS,
-    tools: chatTools,
+    tools: buildChatTools(conversationId),
   });
 
   let messages: ModelMessage[] = [...history, { role: "user", content: userText }];
