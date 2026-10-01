@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getHookByToken, getRun, start } from "workflow/api";
 import { db } from "../db";
-import { ensureConversation, listModelMessages } from "../db/chat";
+import {
+  ensureConversation,
+  listModelMessages,
+  listPendingInputs,
+  resolvePendingInput,
+} from "../db/chat";
 import { chatApprovalHook } from "../workflows/chat/hooks";
 import { chatTurn } from "../workflows/chat/turn";
 import { startWorkflowExecutor, type WorkflowExecutor } from "./helpers/workflow-executor";
@@ -110,6 +115,12 @@ describe("0010 spike: chat turn workflow", () => {
 
       // The mock's first step calls ask_chad with a fixed tool call id.
       await resumeWhenReady("call_ask_chad_1", true, "go");
+      // ...and the tool recorded the pending row (a STEP called from
+      // the workflow-context tool execute) — the inbox's view.
+      const pendingWhileSuspended = listPendingInputs(db(), id);
+      expect(pendingWhileSuspended.map((p) => p.id)).toContain("call_ask_chad_1");
+      resolvePendingInput(db(), "call_ask_chad_1", { approved: true });
+      expect(listPendingInputs(db(), id)).toHaveLength(0);
 
       const result = await returnValue;
       expect(result.finishReason).toBe("stop");

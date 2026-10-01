@@ -37,7 +37,7 @@ export function ApprovalCard({
   request: PendingRequest;
   onAnswered: (requestId: string) => void;
 }) {
-  const { respond, busy, error } = useRespond(thread.id);
+  const { respond, busy, error } = useRespond(thread.id, request.runtime);
   const options = request.options.length > 0 ? request.options : DEFAULT_APPROVAL;
   const input = formatInput(request.toolInput);
 

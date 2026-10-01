@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { db } from "@/db";
 import { chatApprovalHook } from "@/workflows/chat/hooks";
 
 export const dynamic = "force-dynamic";
@@ -31,5 +32,12 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+  // The inbox's pending row is answered (the hook was the suspension;
+  // this row is its observable record).
+  const { resolvePendingInput } = await import("@/db/chat");
+  resolvePendingInput(db(), body.toolCallId, {
+    approved: body.approved,
+    ...(body.comment ? { comment: body.comment } : {}),
+  });
   return NextResponse.json({ resumed: true });
 }

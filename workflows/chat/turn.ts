@@ -4,7 +4,7 @@ import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { buildTurnModel } from "./model";
 import { buildChatTools } from "./tools";
-import { drainSteerStep, loadTurnHistory, persistTurn, recordUserMessage } from "./steps";
+import { drainSteerStep, loadTurnHistory, maybeTitleStep, persistTurn, recordUserMessage } from "./steps";
 
 /**
  * 0010 spike: one chat turn = one workflow run. The run loads the
@@ -83,6 +83,11 @@ export async function chatTurn(input: ChatTurnInput) {
   // user message); persistTurn stores only the new tail.
   const skip = history.length + 1;
   const stored = await persistTurn(conversationId, messages, skip);
+  // Generated titles (0007) — skipped under the scripted mock so tests
+  // never wait on (or pay for) a real title call.
+  if (!(process.env.SWEATSHOP_CHAT_MOCK && process.env.NODE_ENV === "test")) {
+    await maybeTitleStep(conversationId);
+  }
   return { finishReason, persisted: stored };
 }
 

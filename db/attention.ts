@@ -8,6 +8,7 @@ import {
   machineRuns,
   machineStageRuns,
   messages,
+  pendingInputs,
   projects,
 } from "./schema";
 import type { MachineDefinition } from "../lib/machines/definition";
@@ -49,6 +50,12 @@ export interface PendingRequest {
   toolInput: Record<string, unknown> | null;
   /** Unix ms the request was raised. */
   at: number;
+  /**
+   * Which runtime raised it: "eve" (mirrored input events — answered on
+   * /eve/v1/session) or "chat" (0010 pending_inputs — answered on
+   * /api/x/input). Absent means eve (pre-0010 rows and callers).
+   */
+  runtime?: "eve" | "chat";
 }
 
 export interface EventRow {
@@ -183,7 +190,44 @@ export function loadPendingRequests(
     const pending = pendingFromEvents(list);
     if (pending.length > 0) out.set(id, pending);
   }
+  mergePendingInputs(db, out);
   return out;
+}
+
+/**
+ * 0010 Phase 4: fold the new chat runtime's pending_inputs rows into the
+ * same attention shape. They answer on /api/x/input (the runtime field
+ * routes the card), not eve's channel route.
+ */
+function mergePendingInputs(db: Conn, out: Map<string, PendingRequest[]>): void {
+  const rows = db
+    .select({
+      id: pendingInputs.id,
+      conversationId: pendingInputs.conversationId,
+      question: pendingInputs.question,
+      createdAt: pendingInputs.createdAt,
+    })
+    .from(pendingInputs)
+    .where(isNull(pendingInputs.resolvedAt))
+    .all();
+  for (const row of rows) {
+    const list = out.get(row.conversationId) ?? [];
+    list.push({
+      requestId: row.id,
+      kind: "tool-approval",
+      prompt: row.question,
+      options: [
+        { id: "approve", label: "Approve", style: "primary" },
+        { id: "deny", label: "Deny", style: "danger" },
+      ],
+      allowFreeform: true,
+      toolName: "ask_chad",
+      toolInput: { question: row.question },
+      at: row.createdAt,
+      runtime: "chat",
+    });
+    out.set(row.conversationId, list);
+  }
 }
 
 /** Newest assistant message time per conversation. */

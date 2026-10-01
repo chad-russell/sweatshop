@@ -1,7 +1,13 @@
 import { asc, eq, sql } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import type { Db } from "./index";
-import { chatHarnessState, conversations, messages, steerQueue } from "./schema";
+import {
+  chatHarnessState,
+  conversations,
+  messages,
+  pendingInputs,
+  steerQueue,
+} from "./schema";
 
 /**
  * 0010 spike store: the new chat runtime's own tables. The mirror
@@ -86,6 +92,59 @@ export function saveHarnessResumeState(
       target: [chatHarnessState.conversationId, chatHarnessState.harness],
     })
     .run();
+}
+
+/**
+ * 0010 Phase 4: pending human input on the new chat runtime. The tool
+ * records the request before awaiting its hook; the resume route marks
+ * it answered. The inbox reads unresolved rows.
+ */
+export function recordPendingInput(
+  db: Db,
+  input: { id: string; conversationId: string; kind: string; question: string },
+): void {
+  db.insert(pendingInputs)
+    .values({ ...input, createdAt: Date.now() })
+    .onConflictDoNothing()
+    .run();
+}
+
+export function resolvePendingInput(
+  db: Db,
+  id: string,
+  answer: unknown,
+): void {
+  db.update(pendingInputs)
+    .set({ resolvedAt: Date.now(), answer: JSON.stringify(answer) })
+    .where(eq(pendingInputs.id, id))
+    .run();
+}
+
+export function listPendingInputs(
+  db: Db,
+  conversationId?: string,
+): {
+  id: string;
+  conversationId: string;
+  kind: string;
+  question: string;
+  createdAt: number;
+}[] {
+  const where = conversationId
+    ? sql`${pendingInputs.conversationId} = ${conversationId} and ${pendingInputs.resolvedAt} is null`
+    : sql`${pendingInputs.resolvedAt} is null`;
+  return db
+    .select({
+      id: pendingInputs.id,
+      conversationId: pendingInputs.conversationId,
+      kind: pendingInputs.kind,
+      question: pendingInputs.question,
+      createdAt: pendingInputs.createdAt,
+    })
+    .from(pendingInputs)
+    .where(where)
+    .orderBy(asc(pendingInputs.createdAt))
+    .all();
 }
 
 /** Append message rows for one conversation (order = insertion order). */

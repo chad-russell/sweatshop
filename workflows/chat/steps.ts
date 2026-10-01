@@ -146,6 +146,30 @@ export async function attachSandboxStep(
   return attachConversationSandbox(conversationId, target);
 }
 
+/** 0010 Phase 4: record a pending human-input request (the ask_chad
+ *  tool calls this before awaiting its hook — workflow context cannot
+ *  touch sqlite, and the inbox needs the row before the answer). */
+export async function pendingStep(
+  conversationId: string,
+  id: string,
+  question: string,
+): Promise<void> {
+  "use step";
+  const [{ db }, chat] = await Promise.all([
+    import("../../db"),
+    import("../../db/chat"),
+  ]);
+  chat.recordPendingInput(db(), { id, conversationId, kind: "approval", question });
+}
+
+/** 0010 Phase 4: generated titles (0007) for new-runtime conversations —
+ *  fired from the turn (the mirror hook fired for eve's). */
+export async function maybeTitleStep(conversationId: string): Promise<void> {
+  "use step";
+  const { maybeGenerateTitle } = await import("../../lib/titles");
+  await maybeGenerateTitle(conversationId);
+}
+
 /**
  * Persist the turn's new messages (result.messages tail — includes
  * mid-turn steer injections) and clear the conversation's active run.

@@ -7,6 +7,7 @@ import {
   bashStep,
   createPrStep,
   listMachinesStep,
+  pendingStep,
   startMachineStep,
 } from "./steps";
 
@@ -33,6 +34,10 @@ export function buildChatTools(conversationId: string) {
         question: z.string().max(2_000).describe("What you need a decision on."),
       }),
       execute: async ({ question }, { toolCallId }) => {
+        // The pending row is the inbox's view of this request (a step:
+        // only steps may touch sqlite); the hook itself stays the
+        // workflow-level suspension primitive.
+        await pendingStep(conversationId, toolCallId, question);
         const hook = chatApprovalHook.create({ token: toolCallId });
         const { approved, comment } = await hook;
         return approved

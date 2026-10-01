@@ -9,12 +9,13 @@ export interface InputAnswer {
 }
 
 /**
- * Answer pending human-input requests straight on eve's channel route
- * (`inputResponses`, keyed by requestId). The turn resumes server-side;
- * the mirror then records `input.resolved`, which clears the request from
- * the Inbox on the next refresh.
+ * Answer pending human-input requests. Eve-runtime requests go to the
+ * channel route (`inputResponses`, keyed by requestId; the turn resumes
+ * server-side and the mirror records `input.resolved`). 0010 chat-runtime
+ * requests go to /api/x/input, which resumes the approval hook and
+ * resolves the pending_inputs row.
  */
-export function useRespond(sessionId: string) {
+export function useRespond(sessionId: string, runtime?: "eve" | "chat") {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,11 +24,25 @@ export function useRespond(sessionId: string) {
       setBusy(true);
       setError(null);
       try {
-        const res = await fetch(`/eve/v1/session/${sessionId}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ inputResponses: answers }),
-        });
+        let res: Response;
+        if (runtime === "chat") {
+          const answer = answers[0];
+          res = await fetch("/api/x/input", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              toolCallId: answer.requestId,
+              approved: answer.optionId !== "deny",
+              ...(answer.text ? { comment: answer.text } : {}),
+            }),
+          });
+        } else {
+          res = await fetch(`/eve/v1/session/${sessionId}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ inputResponses: answers }),
+          });
+        }
         if (!res.ok) {
           const body = (await res.json().catch(() => null)) as { error?: string } | null;
           setError(body?.error ?? `Request failed (${res.status})`);
@@ -41,7 +56,7 @@ export function useRespond(sessionId: string) {
         setBusy(false);
       }
     },
-    [sessionId],
+    [sessionId, runtime],
   );
 
   return { respond, busy, error };

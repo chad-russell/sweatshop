@@ -219,6 +219,33 @@ export const chatHarnessState = sqliteTable(
 );
 
 /**
+ * 0010 Phase 4: human input pending on the new chat runtime. Written by
+ * the ask_chad tool (via a workflow step — workflow context cannot touch
+ * sqlite), resolved by the resume route. The inbox derives "needs you"
+ * from these rows for new-runtime conversations (0008's
+ * derived-from-mirror approach retires with the mirror).
+ */
+export const pendingInputs = sqliteTable(
+  "pending_inputs",
+  {
+    /** The hook token (= the tool call id). */
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    kind: text("kind").notNull(),
+    /** The question/approval payload shown on the card. */
+    question: text("question").notNull(),
+    createdAt: integer("created_at").notNull(),
+    /** Null while pending; set when answered. */
+    resolvedAt: integer("resolved_at"),
+    /** Serialized answer (approved/comment), once resolved. */
+    answer: text("answer"),
+  },
+  (table) => [index("pending_inputs_conversation_idx").on(table.conversationId)],
+);
+
+/**
  * 0010 Phase 2: a conversation attached to a sandbox it does not own
  * (explicit "join" from the composer dropdown or an agent tool). The
  * attacher works in its own workdir but shares ports and processes.

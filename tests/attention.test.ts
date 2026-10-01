@@ -13,6 +13,7 @@ import {
 import { mirrorStreamEvent } from "../db/mirror";
 import { loadSidebar } from "../db/organize";
 import { conversations, folders, machineRuns, machineStageRuns, projects } from "../db/schema";
+import { recordPendingInput, resolvePendingInput } from "../db/chat";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 
@@ -152,6 +153,27 @@ describe("needs you", () => {
     expect(loadAttention(tdb).needsYou.has(id)).toBe(true);
 
     emit(id, "input.resolved", { resolutions: [{ requestId: "rq1", outcome: "approved" }] }, 4000);
+    expect(loadAttention(tdb).needsYou.has(id)).toBe(false);
+  });
+
+  it("0010 chat-runtime pending inputs merge into needs-you and clear on resolve", () => {
+    const id = convId();
+    recordPendingInput(tdb, {
+      id: "call_x1",
+      conversationId: id,
+      kind: "approval",
+      question: "Proceed with the cutover?",
+    });
+    expect(loadAttention(tdb).needsYou.has(id)).toBe(true);
+    const requests = loadPendingRequests(tdb).get(id) ?? [];
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      requestId: "call_x1",
+      runtime: "chat",
+      toolName: "ask_chad",
+    });
+
+    resolvePendingInput(tdb, "call_x1", { approved: true });
     expect(loadAttention(tdb).needsYou.has(id)).toBe(false);
   });
 
