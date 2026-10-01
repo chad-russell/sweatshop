@@ -223,3 +223,27 @@ describe("sidebar roll-ups", () => {
     expect(group.attention).toEqual({ unread: 1, needsYou: 1 });
   });
 });
+
+describe("attention signature", () => {
+  it("changes when unread, pending requests, or ticket gates change — and only then", () => {
+    const id = convId();
+    const base = loadAttention(tdb).signature;
+    expect(loadAttention(tdb).signature).toBe(base); // stable when idle
+
+    emit(id, "message.completed", { message: "ping" }, 1000);
+    const afterUnread = loadAttention(tdb).signature;
+    expect(afterUnread).not.toBe(base);
+
+    emit(id, "input.requested", { requests: [approval("sig1")] }, 2000);
+    const afterAsk = loadAttention(tdb).signature;
+    expect(afterAsk).not.toBe(afterUnread);
+
+    // A second request in an already-waiting thread still changes it.
+    emit(id, "input.requested", { requests: [approval("sig2")] }, 3000);
+    expect(loadAttention(tdb).signature).not.toBe(afterAsk);
+
+    emit(id, "input.resolved", { resolutions: [{ requestId: "sig1", outcome: "approved" }, { requestId: "sig2", outcome: "approved" }] }, 4000);
+    markSeen(tdb, id, 5000);
+    expect(loadAttention(tdb).signature).toBe(base);
+  });
+});

@@ -19,6 +19,7 @@ import {
 import { useSidebarActions } from "@/components/sidebar/use-actions";
 import { useCollapsedFolders } from "@/components/sidebar/use-collapsed";
 import { useConversationSearch } from "@/components/sidebar/use-search";
+import { useAttentionSync } from "@/lib/use-attention-sync";
 import { useMounted } from "@/lib/use-mounted";
 
 export type { SidebarData, SidebarGroup, SidebarItem } from "@/components/sidebar/types";
@@ -43,11 +44,12 @@ export function ConversationSidebar({
 }: {
   data: SidebarData;
   /** 0008: what the Inbox page would show — drives its badge. */
-  inbox: { unread: number; needsYou: number };
+  inbox: { signature: string; unread: number; needsYou: number };
 }) {
   const pathname = usePathname();
   const mounted = useMounted();
   const actions = useSidebarActions();
+  useAttentionSync(inbox.signature);
   const { collapsed, toggle } = useCollapsedFolders();
   const [editing, setEditing] = useState<Editing | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);

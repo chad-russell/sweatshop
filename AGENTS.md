@@ -142,7 +142,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`components/inbox/`: approval / question / ticket-gate / unread)
   answer approvals by POSTing `inputResponses` to `/eve/v1/session/<id>`.
   The sidebar shows the same signal as dots (amber = needs you, filled =
-  unread) on rows, rolled up on collapsed folders/groups. The tab-title
+  unread) on rows, rolled up on collapsed folders/groups, kept live by
+  `lib/use-attention-sync.ts`: while the tab is visible it polls
+  `GET /api/attention` every 5s and `router.refresh()`es only when the
+  attention signature differs from the one the layout rendered. The tab-title
   flash and system notifications were deliberately removed — dots only.
 
 ## Environment

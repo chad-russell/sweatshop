@@ -2,7 +2,7 @@
 
 import { CheckCheck, InboxIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type {
   InboxData,
@@ -15,8 +15,6 @@ import { ApprovalCard } from "./approval-card";
 import { QuestionCard } from "./question-card";
 import { TicketGateCard } from "./ticket-gate-card";
 import { UnreadCard } from "./unread-card";
-
-const POLL_MS = 5000;
 
 type Needed =
   | { key: string; kind: "ticket"; gate: NeedsYouTicket }
@@ -46,8 +44,8 @@ function Section({
  * The Inbox dashboard (0008): everything waiting on you, in one place.
  * "Needs you" — approvals, questions, ticket gates — comes first and
  * stays until answered; "Unread" is threads with assistant output you
- * haven't viewed. Server data is re-read on a short poll while the tab is
- * visible, so new asks appear without a reload.
+ * haven't viewed. The shell (lib/use-attention-sync) refreshes this page
+ * when the attention signature changes, so new asks appear without a reload.
  */
 export function InboxView({ data }: { data: InboxData }) {
   const router = useRouter();
@@ -56,18 +54,6 @@ export function InboxView({ data }: { data: InboxData }) {
   // Threads marked read this visit, kept visible (dimmed) so the toggle
   // can undo it. Cleared on navigation away — the server is the truth.
   const [readHere, setReadHere] = useState<ReadonlyMap<string, UnreadThread>>(new Map());
-
-  useEffect(() => {
-    const tick = () => {
-      if (document.visibilityState === "visible") router.refresh();
-    };
-    const timer = setInterval(tick, POLL_MS);
-    document.addEventListener("visibilitychange", tick);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", tick);
-    };
-  }, [router]);
 
   const setSeen = useCallback(
     async (thread: UnreadThread, seen: boolean) => {

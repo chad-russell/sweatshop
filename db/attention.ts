@@ -205,6 +205,12 @@ export interface AttentionState {
   needsYou: Set<string>;
   /** Pending ticket-run plan gates. */
   ticketGates: number;
+  /**
+   * Changes iff anything the sidebar dots or the Inbox page show changed
+   * (unread set, pending request ids, ticket gates). Clients poll it
+   * cheaply and refresh only on a difference.
+   */
+  signature: string;
 }
 
 export function loadAttention(db: Conn): AttentionState {
@@ -228,13 +234,21 @@ export function loadAttention(db: Conn): AttentionState {
     if (at !== undefined && at > r.lastSeenAt) unread.add(r.id);
   }
   const needsYou = new Set([...pending.keys()].filter((id) => live.has(id)));
-  const ticketGates =
-    db
-      .select({ n: sql<number>`count(*)` })
-      .from(ticketRuns)
-      .where(eq(ticketRuns.status, "awaiting-approval"))
-      .get()?.n ?? 0;
-  return { unread, needsYou, ticketGates };
+  const gateIds = db
+    .select({ id: ticketRuns.id })
+    .from(ticketRuns)
+    .where(eq(ticketRuns.status, "awaiting-approval"))
+    .all()
+    .map((g) => g.id);
+  const requestIds = [...pending.entries()]
+    .filter(([id]) => live.has(id))
+    .flatMap(([, list]) => list.map((r) => r.requestId));
+  const signature = [
+    [...unread].sort().join(","),
+    requestIds.sort().join(","),
+    gateIds.sort().join(","),
+  ].join("|");
+  return { unread, needsYou, ticketGates: gateIds.length, signature };
 }
 
 // ---------------------------------------------------------------------

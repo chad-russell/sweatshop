@@ -34,6 +34,7 @@ export default async function RootLayout({
               <ConversationSidebar
                 data={data}
                 inbox={{
+                  signature: attention.signature,
                   unread: attention.unread.size,
                   needsYou: attention.needsYou.size + attention.ticketGates,
                 }}
