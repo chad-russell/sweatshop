@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderGit2, FolderPlus, Inbox } from "lucide-react";
+import { ChevronRight, FolderGit2, FolderPlus, Inbox } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { cn } from "cn";
@@ -14,15 +14,46 @@ import { useDropTarget } from "./use-drop-target";
 const HEADING =
   "text-[11px] font-medium tracking-wide text-sidebar-foreground/60 uppercase";
 
+/** Pixels of left padding per nesting level (matches the folder tree). */
+const INDENT = 12;
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <ChevronRight
+      className={cn(
+        "size-3 shrink-0 text-sidebar-foreground/60 transition-transform",
+        open && "rotate-90",
+      )}
+    />
+  );
+}
+
+function folderCount(group: SidebarGroup): number {
+  const below = (nodes: SidebarGroup["folders"]): number =>
+    nodes.reduce((n, node) => n + node.items.length + below(node.folders), 0);
+  return group.inbox.length + below(group.folders);
+}
+
 /**
  * One group (a project, or Chats): header, its folder tree, then the
  * Inbox — everything not filed in a folder, split by age. Filing moves a
  * conversation out of the Inbox, so the Inbox is always "what's left to
  * sort", and an empty Today means nothing new has arrived.
+ *
+ * Structure, hinted by indentation: group (0) > folders and Inbox (1) >
+ * age labels and conversations (2). The group and the Inbox collapse;
+ * state persists in the same localStorage set as folder collapsing (keys
+ * `group:<id>` / `inbox:<id>` cannot collide with `fld_…` folder ids).
+ * Collapsed headers stay drop targets, so a drag can still land there.
  */
 export function GroupSection({ group }: { group: SidebarGroup }) {
-  const { editing, setEditing, mounted } = useSidebar();
+  const { editing, setEditing, mounted, collapsed, toggleFolder } = useSidebar();
   const projectId = group.project?.id ?? null;
+  const groupKey = `group:${projectId ?? "chats"}`;
+  const inboxKey = `inbox:${projectId ?? "chats"}`;
+  const groupOpen = !collapsed.has(groupKey);
+  const inboxOpen = !collapsed.has(inboxKey);
+  const total = folderCount(group);
   const choices = useMemo(() => flattenFolders(group.folders), [group.folders]);
 
   // Header: dropping here sends a conversation to the Inbox or a folder
@@ -49,96 +80,136 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
           header.dimmed && "opacity-40",
         )}
       >
-        {group.project ? (
-          <Link
-            href={`/p/${group.project.id}`}
-            title={`New conversation in ${group.project.name}`}
-            className={cn(
-              HEADING,
-              "flex min-w-0 items-center gap-1.5 transition-colors hover:text-sidebar-foreground",
-            )}
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          <button
+            type="button"
+            aria-expanded={groupOpen}
+            aria-label={`${groupOpen ? "Collapse" : "Expand"} ${group.project?.name ?? "Chats"}`}
+            onClick={() => toggleFolder(groupKey)}
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-sidebar-accent/60"
           >
-            <FolderGit2 className="size-3 shrink-0" />
-            <span className="truncate">{group.project.name}</span>
-          </Link>
-        ) : (
-          <span className={HEADING}>Chats</span>
-        )}
+            <Chevron open={groupOpen} />
+          </button>
+          {group.project ? (
+            <Link
+              href={`/p/${group.project.id}`}
+              title={`New conversation in ${group.project.name}`}
+              className={cn(
+                HEADING,
+                "flex min-w-0 items-center gap-1.5 transition-colors hover:text-sidebar-foreground",
+              )}
+            >
+              <FolderGit2 className="size-3 shrink-0" />
+              <span className="truncate">{group.project.name}</span>
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => toggleFolder(groupKey)}
+              className={cn(HEADING, "transition-colors hover:text-sidebar-foreground")}
+            >
+              Chats
+            </button>
+          )}
+          <span className="font-mono text-[10px] text-sidebar-foreground/40">{total}</span>
+        </div>
         <button
           type="button"
           aria-label={`New folder in ${group.project?.name ?? "Chats"}`}
           title="New folder"
-          onClick={() => setEditing({ kind: "new-folder", projectId, parentId: null })}
+          onClick={() => {
+            if (!groupOpen) toggleFolder(groupKey);
+            setEditing({ kind: "new-folder", projectId, parentId: null });
+          }}
           className="inline-flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
         >
           <FolderPlus className="size-3.5" />
         </button>
       </div>
 
-      {creatingRoot && <NewFolderRow projectId={projectId} parentId={null} depth={0} />}
-      {group.folders.map((node) => (
-        <FolderNodeView
-          key={node.id}
-          node={node}
-          projectId={projectId}
-          parentId={null}
-          depth={0}
-          choices={choices}
-        />
-      ))}
-
-      <div
-        {...inbox.props}
-        className={cn(
-          "mt-1 rounded-md transition-colors",
-          inbox.over && "bg-sidebar-accent/60 ring-1 ring-sidebar-ring",
-          inbox.dimmed && "opacity-40",
-        )}
-      >
-        <div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5">
-          <Inbox className="size-3 shrink-0 text-sidebar-foreground/60" />
-          <span className={HEADING}>Inbox</span>
-          <span className="font-mono text-[10px] text-sidebar-foreground/40">
-            {group.inbox.length}
-          </span>
-        </div>
-        {group.inbox.length === 0 ? (
-          <p className="px-2 py-1 text-xs text-sidebar-foreground/40">
-            Nothing to sort.
-          </p>
-        ) : buckets ? (
-          buckets.map(({ bucket, items }) => (
-            <div key={bucket}>
-              <div className="px-2 pt-1.5 pb-0.5 text-[10px] tracking-wide text-sidebar-foreground/40 uppercase">
-                {bucket}
-              </div>
-              {items.map((item) => (
-                <ConversationRow
-                  key={item.id}
-                  item={item}
-                  projectId={projectId}
-                  folderId={null}
-                  depth={0}
-                  choices={choices}
-                  showAge
-                />
-              ))}
-            </div>
-          ))
-        ) : (
-          group.inbox.map((item) => (
-            <ConversationRow
-              key={item.id}
-              item={item}
+      {groupOpen && (
+        <>
+          {creatingRoot && <NewFolderRow projectId={projectId} parentId={null} depth={1} />}
+          {group.folders.map((node) => (
+            <FolderNodeView
+              key={node.id}
+              node={node}
               projectId={projectId}
-              folderId={null}
-              depth={0}
+              parentId={null}
+              depth={1}
               choices={choices}
-              showAge={false}
             />
-          ))
-        )}
-      </div>
+          ))}
+
+          <div
+            {...inbox.props}
+            className={cn(
+              "mt-1 rounded-md transition-colors",
+              inbox.over && "bg-sidebar-accent/60 ring-1 ring-sidebar-ring",
+              inbox.dimmed && "opacity-40",
+            )}
+          >
+            <button
+              type="button"
+              aria-expanded={inboxOpen}
+              aria-label={`${inboxOpen ? "Collapse" : "Expand"} Inbox`}
+              onClick={() => toggleFolder(inboxKey)}
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-sidebar-accent/60"
+              style={{ paddingLeft: 8 + INDENT }}
+            >
+              <Chevron open={inboxOpen} />
+              <Inbox className="size-3 shrink-0 text-sidebar-foreground/60" />
+              <span className={HEADING}>Inbox</span>
+              <span className="font-mono text-[10px] text-sidebar-foreground/40">
+                {group.inbox.length}
+              </span>
+            </button>
+            {inboxOpen &&
+              (group.inbox.length === 0 ? (
+                <p
+                  className="px-2 py-1 text-xs text-sidebar-foreground/40"
+                  style={{ paddingLeft: 8 + 2 * INDENT }}
+                >
+                  Nothing to sort.
+                </p>
+              ) : buckets ? (
+                buckets.map(({ bucket, items }) => (
+                  <div key={bucket}>
+                    <div
+                      className="px-2 pt-1.5 pb-0.5 text-[10px] tracking-wide text-sidebar-foreground/40 uppercase"
+                      style={{ paddingLeft: 8 + 2 * INDENT }}
+                    >
+                      {bucket}
+                    </div>
+                    {items.map((item) => (
+                      <ConversationRow
+                        key={item.id}
+                        item={item}
+                        projectId={projectId}
+                        folderId={null}
+                        depth={2}
+                        choices={choices}
+                        showAge
+                      />
+                    ))}
+                  </div>
+                ))
+              ) : (
+                group.inbox.map((item) => (
+                  <ConversationRow
+                    key={item.id}
+                    item={item}
+                    projectId={projectId}
+                    folderId={null}
+                    depth={2}
+                    choices={choices}
+                    showAge={false}
+                  />
+                ))
+              ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }
