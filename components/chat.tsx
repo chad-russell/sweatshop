@@ -692,11 +692,6 @@ export function ChatSurface({
     if (!text || inputDisabled) return;
     // The draft left the composer — stop persisting it.
     window.localStorage.removeItem(draftKey);
-    // Ask for notification permission once, inside the send gesture — the
-    // turn-finished signal is a no-op without it (denied stays denied).
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      void Notification.requestPermission();
-    }
     void agent.send(text, isBusy ? { turnPolicy: "steer" } : undefined);
   };
 
@@ -751,52 +746,6 @@ export function ChatSurface({
       window.localStorage.removeItem(draftKey);
     }
   };
-
-  // ── Turn-finished signal ─────────────────────────────────────────────
-  // Long harness turns (pi/claude delegations, PR opens) finish while the
-  // tab is in the background; nothing told you. When a running turn ends
-  // (ready or error) while the tab is hidden, flash the tab title and —
-  // with granted permission — post a system notification. Scope is this
-  // conversation's surface only: completing a turn in a *different*
-  // conversation isn't visible here (the stream lives in the route).
-  const [turnDone, setTurnDone] = useState<{ ok: boolean } | null>(null);
-  const prevStatusRef = useRef<UseEveAgentStatus | "ready">(displayStatus);
-  useEffect(() => {
-    const prev = prevStatusRef.current;
-    prevStatusRef.current = displayStatus;
-    const wasRunning = prev === "submitted" || prev === "streaming";
-    const finished = displayStatus === "ready" || displayStatus === "error";
-    if (wasRunning && finished && typeof document !== "undefined" && document.hidden) {
-      setTurnDone({ ok: displayStatus === "ready" });
-    }
-  }, [displayStatus]);
-
-  useEffect(() => {
-    if (!turnDone) return;
-    const original = document.title;
-    document.title = `${turnDone.ok ? "✓" : "⚠"} sweatshop`;
-    const clear = () => setTurnDone(null);
-    window.addEventListener("focus", clear, { once: true });
-    document.addEventListener("visibilitychange", clear, { once: true });
-    if (
-      typeof Notification !== "undefined" &&
-      Notification.permission === "granted"
-    ) {
-      try {
-        new Notification("sweatshop", {
-          body: turnDone.ok ? "Turn finished" : "Turn failed",
-        });
-      } catch {
-        // Some platforms reject constructor use without a gesture — the
-        // title flash still carries the signal.
-      }
-    }
-    return () => {
-      document.title = original;
-      window.removeEventListener("focus", clear);
-      document.removeEventListener("visibilitychange", clear);
-    };
-  }, [turnDone]);
 
   const handleNewChat = () => {
     if (projectId) {
