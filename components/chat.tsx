@@ -605,10 +605,10 @@ export function ChatSurface({
     conversationRef.current = { conversationId, projectId: projectId ?? null };
   }, [modelId, sandboxPref, conversationId, projectId]);
 
+  // eslint-disable-next-line react-hooks/refs -- the callback runs at
+  // send time (never during render) and must see the current knobs.
   const [transport] = useState(
     () =>
-      // eslint-disable-next-line react-hooks/refs -- the callback runs at
-      // send time (never during render) and must see the current knobs.
       new WorkflowChatTransport({
         api: "/api/x/chat",
         prepareSendMessagesRequest: ({ messages, trigger, messageId }) => ({

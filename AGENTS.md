@@ -93,10 +93,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   session. Stage kinds: `harness` (pi/claude HarnessAgent, one
   `"use step"` per semantic agent step via `@ai-sdk/workflow-harness`
   `runHarnessAgentStep` + `stopWhen: isStepCount(1)`; project machines
-  only), `eve` (an ordinary UNSANDBOXED conversation, created with
-  `x-sweatshop-machine-visit`; single-target stages advance on
-  `turn.completed` via the mirror hook, branching ones get a
-  session-scoped dynamic `transition` tool), `human` (a `defineHook`
+  only), `agent`
+  (0010 Phase 5: an in-process WorkflowAgent turn — `agentStageStep`,
+  one `"use step"` per visit, persisted as a conversation under the
+  stage session id; branching stages choose via a side-effect-free
+  `transition` tool, single-target ones advance on completion; was
+  `eve` in 0009), `human` (a `defineHook`
   gate shown in `/inbox`). A project run provisions ONE sandbox — a
   dedicated lease through the 0010 seam (`acquireSandbox`,
   `lib/sandboxes/lease.ts`; `SandboxProvider` in `provider.ts`,

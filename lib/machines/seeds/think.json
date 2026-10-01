@@ -7,13 +7,13 @@
     "start": "draft",
     "stages": {
       "draft": {
-        "kind": "eve",
+        "kind": "agent",
         "title": "Draft",
         "instructions": "Write a thorough first draft answering the prompt. When the draft is complete, call the transition tool.",
         "next": [{ "to": "critique" }]
       },
       "critique": {
-        "kind": "eve",
+        "kind": "agent",
         "title": "Critique",
         "instructions": "You are a demanding reviewer. Critique the draft from the previous stage: what is wrong, missing, or weak. Then write an improved version. When done, call the transition tool.",
         "next": [{ "to": "decide" }]

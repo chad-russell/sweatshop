@@ -48,8 +48,9 @@ const harnessStage = z.object({
   ...common,
 });
 
-const eveStage = z.object({
-  kind: z.literal("eve"),
+const agentStage = z.object({
+  /** 0010 Phase 5: an in-process WorkflowAgent turn (was "eve", 0009). */
+  kind: z.literal("agent"),
   /** Chat model id (lib/model); default applies when absent. */
   model: z.string().max(120).optional(),
   ...common,
@@ -62,7 +63,7 @@ const humanStage = z.object({
 
 export const stageSchema = z.discriminatedUnion("kind", [
   harnessStage,
-  eveStage,
+  agentStage,
   humanStage,
 ]);
 

@@ -101,12 +101,12 @@ export function MachineRunView({
 
 function StageCard({ run, visit }: { run: Run; visit: MachineStageRun }) {
   const stage = run.definition.stages[visit.stageId];
-  const KindIcon = visit.kind === "harness" ? Terminal : visit.kind === "eve" ? Bot : Hand;
+  const KindIcon = visit.kind === "harness" ? Terminal : visit.kind === "agent" ? Bot : Hand;
   const waitingGate = visit.kind === "human" && visit.status === "waiting" && run.status === "waiting";
   const link =
     visit.kind === "harness" && visit.harness && visit.sessionId
       ? { href: `/h/${visit.harness}/${visit.sessionId}`, label: `${visit.harness} session` }
-      : visit.kind === "eve" && visit.sessionId
+      : visit.kind === "agent" && visit.sessionId
         ? { href: `/c/${visit.sessionId}`, label: "conversation" }
         : null;
 

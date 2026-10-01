@@ -10,18 +10,17 @@ import {
   type MachineDefinition,
 } from "@/lib/machines/definition";
 import { buildBrief, resolveTransition, type PriorVisit } from "@/lib/machines/brief";
+import { agentStageStep } from "./agent-step";
 import { harnessStep } from "./harness-step";
 import {
   beginVisit,
   endHarnessSession,
   endVisit,
-  eveStageOutcome,
   loadHistory,
   markRun,
   provisionWorkspace,
   recordSteps,
   removeWorkspace,
-  startEveStage,
 } from "./steps";
 
 /**
@@ -45,14 +44,6 @@ export const gateHook = defineHook({
   schema: z.object({
     to: z.string(),
     comment: z.string().max(10_000).optional(),
-  }),
-});
-
-/** An eve stage's transition tool resuming the run. */
-export const eveStageHook = defineHook({
-  schema: z.object({
-    to: z.string().nullable(),
-    reason: z.string().max(2000).optional(),
   }),
 });
 
@@ -132,12 +123,17 @@ export async function runMachine(input: RunMachineInput) {
           brief,
           harness: stage.harness,
         });
-      } else if (stage.kind === "eve") {
-        await startEveStage({ runId, seq, token, brief, model: stage.model });
-        using hook = eveStageHook.create({ token });
-        const { to } = await hook;
-        // Outcome (the conversation's final reply) is loaded below.
-        result = { ok: true, outcome: "", proposed: to };
+      } else if (stage.kind === "agent") {
+        // 0010 Phase 5: the visit is an in-process WorkflowAgent turn —
+        // no session creation, no hook, no turn-end nudge.
+        const visit = await agentStageStep({
+          runId,
+          seq,
+          definition,
+          stageId: at,
+          brief,
+        });
+        result = { ok: true, outcome: visit.text, proposed: visit.proposed };
       } else {
         using hook = gateHook.create({ token });
         const answer = await hook;
@@ -150,14 +146,9 @@ export async function runMachine(input: RunMachineInput) {
         return { status: "needs-attention" as const };
       }
 
-      // Eve stages: the outcome is the conversation's final reply.
-      let outcome = result.outcome;
-      if (stage.kind === "eve") {
-        const loaded = await loadHistory(runId);
-        const sid = loaded.find((v) => v.seq === seq)?.sessionId;
-        if (sid) outcome = await eveStageOutcome(sid);
-      }
-
+      // The transition is resolved from the visit's own result — no
+      // post-visit loading (the agent stage returns its outcome).
+      const outcome = result.outcome;
       const next = resolveTransition(stage, result.proposed);
       if (next === null) {
         const why = `stage "${at}" finished without choosing a valid next stage`;

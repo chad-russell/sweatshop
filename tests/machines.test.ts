@@ -41,7 +41,7 @@ const thinking: MachineDefinition = {
   workspace: "none",
   start: "draft",
   stages: {
-    draft: { kind: "eve", title: "Draft", instructions: "draft", next: [] },
+    draft: { kind: "agent", title: "Draft", instructions: "draft", next: [] },
   },
 };
 
@@ -63,7 +63,7 @@ describe("machine definitions", () => {
           instructions: "",
           next: [{ to: "b" }, { to: "ghost" }, { to: "b" }],
         },
-        b: { kind: "eve", title: "B", instructions: "", next: [] },
+        b: { kind: "agent", title: "B", instructions: "", next: [] },
       },
     });
     expect(bad.ok).toBe(false);
@@ -79,13 +79,13 @@ describe("machine definitions", () => {
     const named = parseDefinition({
       workspace: "none",
       start: "end",
-      stages: { end: { kind: "eve", title: "x", instructions: "", next: [] } },
+      stages: { end: { kind: "agent", title: "x", instructions: "", next: [] } },
     });
     expect(named.ok).toBe(false);
   });
 
   it("rejects unknown kinds and bad stage ids", () => {
-    expect(parseDefinition({ workspace: "none", start: "A", stages: { A: { kind: "eve", title: "x", instructions: "", next: [] } } }).ok).toBe(false);
+    expect(parseDefinition({ workspace: "none", start: "A", stages: { A: { kind: "agent", title: "x", instructions: "", next: [] } } }).ok).toBe(false);
     expect(parseDefinition({ workspace: "none", start: "a", stages: { a: { kind: "robot", title: "x", instructions: "", next: [] } } }).ok).toBe(false);
   });
 });
