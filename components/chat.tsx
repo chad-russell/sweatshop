@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChatStatus } from "ai";
+import { useMarkSeen } from "@/lib/use-mark-seen";
 import { Bot, Check, ChevronDown, ChevronsUpDown, Copy, GitPullRequest, Lock, MessageSquarePlus, RotateCcw, SquarePen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
@@ -620,6 +621,9 @@ export function ChatSurface({
     ? (agent.session?.sessionId ?? null)
     : (sessionId ?? agent.session?.sessionId ?? null);
   const isBusy = displayStatus === "submitted" || displayStatus === "streaming";
+  // Opening a thread marks it read (visible + focused only); re-marks when
+  // a turn lands so the thread on screen never grows an unread dot.
+  useMarkSeen(conversationId, `${agent.data.messages.length}:${isBusy ? "busy" : displayStatus}`);
   const isResuming = displayStatus === "resuming";
   const inputDisabled = isResuming;
   const messages = agent.data.messages;

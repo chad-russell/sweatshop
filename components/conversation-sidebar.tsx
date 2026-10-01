@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowLeft, MessageSquare, PanelLeft, Search, SquarePen, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Inbox, MessageSquare, PanelLeft, Search, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -29,15 +29,22 @@ const FOOTER_BUTTON =
   "inline-flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-sidebar-foreground";
 
 /**
- * Conversation navigation (0002–0004, 0007): New chat, search, and per
- * group (project, or Chats) a folder tree plus an Inbox of unfiled
- * conversations split by age. Archive and Trash are separate views from
+ * Conversation navigation (0002–0004, 0007, 0008): New chat, search, the
+ * Inbox (what needs your attention), and per group (project, or Chats) a
+ * folder tree plus the Unfiled conversations split by age. Archive and Trash are separate views from
  * the footer. Server-rendered by the layout from sqlite; every mutation
  * goes through the organization API and refreshes the layout. A
  * conversation started mid-page triggers a layout refresh from the
  * chat surface once its session is adopted.
  */
-export function ConversationSidebar({ data }: { data: SidebarData }) {
+export function ConversationSidebar({
+  data,
+  inbox,
+}: {
+  data: SidebarData;
+  /** 0008: what the Inbox page would show — drives its badge. */
+  inbox: { unread: number; needsYou: number };
+}) {
   const pathname = usePathname();
   const mounted = useMounted();
   const actions = useSidebarActions();
@@ -180,6 +187,36 @@ export function ConversationSidebar({ data }: { data: SidebarData }) {
               ))}
             </div>
           )}
+        </div>
+
+        <div className="px-3 pb-2">
+          <Link
+            href="/inbox"
+            aria-current={pathname === "/inbox" ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent/60",
+              pathname === "/inbox" && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+          >
+            <Inbox className="size-4 shrink-0 text-sidebar-foreground/60" />
+            <span className="flex-1">Inbox</span>
+            {inbox.needsYou > 0 && (
+              <span
+                title={`${inbox.needsYou} waiting on you`}
+                className="rounded-full bg-warning px-1.5 font-mono text-[10px] leading-4 font-medium text-background"
+              >
+                {inbox.needsYou}
+              </span>
+            )}
+            {inbox.unread > 0 && (
+              <span
+                title={`${inbox.unread} unread`}
+                className="rounded-full bg-sidebar-primary px-1.5 font-mono text-[10px] leading-4 font-medium text-sidebar-primary-foreground"
+              >
+                {inbox.unread}
+              </span>
+            )}
+          </Link>
         </div>
 
         {actions.error && (

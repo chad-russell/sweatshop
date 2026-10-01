@@ -68,7 +68,7 @@ export function subtreeIds(node: FolderNode): Set<string> {
 export function allItems(groups: readonly SidebarGroup[]): SidebarItem[] {
   const collect = (nodes: readonly FolderNode[]): SidebarItem[] =>
     nodes.flatMap((n) => [...n.items, ...collect(n.folders)]);
-  return groups.flatMap((g) => [...g.inbox, ...collect(g.folders)]);
+  return groups.flatMap((g) => [...g.unfiled, ...collect(g.folders)]);
 }
 
 export function relativeTime(ms: number): string {

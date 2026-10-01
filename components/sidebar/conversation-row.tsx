@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { AttentionDot } from "./attention-dot";
 import { useSidebar } from "./context";
 import { InlineName } from "./inline-name";
 import { MoveMenu } from "./move-menu";
@@ -16,7 +17,7 @@ import { RowMenuTrigger } from "./row-menu-trigger";
 import { relativeTime, type FolderChoice, type SidebarItem } from "./types";
 
 /**
- * One conversation in the folder tree or the Inbox: a draggable link
+ * One conversation in the folder tree or the Unfiled list: a draggable link
  * with a hover menu (rename, move, archive, trash). Dragging only ever
  * *offers* targets in the same group (see use-drop-target).
  */
@@ -71,12 +72,24 @@ export function ConversationRow({
           href={`/c/${item.id}`}
           draggable={false}
           title={item.title ?? item.id}
-          className="flex items-baseline justify-between gap-2 px-2 py-1.5"
+          className="flex items-center justify-between gap-2 px-2 py-1.5"
         >
-          <span className="truncate text-sm">
-            {item.title ?? (
-              <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>
+          <span
+            className={cn(
+              "flex min-w-0 items-center gap-1.5 text-sm",
+              item.unread && !item.needsYou && "font-medium",
             )}
+          >
+            <AttentionDot
+              unread={item.unread ? 1 : 0}
+              needsYou={item.needsYou ? 1 : 0}
+              className="-ml-1"
+            />
+            <span className="truncate">
+              {item.title ?? (
+                <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>
+              )}
+            </span>
           </span>
           {showAge && (
             <span className="shrink-0 font-mono text-[10px] text-sidebar-foreground/60 group-focus-within/row:invisible group-hover/row:invisible group-has-[[data-state=open]]/row:invisible pointer-coarse:invisible">
@@ -98,7 +111,7 @@ export function ConversationRow({
               Rename
             </DropdownMenuItem>
             <MoveMenu
-              rootLabel="Inbox (unfiled)"
+              rootLabel="Unfiled"
               currentId={folderId}
               choices={choices}
               onPick={(id) => void actions.moveConversation(item.id, id)}

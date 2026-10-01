@@ -31,7 +31,7 @@ export const conversations = sqliteTable(
     titleSource: text("title_source").notNull().default("auto"),
     /** 0007: titles generated so far (0, 1, or 2 — see lib/titles.ts). */
     titleGenerations: integer("title_generations").notNull().default(0),
-    /** 0007: user-visible folder; null = unfiled (Inbox). Must belong to
+    /** 0007: user-visible folder; null = unfiled. Must belong to
      *  the same group (project) as the conversation. */
     folderId: text("folder_id").references((): AnySQLiteColumn => folders.id),
     /** 0007: Unix ms; hidden from folders/inbox, still searchable. */
@@ -42,6 +42,10 @@ export const conversations = sqliteTable(
     createdAt: integer("created_at").notNull(),
     /** Unix ms, bumped on each newly mirrored event. */
     updatedAt: integer("updated_at").notNull(),
+    /** 0008 (inbox): Unix ms the user last viewed this conversation. A
+     *  conversation is unread when it has an assistant message newer than
+     *  this (db/attention.ts). 0 = never viewed. */
+    lastSeenAt: integer("last_seen_at").notNull().default(0),
     /** Rows mirrored for this conversation (gap audit via rebuild). */
     eventCount: integer("event_count").notNull().default(0),
   },
@@ -97,6 +101,8 @@ export const conversationEvents = sqliteTable(
   },
   (table) => [
     index("conversation_events_conversation_idx").on(table.conversationId),
+    // 0008: the inbox scans the (few) input.* events by type.
+    index("conversation_events_type_idx").on(table.type),
   ],
 );
 

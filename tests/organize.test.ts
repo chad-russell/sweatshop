@@ -233,9 +233,9 @@ describe("loadSidebar", () => {
     expect(group.folders.map((f) => f.name)).toEqual(["Older", "Newer"]);
     expect(group.folders[0].folders[0].items.map((i) => i.id)).toEqual([cNew]);
     expect(group.folders[0].count).toBe(1);
-    expect(group.inbox.map((i) => i.id)).toEqual([cInbox]);
+    expect(group.unfiled.map((i) => i.id)).toEqual([cInbox]);
     expect(data.archived.some((i) => i.id === cArch)).toBe(true);
     expect(data.trashed.some((i) => i.id === cTrash)).toBe(true);
-    expect(group.inbox.concat(group.folders[0].items).some((i) => i.id === cTrash)).toBe(false);
+    expect(group.unfiled.concat(group.folders[0].items).some((i) => i.id === cTrash)).toBe(false);
   });
 });

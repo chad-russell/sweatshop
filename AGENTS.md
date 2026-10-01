@@ -60,8 +60,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   invariants in docs/0002 govern it. Transcripts replay from eve, never
   from the mirror.
 - Conversation organization (0007): per-group (project, or Chats) folder
-  trees (`folders`, `conversations.folder_id`), an Inbox of unfiled
-  conversations split by age, archive (searchable) and trash (30-day lazy
+  trees (`folders`, `conversations.folder_id`), an "Unfiled" list per
+  group split by age, archive (searchable) and trash (30-day lazy
   purge, not searchable), manual rename pinned via `title_source`, and
   GLM-Flash generated title+summary (`lib/titles.ts`, fired from the
   mirror hook, max two calls per conversation). All invariants live in
@@ -128,6 +128,22 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `CLAUDE_SPIKE=1 npx vitest run tests/claude-spike.integration.test.ts`
   (+ `CLAUDE_SPIKE_LIVE=1` with `CLAUDE_CODE_OAUTH_TOKEN` set for a
   bounded turn).
+
+- Inbox & attention (0008, no design doc — approved in chat): `/inbox`
+  is a dashboard of what is waiting on Chad. **Needs you** = pending
+  human-input requests (tool approval / question / session-limit) plus
+  ticket runs at their plan gate; stays until answered, opening the
+  thread does not clear it. **Unread** = assistant output newer than
+  `conversations.last_seen_at`; opening a conversation marks it seen
+  (`lib/use-mark-seen.ts`: only while the tab is visible AND focused),
+  per-item mark read/unread via `PUT /api/conversations/[id]/seen`.
+  Pending requests are *derived* from mirrored `input.requested` /
+  `input.resolved` events (`db/attention.ts`) — nothing stored. Cards
+  (`components/inbox/`: approval / question / ticket-gate / unread)
+  answer approvals by POSTing `inputResponses` to `/eve/v1/session/<id>`.
+  The sidebar shows the same signal as dots (amber = needs you, filled =
+  unread) on rows, rolled up on collapsed folders/groups. The tab-title
+  flash and system notifications were deliberately removed — dots only.
 
 ## Environment
 

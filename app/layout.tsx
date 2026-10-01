@@ -3,6 +3,7 @@ import { ConversationSidebar } from "@/components/conversation-sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "@/db";
+import { loadAttention } from "@/db/attention";
 import { loadSidebar, purgeExpiredTrash } from "@/db/organize";
 import "./globals.css";
 
@@ -21,7 +22,8 @@ export default async function RootLayout({
   // every request, so expired trash is swept here (a cheap indexed-free
   // scan over a small table) instead of needing a scheduler.
   purgeExpiredTrash(db());
-  const data = loadSidebar(db());
+  const attention = loadAttention(db());
+  const data = loadSidebar(db(), attention);
 
   return (
     <html lang="en" suppressHydrationWarning className="h-full antialiased">
@@ -29,7 +31,13 @@ export default async function RootLayout({
         <ThemeProvider>
           <TooltipProvider>
             <div className="flex h-dvh w-full">
-              <ConversationSidebar data={data} />
+              <ConversationSidebar
+                data={data}
+                inbox={{
+                  unread: attention.unread.size,
+                  needsYou: attention.needsYou.size + attention.ticketGates,
+                }}
+              />
               {/* max-md gutter reserves the strip the floating sidebar
                   trigger lives in (fixed top-left), on every page. */}
               <main className="h-dvh min-w-0 flex-1 max-md:pl-12">{children}</main>

@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronRight, FolderGit2, FolderPlus, Inbox } from "lucide-react";
+import { ChevronRight, FolderGit2, FolderPlus, Layers } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { cn } from "cn";
 import { bucketByAge } from "@/lib/age-buckets";
+import { AttentionDot } from "./attention-dot";
 import { ConversationRow } from "./conversation-row";
 import { useSidebar } from "./context";
 import { FolderNodeView, NewFolderRow } from "./folder-node";
@@ -31,44 +32,45 @@ function Chevron({ open }: { open: boolean }) {
 function folderCount(group: SidebarGroup): number {
   const below = (nodes: SidebarGroup["folders"]): number =>
     nodes.reduce((n, node) => n + node.items.length + below(node.folders), 0);
-  return group.inbox.length + below(group.folders);
+  return group.unfiled.length + below(group.folders);
 }
 
 /**
- * One group (a project, or Chats): header, its folder tree, then the
- * Inbox — everything not filed in a folder, split by age. Filing moves a
- * conversation out of the Inbox, so the Inbox is always "what's left to
- * sort", and an empty Today means nothing new has arrived.
+ * One group (a project, or Chats): header, its folder tree, then
+ * Unfiled — everything not filed in a folder, split by age. (The
+ * top-level Inbox page is a different thing: what needs your attention.)
+ * Filing moves a conversation out of Unfiled, so it is always "what's
+ * left to sort".
  *
- * Structure, hinted by indentation: group (0) > folders and Inbox (1) >
- * age labels and conversations (2). The group and the Inbox collapse;
+ * Structure, hinted by indentation: group (0) > folders and Unfiled (1) >
+ * age labels and conversations (2). The group and Unfiled collapse;
  * state persists in the same localStorage set as folder collapsing (keys
- * `group:<id>` / `inbox:<id>` cannot collide with `fld_…` folder ids).
+ * `group:<id>` / `unfiled:<id>` cannot collide with `fld_…` folder ids).
  * Collapsed headers stay drop targets, so a drag can still land there.
  */
 export function GroupSection({ group }: { group: SidebarGroup }) {
   const { editing, setEditing, mounted, collapsed, toggleFolder } = useSidebar();
   const projectId = group.project?.id ?? null;
   const groupKey = `group:${projectId ?? "chats"}`;
-  const inboxKey = `inbox:${projectId ?? "chats"}`;
+  const unfiledKey = `unfiled:${projectId ?? "chats"}`;
   const groupOpen = !collapsed.has(groupKey);
-  const inboxOpen = !collapsed.has(inboxKey);
+  const unfiledOpen = !collapsed.has(unfiledKey);
   const total = folderCount(group);
   const choices = useMemo(() => flattenFolders(group.folders), [group.folders]);
 
-  // Header: dropping here sends a conversation to the Inbox or a folder
+  // Header: dropping here sends a conversation to Unfiled or a folder
   // to this group's top level.
   const header = useDropTarget({ projectId, folderId: null });
-  // Inbox: dropping a conversation here unfiles it.
-  const inbox = useDropTarget({ projectId, folderId: null, only: "conversation" });
+  // Unfiled: dropping a conversation here unfiles it.
+  const unfiledDrop = useDropTarget({ projectId, folderId: null, only: "conversation" });
 
   const creatingRoot =
     editing?.kind === "new-folder" &&
     editing.projectId === projectId &&
     editing.parentId === null;
-  // Buckets depend on the local clock/timezone: render the flat inbox
+  // Buckets depend on the local clock/timezone: render the flat list
   // until mounted so server and client markup agree.
-  const buckets = mounted ? bucketByAge(group.inbox) : null;
+  const buckets = mounted ? bucketByAge(group.unfiled) : null;
 
   return (
     <section className="mb-4">
@@ -112,6 +114,9 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
             </button>
           )}
           <span className="font-mono text-[10px] text-sidebar-foreground/40">{total}</span>
+          {!groupOpen && (
+            <AttentionDot unread={group.attention.unread} needsYou={group.attention.needsYou} />
+          )}
         </div>
         <button
           type="button"
@@ -142,30 +147,36 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
           ))}
 
           <div
-            {...inbox.props}
+            {...unfiledDrop.props}
             className={cn(
               "mt-1 rounded-md transition-colors",
-              inbox.over && "bg-sidebar-accent/60 ring-1 ring-sidebar-ring",
-              inbox.dimmed && "opacity-40",
+              unfiledDrop.over && "bg-sidebar-accent/60 ring-1 ring-sidebar-ring",
+              unfiledDrop.dimmed && "opacity-40",
             )}
           >
             <button
               type="button"
-              aria-expanded={inboxOpen}
-              aria-label={`${inboxOpen ? "Collapse" : "Expand"} Inbox`}
-              onClick={() => toggleFolder(inboxKey)}
+              aria-expanded={unfiledOpen}
+              aria-label={`${unfiledOpen ? "Collapse" : "Expand"} Unfiled`}
+              onClick={() => toggleFolder(unfiledKey)}
               className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-sidebar-accent/60"
               style={{ paddingLeft: 8 + INDENT }}
             >
-              <Chevron open={inboxOpen} />
-              <Inbox className="size-3 shrink-0 text-sidebar-foreground/60" />
-              <span className={HEADING}>Inbox</span>
+              <Chevron open={unfiledOpen} />
+              <Layers className="size-3 shrink-0 text-sidebar-foreground/60" />
+              <span className={HEADING}>Unfiled</span>
               <span className="font-mono text-[10px] text-sidebar-foreground/40">
-                {group.inbox.length}
+                {group.unfiled.length}
               </span>
+              {!unfiledOpen && (
+                <AttentionDot
+                  unread={group.unfiled.filter((i) => i.unread).length}
+                  needsYou={group.unfiled.filter((i) => i.needsYou).length}
+                />
+              )}
             </button>
-            {inboxOpen &&
-              (group.inbox.length === 0 ? (
+            {unfiledOpen &&
+              (group.unfiled.length === 0 ? (
                 <p
                   className="px-2 py-1 text-xs text-sidebar-foreground/40"
                   style={{ paddingLeft: 8 + 2 * INDENT }}
@@ -195,7 +206,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
                   </div>
                 ))
               ) : (
-                group.inbox.map((item) => (
+                group.unfiled.map((item) => (
                   <ConversationRow
                     key={item.id}
                     item={item}

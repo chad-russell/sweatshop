@@ -339,6 +339,16 @@ export interface SidebarItem {
   id: string;
   title: string | null;
   updatedAt: number;
+  /** 0008: assistant output the user has not viewed yet. */
+  unread: boolean;
+  /** 0008: a pending approval/question is waiting on the user. */
+  needsYou: boolean;
+}
+
+/** Rolled-up attention counts for a collapsible container. */
+export interface AttentionCounts {
+  unread: number;
+  needsYou: number;
 }
 
 export interface FolderNode {
@@ -350,16 +360,20 @@ export interface FolderNode {
   items: SidebarItem[];
   /** Conversations at or below this folder. */
   count: number;
+  /** Attention at or below this folder (shown while it is collapsed). */
+  attention: AttentionCounts;
 }
 
 export interface SidebarGroup {
   project: { id: string; name: string } | null;
   folders: FolderNode[];
-  inbox: SidebarItem[];
+  /** Conversations not filed in any folder (shown as "Unfiled"). */
+  unfiled: SidebarItem[];
+  attention: AttentionCounts;
 }
 
 /** A conversation outside the main tree (Archive / Trash view). */
-export interface ShelvedItem extends SidebarItem {
+export interface ShelvedItem extends Omit<SidebarItem, "unread" | "needsYou"> {
   projectName: string | null;
   /** Folder breadcrumb, e.g. ["Spikes", "Sandbox"]. */
   path: string[];
@@ -374,7 +388,22 @@ export interface SidebarData {
 
 const SHELF_LIMIT = 200;
 
-export function loadSidebar(db: Db): SidebarData {
+/** Which conversations carry a dot (see db/attention.ts loadAttention). */
+export interface AttentionFlags {
+  unread: ReadonlySet<string>;
+  needsYou: ReadonlySet<string>;
+}
+
+const NO_ATTENTION: AttentionFlags = { unread: new Set(), needsYou: new Set() };
+
+function sumAttention(items: readonly SidebarItem[], below: readonly AttentionCounts[]): AttentionCounts {
+  return {
+    unread: items.filter((i) => i.unread).length + below.reduce((n, a) => n + a.unread, 0),
+    needsYou: items.filter((i) => i.needsYou).length + below.reduce((n, a) => n + a.needsYou, 0),
+  };
+}
+
+export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): SidebarData {
   const projectRows = db
     .query.projects.findMany()
     .sync()
@@ -425,9 +454,13 @@ export function loadSidebar(db: Db): SidebarData {
     id: r.id,
     title: r.title,
     updatedAt: r.updatedAt,
+    unread: flags.unread.has(r.id),
+    needsYou: flags.needsYou.has(r.id),
   });
 
-  const buildGroup = (projectId: string | null): Pick<SidebarGroup, "folders" | "inbox"> => {
+  const buildGroup = (
+    projectId: string | null,
+  ): Pick<SidebarGroup, "folders" | "unfiled" | "attention"> => {
     const groupFolders = folderRows.filter((f) => f.projectId === projectId);
     const groupConversations = live.filter((r) => r.projectId === projectId);
     const folderIds = new Set(groupFolders.map((f) => f.id));
@@ -453,18 +486,22 @@ export function loadSidebar(db: Db): SidebarData {
             folders: subfolders,
             items,
             count: items.length + subfolders.reduce((n, s) => n + s.count, 0),
+            attention: sumAttention(items, subfolders.map((s) => s.attention)),
           };
         })
         .sort((a, b) => b.activityAt - a.activityAt);
 
+    const tree = build(null);
+    // A conversation whose folder vanished (should not happen) still
+    // surfaces as unfiled rather than disappearing.
+    const unfiled = groupConversations
+      .filter((r) => !r.folderId || !folderIds.has(r.folderId))
+      .map(toItem)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
     return {
-      folders: build(null),
-      // A conversation whose folder vanished (should not happen) still
-      // surfaces in the inbox rather than disappearing.
-      inbox: groupConversations
-        .filter((r) => !r.folderId || !folderIds.has(r.folderId))
-        .map(toItem)
-        .sort((a, b) => b.updatedAt - a.updatedAt),
+      folders: tree,
+      unfiled,
+      attention: sumAttention(unfiled, tree.map((f) => f.attention)),
     };
   };
 
@@ -473,7 +510,7 @@ export function loadSidebar(db: Db): SidebarData {
     ...buildGroup(p.id),
   }));
   const chats = buildGroup(null);
-  if (chats.inbox.length > 0 || chats.folders.length > 0) {
+  if (chats.unfiled.length > 0 || chats.folders.length > 0) {
     groups.push({ project: null, ...chats });
   }
   return { groups, archived, trashed };

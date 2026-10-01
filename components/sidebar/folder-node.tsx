@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { AttentionDot } from "./attention-dot";
 import { ConversationRow } from "./conversation-row";
 import { useSidebar } from "./context";
 import { InlineName } from "./inline-name";
@@ -106,6 +107,10 @@ export function FolderNodeView({
             />
             <Icon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
             {!renaming && <span className="truncate text-sm">{node.name}</span>}
+            {/* Attention inside a collapsed folder would be invisible. */}
+            {!open && !renaming && (
+              <AttentionDot unread={node.attention.unread} needsYou={node.attention.needsYou} />
+            )}
           </button>
           {renaming && (
             <InlineName
