@@ -1,270 +1,224 @@
 "use client";
 
-import { FolderGit2, MessageSquare, Search, SquarePen, X } from "lucide-react";
+import { Archive, ArrowLeft, MessageSquare, Search, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { SearchHit } from "@/db/search";
+import { useMemo, useRef, useState } from "react";
+import { cn } from "cn";
+import { CommandPalette } from "@/components/sidebar/command-palette";
+import { SidebarContext } from "@/components/sidebar/context";
+import { GroupSection } from "@/components/sidebar/group-section";
+import { SearchResults } from "@/components/sidebar/search-results";
+import { ShelfView } from "@/components/sidebar/shelf-view";
+import {
+  allItems,
+  type Drag,
+  type Editing,
+  type SidebarData,
+} from "@/components/sidebar/types";
+import { useSidebarActions } from "@/components/sidebar/use-actions";
+import { useCollapsedFolders } from "@/components/sidebar/use-collapsed";
+import { useConversationSearch } from "@/components/sidebar/use-search";
 import { useMounted } from "@/lib/use-mounted";
 
-export interface SidebarItem {
-  id: string;
-  title: string | null;
-  updatedAt: number;
-}
+export type { SidebarData, SidebarGroup, SidebarItem } from "@/components/sidebar/types";
 
-export interface SidebarGroup {
-  project: { id: string; name: string } | null;
-  items: SidebarItem[];
-}
+type View = "library" | "archive" | "trash";
 
-function relativeTime(ms: number): string {
-  const delta = Date.now() - ms;
-  if (delta < 60_000) return "now";
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
-  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
-  if (delta < 7 * 86_400_000) return `${Math.floor(delta / 86_400_000)}d`;
-  return new Date(ms).toLocaleDateString();
-}
-
-/** Debounced search over the store (0003); empty query means "recents". */
-function useConversationSearch(query: string): SearchHit[] | null {
-  const [results, setResults] = useState<SearchHit[] | null>(null);
-
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!trimmed) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
-        signal: controller.signal,
-      })
-        .then(async (res) => {
-          if (res.ok) return (await res.json()) as { results: SearchHit[] };
-          return { results: [] };
-        })
-        .then((body) => setResults(body.results))
-        .catch(() => {
-          /* aborted or offline — keep the last results */
-        });
-    }, 250);
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [query]);
-
-  return results;
-}
-
-interface Row {
-  conversationId: string;
-  title: string | null;
-  snippet: string | null;
-  updatedAt?: number;
-  hits: number;
-}
-
-function ConversationLink({
-  row,
-  active,
-  showAge,
-  showSnippet,
-}: {
-  row: Row;
-  active: boolean;
-  showAge: boolean;
-  showSnippet: boolean;
-}) {
-  return (
-    <Link
-      href={`/c/${row.conversationId}`}
-      title={row.title ?? row.conversationId}
-      className={
-        "block rounded-md px-2 py-1.5 transition-colors " +
-        (active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "hover:bg-sidebar-accent/60")
-      }
-    >
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-sm">
-          {row.title ?? (
-            <span className="font-mono text-xs text-sidebar-foreground/60">
-              {row.conversationId}
-            </span>
-          )}
-        </span>
-        {showAge && row.updatedAt !== undefined && (
-          <span className="shrink-0 font-mono text-[10px] text-sidebar-foreground/60">
-            {relativeTime(row.updatedAt)}
-          </span>
-        )}
-        {!showAge && showSnippet && row.hits > 0 && (
-          <span className="shrink-0 font-mono text-[10px] text-sidebar-foreground/60">
-            {row.hits}
-          </span>
-        )}
-      </span>
-      {showSnippet && row.snippet && (
-        <span className="mt-0.5 block truncate text-xs text-sidebar-foreground/60">
-          {row.snippet}
-        </span>
-      )}
-    </Link>
-  );
-}
+const FOOTER_BUTTON =
+  "inline-flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-sidebar-foreground";
 
 /**
- * Conversation navigation (0002–0004): New chat, search box, and
- * conversations grouped by project — the group header starts a new
- * conversation in that project (/p/[projectId]). Server-rendered by the
- * layout from sqlite; the active conversation is highlighted from the
- * URL. A conversation started mid-page appears on the next route change
- * — accepted staleness.
+ * Conversation navigation (0002–0004, 0007): New chat, search, and per
+ * group (project, or Chats) a folder tree plus an Inbox of unfiled
+ * conversations split by age. Archive and Trash are separate views from
+ * the footer. Server-rendered by the layout from sqlite; every mutation
+ * goes through the organization API and refreshes the layout. A
+ * conversation started mid-page appears on the next route change —
+ * accepted staleness.
  */
-export function ConversationSidebar({ groups }: { groups: readonly SidebarGroup[] }) {
+export function ConversationSidebar({ data }: { data: SidebarData }) {
   const pathname = usePathname();
   const mounted = useMounted();
+  const actions = useSidebarActions();
+  const { collapsed, toggle } = useCollapsedFolders();
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const [view, setView] = useState<View>("library");
   const [query, setQuery] = useState("");
-  const results = useConversationSearch(query);
+  const [scope, setScope] = useState<string | undefined>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
-  const searching = query.trim().length > 0;
 
-  const recents = useMemo<Row[]>(
-    () =>
-      groups.flatMap((group) =>
-        group.items.map((item) => ({
-          conversationId: item.id,
-          title: item.title,
-          snippet: null,
-          updatedAt: item.updatedAt,
-          hits: 0,
-        })),
-      ),
-    [groups],
+  const searching = query.trim().length > 0;
+  const results = useConversationSearch(query, {
+    project: scope,
+    includeArchived: true,
+  });
+  const total = useMemo(() => allItems(data.groups).length, [data.groups]);
+
+  const scopes = useMemo(
+    () => [
+      { id: undefined as string | undefined, label: "All" },
+      ...data.groups.map((g) => ({
+        id: g.project?.id ?? "none",
+        label: g.project?.name ?? "Chats",
+      })),
+    ],
+    [data.groups],
   );
-  const total = recents.length;
-  const rows: readonly Row[] = searching ? (results ?? []) : recents;
+
+  const context = {
+    actions,
+    pathname,
+    mounted,
+    collapsed,
+    toggleFolder: toggle,
+    editing,
+    setEditing,
+    drag,
+    setDrag,
+  };
 
   return (
-    <nav
-      aria-label="Conversations"
-      className="hidden h-dvh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
-    >
-      <div className="flex items-center justify-between px-3 py-3">
-        <span className="px-1 font-mono text-sm">sweatshop</span>
-        <Link
-          href="/"
-          aria-label="New chat"
-          title="New chat (no project)"
-          className="inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        >
-          <SquarePen className="size-4" />
-        </Link>
-      </div>
-      <div className="px-3 pb-2">
-        <div className="flex items-center gap-2 rounded-md border border-sidebar-border px-2 py-1.5 focus-within:ring-2 focus-within:ring-sidebar-ring">
-          <Search className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-          <input
-            ref={searchRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setQuery("");
-                searchRef.current?.blur();
-              }
-            }}
-            placeholder="Search conversations…"
-            aria-label="Search conversations"
-            className="w-full bg-transparent text-sm outline-none placeholder:text-sidebar-foreground/60"
-          />
-          {searching && (
-            <button
-              type="button"
-              aria-label="Clear search"
-              onClick={() => setQuery("")}
-              className="shrink-0 text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground"
-            >
-              <X className="size-3.5" />
-            </button>
+    <SidebarContext.Provider value={context}>
+      <nav
+        aria-label="Conversations"
+        className="hidden h-dvh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
+      >
+        <div className="flex items-center justify-between px-3 py-3">
+          <span className="px-1 font-mono text-sm">sweatshop</span>
+          <Link
+            href="/"
+            aria-label="New chat"
+            title="New chat (no project)"
+            className="inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          >
+            <SquarePen className="size-4" />
+          </Link>
+        </div>
+
+        <div className="px-3 pb-2">
+          <div className="flex items-center gap-2 rounded-md border border-sidebar-border px-2 py-1.5 focus-within:ring-2 focus-within:ring-sidebar-ring">
+            <Search className="size-3.5 shrink-0 text-sidebar-foreground/60" />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setQuery("");
+                  searchRef.current?.blur();
+                }
+              }}
+              placeholder="Search conversations…"
+              aria-label="Search conversations"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-sidebar-foreground/60"
+            />
+            {searching ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setQuery("")}
+                className="shrink-0 text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : (
+              <kbd className="shrink-0 rounded border border-sidebar-border px-1 font-mono text-[10px] text-sidebar-foreground/50">
+                ⌘K
+              </kbd>
+            )}
+          </div>
+          {searching && scopes.length > 2 && (
+            <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="Search scope">
+              {scopes.map((s) => (
+                <button
+                  key={s.id ?? "all"}
+                  type="button"
+                  aria-pressed={scope === s.id}
+                  onClick={() => setScope(s.id)}
+                  className={cn(
+                    "max-w-full truncate rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+                    scope === s.id
+                      ? "border-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "border-sidebar-border text-sidebar-foreground/60 hover:text-sidebar-foreground",
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           )}
         </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {searching ? (
-          rows.length === 0 ? (
-            <p className="px-2 py-2 text-xs text-sidebar-foreground/60">
-              No matches.
-            </p>
-          ) : (
-            <ul>
-              {rows.map((row) => (
-                <li key={row.conversationId}>
-                  <ConversationLink
-                    row={row}
-                    active={pathname === `/c/${row.conversationId}`}
-                    showAge={false}
-                    showSnippet
-                  />
-                </li>
-              ))}
-            </ul>
-          )
-        ) : (
-          groups.map((group) => (
-            <section key={group.project?.id ?? "unbound"} className="mb-3">
-              <div className="flex items-center gap-1.5 px-2 py-1">
-                {group.project ? (
-                  <Link
-                    href={`/p/${group.project.id}`}
-                    title={`New conversation in ${group.project.name}`}
-                    className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium tracking-wide text-sidebar-foreground/60 uppercase transition-colors hover:text-sidebar-foreground"
-                  >
-                    <FolderGit2 className="size-3 shrink-0" />
-                    <span className="truncate">{group.project.name}</span>
-                  </Link>
-                ) : (
-                  <span className="text-[11px] font-medium tracking-wide text-sidebar-foreground/60 uppercase">
-                    Chats
-                  </span>
-                )}
-              </div>
-              {group.items.length === 0 ? (
-                <p className="px-2 py-1 text-xs text-sidebar-foreground/40">
-                  No conversations yet.
-                </p>
-              ) : (
-                <ul>
-                  {group.items.map((item) => (
-                    <li key={item.id}>
-                      <ConversationLink
-                        row={{
-                          conversationId: item.id,
-                          title: item.title,
-                          snippet: null,
-                          updatedAt: item.updatedAt,
-                          hits: 0,
-                        }}
-                        active={pathname === `/c/${item.id}`}
-                        showAge={mounted}
-                        showSnippet={false}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))
+
+        {actions.error && (
+          <div
+            role="alert"
+            className="mx-3 mb-2 flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+          >
+            <span>{actions.error}</span>
+            <button type="button" aria-label="Dismiss" onClick={actions.clearError}>
+              <X className="size-3" />
+            </button>
+          </div>
         )}
-      </div>
-      <div className="border-t border-sidebar-border px-3 py-2 text-[10px] text-sidebar-foreground/60">
-        <span className="inline-flex items-center gap-1">
-          <MessageSquare className="size-3" />
-          {searching ? `${rows.length} match(es)` : `${total} in store`}
-        </span>
-      </div>
-    </nav>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+          {searching ? (
+            <SearchResults hits={results ?? []} />
+          ) : view === "library" ? (
+            data.groups.map((group) => (
+              <GroupSection key={group.project?.id ?? "unbound"} group={group} />
+            ))
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setView("library")}
+                className="mb-2 inline-flex items-center gap-1 px-2 text-xs text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground"
+              >
+                <ArrowLeft className="size-3" />
+                Back to conversations
+              </button>
+              <div className="px-2 pb-1 text-[11px] font-medium tracking-wide text-sidebar-foreground/60 uppercase">
+                {view === "archive" ? "Archive" : "Trash"}
+              </div>
+              <ShelfView
+                mode={view === "archive" ? "archive" : "trash"}
+                items={view === "archive" ? data.archived : data.trashed}
+              />
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-sidebar-border px-3 py-2 text-[10px] text-sidebar-foreground/60">
+          <span className="inline-flex items-center gap-1">
+            <MessageSquare className="size-3" />
+            {searching ? `${(results ?? []).length} match(es)` : `${total} in store`}
+          </span>
+          <span className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-pressed={view === "archive"}
+              onClick={() => setView(view === "archive" ? "library" : "archive")}
+              className={cn(FOOTER_BUTTON, view === "archive" && "text-sidebar-foreground")}
+            >
+              <Archive className="size-3" />
+              {data.archived.length}
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "trash"}
+              onClick={() => setView(view === "trash" ? "library" : "trash")}
+              className={cn(FOOTER_BUTTON, view === "trash" && "text-sidebar-foreground")}
+            >
+              <Trash2 className="size-3" />
+              {data.trashed.length}
+            </button>
+          </span>
+        </div>
+      </nav>
+      <CommandPalette />
+    </SidebarContext.Provider>
   );
 }

@@ -59,6 +59,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   derived, rebuildable view of eve's authoritative stream — the dual-write
   invariants in docs/0002 govern it. Transcripts replay from eve, never
   from the mirror.
+- Conversation organization (0007): per-group (project, or Chats) folder
+  trees (`folders`, `conversations.folder_id`), an Inbox of unfiled
+  conversations split by age, archive (searchable) and trash (30-day lazy
+  purge, not searchable), manual rename pinned via `title_source`, and
+  GLM-Flash generated title+summary (`lib/titles.ts`, fired from the
+  mirror hook, max two calls per conversation). All invariants live in
+  `db/organize.ts`; routes under `app/api/{folders,conversations}`; the
+  sidebar is `components/sidebar/*` with native drag and drop plus a
+  "Move to…" menu; ⌘K palette shares `/api/search`.
 - Projects & sandboxes (0004, Phases A–D + Path B shipped): `projects`
   (1+ git repos) reference shareable `sandbox_configs`; git credentials
   resolve by host through the pluggable `GitHost` seam (`lib/git-hosts/`

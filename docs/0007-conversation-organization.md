@@ -1,6 +1,6 @@
 # 0007 — Conversation organization (folders, inbox, archive, titles, search)
 
-Status: **approved in conversation (2026-10-08), implementing.**
+Status: **shipped (2026-10-08).** Verified live on the real store (28 conversations migrated, backup taken first), plus a headless-browser drag-and-drop pass.
 
 ## Goal
 
@@ -49,3 +49,17 @@ chip row and the archived toggle, reordering folders by hand.
 - Editing `lib/titles.ts` or `db/organize.ts` follows the 0003 gotcha:
   code the eve runtime imports from outside `agent/` needs a `./dev`
   restart.
+
+## Verification (2026-10-08)
+
+- Migration 0008 rehearsed on a copy of the live db, then applied (a
+  `VACUUM INTO` backup, `data/sweatshop.pre-0007.db`, is git-ignored).
+  `conversations_fts` backfilled all 28 rows; no FK violations.
+- Live routes: filing, cross-group (409), folder cycle (409), archive,
+  trash (excluded from search), restore, delete-folder promotion.
+- Headless Chromium over CDP: Inbox age separators render after
+  hydration; a dragged conversation is accepted by a same-group folder,
+  refused by another group's header, and the drop files it.
+- Not yet exercised live: the generated-title call against the real
+  Z.AI endpoint (covered by mocked tests only) — it needs a `./dev`
+  restart to load `lib/titles.ts` into the eve runtime.
