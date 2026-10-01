@@ -1,34 +1,9 @@
-import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
-import { db } from "@/db";
-import { ticketRuns } from "@/db/schema";
-import { TicketRunView } from "@/components/ticket-run-view";
+import { permanentRedirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-/** Live view of one ticket run (0004 Path B). */
-export default async function TicketRunPage({
-  params,
-}: {
-  params: Promise<{ ticketId: string }>;
-}) {
-  const { ticketId } = await params;
-  const run = db()
-    .query.ticketRuns.findFirst({ where: eq(ticketRuns.id, ticketId) })
-    .sync();
-  if (!run) notFound();
-
-  return (
-    <TicketRunView
-      initial={{
-        id: run.id,
-        projectId: run.projectId,
-        ticket: run.ticket,
-        status: run.status,
-        detail: run.detail,
-        branch: run.branch,
-        prUrl: run.prUrl,
-      }}
-    />
-  );
+/**
+ * Retired (0009): ticket runs became machine runs. Old /t/<id> links land
+ * on the machines page rather than a 404.
+ */
+export default function RetiredTicketRun() {
+  permanentRedirect("/machines");
 }

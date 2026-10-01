@@ -12,7 +12,7 @@ import {
 } from "../db/attention";
 import { mirrorStreamEvent } from "../db/mirror";
 import { loadSidebar } from "../db/organize";
-import { conversations, folders, ticketRuns, projects } from "../db/schema";
+import { conversations, folders, machineRuns, machineStageRuns, projects } from "../db/schema";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 
@@ -177,25 +177,31 @@ describe("needs you", () => {
     expect(inbox.unread.find((u) => u.id === newer)!.snippet).toBe("newer reply with spaces");
   });
 
-  it("includes ticket runs parked at the plan gate", () => {
+  it("includes machine runs waiting at a human stage", () => {
     tdb.insert(projects).values({ id: "att-t", name: "Att T", createdAt: 1 }).onConflictDoNothing().run();
-    tdb
-      .insert(ticketRuns)
-      .values({
-        id: "tkt_att_1",
-        projectId: "att-t",
-        ticket: "do the thing",
-        status: "awaiting-approval",
-        detail: "the plan",
-        createdAt: 1,
-        updatedAt: 2,
-      })
-      .run();
-    const gate = loadInbox(tdb).needsYou.find((n) => n.kind === "ticket" && n.id === "tkt_att_1");
-    expect(gate).toMatchObject({ plan: "the plan", projectName: "Att T" });
-    expect(loadAttention(tdb).ticketGates).toBeGreaterThanOrEqual(1);
-    tdb.update(ticketRuns).set({ status: "implementing" }).where(eq(ticketRuns.id, "tkt_att_1")).run();
-    expect(loadInbox(tdb).needsYou.some((n) => n.kind === "ticket" && n.id === "tkt_att_1")).toBe(false);
+    const definition = {
+      workspace: "project",
+      start: "plan",
+      stages: {
+        plan: { kind: "harness", harness: "pi", title: "Plan", instructions: "", next: [{ to: "ok" }] },
+        ok: { kind: "human", title: "Approve", instructions: "ok?", next: [{ to: "end", when: "Yes" }, { to: "plan", when: "No" }] },
+      },
+    };
+    tdb.insert(machineRuns).values({
+      id: "mr_att1", machineName: "M", machineVersion: 1, definition: JSON.stringify(definition),
+      projectId: "att-t", prompt: "do the thing", status: "waiting", createdAt: 1, updatedAt: 2,
+    }).run();
+    tdb.insert(machineStageRuns).values([
+      { runId: "mr_att1", seq: 0, stageId: "plan", kind: "harness", status: "completed", outcome: "the plan", startedAt: 1 },
+      { runId: "mr_att1", seq: 1, stageId: "ok", kind: "human", status: "waiting", startedAt: 2 },
+    ]).run();
+    const gate = loadInbox(tdb).needsYou.find((n) => n.kind === "machine" && n.id === "mr_att1:1");
+    expect(gate).toMatchObject({ lastOutcome: "the plan", projectName: "Att T", stageTitle: "Approve" });
+    expect(loadAttention(tdb).machineGates).toBeGreaterThanOrEqual(1);
+    const before = loadAttention(tdb).signature;
+    tdb.update(machineRuns).set({ status: "running" }).where(eq(machineRuns.id, "mr_att1")).run();
+    expect(loadInbox(tdb).needsYou.some((n) => n.kind === "machine" && n.id === "mr_att1:1")).toBe(false);
+    expect(loadAttention(tdb).signature).not.toBe(before);
   });
 });
 
@@ -225,7 +231,7 @@ describe("sidebar roll-ups", () => {
 });
 
 describe("attention signature", () => {
-  it("changes when unread, pending requests, or ticket gates change — and only then", () => {
+  it("changes when unread, pending requests, or machine gates change — and only then", () => {
     const id = convId();
     const base = loadAttention(tdb).signature;
     expect(loadAttention(tdb).signature).toBe(base); // stable when idle

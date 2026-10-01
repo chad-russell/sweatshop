@@ -9,7 +9,6 @@ import {
   machineStageRuns,
   messages,
   projects,
-  ticketRuns,
 } from "./schema";
 import type { MachineDefinition } from "../lib/machines/definition";
 
@@ -20,8 +19,8 @@ import type { MachineDefinition } from "../lib/machines/definition";
  *    `conversations.last_seen_at`. Opening a conversation (while the tab
  *    is visible and focused) marks it seen; it can be marked unread again.
  *  - **Needs you** — a pending human-input request (tool approval,
- *    question, session limit), a ticket run parked at its plan gate, or
- *    a machine run waiting at a human stage (0009).
+ *    question, session limit) or a machine run waiting at a human stage
+ *    (0009 — machines replaced the 0004 ticket pipeline and its gate).
  *    Opening the thread does NOT clear it; only answering does.
  *
  * Pending requests are *derived* from the mirrored `input.requested` /
@@ -207,11 +206,11 @@ export interface AttentionState {
   /** Conversations with ≥1 pending request (archived ones included —
    *  an approval blocks work whether or not the thread is filed away). */
   needsYou: Set<string>;
-  /** Pending ticket-run plan gates + machine human gates (0009). */
-  ticketGates: number;
+  /** Machine runs waiting at a human stage (0009). */
+  machineGates: number;
   /**
    * Changes iff anything the sidebar dots or the Inbox page show changed
-   * (unread set, pending request ids, ticket gates). Clients poll it
+   * (unread set, pending request ids, machine gates). Clients poll it
    * cheaply and refresh only on a difference.
    */
   signature: string;
@@ -238,12 +237,6 @@ export function loadAttention(db: Conn): AttentionState {
     if (at !== undefined && at > r.lastSeenAt) unread.add(r.id);
   }
   const needsYou = new Set([...pending.keys()].filter((id) => live.has(id)));
-  const gateIds = db
-    .select({ id: ticketRuns.id })
-    .from(ticketRuns)
-    .where(eq(ticketRuns.status, "awaiting-approval"))
-    .all()
-    .map((g) => g.id);
   const machineGateIds = waitingMachineGates(db).map((g) => g.token);
   const requestIds = [...pending.entries()]
     .filter(([id]) => live.has(id))
@@ -251,10 +244,9 @@ export function loadAttention(db: Conn): AttentionState {
   const signature = [
     [...unread].sort().join(","),
     requestIds.sort().join(","),
-    gateIds.sort().join(","),
     machineGateIds.sort().join(","),
   ].join("|");
-  return { unread, needsYou, ticketGates: gateIds.length + machineGateIds.length, signature };
+  return { unread, needsYou, machineGates: machineGateIds.length, signature };
 }
 
 // ---------------------------------------------------------------------
@@ -330,18 +322,6 @@ export interface NeedsYouThread extends Where {
   unread: boolean;
 }
 
-export interface NeedsYouTicket {
-  kind: "ticket";
-  id: string;
-  projectId: string;
-  projectName: string | null;
-  ticket: string;
-  /** The plan awaiting approval. */
-  plan: string | null;
-  branch: string | null;
-  since: number;
-}
-
 /** A machine run waiting at a human stage (0009). */
 export interface NeedsYouMachineGate {
   kind: "machine";
@@ -370,7 +350,7 @@ export interface UnreadThread extends Where {
 }
 
 export interface InboxData {
-  needsYou: (NeedsYouThread | NeedsYouTicket | NeedsYouMachineGate)[];
+  needsYou: (NeedsYouThread | NeedsYouMachineGate)[];
   unread: UnreadThread[];
 }
 
@@ -423,22 +403,6 @@ export function loadInbox(db: Conn): InboxData {
     };
   });
 
-  const gates: NeedsYouTicket[] = db
-    .select()
-    .from(ticketRuns)
-    .where(eq(ticketRuns.status, "awaiting-approval"))
-    .all()
-    .map((t) => ({
-      kind: "ticket",
-      id: t.id,
-      projectId: t.projectId,
-      projectName: projectName.get(t.projectId) ?? t.projectId,
-      ticket: t.ticket,
-      plan: t.detail,
-      branch: t.branch,
-      since: t.updatedAt,
-    }));
-
   const machineGates: NeedsYouMachineGate[] = waitingMachineGates(db).map((g) => {
     const definition = JSON.parse(g.definition) as MachineDefinition;
     const stage = definition.stages[g.stageId];
@@ -463,7 +427,7 @@ export function loadInbox(db: Conn): InboxData {
     };
   });
 
-  const needsYou = [...threads, ...gates, ...machineGates].sort((a, b) => a.since - b.since);
+  const needsYou = [...threads, ...machineGates].sort((a, b) => a.since - b.since);
 
   // A thread that needs an answer is shown once, above; Unread is the rest.
   const unreadIds = [...attention.unread].filter((id) => !attention.needsYou.has(id));
