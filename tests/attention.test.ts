@@ -4,6 +4,7 @@ import { openDb } from "../db";
 import {
   loadAttention,
   loadInbox,
+  loadPendingRequests,
   markAllSeen,
   markSeen,
   markUnread,
@@ -158,6 +159,7 @@ describe("needs you", () => {
 
   it("0010 chat-runtime pending inputs merge into needs-you and clear on resolve", () => {
     const id = convId();
+    emit(id, "message.completed", { message: "chat reply" }, 1000);
     recordPendingInput(tdb, {
       id: "call_x1",
       conversationId: id,
