@@ -1,186 +1,54 @@
-import { defineTool } from "eve/tools";
-import { z } from "zod";
-import type { Experimental_SandboxSession } from "ai";
 import { HarnessAgent } from "@ai-sdk/harness/agent";
 import { createPi } from "@ai-sdk/harness-pi";
-import {
-  clipHarnessText,
-  claimHarnessRun,
-  getActiveHarnessRun,
-  recordHarnessEvent,
-  recordHarnessRunEnd,
-} from "../../lib/harness-events";
-import { toSandboxSession } from "../../lib/sandboxes/ai-sdk-adapter";
+import { defineHarnessTool, eveShell } from "../lib/harness-tool";
 import { sandboxContainerIdentity } from "../../lib/sandboxes/identity";
-import { sessionProjectId } from "../../lib/session-attributes";
+import { toSandboxSession } from "../../lib/sandboxes/ai-sdk-adapter";
 
 /**
  * 0005: the pi coding harness, attached to THIS conversation's project
  * sandbox. pi runs in-process and uses the sandbox as its remote
  * filesystem + shell (no bridge inside the container), on GLM via the
  * Z.AI coding plan's Anthropic Messages surface. Requires a project
- * conversation — the sandbox is the workspace.
- *
- * One harness session per conversation (module cache; lives while the
- * dev server lives). pi keeps its own turn history, so successive calls
- * continue one coding session. When the sandbox container is replaced
- * (age-based gc + selector re-run), the cached session is evicted and
- * a fresh one starts on the new container — never silently reused
- * against a dead sandbox (the pi-side twin of claude's bridge-IP
- * eviction).
+ * conversation — the sandbox is the workspace. Everything shared with
+ * other harnesses lives in the factory (agent/lib/harness-tool.ts).
  */
 
 const PI_MODEL = process.env.PI_MODEL ?? "zai-glm/glm-5.3-flash";
 
-interface CachedHarness {
-  agent: HarnessAgent;
-  session: Awaited<ReturnType<HarnessAgent["createSession"]>>;
-  /** Container identity the session was built against. */
-  identity: string | null;
-}
-
-const harnessCache = new Map<string, CachedHarness>();
-
-async function getHarness(
-  sessionId: string,
-  identity: string | null,
-  sandboxSession: Experimental_SandboxSession,
-): Promise<CachedHarness> {
-  const cached = harnessCache.get(sessionId);
-  if (cached && identity !== null && cached.identity === identity) {
-    return cached;
-  }
-  if (cached) {
-    // Sandbox replaced under us: drop the stale session rather than
-    // continuing pi history that talks to a dead container.
-    await cached.session.destroy().catch(() => undefined);
-    harnessCache.delete(sessionId);
-  }
-
-  const pi = createPi({
-    providers: {
-      "zai-glm": {
-        name: "Z.AI GLM Coding Plan",
-        baseUrl: "https://api.z.ai/api/anthropic",
-        apiKey: process.env.ZAI_API_KEY ?? "",
-        api: "anthropic",
-      },
-    },
-    thinkingLevel: "low",
-  });
-  const agent = new HarnessAgent({ harness: pi, id: `pi-${sessionId}`, model: PI_MODEL });
-  const session = await agent.createSession({ sandboxSession });
-  const entry = { agent, session, identity };
-  harnessCache.set(sessionId, entry);
-  return entry;
-}
-
-export default defineTool({
+export default defineHarnessTool({
+  kind: "pi",
   description:
     "Hand a coding task to the pi harness, which works in this " +
     "conversation's sandbox (repos under /workspace) with its own " +
     "read/write/edit/bash tools and keeps context across calls. Use for " +
     "non-trivial code changes; use plain bash for quick commands. The " +
     "repo state is shared — pi's edits are immediately visible to bash.",
-  inputSchema: z.object({
-    task: z.string().min(1).describe("The coding task, with enough context to act on."),
-  }),
-  async execute({ task }, ctx) {
-    if (!sessionProjectId(ctx.session)) {
-      throw new Error(
-        "pi requires a project conversation — start one from a project page",
-      );
-    }
 
-    // v1 concurrency contract: one harness at a time per sandbox (0006).
-    // The claim is atomic (check + start in one sqlite transaction) so
-    // concurrent calls cannot both pass the guard.
-    if (!claimHarnessRun(ctx.session.id, "pi")) {
-      const active = getActiveHarnessRun(ctx.session.id);
-      throw new Error(
-        `a ${active?.kind ?? "harness"} run is already active in this conversation — ` +
-          "wait for it to finish before starting pi",
-      );
-    }
+  toSession: (eveSandbox) => toSandboxSession(eveShell(eveSandbox)),
 
-    let toolCalls = 0;
-    let failure: string | undefined;
-    try {
-      const eveSandbox = await ctx.getSandbox();
-      // Cache identity: the container's hostname — it changes exactly
-      // when the sandbox container is replaced (see module doc).
-      const identity = await sandboxContainerIdentity(eveSandbox);
-      // Bridge eve's session sandbox to the AI SDK session shape.
-      const sandboxSession = toSandboxSession({
-        run: (command, env, workingDirectory) =>
-          eveSandbox.run({
-            command,
-            ...(env ? { env } : {}),
-            ...(workingDirectory ? { workingDirectory } : {}),
-          }),
-      });
+  // The sandbox container's hostname — it changes exactly when the
+  // container is replaced (age-based gc + selector re-run), which is
+  // when the cached session must not be reused.
+  resolveIdentity: ({ eveSandbox }) => sandboxContainerIdentity(eveSandbox),
 
-      const { agent, session } = await getHarness(
-        ctx.session.id,
-        identity,
-        sandboxSession,
-      );
-
-      // Full harness event stream (0005 visibility, 0006 multi-harness):
-      // every model step and tool call is recorded per conversation ×
-      // harness into sqlite and served at /h/<sessionId> (raw JSON:
-      // /api/harness/<sessionId>?harness=pi).
-      const result = await agent.generate({
-        session,
-        prompt: task,
-        onStart: () => recordHarnessEvent(ctx.session.id, "pi", { kind: "start" }),
-        onStepStart: () =>
-          recordHarnessEvent(ctx.session.id, "pi", { kind: "step-start" }),
-        onStepEnd: ({ text }) =>
-          recordHarnessEvent(ctx.session.id, "pi", {
-            kind: "step-end",
-            text: clipHarnessText(text, 500),
-          }),
-        onToolExecutionStart: ({ toolCall }) => {
-          toolCalls += 1;
-          recordHarnessEvent(ctx.session.id, "pi", {
-            kind: "tool-start",
-            toolName: toolCall.toolName,
-            input: clipHarnessText(toolCall.input, 1000),
-          });
+  async createSession({ sessionId, sandboxSession }) {
+    const pi = createPi({
+      providers: {
+        "zai-glm": {
+          name: "Z.AI GLM Coding Plan",
+          baseUrl: "https://api.z.ai/api/anthropic",
+          apiKey: process.env.ZAI_API_KEY ?? "",
+          api: "anthropic",
         },
-        onToolExecutionEnd: ({ toolCall, toolOutput }) =>
-          recordHarnessEvent(ctx.session.id, "pi", {
-            kind: "tool-end",
-            toolName: toolCall.toolName,
-            output: clipHarnessText(
-              "output" in (toolOutput ?? {})
-                ? (toolOutput as { output?: unknown }).output
-                : toolOutput,
-              2000,
-            ),
-          }),
-        onEnd: () => recordHarnessEvent(ctx.session.id, "pi", { kind: "end" }),
-      });
-      return {
-        text: result.text,
-        toolCalls,
-        harnessUrl: `/h/pi/${ctx.session.id}`,
-        eventLogUrl: `/api/harness/${ctx.session.id}?harness=pi`,
-        note: "pi session continues across calls in this conversation.",
-      };
-    } catch (err) {
-      // 0006: failures are failures — keep the transcript, record why.
-      failure = err instanceof Error ? err.message : String(err);
-      throw err;
-    } finally {
-      recordHarnessRunEnd(
-        ctx.session.id,
-        "pi",
-        toolCalls,
-        failure ? "failed" : "completed",
-        failure,
-      );
-    }
+      },
+      thinkingLevel: "low",
+    });
+    const agent = new HarnessAgent({
+      harness: pi,
+      id: `pi-${sessionId}`,
+      model: PI_MODEL,
+    });
+    const session = await agent.createSession({ sandboxSession });
+    return { agent, session };
   },
 });

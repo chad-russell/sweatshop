@@ -108,8 +108,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   env channel (`auth: "direct"` — no gateway, no host discovery);
   single-user personal use per Chad's recorded decision, revisit if
   productized. The tool is env-gated off until the variable is set.
-  One harness session per conversation × harness (module cache; a moved
-  bridge endpoint evicts rather than silently reuses). Harness activity
+  One harness session per conversation × harness (module cache in the
+  shared factory `agent/lib/harness-tool.ts`; a replaced sandbox
+  container evicts rather than silently reuses — claude keys on the
+  bridge endpoint IP, pi on the container hostname). Harness activity
   persists in `harness_events` + `harness_runs` keyed (session, harness)
   — `/h/<harness>/<eveSessionId>` is the one shape for every harness
   (pi, claude; re-decided 2026-10-01); legacy `/h/<id>` and
