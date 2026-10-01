@@ -15,6 +15,9 @@ const eslintConfig = defineConfig([
     // gitignored, and huge.
     ".eve/**",
     ".output/**",
+    // Workflow SDK local world: run state + the test executor's generated
+    // flow bundles (0010) — generated and gitignored.
+    ".workflow-data/**",
     // Workflow SDK transform output (generated flow routes).
     "app/.well-known/**",
     // Vendored skill demos under .agents/ are reference material, not
