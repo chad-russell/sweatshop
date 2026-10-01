@@ -21,7 +21,10 @@ export interface CreatePRInput {
 }
 
 export interface CreatePRResult {
+  /** Web URL of the opened pull request. */
   url: string;
+  /** PR number as assigned by the host (both APIs return it). */
+  number: number;
 }
 
 /**

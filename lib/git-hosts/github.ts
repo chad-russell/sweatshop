@@ -36,6 +36,8 @@ export const githubHost: GitHost = {
     );
     const url = json.html_url;
     if (typeof url !== "string") throw new Error("github PR response missing html_url");
-    return { url } satisfies CreatePRResult;
+    const number = json.number;
+    if (typeof number !== "number") throw new Error("github PR response missing number");
+    return { url, number } satisfies CreatePRResult;
   },
 };

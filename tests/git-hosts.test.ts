@@ -143,10 +143,11 @@ describe("GitHost.createPR", () => {
   });
 
   it("github posts to the pulls API with bearer auth", async () => {
-    const { impl, calls } = stubFetch(201, { html_url: "https://github.com/o/r/pull/1" });
+    const { impl, calls } = stubFetch(201, { html_url: "https://github.com/o/r/pull/1", number: 1 });
     const gh = cred({ id: "gh", kind: "github" });
     const result = await githubHost.createPR(gh, input("https://github.com/o/r.git"), impl);
     expect(result.url).toBe("https://github.com/o/r/pull/1");
+    expect(result.number).toBe(1);
     expect(calls[0]?.url).toBe("https://api.github.com/repos/o/r/pulls");
     expect(calls[0]?.headers.authorization).toBe("Bearer tok");
     expect(calls[0]?.body).toEqual({
@@ -158,7 +159,7 @@ describe("GitHost.createPR", () => {
   });
 
   it("forgejo posts to the instance API with basic auth", async () => {
-    const { impl, calls } = stubFetch(201, { html_url: "https://git.example.com/o/r/pulls/2" });
+    const { impl, calls } = stubFetch(201, { html_url: "https://git.example.com/o/r/pulls/2", number: 2 });
     const fj = cred({
       id: "fj",
       kind: "forgejo",
@@ -170,6 +171,7 @@ describe("GitHost.createPR", () => {
       impl,
     );
     expect(result.url).toBe("https://git.example.com/o/r/pulls/2");
+    expect(result.number).toBe(2);
     expect(calls[0]?.url).toBe("https://git.example.com/api/v1/repos/o/r/pulls");
     const expected = Buffer.from("chad:tok").toString("base64");
     expect(calls[0]?.headers.authorization).toBe(`Basic ${expected}`);
