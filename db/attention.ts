@@ -204,6 +204,7 @@ function mergePendingInputs(db: Conn, out: Map<string, PendingRequest[]>): void 
     .select({
       id: pendingInputs.id,
       conversationId: pendingInputs.conversationId,
+      kind: pendingInputs.kind,
       question: pendingInputs.question,
       createdAt: pendingInputs.createdAt,
     })
@@ -212,17 +213,22 @@ function mergePendingInputs(db: Conn, out: Map<string, PendingRequest[]>): void 
     .all();
   for (const row of rows) {
     const list = out.get(row.conversationId) ?? [];
+    // kind "question" renders the freeform question card; anything else
+    // is an approval with Approve/Deny.
+    const isQuestion = row.kind === "question";
     list.push({
       requestId: row.id,
-      kind: "tool-approval",
+      kind: isQuestion ? "question" : "tool-approval",
       prompt: row.question,
-      options: [
-        { id: "approve", label: "Approve", style: "primary" },
-        { id: "deny", label: "Deny", style: "danger" },
-      ],
+      options: isQuestion
+        ? []
+        : [
+            { id: "approve", label: "Approve", style: "primary" },
+            { id: "deny", label: "Deny", style: "danger" },
+          ],
       allowFreeform: true,
       toolName: "ask_chad",
-      toolInput: { question: row.question },
+      toolInput: { kind: row.kind, question: row.question },
       at: row.createdAt,
       runtime: "chat",
     });

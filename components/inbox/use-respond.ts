@@ -27,14 +27,21 @@ export function useRespond(sessionId: string, runtime?: "eve" | "chat") {
         let res: Response;
         if (runtime === "chat") {
           const answer = answers[0];
+          const freeform = answer.text?.trim();
           res = await fetch("/api/x/input", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              toolCallId: answer.requestId,
-              approved: answer.optionId !== "deny",
-              ...(answer.text ? { comment: answer.text } : {}),
-            }),
+            // A freeform reply answers a question-kind request; an
+            // option (or its absence) is an approve/deny.
+            body: JSON.stringify(
+              freeform && !answer.optionId
+                ? { toolCallId: answer.requestId, answer: freeform }
+                : {
+                    toolCallId: answer.requestId,
+                    approved: answer.optionId !== "deny",
+                    ...(freeform ? { comment: freeform } : {}),
+                  },
+            ),
           });
         } else {
           res = await fetch(`/eve/v1/session/${sessionId}`, {

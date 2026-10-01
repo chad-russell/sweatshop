@@ -153,13 +153,14 @@ export async function pendingStep(
   conversationId: string,
   id: string,
   question: string,
+  kind: "approval" | "question" = "approval",
 ): Promise<void> {
   "use step";
   const [{ db }, chat] = await Promise.all([
     import("../../db"),
     import("../../db/chat"),
   ]);
-  chat.recordPendingInput(db(), { id, conversationId, kind: "approval", question });
+  chat.recordPendingInput(db(), { id, conversationId, kind, question });
 }
 
 /** 0010 Phase 4: generated titles (0007) for new-runtime conversations —

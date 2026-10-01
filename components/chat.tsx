@@ -243,22 +243,23 @@ function PullRequestToolCard({ part }: { part: ToolUIPart }) {
   );
 }
 
-/** An ask_chad call awaiting Chad: approve/deny straight from the thread. */
+/** An ask_chad call awaiting Chad: approvals get Approve/Deny, questions
+ *  get a freeform answer box — matching what the tool asked for. */
 function AskChadCard({ part }: { part: ToolUIPart }) {
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState("");
   const answered = part.state === "output-available" || part.state === "output-error";
-  const question =
-    typeof (part.input as { question?: unknown } | undefined)?.question === "string"
-      ? (part.input as { question: string }).question
-      : undefined;
+  const input = part.input as { kind?: unknown; question?: unknown } | undefined;
+  const kind = input?.kind === "question" ? "question" : "approval";
+  const question = typeof input?.question === "string" ? input.question : undefined;
 
-  const answer = async (approved: boolean) => {
+  const post = async (payload: Record<string, unknown>) => {
     setBusy(true);
     try {
       await fetch("/api/x/input", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+        body: JSON.stringify({ toolCallId: part.toolCallId, ...payload }),
       });
     } finally {
       setBusy(false);
@@ -267,26 +268,52 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
 
   return (
     <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
-      <p className="text-sm font-medium">Approve? {question}</p>
+      <p className="text-sm font-medium">
+        {kind === "question" ? "Question for you: " : "Approve? "}
+        {question}
+      </p>
       {!answered ? (
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void answer(true)}
-            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
-          >
-            Approve
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void answer(false)}
-            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
-          >
-            Deny
-          </button>
-        </div>
+        kind === "question" ? (
+          <div className="mt-2 flex gap-2">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Your answer…"
+              disabled={busy}
+              className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2.5 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && draft.trim()) void post({ answer: draft });
+              }}
+            />
+            <button
+              type="button"
+              disabled={busy || !draft.trim()}
+              onClick={() => void post({ answer: draft })}
+              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+            >
+              Answer
+            </button>
+          </div>
+        ) : (
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void post({ approved: true })}
+              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+            >
+              Approve
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void post({ approved: false })}
+              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
+            >
+              Deny
+            </button>
+          </div>
+        )
       ) : (
         <p className="mt-1 text-xs text-muted-foreground">
           {part.state === "output-available" ? String(part.output) : "no answer recorded"}

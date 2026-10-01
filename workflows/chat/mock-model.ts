@@ -100,12 +100,16 @@ export function scriptedChatModel(): LanguageModel {
         await new Promise<never>(() => {});
       }
 
-      if (script === "approve") {
+      if (script === "approve" || script === "question") {
         if (!sawToolResult) {
           return result(
-            toolCallPart("call_ask_chad_1", "ask_chad", {
-              question: "Proceed with the spike?",
-            }),
+            toolCallPart(
+              "call_ask_chad_1",
+              "ask_chad",
+              script === "question"
+                ? { kind: "question", question: "Which database should we use?" }
+                : { kind: "approval", question: "Proceed with the spike?" },
+            ),
           );
         }
         // Echo the tool result back so the test can see it round-tripped.

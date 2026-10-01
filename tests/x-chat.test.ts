@@ -59,6 +59,7 @@ async function resumeWhenReady(token: string, approved: boolean, comment?: strin
     }
   }, `hook ${token} to exist`);
   await chatApprovalHook.resume(token, {
+    kind: "approval",
     approved,
     ...(comment ? { comment } : {}),
   });
@@ -141,6 +142,36 @@ describe("0010 spike: chat turn workflow", () => {
         parts.push(value);
       }
       expect(JSON.stringify(parts)).toContain("ask_chad");
+    },
+  );
+
+  it(
+    "question: a freeform ask_chad suspends on the hook and returns Chad's answer",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "question";
+      const id = conv("question");
+
+      const run = await turn(id, "please ask me a question");
+      const returnValue = run.returnValue;
+
+      await waitFor(async () => {
+        try {
+          return (await getHookByToken("call_ask_chad_1")) != null;
+        } catch {
+          return false;
+        }
+      }, "hook call_ask_chad_1 to exist");
+      await chatApprovalHook.resume("call_ask_chad_1", {
+        kind: "question",
+        answer: "sqlite, obviously",
+      });
+
+      const result = await returnValue;
+      expect(result.finishReason).toBe("stop");
+      const history = serialized(id);
+      expect(history).toContain("Chad answered: sqlite, obviously");
+      expect(listPendingInputs(db(), id)).toHaveLength(0);
     },
   );
 

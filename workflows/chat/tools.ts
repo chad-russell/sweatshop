@@ -32,17 +32,27 @@ export function buildChatTools(conversationId: string, sandboxPref?: string | nu
   return {
     ask_chad: tool({
       description:
-        "Ask Chad for approval or a decision before doing something consequential. The turn waits for his answer.",
+        "Ask Chad for input. The turn waits for his answer. kind=approval when you want " +
+        "permission to do something (he can approve or deny, optionally with a comment); " +
+        "kind=question when you need information or a freeform decision from him.",
       inputSchema: z.object({
-        question: z.string().max(2_000).describe("What you need a decision on."),
+        kind: z.enum(["approval", "question"]).describe("approval = permission ask; question = freeform answer needed"),
+        question: z.string().max(2_000).describe("What you are asking, phrased so it stands alone."),
       }),
-      execute: async ({ question }, { toolCallId }) => {
+      execute: async ({ kind, question }, { toolCallId }) => {
         // The pending row is the inbox's view of this request (a step:
         // only steps may touch sqlite); the hook itself stays the
         // workflow-level suspension primitive.
-        await pendingStep(conversationId, toolCallId, question);
+        await pendingStep(conversationId, toolCallId, question, kind);
         const hook = chatApprovalHook.create({ token: toolCallId });
-        const { approved, comment } = await hook;
+        const answer = await hook;
+        if (answer.kind === "question") {
+          if (typeof answer.answer !== "string" || !answer.answer.trim()) {
+            return `Chad did not answer the question. Question was: ${question}`;
+          }
+          return `Chad answered: ${answer.answer.trim()}`;
+        }
+        const { approved, comment } = answer;
         return approved
           ? `Chad approved${comment ? `: ${comment}` : " (no comment)"}. Question was: ${question}`
           : `Chad denied${comment ? `: ${comment}` : " (no comment)"}. Question was: ${question}`;
