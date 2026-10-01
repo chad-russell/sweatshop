@@ -303,11 +303,11 @@ const ToolCallView = ({ part }: { part: EveDynamicToolPart }) => {
   );
 };
 
-/** Copy affordance for one message: hover/keyboard revealed, self-contained
- *  state (a 2s check confirmation). A silent no-op when the clipboard is
- *  denied — navigator.clipboard needs a secure context, which a LAN
- *  http origin is not. */
-function MessageCopyAction({ text, alignEnd }: { text: string; alignEnd: boolean }) {
+/** Copy button for one message: self-contained state (a 2s check
+ *  confirmation). A silent no-op when the clipboard is denied —
+ *  navigator.clipboard needs a secure context, which a LAN http origin
+ *  is not. */
+function MessageCopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<number>(0);
   useEffect(() => () => window.clearTimeout(timeoutRef.current), []);
@@ -324,22 +324,26 @@ function MessageCopyAction({ text, alignEnd }: { text: string; alignEnd: boolean
   };
 
   return (
-    <MessageActions
-      className={cn(
-        "opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
-        alignEnd && "self-end",
-      )}
+    <MessageAction
+      type="button"
+      tooltip={copied ? "Copied" : "Copy message"}
+      aria-label="Copy message"
+      onClick={() => void copy()}
     >
-      <MessageAction
-        type="button"
-        tooltip={copied ? "Copied" : "Copy message"}
-        aria-label="Copy message"
-        onClick={() => void copy()}
-      >
-        {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-      </MessageAction>
-    </MessageActions>
+      {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+    </MessageAction>
   );
+}
+
+/** Hover-label for a turn's time: clock time today, date otherwise; the
+ *  full local timestamp rides the title attribute. */
+function formatTurnTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const sameDay = date.toDateString() === new Date().toDateString();
+  return sameDay
+    ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 /**
@@ -356,9 +360,13 @@ function MessageCopyAction({ text, alignEnd }: { text: string; alignEnd: boolean
 export const EveMessageView = memo(function EveMessageView({
   message,
   conversationId,
+  turnStart,
+  turnEnd,
 }: {
   message: EveMessage;
   conversationId?: string | null;
+  turnStart?: string;
+  turnEnd?: string;
 }) {
   // Concatenated text parts — the clipboard payload for the copy action.
   // Tool-only messages have none and get no action row.
@@ -371,6 +379,11 @@ export const EveMessageView = memo(function EveMessageView({
         .trim(),
     [message.parts],
   );
+  // User bubbles show when the turn was sent; assistant bubbles when it
+  // finished (falling back to its start for in-flight/failed turns).
+  const timeIso =
+    message.role === "assistant" ? (turnEnd ?? turnStart) : turnStart;
+  const timeText = timeIso ? formatTurnTime(timeIso) : "";
 
   return (
     <Message
@@ -413,8 +426,24 @@ export const EveMessageView = memo(function EveMessageView({
           return null;
         })}
       </MessageContent>
-      {text && (
-        <MessageCopyAction text={text} alignEnd={message.role === "user"} />
+      {(text || timeText) && (
+        <MessageActions
+          className={cn(
+            "opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
+            message.role === "user" && "self-end",
+          )}
+        >
+          {timeText && (
+            <time
+              dateTime={timeIso}
+              title={timeIso ? new Date(timeIso).toLocaleString() : undefined}
+              className="px-1 font-mono text-[10px] text-muted-foreground"
+            >
+              {timeText}
+            </time>
+          )}
+          {text && <MessageCopyButton text={text} />}
+        </MessageActions>
       )}
     </Message>
   );
@@ -581,6 +610,29 @@ export function ChatSurface({
   const isResuming = displayStatus === "resuming";
   const inputDisabled = isResuming;
   const messages = agent.data.messages;
+
+  // Turn timing from the authoritative stream: every server event carries
+  // meta.at (ISO, stable across replays) and turn-scoped events carry
+  // data.turnId. First event per turn = turn start; last = turn end. Used
+  // for hover timestamps via message.metadata.turnId — EveMessage itself
+  // has no clock field.
+  const { turnStarts, turnEnds } = useMemo(() => {
+    const turnStarts = new Map<string, string>();
+    const turnEnds = new Map<string, string>();
+    for (const event of agent.events) {
+      const e = event as {
+        type: string;
+        data?: { turnId?: unknown };
+        meta?: { at?: unknown };
+      };
+      const turnId = typeof e.data?.turnId === "string" ? e.data.turnId : null;
+      const at = typeof e.meta?.at === "string" ? e.meta.at : null;
+      if (!turnId || !at) continue;
+      if (!turnStarts.has(turnId)) turnStarts.set(turnId, at);
+      turnEnds.set(turnId, at);
+    }
+    return { turnStarts, turnEnds };
+  }, [agent.events]);
 
   // This surface holds a conversation once resumed by id, after the
   // first send adopts a session, or as soon as any message is projected
@@ -809,13 +861,18 @@ export function ChatSurface({
               description="A conversation with your agent. Say anything to begin."
             />
           )}
-          {messages.map((message) => (
-            <EveMessageView
-              key={message.id}
-              message={message}
-              conversationId={conversationId}
-            />
-          ))}
+          {messages.map((message) => {
+            const turnId = message.metadata?.turnId;
+            return (
+              <EveMessageView
+                key={message.id}
+                message={message}
+                conversationId={conversationId}
+                turnStart={turnId ? turnStarts.get(turnId) : undefined}
+                turnEnd={turnId ? turnEnds.get(turnId) : undefined}
+              />
+            );
+          })}
           {isThinking(displayStatus, messages) && (
             <div
               className="flex items-center gap-2 py-2 text-sm text-muted-foreground"
