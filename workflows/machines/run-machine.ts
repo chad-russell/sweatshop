@@ -177,7 +177,7 @@ export async function runMachine(input: RunMachineInput) {
     await markRun(runId, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     throw err;
   } finally {
-    if (containerName) await removeWorkspace(containerName);
+    if (containerName) await removeWorkspace(runId);
   }
 }
 

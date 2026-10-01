@@ -17,20 +17,35 @@ export async function markRun(
 
 export async function provisionWorkspace(runId: string, projectId: string): Promise<string> {
   "use step";
-  const [{ db }, { updateRun, runWorkspaceRoot }, { provisionProjectSandbox }] = await Promise.all([
+  const [{ db }, { updateRun }, { acquireSandbox }] = await Promise.all([
     import("@/db"),
     import("@/db/machines"),
-    import("@/lib/sandboxes/provision"),
+    import("@/lib/sandboxes/lease"),
   ]);
-  const sb = await provisionProjectSandbox(projectId, runWorkspaceRoot(runId));
-  updateRun(db(), runId, { containerName: sb.containerName });
-  return sb.containerName;
+  // 0010 Phase 2: the run's sandbox is a lease — one dedicated sandbox
+  // per run through the provider seam, destroyed with the run (0009
+  // semantics: one container for the whole run, removed at the end).
+  // A failed create cleans up after itself inside the lease layer.
+  const { handle } = await acquireSandbox({
+    mode: "dedicated",
+    ownerKind: "machine_run",
+    ownerId: runId,
+    projectId,
+  });
+  updateRun(db(), runId, { containerName: handle.ref });
+  return handle.ref;
 }
 
-export async function removeWorkspace(containerName: string): Promise<void> {
+export async function removeWorkspace(runId: string): Promise<void> {
   "use step";
-  const { attachSandbox } = await import("@/lib/sandboxes/provision");
-  await attachSandbox(containerName).remove();
+  const [{ db }, { getLeaseByOwner }] = await Promise.all([
+    import("@/db"),
+    import("@/db/sandboxes"),
+  ]);
+  const lease = getLeaseByOwner(db(), "machine_run", runId);
+  if (!lease) return;
+  const { destroySandbox } = await import("@/lib/sandboxes/lease");
+  await destroySandbox(lease.id);
 }
 
 /** Begin (or, on replay, re-find) a stage visit row. */

@@ -58,7 +58,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   of eve's stream, written by `agent/hooks/mirror.ts`. The mirror is a
   derived, rebuildable view of eve's authoritative stream — the dual-write
   invariants in docs/0002 govern it. Transcripts replay from eve, never
-  from the mirror.
+  from the mirror. 0010 Phase 1 added the new-runtime chat store
+  (`messages.model_message` rows, `steer_queue`,
+  `conversations.active_run_id`, store in `db/chat.ts`); 0010 Phase 2
+  added the sandbox lease registry (`sandboxes` +
+  `sandbox_attachments`, store in `db/sandboxes.ts`).
 - Conversation organization (0007): per-group (project, or Chats) folder
   trees (`folders`, `conversations.folder_id`), an "Unfiled" list per
   group split by age, archive (searchable) and trash (30-day lazy
@@ -93,8 +97,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `x-sweatshop-machine-visit`; single-target stages advance on
   `turn.completed` via the mirror hook, branching ones get a
   session-scoped dynamic `transition` tool), `human` (a `defineHook`
-  gate shown in `/inbox`). A project run provisions ONE container whose
-  repos clone to `/work/<runId>` — never `/workspace`: pi runs
+  gate shown in `/inbox`). A project run provisions ONE sandbox — a
+  dedicated lease through the 0010 seam (`acquireSandbox`,
+  `lib/sandboxes/lease.ts`; `SandboxProvider` in `provider.ts`,
+  podman today/VMs later; rows in `sandboxes`) — whose repos clone to
+  `/work/<runId>` — never `/workspace`: pi runs
   in-process and treats a sandbox workdir that also exists on the host
   as shared, and the dev runtime's `/workspace` is this repo. Every
   harness stage shares that checkout. Branching agent stages pick a
