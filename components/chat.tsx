@@ -56,6 +56,7 @@ import {
   DEFAULT_CHAT_MODEL,
   findChatModel,
 } from "@/lib/model";
+import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { useMounted } from "@/lib/use-mounted";
 
@@ -304,23 +305,19 @@ const ToolCallView = ({ part }: { part: EveDynamicToolPart }) => {
 };
 
 /** Copy button for one message: self-contained state (a 2s check
- *  confirmation). A silent no-op when the clipboard is denied —
- *  navigator.clipboard needs a secure context, which a LAN http origin
- *  is not. */
+ *  confirmation). Uses the shared copyText helper, which falls back to
+ *  execCommand for the LAN http origins where navigator.clipboard is
+ *  not exposed; a total failure is a silent no-op. */
 function MessageCopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<number>(0);
   useEffect(() => () => window.clearTimeout(timeoutRef.current), []);
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Denied or unavailable — the button just does nothing.
-    }
+    if (!(await copyText(text))) return;
+    setCopied(true);
+    window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = window.setTimeout(() => setCopied(false), 2000);
   };
 
   return (

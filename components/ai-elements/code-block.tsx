@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { copyText } from "@/lib/clipboard";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import type { ComponentProps, CSSProperties, HTMLAttributes } from "react";
 import {
@@ -468,24 +469,19 @@ export const CodeBlockCopyButton = ({
   const { code } = useContext(CodeBlockContext);
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not available"));
+    if (isCopied) return;
+
+    // Shared helper: falls back to execCommand where the async Clipboard
+    // API isn't exposed (plain-http LAN origins are not secure contexts).
+    const copied = await copyText(code);
+    if (!copied) {
+      onError?.(new Error("Clipboard unavailable"));
       return;
     }
 
-    try {
-      if (!isCopied) {
-        await navigator.clipboard.writeText(code);
-        setIsCopied(true);
-        onCopy?.();
-        timeoutRef.current = window.setTimeout(
-          () => setIsCopied(false),
-          timeout
-        );
-      }
-    } catch (error) {
-      onError?.(error as Error);
-    }
+    setIsCopied(true);
+    onCopy?.();
+    timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout);
   }, [code, onCopy, onError, timeout, isCopied]);
 
   useEffect(
