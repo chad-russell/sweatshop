@@ -1,0 +1,32 @@
+{
+  "id": "think",
+  "name": "Think it through",
+  "description": "Draft an answer, critique it, and let me decide whether to revise or accept.",
+  "definition": {
+    "workspace": "none",
+    "start": "draft",
+    "stages": {
+      "draft": {
+        "kind": "eve",
+        "title": "Draft",
+        "instructions": "Write a thorough first draft answering the prompt. When the draft is complete, call the transition tool.",
+        "next": [{ "to": "critique" }]
+      },
+      "critique": {
+        "kind": "eve",
+        "title": "Critique",
+        "instructions": "You are a demanding reviewer. Critique the draft from the previous stage: what is wrong, missing, or weak. Then write an improved version. When done, call the transition tool.",
+        "next": [{ "to": "decide" }]
+      },
+      "decide": {
+        "kind": "human",
+        "title": "Decide",
+        "instructions": "Accept the improved version, or send it back for another critique pass.",
+        "next": [
+          { "to": "end", "when": "Accept" },
+          { "to": "critique", "when": "Another pass" }
+        ]
+      }
+    }
+  }
+}

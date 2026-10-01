@@ -285,3 +285,94 @@ export const harnessRuns = sqliteTable(
     ),
   ],
 );
+
+/**
+ * 0009 machines: user-editable stage machines. `definition` is the
+ * zod-validated JSON (lib/machines/definition); `version` bumps on every
+ * definition change. Runs freeze a snapshot, so edits never touch an
+ * in-flight run.
+ */
+export const machines = sqliteTable("machines", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  /** JSON MachineDefinition. */
+  definition: text("definition").notNull(),
+  version: integer("version").notNull().default(1),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export type MachineRow = typeof machines.$inferSelect;
+
+/**
+ * One row per machine run (0009). The db IS the run status the UI
+ * reads; the Workflow SDK owns the durable execution.
+ */
+export const machineRuns = sqliteTable(
+  "machine_runs",
+  {
+    /** mr_… — also the prefix of every stage-visit token. */
+    id: text("id").primaryKey(),
+    /** Source machine; null once that machine is deleted (the snapshot
+     *  keeps the run self-describing). */
+    machineId: text("machine_id").references(() => machines.id, {
+      onDelete: "set null",
+    }),
+    machineName: text("machine_name").notNull(),
+    machineVersion: integer("machine_version").notNull(),
+    /** JSON MachineDefinition snapshot taken at start. */
+    definition: text("definition").notNull(),
+    /** Bound at run start for workspace: project machines. */
+    projectId: text("project_id").references(() => projects.id),
+    prompt: text("prompt").notNull(),
+    /** running | waiting | needs-attention | completed | failed | cancelled */
+    status: text("status").notNull(),
+    currentStage: text("current_stage"),
+    containerName: text("container_name"),
+    /** Bounded failure / parking reason. */
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("machine_runs_created_idx").on(table.createdAt)],
+);
+
+export type MachineRun = typeof machineRuns.$inferSelect;
+
+/**
+ * One row per stage visit (0009). `sessionId` is the stage's
+ * conversation: the harness session key (`mr_<run>_<seq>`, which
+ * harness_events / harness_runs and /h/<harness>/<id> use unchanged) or
+ * the eve session id. Visit tokens are `<runId>:<seq>`.
+ */
+export const machineStageRuns = sqliteTable(
+  "machine_stage_runs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => machineRuns.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    stageId: text("stage_id").notNull(),
+    /** harness | eve | human */
+    kind: text("kind").notNull(),
+    /** pi | claude for harness stages. */
+    harness: text("harness"),
+    /** running | waiting | completed | failed | parked */
+    status: text("status").notNull(),
+    sessionId: text("session_id"),
+    /** Clipped final text (agents) or the human's comment. */
+    outcome: text("outcome"),
+    transitionTo: text("transition_to"),
+    steps: integer("steps").notNull().default(0),
+    error: text("error"),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at"),
+  },
+  (table) => [
+    uniqueIndex("machine_stage_runs_run_seq_idx").on(table.runId, table.seq),
+  ],
+);
+
+export type MachineStageRun = typeof machineStageRuns.$inferSelect;

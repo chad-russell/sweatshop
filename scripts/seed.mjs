@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 
@@ -102,6 +102,22 @@ if (
     created_at: now(),
   });
   console.log("seeded: forgejo credential (forgejo-chad)");
+}
+
+// --- machines (0009) -------------------------------------------------
+// Seed machines are JSON under lib/machines/seeds/. Insert-only: a seed
+// never overwrites a machine Chad has since edited in the app. Their
+// definitions are validated by the app on read (db/machines.ts).
+const seedDir = path.join(process.cwd(), "lib", "machines", "seeds");
+for (const file of readdirSync(seedDir).filter((f) => f.endsWith(".json")).sort()) {
+  const seed = JSON.parse(readFileSync(path.join(seedDir, file), "utf8"));
+  const inserted = db
+    .prepare(
+      `insert into machines (id, name, description, definition, version, created_at, updated_at)
+       values (?, ?, ?, ?, 1, ?, ?) on conflict(id) do nothing`,
+    )
+    .run(seed.id, seed.name, seed.description ?? null, JSON.stringify(seed.definition), now(), now());
+  if (inserted.changes) console.log(`seeded: machine ${seed.id}`);
 }
 
 console.log(`seed complete → ${dbPath}`);
