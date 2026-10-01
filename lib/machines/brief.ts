@@ -34,6 +34,8 @@ export function buildBrief(input: {
   history: PriorVisit[];
   /** Human feedback carried into this visit (e.g. a gate comment). */
   feedback?: string | null;
+  /** Repo checkout root for harness stages (project workspaces). */
+  workspaceRoot?: string | null;
 }): string {
   const stage = input.definition.stages[input.stageId]!;
   const parts: string[] = [];
@@ -52,6 +54,12 @@ export function buildBrief(input: {
     );
   }
   if (input.feedback) parts.push(`# Feedback from Chad\n\n${input.feedback}`);
+  if (input.workspaceRoot && stage.kind === "harness") {
+    parts.push(
+      `# Workspace\n\nThe project's git repos are cloned under \`${input.workspaceRoot}/<repo>\` ` +
+        "(your working directory). Earlier stages worked in the same checkout.",
+    );
+  }
   parts.push(`# Your stage: ${stage.title}\n\n${stage.instructions}`);
   const guide = transitionGuide(stage);
   if (guide) parts.push(guide);

@@ -6,18 +6,21 @@ import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type {
   InboxData,
+  NeedsYouMachineGate,
   NeedsYouThread,
   NeedsYouTicket,
   PendingRequest,
   UnreadThread,
 } from "@/db/attention";
 import { ApprovalCard } from "./approval-card";
+import { MachineGateCard } from "./machine-gate-card";
 import { QuestionCard } from "./question-card";
 import { TicketGateCard } from "./ticket-gate-card";
 import { UnreadCard } from "./unread-card";
 
 type Needed =
   | { key: string; kind: "ticket"; gate: NeedsYouTicket }
+  | { key: string; kind: "machine"; gate: NeedsYouMachineGate }
   | { key: string; kind: "request"; thread: NeedsYouThread; request: PendingRequest };
 
 function Section({
@@ -42,7 +45,7 @@ function Section({
 
 /**
  * The Inbox dashboard (0008): everything waiting on you, in one place.
- * "Needs you" — approvals, questions, ticket gates — comes first and
+ * "Needs you" — approvals, questions, ticket and machine gates — comes first and
  * stays until answered; "Unread" is threads with assistant output you
  * haven't viewed. The shell (lib/use-attention-sync) refreshes this page
  * when the attention signature changes, so new asks appear without a reload.
@@ -92,6 +95,9 @@ export function InboxView({ data }: { data: InboxData }) {
     if (item.kind === "ticket") {
       return answered.has(item.id) ? [] : [{ key: item.id, kind: "ticket", gate: item }];
     }
+    if (item.kind === "machine") {
+      return answered.has(item.id) ? [] : [{ key: item.id, kind: "machine", gate: item }];
+    }
     return item.requests
       .filter((r) => !answered.has(r.requestId))
       .map((request) => ({ key: request.requestId, kind: "request", thread: item, request }));
@@ -130,6 +136,9 @@ export function InboxView({ data }: { data: InboxData }) {
           {needs.map((n) => {
             if (n.kind === "ticket") {
               return <TicketGateCard key={n.key} gate={n.gate} onAnswered={answer} />;
+            }
+            if (n.kind === "machine") {
+              return <MachineGateCard key={n.key} gate={n.gate} onAnswered={answer} />;
             }
             return n.request.kind === "question" ? (
               <QuestionCard key={n.key} thread={n.thread} request={n.request} onAnswered={answer} />

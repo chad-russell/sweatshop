@@ -5,10 +5,13 @@ import {
   conversationEvents,
   conversations,
   folders,
+  machineRuns,
+  machineStageRuns,
   messages,
   projects,
   ticketRuns,
 } from "./schema";
+import type { MachineDefinition } from "../lib/machines/definition";
 
 /**
  * 0008 attention: what is waiting on the user.
@@ -17,7 +20,8 @@ import {
  *    `conversations.last_seen_at`. Opening a conversation (while the tab
  *    is visible and focused) marks it seen; it can be marked unread again.
  *  - **Needs you** — a pending human-input request (tool approval,
- *    question, session limit) or a ticket run parked at its plan gate.
+ *    question, session limit), a ticket run parked at its plan gate, or
+ *    a machine run waiting at a human stage (0009).
  *    Opening the thread does NOT clear it; only answering does.
  *
  * Pending requests are *derived* from the mirrored `input.requested` /
@@ -203,7 +207,7 @@ export interface AttentionState {
   /** Conversations with ≥1 pending request (archived ones included —
    *  an approval blocks work whether or not the thread is filed away). */
   needsYou: Set<string>;
-  /** Pending ticket-run plan gates. */
+  /** Pending ticket-run plan gates + machine human gates (0009). */
   ticketGates: number;
   /**
    * Changes iff anything the sidebar dots or the Inbox page show changed
@@ -240,6 +244,7 @@ export function loadAttention(db: Conn): AttentionState {
     .where(eq(ticketRuns.status, "awaiting-approval"))
     .all()
     .map((g) => g.id);
+  const machineGateIds = waitingMachineGates(db).map((g) => g.token);
   const requestIds = [...pending.entries()]
     .filter(([id]) => live.has(id))
     .flatMap(([, list]) => list.map((r) => r.requestId));
@@ -247,8 +252,9 @@ export function loadAttention(db: Conn): AttentionState {
     [...unread].sort().join(","),
     requestIds.sort().join(","),
     gateIds.sort().join(","),
+    machineGateIds.sort().join(","),
   ].join("|");
-  return { unread, needsYou, ticketGates: gateIds.length, signature };
+  return { unread, needsYou, ticketGates: gateIds.length + machineGateIds.length, signature };
 }
 
 // ---------------------------------------------------------------------
@@ -336,6 +342,24 @@ export interface NeedsYouTicket {
   since: number;
 }
 
+/** A machine run waiting at a human stage (0009). */
+export interface NeedsYouMachineGate {
+  kind: "machine";
+  /** Visit token `<runId>:<seq>` — stable card key. */
+  id: string;
+  runId: string;
+  seq: number;
+  machineName: string;
+  stageTitle: string;
+  instructions: string;
+  targets: { to: string; when?: string }[];
+  prompt: string;
+  /** The previous stage's outcome — usually what Chad is judging. */
+  lastOutcome: string | null;
+  projectName: string | null;
+  since: number;
+}
+
 export interface UnreadThread extends Where {
   id: string;
   title: string | null;
@@ -346,7 +370,7 @@ export interface UnreadThread extends Where {
 }
 
 export interface InboxData {
-  needsYou: (NeedsYouThread | NeedsYouTicket)[];
+  needsYou: (NeedsYouThread | NeedsYouTicket | NeedsYouMachineGate)[];
   unread: UnreadThread[];
 }
 
@@ -415,7 +439,31 @@ export function loadInbox(db: Conn): InboxData {
       since: t.updatedAt,
     }));
 
-  const needsYou = [...threads, ...gates].sort((a, b) => a.since - b.since);
+  const machineGates: NeedsYouMachineGate[] = waitingMachineGates(db).map((g) => {
+    const definition = JSON.parse(g.definition) as MachineDefinition;
+    const stage = definition.stages[g.stageId];
+    const previous = db
+      .select({ outcome: machineStageRuns.outcome })
+      .from(machineStageRuns)
+      .where(and(eq(machineStageRuns.runId, g.runId), eq(machineStageRuns.seq, g.seq - 1)))
+      .get();
+    return {
+      kind: "machine",
+      id: g.token,
+      runId: g.runId,
+      seq: g.seq,
+      machineName: g.machineName,
+      stageTitle: stage?.title ?? g.stageId,
+      instructions: stage?.instructions ?? "",
+      targets: stage?.next ?? [],
+      prompt: g.prompt,
+      lastOutcome: previous?.outcome ?? null,
+      projectName: g.projectId ? (projectName.get(g.projectId) ?? g.projectId) : null,
+      since: g.startedAt,
+    };
+  });
+
+  const needsYou = [...threads, ...gates, ...machineGates].sort((a, b) => a.since - b.since);
 
   // A thread that needs an answer is shown once, above; Unread is the rest.
   const unreadIds = [...attention.unread].filter((id) => !attention.needsYou.has(id));
@@ -441,4 +489,30 @@ export function loadInbox(db: Conn): InboxData {
   unread.sort((a, b) => b.at - a.at);
 
   return { needsYou, unread };
+}
+
+/** Human stage visits whose run is waiting on Chad (0009). */
+function waitingMachineGates(db: Conn) {
+  return db
+    .select({
+      runId: machineStageRuns.runId,
+      seq: machineStageRuns.seq,
+      stageId: machineStageRuns.stageId,
+      startedAt: machineStageRuns.startedAt,
+      machineName: machineRuns.machineName,
+      definition: machineRuns.definition,
+      prompt: machineRuns.prompt,
+      projectId: machineRuns.projectId,
+    })
+    .from(machineStageRuns)
+    .innerJoin(machineRuns, eq(machineRuns.id, machineStageRuns.runId))
+    .where(
+      and(
+        eq(machineStageRuns.kind, "human"),
+        eq(machineStageRuns.status, "waiting"),
+        eq(machineRuns.status, "waiting"),
+      ),
+    )
+    .all()
+    .map((g) => ({ ...g, token: `${g.runId}:${g.seq}` }));
 }

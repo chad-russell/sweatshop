@@ -108,7 +108,15 @@ export async function runMachine(input: RunMachineInput) {
           outcome: v.outcome,
           transitionTo: v.transitionTo,
         }));
-      const brief = buildBrief({ prompt, definition, stageId: at, history: prior, feedback });
+      const brief = buildBrief({
+        prompt,
+        definition,
+        stageId: at,
+        history: prior,
+        feedback,
+        // = runWorkspaceRoot(runId) (db/machines — not importable here).
+        workspaceRoot: containerName ? `/work/${runId}` : null,
+      });
       feedback = null;
       const token = `${runId}:${seq}`;
 

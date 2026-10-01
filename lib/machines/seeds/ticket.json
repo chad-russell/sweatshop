@@ -10,16 +10,26 @@
         "kind": "harness",
         "harness": "pi",
         "title": "Plan",
-        "instructions": "You are the planning stage. Inspect the repos under /workspace. Do not change any files. Reply with a concise implementation plan in markdown. The first line of your reply must be exactly `BRANCH: <branch-name>`, naming a new git branch for the work.",
-        "next": [{ "to": "approve" }]
+        "instructions": "You are the planning stage. Inspect the project's repos (in your working directory). Do not change any files. Reply with a concise implementation plan in markdown. The first line of your reply must be exactly `BRANCH: <branch-name>`, naming a new git branch for the work.",
+        "next": [
+          {
+            "to": "approve"
+          }
+        ]
       },
       "approve": {
         "kind": "human",
         "title": "Approve plan",
         "instructions": "Review the plan. Approve to implement it, or reject to end the run.",
         "next": [
-          { "to": "implement", "when": "Approve the plan" },
-          { "to": "end", "when": "Reject" }
+          {
+            "to": "implement",
+            "when": "Approve the plan"
+          },
+          {
+            "to": "end",
+            "when": "Reject"
+          }
         ]
       },
       "implement": {
@@ -27,16 +37,26 @@
         "harness": "claude",
         "title": "Implement",
         "instructions": "You are the implementation stage. Follow the approved plan from the earlier stage exactly: create its branch, make the changes, and commit with clear messages. Do not push.",
-        "next": [{ "to": "verify" }]
+        "next": [
+          {
+            "to": "verify"
+          }
+        ]
       },
       "verify": {
         "kind": "harness",
         "harness": "pi",
         "title": "Verify",
-        "instructions": "You are the QA stage. Verify the work on the current branch in /workspace: run any available tests or build, and at minimum confirm the changes are present and committed. If the work is correct, transition to publish; otherwise transition back to implement and explain what is wrong.",
+        "instructions": "You are the QA stage. Verify the work on the current branch: run any available tests or build, and at minimum confirm the changes are present and committed. If the work is correct, transition to publish; otherwise transition back to implement and explain what is wrong.",
         "next": [
-          { "to": "publish", "when": "The work is correct and committed" },
-          { "to": "implement", "when": "The work needs fixes (explain them)" }
+          {
+            "to": "publish",
+            "when": "The work is correct and committed"
+          },
+          {
+            "to": "implement",
+            "when": "The work needs fixes (explain them)"
+          }
         ],
         "maxVisits": 3
       },
@@ -44,7 +64,7 @@
         "kind": "harness",
         "harness": "pi",
         "title": "Publish",
-        "instructions": "You are the publish stage. Push the current branch to origin with git (credentials are installed), then open a pull request for it with the create_pr tool, summarizing the change. Reply with the PR URL.",
+        "instructions": "You are the publish stage. Push the work branch to origin with git (credentials are installed), then open a pull request for it with the create_pr tool (repo = the repo's directory name), summarizing the change. Reply with the PR URL.",
         "next": []
       }
     }

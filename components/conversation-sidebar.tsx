@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowLeft, Inbox, MessageSquare, PanelLeft, Search, SquarePen, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Inbox, MessageSquare, PanelLeft, Search, SquarePen, Trash2, Workflow, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -218,6 +218,17 @@ export function ConversationSidebar({
                 {inbox.unread}
               </span>
             )}
+          </Link>
+          <Link
+            href="/machines"
+            aria-current={pathname.startsWith("/machines") ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent/60",
+              pathname.startsWith("/machines") && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+          >
+            <Workflow className="size-4 shrink-0 text-sidebar-foreground/60" />
+            <span className="flex-1">Machines</span>
           </Link>
         </div>
 
