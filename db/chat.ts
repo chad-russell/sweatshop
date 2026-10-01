@@ -1,7 +1,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import type { Db } from "./index";
-import { conversations, messages, steerQueue } from "./schema";
+import { chatHarnessState, conversations, messages, steerQueue } from "./schema";
 
 /**
  * 0010 spike store: the new chat runtime's own tables. The mirror
@@ -46,6 +46,46 @@ export function getConversation(
     .where(eq(conversations.id, id))
     .get();
   return row ?? null;
+}
+
+/**
+ * 0010 Phase 3b: a conversation × harness's `resumeFrom` handle — the
+ * durable session continuity for harness tool calls (next call resumes
+ * the same harness session with prior context).
+ */
+export function getHarnessResumeState(
+  db: Db,
+  conversationId: string,
+  harness: string,
+): unknown | null {
+  const row = db
+    .select({ resumeFrom: chatHarnessState.resumeFrom })
+    .from(chatHarnessState)
+    .where(
+      sql`${chatHarnessState.conversationId} = ${conversationId} and ${chatHarnessState.harness} = ${harness}`,
+    )
+    .get();
+  return row ? (JSON.parse(row.resumeFrom) as unknown) : null;
+}
+
+export function saveHarnessResumeState(
+  db: Db,
+  conversationId: string,
+  harness: string,
+  resumeFrom: unknown,
+): void {
+  db.insert(chatHarnessState)
+    .values({
+      conversationId,
+      harness,
+      resumeFrom: JSON.stringify(resumeFrom),
+      updatedAt: Date.now(),
+    })
+    .onConflictDoUpdate({
+      set: { resumeFrom: JSON.stringify(resumeFrom), updatedAt: Date.now() },
+      target: [chatHarnessState.conversationId, chatHarnessState.harness],
+    })
+    .run();
 }
 
 /** Append message rows for one conversation (order = insertion order). */

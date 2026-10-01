@@ -2,6 +2,7 @@ import {
   type AnySQLiteColumn,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -190,6 +191,30 @@ export const sandboxes = sqliteTable(
   (table) => [
     uniqueIndex("sandboxes_owner_idx").on(table.ownerKind, table.ownerId),
     index("sandboxes_status_idx").on(table.status),
+  ],
+);
+
+/**
+ * 0010 Phase 3b: a conversation's harness session continuity — the
+ * `resumeFrom` handle from @ai-sdk/workflow-harness, persisted after
+ * each harness tool call so the next call resumes the same harness
+ * session with prior context (replacing eve's in-memory session cache).
+ */
+export const chatHarnessState = sqliteTable(
+  "chat_harness_state",
+  {
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    /** "pi" | "claude". */
+    harness: text("harness").notNull(),
+    /** Serialized HarnessV1ResumeSessionState. */
+    resumeFrom: text("resume_from").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.conversationId, table.harness] }),
+    index("chat_harness_state_idx").on(table.conversationId),
   ],
 );
 

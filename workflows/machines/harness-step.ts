@@ -96,7 +96,14 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   if (firstStep) claimHarnessRun(sessionId, kind);
   if (firstStep) recordHarnessEvent(sessionId, kind, { kind: "start" });
 
-  const agent = buildHarnessAgent({ stage, sessionId, bridgeIp, tools });
+  const agent = buildHarnessAgent({
+    harness: kind,
+    sessionId,
+    bridgeIp,
+    tools,
+    model: stage.model,
+    thinking: stage.thinking,
+  });
 
   // Tee the UI chunks: forward to the run's output stream, mirror the
   // useful ones into harness_events, and watch for the transition result.

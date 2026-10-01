@@ -17,17 +17,21 @@ const PI_DEFAULT_MODEL = process.env.PI_MODEL ?? "zai-glm/glm-5.3-flash";
 export type HarnessStage = Extract<Stage, { kind: "harness" }>;
 
 export interface BuildArgs {
-  stage: HarnessStage;
-  /** Stage-visit harness session id (`mr_<run>_<seq>`). */
+  /** Which harness to build ("pi" | "claude"). */
+  harness: "pi" | "claude";
+  /** Harness session id (0010 chat: the conversation id). */
   sessionId: string;
   /** Bridge endpoint IP on the harness network (claude only). */
   bridgeIp?: string;
-  /** Host tools for this stage (transition, create_pr, …). */
+  /** Host tools (transition, create_pr, …). */
   tools: ToolSet;
+  model?: string;
+  /** pi thinking level. */
+  thinking?: "off" | "low" | "medium" | "high";
 }
 
-export function buildHarnessAgent({ stage, sessionId, bridgeIp, tools }: BuildArgs) {
-  if (stage.harness === "pi") {
+export function buildHarnessAgent({ harness, sessionId, bridgeIp, tools, model, thinking }: BuildArgs) {
+  if (harness === "pi") {
     return new HarnessAgent({
       harness: createPi({
         providers: {
@@ -38,10 +42,10 @@ export function buildHarnessAgent({ stage, sessionId, bridgeIp, tools }: BuildAr
             api: "anthropic",
           },
         },
-        thinkingLevel: stage.thinking ?? "low",
+        thinkingLevel: thinking ?? "low",
       }),
       id: `pi-${sessionId}`,
-      model: stage.model ?? PI_DEFAULT_MODEL,
+      model: model ?? PI_DEFAULT_MODEL,
       // Without a workDir the harness gives every session a private
       // `<harness>-<sessionId>` directory — stages would not see each
       // other's work. "." = the sandbox cwd, the run's workspace root.
@@ -64,7 +68,7 @@ export function buildHarnessAgent({ stage, sessionId, bridgeIp, tools }: BuildAr
       env: { CLAUDE_CODE_OAUTH_TOKEN: token },
     }),
     id: `claude-${sessionId}`,
-    ...(stage.model ? { model: stage.model } : {}),
+    ...(model ? { model } : {}),
     // "." = the sandbox cwd, the run's workspace root (shared by stages).
     sandboxConfig: { workDir: "." },
     tools,

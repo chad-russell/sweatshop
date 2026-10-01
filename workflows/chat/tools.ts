@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "./hooks";
+import { harnessToolStep } from "./harness-step";
 import {
   attachSandboxStep,
   bashStep,
@@ -96,6 +97,30 @@ export function buildChatTools(conversationId: string) {
             ? { sandboxId }
             : { ownerKind: ownerKind ?? "machine_run", ownerId: ownerId ?? "" },
         ),
+    }),
+
+    pi: tool({
+      description:
+        "Hand a coding task to the pi harness, which works in this conversation's sandbox " +
+        "(repos under the work root) with its own read/write/edit/bash tools and keeps context " +
+        "across calls. Use for non-trivial code changes; use plain bash for quick commands. " +
+        "The repo state is shared — pi's edits are immediately visible to bash.",
+      inputSchema: z.object({
+        task: z.string().min(1).describe("The coding task, with enough context to act on."),
+      }),
+      execute: ({ task }) => harnessToolStep({ conversationId, kind: "pi", task }),
+    }),
+
+    claude: tool({
+      description:
+        "Hand a coding task to the Claude Code harness, which works in this conversation's " +
+        "sandbox with its own read/edit/bash tools and keeps context across calls. Prefer for " +
+        "deep refactors or nuanced code review; use pi for quick edits and plain bash for " +
+        "one-off commands. The repo state is shared with bash and pi.",
+      inputSchema: z.object({
+        task: z.string().min(1).describe("The coding task, with enough context to act on."),
+      }),
+      execute: ({ task }) => harnessToolStep({ conversationId, kind: "claude", task }),
     }),
 
     /** Trivial tool so the mock can force a second model step (steer test). */

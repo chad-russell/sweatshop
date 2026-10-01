@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Experimental_SandboxSession } from "ai";
 import { db } from "../db";
-import { ensureConversation } from "../db/chat";
+import { ensureConversation, getHarnessResumeState, saveHarnessResumeState } from "../db/chat";
 import { projects } from "../db/schema";
 import { clipOutput, runBash } from "../lib/agent/tools/bash";
 import { attachConversationSandbox } from "../lib/agent/tools/attach-sandbox";
@@ -112,5 +112,20 @@ describe("0010 chat tool cores", () => {
     await expect(
       attachConversationSandbox("c_joiner", { ownerKind: "machine_run", ownerId: "run_none" }, provider),
     ).rejects.toThrow(/no sandbox for machine_run run_none/);
+  });
+
+  it("harness resume state round-trips per conversation × kind", () => {
+    ensureConversation(db(), "c_harness");
+    const handle = { harnessId: "pi", data: { session: "s1" } };
+    saveHarnessResumeState(db(), "c_harness", "pi", handle);
+    saveHarnessResumeState(db(), "c_harness", "claude", { harnessId: "claude" });
+    expect(getHarnessResumeState(db(), "c_harness", "pi")).toEqual(handle);
+    expect(getHarnessResumeState(db(), "c_harness", "claude")).toEqual({ harnessId: "claude" });
+    expect(getHarnessResumeState(db(), "c_harness", "pi")).not.toEqual({ harnessId: "claude" });
+    expect(getHarnessResumeState(db(), "c_other", "pi")).toBeNull();
+
+    const updated = { harnessId: "pi", data: { session: "s2" } };
+    saveHarnessResumeState(db(), "c_harness", "pi", updated);
+    expect(getHarnessResumeState(db(), "c_harness", "pi")).toEqual(updated);
   });
 });
