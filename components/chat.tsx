@@ -666,7 +666,27 @@ export function ChatSurface({
       // On /c/[sessionId]: navigate to the sessionless landing route.
       router.push("/");
     }
+    // The reset emptied the composer; land the caret back in it.
+    textareaRef.current?.focus();
   };
+
+  // ⌘⇧O starts a new chat from anywhere in the surface (⌘K owns search).
+  // The handler is kept in a ref so the window listener itself is stable
+  // across renders — handleNewChat closes over the agent snapshot.
+  const newChatRef = useRef(handleNewChat);
+  useEffect(() => {
+    newChatRef.current = handleNewChat;
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        newChatRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
@@ -687,7 +707,7 @@ export function ChatSurface({
           <button
             type="button"
             aria-label="New chat"
-            title="New chat"
+            title="New chat (⌘⇧O)"
             disabled={isResuming}
             onClick={handleNewChat}
             className="inline-flex size-9 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
@@ -739,6 +759,7 @@ export function ChatSurface({
             onChange={handleDraftChange}
             placeholder="Message sweatshop…"
             disabled={inputDisabled}
+            autoFocus
           />
           <PromptInputSubmit
             status={toChatStatus(displayStatus)}
