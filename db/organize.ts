@@ -1,0 +1,490 @@
+import { randomUUID } from "node:crypto";
+import { and, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import type { Db } from "./index";
+import {
+  conversationEvents,
+  conversations,
+  folders,
+  harnessEvents,
+  harnessRuns,
+  messages,
+} from "./schema";
+
+/**
+ * 0007 organization store: folders, filing, rename, archive, trash.
+ * Every invariant lives here (the API routes and UI only mirror them):
+ *
+ * - a conversation's folder belongs to the conversation's project
+ *   (null ↔ null for the unbound "Chats" group);
+ * - a folder's parent is in the same group, and a folder never moves
+ *   into itself or a descendant;
+ * - sibling folder names are unique per (project, parent),
+ *   case-insensitively.
+ */
+
+/** A Db or a transaction handle — the query surface the helpers need. */
+type Conn = Pick<Db, "select" | "insert" | "update" | "delete">;
+
+export type OrganizeErrorCode =
+  | "not-found"
+  | "invalid"
+  | "cross-group"
+  | "cycle"
+  | "duplicate-name";
+
+export class OrganizeError extends Error {
+  constructor(
+    readonly code: OrganizeErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "OrganizeError";
+  }
+}
+
+const NAME_MAX = 80;
+export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function cleanName(name: unknown): string {
+  if (typeof name !== "string") {
+    throw new OrganizeError("invalid", "name must be a string");
+  }
+  const collapsed = name.replace(/\s+/g, " ").trim();
+  if (!collapsed) throw new OrganizeError("invalid", "name is required");
+  return collapsed.slice(0, NAME_MAX);
+}
+
+function getFolder(db: Conn, id: string) {
+  const row = db.select().from(folders).where(eq(folders.id, id)).get();
+  if (!row) throw new OrganizeError("not-found", `folder ${id} not found`);
+  return row;
+}
+
+function getConversation(db: Conn, id: string) {
+  const row = db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, id))
+    .get();
+  if (!row) throw new OrganizeError("not-found", `conversation ${id} not found`);
+  return row;
+}
+
+function assertNameFree(
+  db: Conn,
+  projectId: string | null,
+  parentId: string | null,
+  name: string,
+  exceptId?: string,
+) {
+  const siblings = db
+    .select({ id: folders.id, name: folders.name })
+    .from(folders)
+    .where(
+      and(
+        projectId === null
+          ? isNull(folders.projectId)
+          : eq(folders.projectId, projectId),
+        parentId === null
+          ? isNull(folders.parentId)
+          : eq(folders.parentId, parentId),
+      ),
+    )
+    .all();
+  const lower = name.toLowerCase();
+  if (siblings.some((s) => s.id !== exceptId && s.name.toLowerCase() === lower)) {
+    throw new OrganizeError(
+      "duplicate-name",
+      `a folder named "${name}" already exists here`,
+    );
+  }
+}
+
+/** All folder ids at or below `rootId` (inclusive). */
+export function folderSubtreeIds(db: Conn, rootId: string): string[] {
+  const rows = db.select({ id: folders.id, parentId: folders.parentId }).from(folders).all();
+  const children = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.parentId) continue;
+    const list = children.get(row.parentId) ?? [];
+    list.push(row.id);
+    children.set(row.parentId, list);
+  }
+  const out: string[] = [];
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    out.push(id);
+    stack.push(...(children.get(id) ?? []));
+  }
+  return out;
+}
+
+/** Folder path from the group root down to `folderId` (names, in order). */
+export function folderPath(
+  rows: ReadonlyMap<string, { name: string; parentId: string | null }>,
+  folderId: string | null,
+): string[] {
+  const path: string[] = [];
+  const seen = new Set<string>();
+  let cursor = folderId;
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const row = rows.get(cursor);
+    if (!row) break;
+    path.unshift(row.name);
+    cursor = row.parentId;
+  }
+  return path;
+}
+
+export function createFolder(
+  db: Db,
+  input: { projectId: string | null; parentId: string | null; name: string },
+) {
+  const name = cleanName(input.name);
+  return db.transaction((tx) => {
+    let projectId = input.projectId;
+    if (input.parentId) {
+      const parent = getFolder(tx, input.parentId);
+      if (parent.projectId !== projectId) {
+        throw new OrganizeError(
+          "cross-group",
+          "a subfolder must belong to its parent's project",
+        );
+      }
+      projectId = parent.projectId;
+    }
+    assertNameFree(tx, projectId, input.parentId, name);
+    const row = {
+      id: `fld_${randomUUID()}`,
+      projectId,
+      parentId: input.parentId,
+      name,
+      createdAt: Date.now(),
+    };
+    tx.insert(folders).values(row).run();
+    return row;
+  });
+}
+
+export function renameFolder(db: Db, id: string, rawName: string) {
+  const name = cleanName(rawName);
+  db.transaction((tx) => {
+    const folder = getFolder(tx, id);
+    assertNameFree(tx, folder.projectId, folder.parentId, name, id);
+    tx.update(folders).set({ name }).where(eq(folders.id, id)).run();
+  });
+}
+
+/** Re-parent a folder within its group; parentId null = group root. */
+export function moveFolder(db: Db, id: string, parentId: string | null) {
+  db.transaction((tx) => {
+    const folder = getFolder(tx, id);
+    if (parentId) {
+      const parent = getFolder(tx, parentId);
+      if (parent.projectId !== folder.projectId) {
+        throw new OrganizeError(
+          "cross-group",
+          "folders cannot move between projects",
+        );
+      }
+      if (folderSubtreeIds(tx, id).includes(parentId)) {
+        throw new OrganizeError(
+          "cycle",
+          "a folder cannot move into itself or its own subfolder",
+        );
+      }
+    }
+    assertNameFree(tx, folder.projectId, parentId, folder.name, id);
+    tx.update(folders).set({ parentId }).where(eq(folders.id, id)).run();
+  });
+}
+
+/**
+ * Delete a folder; its subfolders and conversations move up one level
+ * (nothing else is deleted). Promoted subfolders that would collide with
+ * a sibling name get a numeric suffix rather than failing the delete.
+ */
+export function deleteFolder(db: Db, id: string) {
+  db.transaction((tx) => {
+    const folder = getFolder(tx, id);
+    const taken = new Set(
+      tx
+        .select({ name: folders.name })
+        .from(folders)
+        .where(
+          and(
+            folder.projectId === null
+              ? isNull(folders.projectId)
+              : eq(folders.projectId, folder.projectId),
+            folder.parentId === null
+              ? isNull(folders.parentId)
+              : eq(folders.parentId, folder.parentId),
+          ),
+        )
+        .all()
+        .map((r) => r.name.toLowerCase()),
+    );
+    const kids = tx.select().from(folders).where(eq(folders.parentId, id)).all();
+    for (const kid of kids) {
+      let name = kid.name;
+      for (let n = 2; taken.has(name.toLowerCase()); n += 1) {
+        name = `${kid.name} (${n})`.slice(0, NAME_MAX + 6);
+      }
+      taken.add(name.toLowerCase());
+      tx.update(folders)
+        .set({ parentId: folder.parentId, name })
+        .where(eq(folders.id, kid.id))
+        .run();
+    }
+    tx.update(conversations)
+      .set({ folderId: folder.parentId })
+      .where(eq(conversations.folderId, id))
+      .run();
+    tx.delete(folders).where(eq(folders.id, id)).run();
+  });
+}
+
+/** File a conversation into a folder of its own group; null = unfile. */
+export function moveConversation(
+  db: Db,
+  conversationId: string,
+  folderId: string | null,
+) {
+  db.transaction((tx) => {
+    const conversation = getConversation(tx, conversationId);
+    if (folderId) {
+      const folder = getFolder(tx, folderId);
+      if (folder.projectId !== conversation.projectId) {
+        throw new OrganizeError(
+          "cross-group",
+          "a conversation can only be filed in its own project's folders",
+        );
+      }
+    }
+    // Filing deliberately does not bump updatedAt: that column means
+    // "last activity", and sorting must not reshuffle on housekeeping.
+    tx.update(conversations)
+      .set({ folderId })
+      .where(eq(conversations.id, conversationId))
+      .run();
+  });
+}
+
+/** Manual rename — pins the title against regeneration (0007). */
+export function renameConversation(db: Db, id: string, rawTitle: string) {
+  const title = cleanName(rawTitle);
+  getConversation(db, id);
+  db.update(conversations)
+    .set({ title, titleSource: "manual" })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+export function setArchived(db: Db, id: string, archived: boolean) {
+  getConversation(db, id);
+  db.update(conversations)
+    .set({ archivedAt: archived ? Date.now() : null })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+export function setTrashed(db: Db, id: string, trashed: boolean) {
+  getConversation(db, id);
+  db.update(conversations)
+    .set({ trashedAt: trashed ? Date.now() : null })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+/**
+ * Permanently remove a conversation from the sweatshop store: the
+ * mirror (events, extracted messages) and harness activity. eve's own
+ * session stream is authoritative and untouched.
+ */
+export function deleteConversationForever(db: Db, id: string) {
+  db.transaction((tx) => {
+    getConversation(tx, id);
+    tx.delete(messages).where(eq(messages.conversationId, id)).run();
+    tx.delete(conversationEvents)
+      .where(eq(conversationEvents.conversationId, id))
+      .run();
+    tx.delete(harnessEvents).where(eq(harnessEvents.sessionId, id)).run();
+    tx.delete(harnessRuns).where(eq(harnessRuns.sessionId, id)).run();
+    tx.delete(conversations).where(eq(conversations.id, id)).run();
+  });
+}
+
+/** Lazy retention sweep; returns how many conversations were purged. */
+export function purgeExpiredTrash(db: Db, now: number = Date.now()): number {
+  const expired = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        isNotNull(conversations.trashedAt),
+        lt(conversations.trashedAt, now - TRASH_RETENTION_MS),
+      ),
+    )
+    .all();
+  for (const { id } of expired) deleteConversationForever(db, id);
+  return expired.length;
+}
+
+// ---------------------------------------------------------------------
+// Sidebar read model
+
+export interface SidebarItem {
+  id: string;
+  title: string | null;
+  updatedAt: number;
+}
+
+export interface FolderNode {
+  id: string;
+  name: string;
+  /** Newest activity in the folder or any descendant; createdAt if empty. */
+  activityAt: number;
+  folders: FolderNode[];
+  items: SidebarItem[];
+  /** Conversations at or below this folder. */
+  count: number;
+}
+
+export interface SidebarGroup {
+  project: { id: string; name: string } | null;
+  folders: FolderNode[];
+  inbox: SidebarItem[];
+}
+
+/** A conversation outside the main tree (Archive / Trash view). */
+export interface ShelvedItem extends SidebarItem {
+  projectName: string | null;
+  /** Folder breadcrumb, e.g. ["Spikes", "Sandbox"]. */
+  path: string[];
+  at: number;
+}
+
+export interface SidebarData {
+  groups: SidebarGroup[];
+  archived: ShelvedItem[];
+  trashed: ShelvedItem[];
+}
+
+const SHELF_LIMIT = 200;
+
+export function loadSidebar(db: Db): SidebarData {
+  const projectRows = db
+    .query.projects.findMany()
+    .sync()
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const folderRows = db.select().from(folders).all();
+  const folderIndex = new Map(folderRows.map((f) => [f.id, f]));
+  const conversationRows = db
+    .select({
+      id: conversations.id,
+      title: conversations.title,
+      updatedAt: conversations.updatedAt,
+      projectId: conversations.projectId,
+      folderId: conversations.folderId,
+      archivedAt: conversations.archivedAt,
+      trashedAt: conversations.trashedAt,
+    })
+    .from(conversations)
+    .all();
+
+  const projectName = new Map(projectRows.map((p) => [p.id, p.name]));
+  const shelved = (
+    rows: typeof conversationRows,
+    pick: (r: (typeof conversationRows)[number]) => number | null,
+  ): ShelvedItem[] =>
+    rows
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        updatedAt: r.updatedAt,
+        projectName: r.projectId ? (projectName.get(r.projectId) ?? r.projectId) : null,
+        path: folderPath(folderIndex, r.folderId),
+        at: pick(r) ?? 0,
+      }))
+      .sort((a, b) => b.at - a.at)
+      .slice(0, SHELF_LIMIT);
+
+  const live = conversationRows.filter((r) => !r.trashedAt && !r.archivedAt);
+  const archived = shelved(
+    conversationRows.filter((r) => !r.trashedAt && r.archivedAt),
+    (r) => r.archivedAt,
+  );
+  const trashed = shelved(
+    conversationRows.filter((r) => r.trashedAt),
+    (r) => r.trashedAt,
+  );
+
+  const toItem = (r: (typeof live)[number]): SidebarItem => ({
+    id: r.id,
+    title: r.title,
+    updatedAt: r.updatedAt,
+  });
+
+  const buildGroup = (projectId: string | null): Pick<SidebarGroup, "folders" | "inbox"> => {
+    const groupFolders = folderRows.filter((f) => f.projectId === projectId);
+    const groupConversations = live.filter((r) => r.projectId === projectId);
+    const folderIds = new Set(groupFolders.map((f) => f.id));
+
+    const build = (parentId: string | null): FolderNode[] =>
+      groupFolders
+        .filter((f) => f.parentId === parentId)
+        .map((f) => {
+          const subfolders = build(f.id);
+          const items = groupConversations
+            .filter((r) => r.folderId === f.id)
+            .map(toItem)
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+          const activityAt = Math.max(
+            f.createdAt,
+            ...items.map((i) => i.updatedAt),
+            ...subfolders.map((s) => s.activityAt),
+          );
+          return {
+            id: f.id,
+            name: f.name,
+            activityAt,
+            folders: subfolders,
+            items,
+            count: items.length + subfolders.reduce((n, s) => n + s.count, 0),
+          };
+        })
+        .sort((a, b) => b.activityAt - a.activityAt);
+
+    return {
+      folders: build(null),
+      // A conversation whose folder vanished (should not happen) still
+      // surfaces in the inbox rather than disappearing.
+      inbox: groupConversations
+        .filter((r) => !r.folderId || !folderIds.has(r.folderId))
+        .map(toItem)
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    };
+  };
+
+  const groups: SidebarGroup[] = projectRows.map((p) => ({
+    project: { id: p.id, name: p.name },
+    ...buildGroup(p.id),
+  }));
+  const chats = buildGroup(null);
+  if (chats.inbox.length > 0 || chats.folders.length > 0) {
+    groups.push({ project: null, ...chats });
+  }
+  return { groups, archived, trashed };
+}
+
+/** Count of conversations visible in the main tree (footer total). */
+export function countLive(db: Db): number {
+  const row = db
+    .select({ n: sql<number>`count(*)` })
+    .from(conversations)
+    .where(and(isNull(conversations.trashedAt), isNull(conversations.archivedAt)))
+    .get();
+  return row?.n ?? 0;
+}

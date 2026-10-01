@@ -1,4 +1,5 @@
 import {
+  type AnySQLiteColumn,
   index,
   integer,
   sqliteTable,
@@ -23,6 +24,20 @@ export const conversations = sqliteTable(
     /** Project this conversation is bound to at creation (0004);
      *  immutable for the session's life. */
     projectId: text("project_id").references(() => projects.id),
+    /** 0007: one-line generated summary; null until generated. */
+    summary: text("summary"),
+    /** 0007: "auto" (first-message / generated) | "manual" (user rename,
+     *  never overwritten). */
+    titleSource: text("title_source").notNull().default("auto"),
+    /** 0007: titles generated so far (0, 1, or 2 — see lib/titles.ts). */
+    titleGenerations: integer("title_generations").notNull().default(0),
+    /** 0007: user-visible folder; null = unfiled (Inbox). Must belong to
+     *  the same group (project) as the conversation. */
+    folderId: text("folder_id").references((): AnySQLiteColumn => folders.id),
+    /** 0007: Unix ms; hidden from folders/inbox, still searchable. */
+    archivedAt: integer("archived_at"),
+    /** 0007: Unix ms; hidden everywhere but Trash, not searchable. */
+    trashedAt: integer("trashed_at"),
     /** Unix ms. */
     createdAt: integer("created_at").notNull(),
     /** Unix ms, bumped on each newly mirrored event. */
@@ -33,6 +48,29 @@ export const conversations = sqliteTable(
   (table) => [
     index("conversations_updated_at_idx").on(table.updatedAt),
     index("conversations_project_idx").on(table.projectId),
+    index("conversations_folder_idx").on(table.folderId),
+  ],
+);
+
+/**
+ * 0007: user-created folders, scoped to a group — a project, or Chats
+ * (project_id null). Free-form tree via parent_id; sibling-name
+ * uniqueness and same-group/no-cycle rules are enforced in
+ * db/organize.ts, not by constraints.
+ */
+export const folders = sqliteTable(
+  "folders",
+  {
+    id: text("id").primaryKey(),
+    /** Owning group; null = the unbound "Chats" group. */
+    projectId: text("project_id").references(() => projects.id),
+    parentId: text("parent_id").references((): AnySQLiteColumn => folders.id),
+    name: text("name").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("folders_project_idx").on(table.projectId),
+    index("folders_parent_idx").on(table.parentId),
   ],
 );
 
@@ -84,6 +122,7 @@ export const messages = sqliteTable(
   (table) => [index("messages_conversation_idx").on(table.conversationId)],
 );
 
+export type Folder = typeof folders.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type ConversationEvent = typeof conversationEvents.$inferSelect;
