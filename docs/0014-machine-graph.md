@@ -1,6 +1,6 @@
 # 0014 — Machine graph: view and edit definitions as a graph
 
-Status: **proposed (2026-10-02)** — awaiting Chad's approval.
+Status: **approved (2026-10-02)** — open question resolved: instructions are edited in the side panel only.
 `@xyflow/react` itself was approved in chat on 2026-10-02.
 
 ## Goal
