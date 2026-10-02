@@ -331,6 +331,13 @@ export function MachineGraph({
         panOnDrag
         deleteKeyCode={editable ? ["Backspace", "Delete"] : null}
         proOptions={{ hideAttribution: true }}
+        onInit={(flow) => {
+          // fitView may stop at its minimum zoom with the graph still wider
+          // than the canvas, centring it and pushing `start` off-screen.
+          // Graphs read left to right, so anchor the left edge instead.
+          const { x, y, zoom } = flow.getViewport();
+          if (x < 0) flow.setViewport({ x: 24, y, zoom });
+        }}
         onNodeClick={(_, node) => onSelectNode?.(node.id === END ? null : node.id)}
         onEdgeClick={(_, edge) => onSelectEdge?.({ id: edge.id, source: edge.source, target: edge.target })}
         onPaneClick={() => {
