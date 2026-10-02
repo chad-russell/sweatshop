@@ -51,3 +51,26 @@ export function HarnessLogo({
     </span>
   );
 }
+
+/**
+ * The bare mark for tight spots (rows, nodes, pickers). `tint` keeps the
+ * brand colour for Claude; pass `className` with a text colour and
+ * `tint={false}` when a status colour must win (graph nodes).
+ */
+export function HarnessMark({
+  kind,
+  className,
+  tint = true,
+}: {
+  kind: string;
+  className?: string;
+  tint?: boolean;
+}) {
+  if (kind === "claude") {
+    return <ClaudeMark className={cn("size-4 shrink-0", tint && "text-brand-claude", className)} />;
+  }
+  if (kind === "pi") {
+    return <PiMark className={cn("size-3.5 shrink-0", className)} />;
+  }
+  return null;
+}

@@ -18,6 +18,7 @@ import { Canvas } from "@/components/ai-elements/canvas";
 import { Controls } from "@/components/ai-elements/controls";
 import { END, type MachineDefinition, type Stage } from "@/lib/machines/definition";
 import { END_WIDTH, layoutMachine, NODE_HEIGHT, NODE_WIDTH, type LayoutEdge } from "@/lib/machines/layout";
+import { HarnessMark } from "@/components/harness-logo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -126,7 +127,11 @@ const StageNode = memo(function StageNode({ data, selected }: NodeProps<FlowNode
     >
       {handles}
       <div className="flex items-center gap-1.5">
-        <Icon className={cn("size-3.5 shrink-0", tone)} aria-hidden />
+        {stage.kind === "harness" ? (
+          <HarnessMark kind={stage.harness} tint={false} className={cn("size-3.5", tone)} />
+        ) : (
+          <Icon className={cn("size-3.5 shrink-0", tone)} aria-hidden />
+        )}
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{stage.title}</span>
         {data.isStart && <Play className="size-3 shrink-0 text-muted-foreground" aria-label="Start" />}
         {data.issues?.length ? <AlertTriangle className="size-3.5 shrink-0 text-destructive" aria-label="Has issues" /> : null}

@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { HarnessMark } from "@/components/harness-logo";
 import { DEFAULT_MAX_VISITS, END, HARNESSES, type MachineDefinition, type Stage } from "@/lib/machines/definition";
 import type { StageKind, StagePatch } from "@/lib/machines/edit";
 import { CHAT_MODELS } from "@/lib/model";
@@ -155,7 +156,10 @@ export function StagePanel({
               <SelectContent>
                 {HARNESSES.map((h) => (
                   <SelectItem key={h} value={h}>
-                    {h}
+                    <span className="flex items-center gap-2">
+                      <HarnessMark kind={h} />
+                      {h}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>

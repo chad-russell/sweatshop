@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Box, FileText, Loader2 } from "lucide-react";
+import { Box, FileText, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -9,6 +9,7 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/componen
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
 import type { SandboxLink } from "@/db/sandbox-view";
+import { HARNESS_LABEL, HarnessMark } from "@/components/harness-logo";
 import { buildTimeline, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { cn } from "@/lib/utils";
@@ -251,8 +252,8 @@ export function HarnessSessionView({
           {
             label: (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-info/40 bg-info/10 px-2.5 py-0.5 text-xs font-medium text-info">
-                <Bot className="size-3.5" aria-hidden />
-                {run.kind} harness
+                <HarnessMark kind={run.kind} tint={false} className="size-3.5" />
+                {HARNESS_LABEL[run.kind] ?? run.kind}
               </span>
             ),
           },

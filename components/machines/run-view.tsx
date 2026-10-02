@@ -28,6 +28,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ChatMessageView } from "@/components/chat-session";
+import { HarnessMark } from "@/components/harness-logo";
 import { HarnessEventLog, type HarnessEvent } from "@/components/harness-session-view";
 import { usePageContext } from "@/components/page-context";
 import { SandboxStatus } from "@/components/sandbox-status";
@@ -369,7 +370,11 @@ function StageCard({
     >
       <header className="flex items-center gap-2">
         <StatusIcon status={visit.status} />
-        <KindIcon className="size-4 shrink-0 text-muted-foreground" />
+        {visit.kind === "harness" && visit.harness ? (
+          <HarnessMark kind={visit.harness} />
+        ) : (
+          <KindIcon className="size-4 shrink-0 text-muted-foreground" />
+        )}
         <span className="text-sm font-medium">{stage?.title ?? visit.stageId}</span>
         <Badge variant="outline" className="font-mono">
           {visit.kind === "harness" ? visit.harness : visit.kind}
