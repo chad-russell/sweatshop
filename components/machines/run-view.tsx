@@ -28,6 +28,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ChatMessageView } from "@/components/chat-session";
+import { HarnessLiveLine, HarnessSummary, TaskQuote } from "@/components/harness-card";
 import { HarnessMark } from "@/components/harness-logo";
 import { HarnessEventLog, type HarnessEvent } from "@/components/harness-session-view";
 import { usePageContext } from "@/components/page-context";
@@ -335,6 +336,44 @@ export function MachineRunView({
   );
 }
 
+/**
+ * A harness stage's body: the stage's instructions as the task quote, a
+ * live "what is it doing" line while it runs, then its summary — the same
+ * treatment as the chat's pi/claude card. The bands run edge to edge, so
+ * they cancel the card's padding.
+ */
+function HarnessStageBody({
+  visit,
+  instructions,
+}: {
+  visit: MachineStageRun;
+  instructions: string | undefined;
+}) {
+  const running = visit.status === "running";
+  const summary = visit.outcome?.trim();
+  return (
+    <>
+      {instructions?.trim() && <TaskQuote>{instructions.trim()}</TaskQuote>}
+      <HarnessLiveLine
+        conversationId={visit.sessionId}
+        kind={visit.harness ?? "pi"}
+        active={running}
+        className="-mx-4"
+      />
+      {visit.error && (
+        <p className="-mx-4 border-t border-destructive/30 bg-destructive/10 px-4 py-2 font-mono text-[11px] text-destructive">
+          {visit.error}
+        </p>
+      )}
+      {summary && (
+        <div className={cn("-mx-4 px-4", (instructions?.trim() || running) && "border-t border-border pt-3")}>
+          <HarnessSummary>{summary}</HarnessSummary>
+        </div>
+      )}
+    </>
+  );
+}
+
 function visitLink(visit: MachineStageRun): { href: string; label: string } | null {
   if (visit.kind === "harness" && visit.harness && visit.sessionId) {
     return { href: `/h/${visit.harness}/${visit.sessionId}`, label: `${visit.harness} session` };
@@ -395,15 +434,21 @@ function StageCard({
           )}
         </span>
       </header>
-      {visit.error && <p className="text-sm text-warning">{visit.error}</p>}
-      {visit.outcome && (
-        <div className="max-h-96 overflow-auto text-sm">
-          {visit.kind === "human" ? (
-            <p className="whitespace-pre-wrap text-muted-foreground">“{visit.outcome}”</p>
-          ) : (
-            <MessageResponse>{visit.outcome}</MessageResponse>
+      {visit.kind === "harness" && visit.harness ? (
+        <HarnessStageBody visit={visit} instructions={stage?.instructions} />
+      ) : (
+        <>
+          {visit.error && <p className="text-sm text-warning">{visit.error}</p>}
+          {visit.outcome && (
+            <div className="max-h-96 overflow-auto text-sm">
+              {visit.kind === "human" ? (
+                <p className="whitespace-pre-wrap text-muted-foreground">“{visit.outcome}”</p>
+              ) : (
+                <MessageResponse>{visit.outcome}</MessageResponse>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
       {waitingGate && stage && (
         <>

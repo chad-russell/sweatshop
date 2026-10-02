@@ -70,7 +70,7 @@ function StatusPill({ tone, label }: { tone: "running" | "ok" | "fail"; label: s
 /** Text clamped to roughly `lines` lines, with a fade and a Show more / less
  *  toggle that only appears when something is actually hidden. (A max-height
  *  clamp, not -webkit-line-clamp: scrollHeight is reliable for it.) */
-function Clamped({ children, lines = 3, className }: { children: ReactNode; lines?: number; className?: string }) {
+export function Clamped({ children, lines = 3, className }: { children: ReactNode; lines?: number; className?: string }) {
   const [open, setOpen] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -112,6 +112,64 @@ function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
+/** A handed-over task (chat tool input, or a stage's instructions) as a
+ *  quiet, clamped quote. */
+export function TaskQuote({ children, className }: { children: string; className?: string }) {
+  return (
+    <Clamped className={cn("border-l-2 border-border pl-3 text-[13px] leading-relaxed text-muted-foreground", className)}>
+      <p className="whitespace-pre-wrap break-words">{children}</p>
+    </Clamped>
+  );
+}
+
+/** While a harness works: the tool it is running, polled from its newest
+ *  events. Renders nothing when not `active`. */
+export function HarnessLiveLine({
+  conversationId,
+  kind,
+  active,
+  className,
+}: {
+  conversationId: string | null;
+  kind: string;
+  active: boolean;
+  className?: string;
+}) {
+  const activity = useLiveActivity(conversationId, kind, active);
+  if (!active) return null;
+  const calls = activity?.toolCalls ?? 0;
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground",
+        className,
+      )}
+    >
+      <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-info" />
+      {activity?.current ? (
+        <>
+          <span className="shrink-0 text-foreground">{activity.current.toolName}</span>
+          <span className="min-w-0 truncate">{activity.current.brief}</span>
+        </>
+      ) : activity?.last ? (
+        <span className="min-w-0 truncate">thinking… after {activity.last.toolName}</span>
+      ) : (
+        <span>starting…</span>
+      )}
+      {calls > 0 && <span className="ml-auto shrink-0">{plural(calls, "tool call")}</span>}
+    </div>
+  );
+}
+
+/** A harness's final summary, clamped with a toggle. */
+export function HarnessSummary({ children, className }: { children: string; className?: string }) {
+  return (
+    <Clamped lines={6} className={cn("text-sm", className)}>
+      <MessageResponse>{children}</MessageResponse>
+    </Clamped>
+  );
+}
+
 /**
  * One coding-harness delegation (the chat's `pi` / `claude` tool): the
  * harness's mark and name, a status pill, the task as given, a live line
@@ -138,12 +196,11 @@ export function HarnessCard({
   const running = state === "input-streaming" || state === "input-available" || state === "approval-responded";
   const failed = state === "output-error" || state === "output-denied";
   const result = (output && typeof output === "object" ? output : undefined) as HarnessResult | undefined;
-  const activity = useLiveActivity(conversationId, kind, running);
   const url = conversationId ? `/h/${kind}/${conversationId}` : null;
   const label = HARNESS_LABEL[kind] ?? kind;
   const summary = result?.text?.trim();
 
-  const calls = running ? activity?.toolCalls : result?.toolCalls;
+  const calls = result?.toolCalls;
 
   return (
     <div
@@ -177,36 +234,17 @@ export function HarnessCard({
       {/* Task, as handed over */}
       {task && (
         <div className="px-3 pb-2.5">
-          <Clamped className="border-l-2 border-border pl-3 text-[13px] leading-relaxed text-muted-foreground">
-            <p className="whitespace-pre-wrap break-words">{task}</p>
-          </Clamped>
+          <TaskQuote>{task}</TaskQuote>
         </div>
       )}
 
       {/* Live: what it is doing now */}
-      {running && (
-        <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">
-          <span aria-hidden className="size-1.5 shrink-0 animate-pulse rounded-full bg-info" />
-          {activity?.current ? (
-            <>
-              <span className="shrink-0 text-foreground">{activity.current.toolName}</span>
-              <span className="min-w-0 truncate">{activity.current.brief}</span>
-            </>
-          ) : activity?.last ? (
-            <span className="min-w-0 truncate">thinking… after {activity.last.toolName}</span>
-          ) : (
-            <span>starting…</span>
-          )}
-          {calls !== undefined && calls > 0 && <span className="ml-auto shrink-0">{plural(calls, "tool call")}</span>}
-        </div>
-      )}
+      <HarnessLiveLine conversationId={conversationId} kind={kind} active={running} />
 
       {/* Done: its summary */}
       {!running && !failed && summary && (
         <div className="border-t border-border px-3 py-2.5">
-          <Clamped lines={6} className="text-sm">
-            <MessageResponse>{summary}</MessageResponse>
-          </Clamped>
+          <HarnessSummary>{summary}</HarnessSummary>
         </div>
       )}
       {!running && !failed && (calls ?? 0) > 0 && (
