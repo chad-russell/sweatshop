@@ -54,6 +54,16 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  --color-terminal: var(--terminal);
+  --color-terminal-foreground: var(--terminal-foreground);
+  --color-terminal-muted: var(--terminal-muted);
+  --color-terminal-border: var(--terminal-border);
+  --color-terminal-red: var(--terminal-red);
+  --color-terminal-green: var(--terminal-green);
+  --color-terminal-yellow: var(--terminal-yellow);
+  --color-terminal-blue: var(--terminal-blue);
+  --color-terminal-magenta: var(--terminal-magenta);
+  --color-terminal-cyan: var(--terminal-cyan);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -103,6 +113,17 @@
   --success: #047857;
   --warning: #92400e;
   --info: #1d4ed8;
+  /* terminal surface: always dark, in every theme */
+  --terminal: #0b0d12;
+  --terminal-foreground: #d4d7dd;
+  --terminal-muted: #6b7280;
+  --terminal-border: #1f2430;
+  --terminal-red: #f87171;
+  --terminal-green: #4ade80;
+  --terminal-yellow: #fbbf24;
+  --terminal-blue: #60a5fa;
+  --terminal-magenta: #c084fc;
+  --terminal-cyan: #22d3ee;
 }
 
 /* ------------------------------------------------------------------ */
@@ -147,6 +168,17 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --info: #60a5fa;
+  /* terminal surface: always dark, in every theme */
+  --terminal: #000000;
+  --terminal-foreground: #d4d7dd;
+  --terminal-muted: #6b7280;
+  --terminal-border: #2a2a2a;
+  --terminal-red: #f87171;
+  --terminal-green: #4ade80;
+  --terminal-yellow: #fbbf24;
+  --terminal-blue: #60a5fa;
+  --terminal-magenta: #c084fc;
+  --terminal-cyan: #22d3ee;
 }
 
 /* ------------------------------------------------------------------ */
@@ -190,6 +222,17 @@
   --success: #047857;
   --warning: #92400e;
   --info: #1d4ed8;
+  /* terminal surface: always dark, in every theme */
+  --terminal: #0b0d12;
+  --terminal-foreground: #d4d7dd;
+  --terminal-muted: #6b7280;
+  --terminal-border: #1f2430;
+  --terminal-red: #f87171;
+  --terminal-green: #4ade80;
+  --terminal-yellow: #fbbf24;
+  --terminal-blue: #60a5fa;
+  --terminal-magenta: #c084fc;
+  --terminal-cyan: #22d3ee;
 }
 
 @layer base {

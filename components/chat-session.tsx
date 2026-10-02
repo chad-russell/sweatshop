@@ -36,6 +36,7 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
+import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Spinner } from "@/components/ui/spinner";
@@ -384,6 +385,19 @@ const ToolCallView = ({ part }: { part: ToolUIPart }) => {
   const input = part.state === "input-streaming" ? undefined : part.input;
   const output = part.state === "output-available" ? part.output : undefined;
   const errorText = part.state === "output-error" ? (part.errorText ?? "tool failed") : undefined;
+  const toolName = part.type.replace(/^tool-/, "");
+  if (toolName === "bash") {
+    return (
+      <BashTerminal
+        className="my-1"
+        state={part.state}
+        input={input}
+        output={output}
+        errorText={errorText}
+        extra={<SandboxChip toolCallId={part.toolCallId} />}
+      />
+    );
+  }
   return (
     <Tool>
       <ToolHeader

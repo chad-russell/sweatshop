@@ -4,6 +4,7 @@ import { Bot, Box, FileText, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
@@ -75,6 +76,16 @@ function HarnessToolCall({ item }: { item: Extract<TimelineItem, { type: "tool" 
       : item.state === "error"
         ? "output-error"
         : "input-available";
+  if (item.toolName === "bash") {
+    return (
+      <BashTerminal
+        state={state}
+        input={input}
+        output={item.state === "error" ? undefined : output}
+        errorText={item.state === "error" ? String(item.output ?? "tool failed") : undefined}
+      />
+    );
+  }
   return (
     <Tool className={cn("mb-0", item.state === "error" && "border-destructive/40")}>
       <ToolHeader
