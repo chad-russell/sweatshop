@@ -25,10 +25,7 @@ run("machines spike (0009)", () => {
     async () => {
       process.env.SWEATSHOP_DB = "data/sweatshop.db";
       const { provisionProjectSandbox } = await import("../lib/sandboxes/provision");
-      const { toSandboxSession } = await import("../lib/sandboxes/ai-sdk-adapter");
-      const { connectContainerToHarnessNetwork } = await import(
-        "../lib/sandboxes/harness-bridge"
-      );
+      const { toNetworkSandboxSession } = await import("../lib/sandboxes/ai-sdk-adapter");
       const { HarnessAgent } = await import("@ai-sdk/harness/agent");
       const { createPi } = await import("@ai-sdk/harness-pi");
       const { createClaudeCode } = await import("@ai-sdk/harness-claude-code");
@@ -38,7 +35,12 @@ run("machines spike (0009)", () => {
       const { isStepCount } = await import("ai");
 
       const sb = await provisionProjectSandbox("spike");
-      const sandboxSession = toSandboxSession(sb);
+      const sandboxSession = toNetworkSandboxSession({
+        id: sb.containerName,
+        handle: { ref: sb.containerName, run: sb.run, spawn: sb.spawn },
+        // Same default directory the basic session resolved via pwd.
+        workDir: (await sb.run("pwd")).stdout.trim(),
+      });
       console.log("CONTAINER", sb.containerName);
 
       // Fresh agent per call — a step never sees a cached in-memory agent.
@@ -60,14 +62,12 @@ run("machines spike (0009)", () => {
           stopWhen: isStepCount(1),
         });
 
-      let claudeIp: string | null = null;
+      // The bridge endpoint resolves through getPortEndpoint (0013).
       const buildClaude = async () => {
-        claudeIp ??= (await connectContainerToHarnessNetwork(sb.containerName)).ip;
         return new HarnessAgent({
           harness: createClaudeCode({
             auth: "direct",
             port: 4000,
-            portEndpoint: { url: `ws://${claudeIp}:4000` },
             env: { CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "" },
           }),
           id: "spike-machine-claude",

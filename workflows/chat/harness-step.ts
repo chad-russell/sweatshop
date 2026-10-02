@@ -117,8 +117,7 @@ export async function harnessToolStep(
   const { conversationId, kind, task, toolCallId } = input;
   const [
     { createHarnessWorkflowState, runHarnessAgentStep },
-    { toSandboxSession },
-    { connectContainerToHarnessNetwork },
+    { toNetworkSandboxSession },
     { buildHarnessAgent },
     { claimHarnessRun, clipHarnessText, getActiveHarnessRun, recordHarnessEvent, recordHarnessRunEnd },
     { openProjectPR },
@@ -130,7 +129,6 @@ export async function harnessToolStep(
   ] = await Promise.all([
     import("@ai-sdk/workflow-harness"),
     import("../../lib/sandboxes/ai-sdk-adapter"),
-    import("../../lib/sandboxes/harness-bridge"),
     import("../machines/harness-agent"),
     import("../../lib/harness-events"),
     import("../../lib/git-hosts/open-pr"),
@@ -169,7 +167,7 @@ export async function harnessToolStep(
     // (lazy, /work/<conversationId> is the cwd the harness resolves as
     // its home) or attached.
     const { acquireConversationSandbox } = await import("../../lib/agent/tools/sandbox-pref");
-    const { handle } = await acquireConversationSandbox(
+    const { sandboxId, handle } = await acquireConversationSandbox(
       conversationId,
       conversation.projectId,
       undefined,
@@ -177,9 +175,11 @@ export async function harnessToolStep(
     );
     // Dedicated and attached both work under /work/<conversationId>.
     const { sandboxWorkRoot } = await import("../../lib/sandboxes/provision");
-    const sandboxSession = toSandboxSession(handle, sandboxWorkRoot(conversationId));
-    const bridgeIp =
-      kind === "claude" ? (await connectContainerToHarnessNetwork(handle.ref)).ip : undefined;
+    const sandboxSession = toNetworkSandboxSession({
+      id: sandboxId,
+      handle,
+      workDir: sandboxWorkRoot(conversationId),
+    });
 
     const resumeFrom =
       (getHarnessResumeState(db(), conversationId, kind) as HarnessResumeFrom | null) ?? undefined;
@@ -262,7 +262,6 @@ export async function harnessToolStep(
         const agent = buildHarnessAgent({
           harness: kind,
           sessionId: conversationId,
-          bridgeIp,
           tools: hostTools,
         });
         state = await runHarnessAgentStep({

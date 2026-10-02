@@ -1,4 +1,9 @@
+import type { HarnessV1NetworkSandboxSession } from "@ai-sdk/harness";
 import type { Experimental_SandboxSession } from "ai";
+import {
+  connectContainerToHarnessNetwork,
+  HARNESS_BRIDGE_PORT,
+} from "@/lib/sandboxes/harness-bridge";
 import type { SandboxShell } from "@/lib/sandbox-shell";
 
 /**
@@ -133,6 +138,72 @@ export function toSandboxSession(
       };
     },
   } satisfies Experimental_SandboxSession;
+}
+
+/**
+ * 0013 Phase 1: the FULL harness network sandbox session — the basic
+ * session above plus identity, the default working directory, and port
+ * resolution. Bridge-backed harnesses (claude) resolve their bridge via
+ * `getPortEndpoint` instead of a hand-wired `portEndpoint`; the 0006
+ * boundary (membership of the private harness network, never a
+ * published port) sits behind the resolver.
+ *
+ * Lifecycle belongs to the lease layer and the sandbox's owner, never a
+ * harness: `stop`/`destroy` are no-ops (HarnessAgent only calls them on
+ * sandboxes it created itself, which ours never are).
+ */
+export interface NetworkSandboxSessionArgs {
+  /** The lease's `sandboxes.id`. */
+  id: string;
+  /** The shell the session runs through; `ref` names the container. */
+  handle: SandboxShellLike & { readonly ref: string };
+  /** Absolute work root; the harness default working directory. */
+  workDir: string;
+  /** Resolve a container's address on the harness network. Defaults to
+   *  joining the sweatshop-harness network (injectable for tests). */
+  resolveAddress?: (ref: string) => Promise<string>;
+}
+
+export function toNetworkSandboxSession({
+  id,
+  handle,
+  workDir,
+  resolveAddress = defaultResolveAddress,
+}: NetworkSandboxSessionArgs): HarnessV1NetworkSandboxSession {
+  const basic = toSandboxSession(handle, workDir);
+  // One network join + inspect per session, lazily — pi never asks.
+  // A failed resolve is not cached, so a retry can succeed.
+  let address: Promise<string> | undefined;
+  const getAddress = () => {
+    address ??= resolveAddress(handle.ref).catch((err: unknown) => {
+      address = undefined;
+      throw err;
+    });
+    return address;
+  };
+  const getPortEndpoint = async ({
+    port,
+    protocol = "http",
+  }: {
+    port: number;
+    protocol?: "http" | "https" | "ws";
+  }) => ({ url: `${protocol}://${await getAddress()}:${port}` });
+
+  return {
+    ...basic,
+    id,
+    defaultWorkingDirectory: workDir,
+    ports: [HARNESS_BRIDGE_PORT],
+    getPortEndpoint,
+    getPortUrl: async (options) => (await getPortEndpoint(options)).url,
+    stop: async () => {},
+    destroy: async () => {},
+    restricted: () => basic,
+  };
+}
+
+async function defaultResolveAddress(ref: string): Promise<string> {
+  return (await connectContainerToHarnessNetwork(ref)).ip;
 }
 
 function replayStream(bytes: Uint8Array): ReadableStream<Uint8Array> {

@@ -36,8 +36,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   const [
     { runHarnessAgentStep },
     { attachSandbox },
-    { toSandboxSession },
-    { connectContainerToHarnessNetwork },
+    { toNetworkSandboxSession },
     { buildHarnessAgent, transitionTool },
     { recordHarnessEvent, clipHarnessText, claimHarnessRun },
     { openProjectPR },
@@ -48,7 +47,6 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     import("@ai-sdk/workflow-harness"),
     import("@/lib/sandboxes/provision"),
     import("@/lib/sandboxes/ai-sdk-adapter"),
-    import("@/lib/sandboxes/harness-bridge"),
     import("./harness-agent"),
     import("@/lib/harness-events"),
     import("@/lib/git-hosts/open-pr"),
@@ -57,6 +55,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     import("workflow"),
   ]);
   const { stageSessionId, runWorkspaceRoot } = await import("@/db/machines");
+  const [{ db }, { getLeaseByOwner }] = await Promise.all([import("@/db"), import("@/db/sandboxes")]);
 
   const stage = input.definition.stages[input.stageId];
   if (!stage || stage.kind !== "harness") throw new Error(`stage ${input.stageId} is not a harness stage`);
@@ -71,9 +70,15 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   // the dev container's repo mount, 0009 finding).
   const workDir = runWorkspaceRoot(input.runId);
   const sandbox = attachSandbox(input.containerName, workDir);
-  const sandboxSession = toSandboxSession(sandbox, workDir);
-  const bridgeIp =
-    kind === "claude" ? (await connectContainerToHarnessNetwork(input.containerName)).ip : undefined;
+  // The run's lease id names the session (0013 phase 3 replaces
+  // containerName with the run's binding, which carries it directly).
+  const lease = getLeaseByOwner(db(), "machine_run", input.runId);
+  if (!lease) throw new Error(`run ${input.runId} has no sandbox lease`);
+  const sandboxSession = toNetworkSandboxSession({
+    id: lease.id,
+    handle: { ref: input.containerName, run: sandbox.run, spawn: sandbox.spawn },
+    workDir,
+  });
 
   const projectId = input.projectId;
   const tools = {
@@ -100,7 +105,6 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   const agent = buildHarnessAgent({
     harness: kind,
     sessionId,
-    bridgeIp,
     tools,
     model: stage.model,
     thinking: stage.thinking,

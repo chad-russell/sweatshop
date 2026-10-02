@@ -4,6 +4,7 @@ import { createPi } from "@ai-sdk/harness-pi";
 import { isStepCount, tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { END, type Stage } from "@/lib/machines/definition";
+import { HARNESS_BRIDGE_PORT } from "@/lib/sandboxes/harness-bridge";
 
 /**
  * 0009: build the HarnessAgent for one harness stage visit. Called fresh
@@ -21,8 +22,6 @@ export interface BuildArgs {
   harness: "pi" | "claude";
   /** Harness session id (0010 chat: the conversation id). */
   sessionId: string;
-  /** Bridge endpoint IP on the harness network (claude only). */
-  bridgeIp?: string;
   /** Host tools (transition, create_pr, …). */
   tools: ToolSet;
   model?: string;
@@ -30,7 +29,7 @@ export interface BuildArgs {
   thinking?: "off" | "low" | "medium" | "high";
 }
 
-export function buildHarnessAgent({ harness, sessionId, bridgeIp, tools, model, thinking }: BuildArgs) {
+export function buildHarnessAgent({ harness, sessionId, tools, model, thinking }: BuildArgs) {
   if (harness === "pi") {
     return new HarnessAgent({
       harness: createPi({
@@ -54,17 +53,17 @@ export function buildHarnessAgent({ harness, sessionId, bridgeIp, tools, model, 
       stopWhen: isStepCount(1),
     });
   }
-  if (!bridgeIp) throw new Error("claude requires a resolved bridge endpoint");
   const token = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   if (!token) {
     throw new Error("claude is not configured — set CLAUDE_CODE_OAUTH_TOKEN (claude setup-token)");
   }
   return new HarnessAgent({
     // 0006 amendment: setup-token through the env channel, direct route.
+    // The bridge endpoint comes from the network sandbox session's
+    // getPortEndpoint (0013) — joined to the harness network on demand.
     harness: createClaudeCode({
       auth: "direct",
-      port: 4000,
-      portEndpoint: { url: `ws://${bridgeIp}:4000` },
+      port: HARNESS_BRIDGE_PORT,
       env: { CLAUDE_CODE_OAUTH_TOKEN: token },
     }),
     id: `claude-${sessionId}`,
