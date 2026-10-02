@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { parseDefinition, type MachineDefinition } from "../lib/machines/definition";
 import {
   addStage,
+  applyOps,
   connect,
   disconnect,
+  editOpSchema,
   EditError,
   freeStageId,
   issuesByElement,
@@ -130,6 +133,66 @@ describe("edit operations", () => {
     // harness stages need a project workspace — an invalid draft, by design.
     expect(parseDefinition(harness).ok).toBe(false);
     expect(setStart(think, "decide").start).toBe("decide");
+  });
+
+  it("applyOps: applies a batch in order, through invalid intermediates, to a valid result (0015)", () => {
+    // The 0015 live-check scenario: on the ticket machine, remove the
+    // start stage (dangling start — invalid mid-batch), re-point start,
+    // then add a lint stage after implement that loops back on failure.
+    const batched = applyOps(seed("ticket"), [
+      { op: "remove_stage", stage: "plan" },
+      { op: "set_start", stage: "approve" },
+      { op: "add_stage", kind: "harness", title: "Lint" },
+      { op: "connect", source: "implement", target: "lint" },
+      { op: "disconnect", source: "implement", target: "verify" },
+      { op: "connect", source: "lint", target: "verify", when: "Clean" },
+      { op: "connect", source: "lint", target: "implement", when: "Lint failed (explain)" },
+      { op: "update_stage", stage: "lint", patch: { maxVisits: 2 } },
+    ]);
+    expect(parseDefinition(batched).ok).toBe(true);
+    expect(batched.start).toBe("approve");
+    expect(batched.stages.approve!.next.map((t) => t.to)).toEqual(["implement", "end"]);
+    expect(batched.stages.implement!.next).toEqual([{ to: "lint" }]);
+    expect(batched.stages.lint).toMatchObject({ kind: "harness", harness: "pi", title: "Lint", maxVisits: 2 });
+    expect(batched.stages.lint!.next).toEqual([
+      { to: "verify", when: "Clean" },
+      { to: "implement", when: "Lint failed (explain)" },
+    ]);
+    // every op moved the definition; none touched the input
+    expect(batched).not.toBe(seed("ticket"));
+    expect(seed("ticket").stages.plan).toBeDefined();
+  });
+
+  it("applyOps: an op that cannot apply throws EditError naming its index", () => {
+    try {
+      applyOps(think, [
+        { op: "connect", source: "draft", target: "critique" }, // no-op: exists
+        { op: "connect", source: "draft", target: "ghost" },
+      ]);
+      expect.unreachable("second op must throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(EditError);
+      expect((error as Error).message).toBe('op 1 (connect): stage "ghost" does not exist');
+    }
+  });
+
+  it("applyOps: null in a patch clears the field (JSON has no undefined)", () => {
+    const cleared = applyOps(seed("ticket"), [{ op: "update_stage", stage: "verify", patch: { maxVisits: null } }]);
+    expect(cleared.stages.verify).not.toHaveProperty("maxVisits");
+    expect(parseDefinition(cleared).ok).toBe(true);
+    const set = applyOps(cleared, [{ op: "update_stage", stage: "verify", patch: { maxVisits: 5 } }]);
+    expect(set.stages.verify).toMatchObject({ maxVisits: 5 });
+  });
+
+  it("editOpSchema parses the JSON shape a tool call arrives as", () => {
+    const ops = z.array(editOpSchema);
+    const parsed = ops.safeParse([
+      { op: "add_stage", kind: "agent", title: "Reflect" },
+      { op: "connect", source: "draft", target: "reflect" },
+      { op: "update_stage", stage: "reflect", patch: { instructions: "Look back", maxVisits: null } },
+    ]);
+    expect(parsed.success).toBe(true);
+    expect(ops.safeParse([{ op: "nope" }]).success).toBe(false);
   });
 });
 

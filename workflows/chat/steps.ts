@@ -155,6 +155,60 @@ export async function sandboxExecStep(
   return sandboxExec(target, command, workDir ? { workDir } : {});
 }
 
+/**
+ * 0015 Part A: machine-definition tools. Every chat gets them (no
+ * sandbox or project involved); the delete approval's pending row +
+ * hook live in the tool execute (workflows/chat/tools.ts), same shape
+ * as ask_chad.
+ */
+export async function machinesCatalogStep(): Promise<unknown> {
+  "use step";
+  const { listMachinesCatalog } = await import("../../lib/agent/tools/machines");
+  return listMachinesCatalog();
+}
+
+export async function getMachineStep(id: string): Promise<unknown> {
+  "use step";
+  const { getMachineTool } = await import("../../lib/agent/tools/machines");
+  return getMachineTool(id);
+}
+
+export async function createMachineStep(input: {
+  id?: string;
+  name: string;
+  description?: string;
+  definition: unknown;
+}): Promise<unknown> {
+  "use step";
+  const { createMachineTool } = await import("../../lib/agent/tools/machines");
+  return createMachineTool(input);
+}
+
+export async function editMachineStep(input: {
+  id: string;
+  baseVersion: number;
+  ops: import("../../lib/machines/edit").EditOp[];
+  name?: string;
+  description?: string;
+}): Promise<unknown> {
+  "use step";
+  const { editMachineTool } = await import("../../lib/agent/tools/machines");
+  return editMachineTool(input);
+}
+
+/** The preview for the delete approval question (name, stages, version). */
+export async function machineDeletePreviewStep(id: string): Promise<unknown> {
+  "use step";
+  const { machineDeletePreview } = await import("../../lib/agent/tools/machines");
+  return machineDeletePreview(id);
+}
+
+export async function deleteMachineStep(id: string): Promise<unknown> {
+  "use step";
+  const { deleteMachineTool } = await import("../../lib/agent/tools/machines");
+  return deleteMachineTool(id);
+}
+
 /** 0010 Phase 4: record a pending human-input request (the ask_chad
  *  tool calls this before awaiting its hook — workflow context cannot
  *  touch sqlite, and the inbox needs the row before the answer). */

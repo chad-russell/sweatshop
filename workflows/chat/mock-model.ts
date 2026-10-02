@@ -11,8 +11,9 @@ import type { LanguageModel } from "ai";
  * Every script is STATELESS — keyed on prompt shape, not a call counter:
  * the workflow serializes the model across step boundaries, so instance
  * state resets between slices. (Real models are stateless the same way.)
- * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "steer" | "hang") is read
- * at call time so a test file can switch scripts between turns.
+ * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
+ * "hang" | "edit-machine") is read at call time so a test file can
+ * switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
  * (where doStream runs) forbids Node APIs. The TEST enqueues the steer
@@ -127,6 +128,25 @@ export function scriptedChatModel(): LanguageModel {
         return result(
           textPart(steered ? "mock-steer-saw:STEER_MARKER" : "mock-steer-missed"),
         );
+      }
+
+      // 0015: a scripted edit_machine round trip — the machine row must
+      // change through the ordinary chat runtime.
+      if (script === "edit-machine") {
+        if (!sawToolResult) {
+          return result(
+            toolCallPart("call_edit_1", "edit_machine", {
+              id: "m-mock-edit",
+              baseVersion: 1,
+              ops: [
+                { op: "add_stage", kind: "human", title: "Approve" },
+                { op: "connect", source: "draft", target: "approve", when: "Ready" },
+              ],
+            }),
+          );
+        }
+        const toolMessage = options.prompt.find((m) => m.role === "tool");
+        return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }
 
       // plain: reply with the user-message count — proves the turn loaded

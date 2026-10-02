@@ -200,6 +200,42 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "edit-machine: a scripted edit_machine call changes the machine row (0015)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "edit-machine";
+      const { createMachine, getMachine } = await import("../db/machines");
+      createMachine(db(), {
+        id: "m-mock-edit",
+        name: "Mock edit",
+        definition: {
+          workspace: "none",
+          start: "draft",
+          stages: {
+            draft: { kind: "agent", title: "Draft", instructions: "d", next: [] },
+          },
+        },
+      });
+      const id = conv("edit_machine");
+
+      const run = await turn(id, "add an approval step");
+      const result = await run.returnValue;
+      expect(result.finishReason).toBe("stop");
+
+      // The machine row changed through the ordinary chat runtime.
+      const machine = getMachine(db(), "m-mock-edit");
+      expect(machine.version).toBe(2);
+      expect(machine.definition.stages.approve).toMatchObject({ kind: "human", title: "Approve" });
+      expect(machine.definition.stages.draft!.next).toEqual([{ to: "approve", when: "Ready" }]);
+
+      // The tool result round-tripped into the transcript.
+      const history = serialized(id);
+      expect(history).toContain("mock-after:");
+      expect(history).toContain("edit_machine");
+    },
+  );
+
+  it(
     "cancel: a hung model call cancels the run and nothing is persisted for it",
     { timeout: 30_000 },
     async () => {

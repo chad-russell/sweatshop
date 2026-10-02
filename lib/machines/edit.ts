@@ -1,5 +1,7 @@
+import { z } from "zod";
 import {
   END,
+  HARNESSES,
   type MachineDefinition,
   type Stage,
   type StageHarness,
@@ -180,6 +182,129 @@ export function setStart(def: MachineDefinition, id: string): MachineDefinition 
 
 export function setWorkspace(def: MachineDefinition, workspace: MachineDefinition["workspace"]): MachineDefinition {
   return { ...def, workspace };
+}
+
+// --- batched operations (0015) ---------------------------------------------
+
+/**
+ * One edit operation, shaped for an LLM tool schema: mirrors the
+ * functions above one to one. Optional fields set to `null` mean
+ * "clear the field" (JSON has no undefined). Validated per-op by the
+ * functions above, not by this schema — their EditError messages are
+ * the precise ones the model reads.
+ */
+export const editOpSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("add_stage"),
+    id: z.string().max(40).optional().describe("New stage id; omit to derive one from the title"),
+    kind: z.enum(["harness", "agent", "human"]),
+    title: z.string().min(1).max(80).optional().describe("Defaults by kind: Code / Think / Review"),
+  }),
+  z.object({
+    op: z.literal("update_stage"),
+    stage: z.string().describe("Stage id to patch"),
+    patch: z
+      .object({
+        title: z.string().min(1).max(80).optional(),
+        instructions: z.string().max(20_000).optional(),
+        maxVisits: z.number().int().min(1).max(20).nullable().optional().describe("Loop bound; null clears it"),
+        harness: z.enum(HARNESSES).optional().describe("pi or claude (harness stages only)"),
+        model: z.string().max(120).nullable().optional().describe("Model id; null uses the default"),
+        thinking: z.enum(["off", "low", "medium", "high"]).nullable().optional().describe("pi thinking level; null clears it"),
+      })
+      .strict()
+      .describe("Fields to set; absent fields keep their value, null clears"),
+  }),
+  z.object({
+    op: z.literal("set_kind"),
+    stage: z.string(),
+    kind: z.enum(["harness", "agent", "human"]),
+  }),
+  z.object({
+    op: z.literal("rename_stage"),
+    from: z.string().describe("Existing stage id"),
+    to: z.string().max(40).describe("New stage id (references are rewritten)"),
+  }),
+  z.object({ op: z.literal("remove_stage"), stage: z.string() }),
+  z.object({
+    op: z.literal("connect"),
+    source: z.string(),
+    target: z.string().describe(`Stage id or "${END}"`),
+    when: z.string().max(400).optional().describe("Branch label shown to the chooser"),
+  }),
+  z.object({ op: z.literal("disconnect"), source: z.string(), target: z.string() }),
+  z.object({
+    op: z.literal("update_transition"),
+    source: z.string(),
+    target: z.string(),
+    when: z.string().max(400).describe('New label; "" removes it'),
+  }),
+  z.object({ op: z.literal("set_start"), stage: z.string() }),
+  z.object({
+    op: z.literal("set_workspace"),
+    workspace: z.enum(["project", "none"]).describe("none forbids harness stages"),
+  }),
+]);
+
+export type EditOp = z.infer<typeof editOpSchema>;
+
+/**
+ * Apply ops in order to a definition — the batch entry the 0015 agent
+ * tool (and a future "apply a proposal") uses. Pure; does NOT validate
+ * the result: a batch may pass through invalid intermediate states and
+ * end invalid, exactly like hand-editing in the editor — the caller
+ * runs parseDefinition and decides. Throws EditError naming the op
+ * index when an op cannot apply at all (unknown stage, bad id, …).
+ */
+export function applyOps(def: MachineDefinition, ops: readonly EditOp[]): MachineDefinition {
+  let next = def;
+  ops.forEach((op, i) => {
+    try {
+      switch (op.op) {
+        case "add_stage":
+          next = addStage(next, { id: op.id, kind: op.kind, title: op.title }).definition;
+          break;
+        case "update_stage":
+          next = updateStage(next, op.stage, normalizePatch(op.patch));
+          break;
+        case "set_kind":
+          next = setKind(next, op.stage, op.kind);
+          break;
+        case "rename_stage":
+          next = renameStage(next, op.from, op.to);
+          break;
+        case "remove_stage":
+          next = removeStage(next, op.stage);
+          break;
+        case "connect":
+          next = connect(next, op.source, op.target, op.when);
+          break;
+        case "disconnect":
+          next = disconnect(next, op.source, op.target);
+          break;
+        case "update_transition":
+          next = updateTransition(next, op.source, op.target, op.when);
+          break;
+        case "set_start":
+          next = setStart(next, op.stage);
+          break;
+        case "set_workspace":
+          next = setWorkspace(next, op.workspace);
+          break;
+      }
+    } catch (error) {
+      throw new EditError(`op ${i} (${op.op}): ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+  return next;
+}
+
+/** Map patch nulls (JSON's "clear this field") to undefined, which
+ *  updateStage deletes — the editor's own patch type has no null. */
+function normalizePatch(patch: Record<string, unknown>): StagePatch {
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) normalized[key] = value === null ? undefined : value;
+  return normalized as StagePatch;
 }
 
 // --- issues → graph elements ---------------------------------------------

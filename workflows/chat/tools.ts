@@ -4,13 +4,20 @@ import { chatApprovalHook } from "./hooks";
 import { harnessToolStep } from "./harness-step";
 import {
   bashStep,
+  createMachineStep,
   createPrStep,
+  deleteMachineStep,
+  editMachineStep,
+  getMachineStep,
   inspectStep,
   listMachinesStep,
+  machineDeletePreviewStep,
+  machinesCatalogStep,
   pendingStep,
   sandboxExecStep,
   startMachineStep,
 } from "./steps";
+import { editOpSchema } from "../../lib/machines/edit";
 
 /**
  * 0010 tool set for the new chat runtime. Built per conversation by
@@ -126,6 +133,86 @@ export function buildChatTools(
         workDir: z.string().optional().describe("Override the working directory (absolute path)"),
       }),
       execute: ({ target, command, workDir }) => sandboxExecStep(target, command, workDir),
+    }),
+
+    // 0015 Part A: machine-definition tools — every chat, no sandbox or
+    // project needed. Errors return as values ({ ok: false, … }) so the
+    // model reads them and repairs its call instead of the tool failing.
+    list_machines: tool({
+      description:
+        "List every machine (id, name, description, workspace, version, stage count). " +
+        "Read one with get_machine before editing it.",
+      inputSchema: z.object({}),
+      execute: () => machinesCatalogStep(),
+    }),
+
+    get_machine: tool({
+      description:
+        "Read one machine's full definition (stages, kinds, instructions, transitions, start) plus its " +
+        "current version. Edit with edit_machine, naming that version as baseVersion.",
+      inputSchema: z.object({
+        id: z.string().min(1).describe("Machine id from list_machines"),
+      }),
+      execute: ({ id }) => getMachineStep(id),
+    }),
+
+    create_machine: tool({
+      description:
+        "Create a new machine from a full definition you generate: { workspace, start, stages }, where " +
+        "each stage is harness/agent/human with title, instructions, and next (transitions; to: \"end\" " +
+        "completes the run). Prefer building on an existing machine with edit_machine when one is close.",
+      inputSchema: z.object({
+        id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/).optional().describe("Lowercase kebab-case id; omit to generate one"),
+        name: z.string().min(1).max(80),
+        description: z.string().max(500).optional(),
+        definition: z.record(z.string(), z.unknown()).describe("The full machine definition object"),
+      }),
+      execute: (input) => createMachineStep(input),
+    }),
+
+    edit_machine: tool({
+      description:
+        "Change a machine by applying a batch of ops, in order, to the saved definition: add_stage, " +
+        "update_stage, set_kind, rename_stage, remove_stage, connect, disconnect, update_transition, " +
+        "set_start, set_workspace. The batch is all-or-nothing — if the result would be invalid, nothing " +
+        "is saved and you get the issues by stage/transition to fix your batch. baseVersion must be the " +
+        "version you read (a mismatch means the machine changed: re-read and retry). Read the machine " +
+        "first with get_machine.",
+      inputSchema: z.object({
+        id: z.string().min(1),
+        baseVersion: z.number().int().min(1).describe("The version your ops were planned against (from get_machine)"),
+        ops: z.array(editOpSchema).min(1).max(100).describe("Ops applied in order to the saved definition"),
+        name: z.string().min(1).max(80).optional(),
+        description: z.string().max(500).optional(),
+      }),
+      execute: (input) => editMachineStep(input),
+    }),
+
+    delete_machine: tool({
+      description:
+        "Delete a machine. Runs keep their snapshots, but the definition is gone. Chad is asked first — " +
+        "the turn waits for his answer.",
+      inputSchema: z.object({
+        id: z.string().min(1),
+      }),
+      execute: async ({ id }, { toolCallId }) => {
+        const preview = (await machineDeletePreviewStep(id)) as
+          | { ok: true; machine: { name: string; stages: number } }
+          | { ok: false; code: string; message: string };
+        if (!preview.ok) return preview;
+        const { name, stages } = preview.machine;
+        await pendingStep(
+          conversationId,
+          toolCallId,
+          `Delete machine "${name}" (${id}, ${stages} stages)? Existing runs keep their snapshots.`,
+          "approval",
+        );
+        const answer = await chatApprovalHook.create({ token: toolCallId });
+        if (!(answer.kind === "approval" && answer.approved)) {
+          return { ok: false, code: "denied" as const, message: `Chad declined to delete machine ${id}` };
+        }
+        return deleteMachineStep(id);
+      },
     }),
 
     // 0011/0013: chats are not offered tools that can only error — bash
