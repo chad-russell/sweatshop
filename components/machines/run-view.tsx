@@ -27,7 +27,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { MessageResponse } from "@/components/ai-elements/message";
-import { ChatMessageView } from "@/components/chat";
+import { ChatMessageView } from "@/components/chat-session";
 import { HarnessEventLog, type HarnessEvent } from "@/components/harness-session-view";
 import { SandboxStatus } from "@/components/sandbox-status";
 import { MoveMenu } from "@/components/sidebar/move-menu";

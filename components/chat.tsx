@@ -1,63 +1,22 @@
 "use client";
 
-import { WorkflowChatTransport } from "@ai-sdk/workflow/client";
-import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
-import { useChat } from "@ai-sdk/react";
-import { nanoid } from "nanoid";
-import {
-  Bot,
-  Box,
-  Check,
-  ChevronDown,
-  ChevronsUpDown,
-  Copy,
-  GitPullRequest,
-  MessageSquarePlus,
-  RotateCcw,
-  Workflow,
-} from "lucide-react";
+import { Box, Check, ChevronsUpDown, Workflow } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  memo,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-} from "react";
-import {
-  Conversation,
-  ConversationContent,
-  ConversationEmptyState,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import {
-  Message,
-  MessageAction,
-  MessageActions,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message";
-import {
-  PromptInput,
-  PromptInputFooter,
-  type PromptInputMessage,
-  PromptInputSubmit,
-  PromptInputTextarea,
-} from "@/components/ai-elements/prompt-input";
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
+import { useEffect, useRef, useState } from "react";
+import { ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { AppHeader } from "@/components/app-header";
+import {
+  ChatSession,
+  type ChatSessionController,
+  type ChatSessionState,
+  type FreshComposerMode,
+  type SandboxOption,
+} from "@/components/chat-session";
 import { RunTargetPicker, startMachineRun, useScopedMachines } from "@/components/machines/run-target";
 import { LocalTime } from "@/components/local-time";
 import { shortSandboxId } from "@/lib/sandbox-id";
-import {
-  SANDBOXED_TOOLS,
-  SandboxChip,
-  SandboxViewProvider,
-  type ConversationSandboxViewData,
-} from "@/components/sandbox-view";
-import { CollapsibleTrigger } from "@/components/ui/collapsible";
+import { type ConversationSandboxViewData } from "@/components/sandbox-view";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,412 +25,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Spinner } from "@/components/ui/spinner";
-import { CHAT_MODELS, DEFAULT_CHAT_MODEL, findChatModel } from "@/lib/model";
-import { useMarkSeen } from "@/lib/use-mark-seen";
-import { copyText } from "@/lib/clipboard";
+import { CHAT_MODELS, findChatModel } from "@/lib/model";
 import { cn } from "@/lib/utils";
-import { useMounted } from "@/lib/use-mounted";
 
-/** localStorage key for the chosen model (default for new conversations). */
-const MODEL_STORAGE_KEY = "sweatshop.model";
-
-/** localStorage prefix for per-conversation composer drafts. */
-const DRAFT_PREFIX = "sweatshop.draft.";
-
-/** A running sandbox the composer can attach to. */
-interface SandboxOption {
-  id: string;
-  status: string;
-  ownerKind: string;
-  ownerId: string;
-  /** Chat title or machine run name. */
-  ownerLabel: string;
-  projectId: string | null;
-  projectName: string | null;
-  lastUsedAt: number;
-  calls: number;
-  ref: string;
-}
-
-/** True while a turn is running but no answer text has started. */
-function isThinking(status: ChatStatus, messages: readonly UIMessage[]) {
-  if (status === "submitted") return true;
-  if (status !== "streaming") return false;
-  const last = messages[messages.length - 1];
-  return !(
-    last?.role === "assistant" &&
-    last.parts.some((part) => part.type === "text" && part.text)
-  );
-}
-
-/** One coding-harness delegation: status + a link to /h/<kind>/<id>. */
-function HarnessToolCard({
-  part,
-  conversationId,
-}: {
-  part: ToolUIPart;
-  conversationId: string | null;
-}) {
-  const running = part.state === "input-streaming" || part.state === "input-available";
-  const kind = part.type.replace(/^tool-/, "");
-  const task = (part.input as { task?: unknown } | undefined)?.task;
-  const taskText = typeof task === "string" ? task : undefined;
-  const url = conversationId ? `/h/${kind}/${conversationId}` : null;
-
-  return (
-    <div className="my-1 rounded-lg border border-info/40 bg-card px-3 py-2.5 text-card-foreground">
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-          <Bot className="size-4 shrink-0 text-info" aria-hidden />
-          <span className="shrink-0">{kind} harness</span>
-          <span
-            className={
-              "shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase " +
-              (running ? "animate-pulse bg-info/15 text-info" : "bg-success/15 text-success")
-            }
-          >
-            {running ? "running" : "done"}
-          </span>
-          <SandboxChip toolCallId={part.toolCallId} />
-          {taskText && (
-            <span className="truncate text-xs font-normal text-muted-foreground">{taskText}</span>
-          )}
-        </span>
-        {url && (
-          <a
-            href={url}
-            className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
-          >
-            View session →
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** owner/repo + number read off a PR web URL. */
-function prUrlCoords(url: string): { repo: string; number: string } | null {
-  const match = url.match(/^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\/pulls?\/(\d+)/);
-  return match ? { repo: `${match[1]}/${match[2]}`, number: match[3] } : null;
-}
-
-/** One create_pr call: status pill, title, branch chips, link out. */
-function PullRequestToolCard({ part }: { part: ToolUIPart }) {
-  const running = part.state === "input-streaming" || part.state === "input-available";
-  const failed = part.state === "output-error";
-  const showInput = part.state !== "input-streaming";
-  const input = (showInput ? part.input : undefined) as {
-    title?: unknown;
-    body?: unknown;
-    head?: unknown;
-    base?: unknown;
-    repo?: unknown;
-  } | undefined;
-  const title = typeof input?.title === "string" ? input.title : undefined;
-  const body = typeof input?.body === "string" ? input.body : undefined;
-  const head = typeof input?.head === "string" ? input.head : undefined;
-  const base = typeof input?.base === "string" ? input.base : "main";
-  const repoDir = typeof input?.repo === "string" ? input.repo : undefined;
-  const output =
-    part.state === "output-available"
-      ? (part.output as { url?: unknown; number?: unknown } | undefined)
-      : undefined;
-  const url = typeof output?.url === "string" ? output.url : undefined;
-  const prNumber = typeof output?.number === "number" ? output.number : undefined;
-  const coords = url ? prUrlCoords(url) : null;
-  const numberText = coords?.number ?? (prNumber !== undefined ? String(prNumber) : undefined);
-  const errorText = failed ? (part.errorText ?? "create_pr failed") : undefined;
-
-  return (
-    <Tool className={cn("my-1", failed && "border-destructive/40")}>
-      <div className="flex w-full items-center justify-between gap-3 px-3 py-2.5">
-        <div className="flex min-w-0 items-center gap-2 text-sm">
-          <GitPullRequest
-            className={cn(
-              "size-4 shrink-0",
-              failed ? "text-destructive" : running ? "text-info" : "text-success",
-            )}
-            aria-hidden
-          />
-          <span className="truncate font-medium">
-            {title ?? (running ? "Opening pull request…" : "Pull request")}
-          </span>
-          <span
-            className={
-              "shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase " +
-              (failed
-                ? "bg-destructive/15 text-destructive"
-                : running
-                  ? "animate-pulse bg-info/15 text-info"
-                  : "bg-success/15 text-success")
-            }
-          >
-            {failed ? "failed" : running ? "opening" : "opened"}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {(coords?.repo || numberText) && (
-            <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
-              {[coords?.repo, numberText && `#${numberText}`].filter(Boolean).join(" ")}
-            </span>
-          )}
-          {url && (
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
-            >
-              View PR →
-            </a>
-          )}
-          <CollapsibleTrigger
-            aria-label="Toggle create_pr details"
-            title="Details"
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <ChevronDown
-              className="size-4 transition-transform group-data-[state=open]:rotate-180"
-              aria-hidden
-            />
-          </CollapsibleTrigger>
-        </div>
-      </div>
-      <ToolContent>
-        {head && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{head}</span>
-            <span aria-hidden>→</span>
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{base}</span>
-            {!coords?.repo && repoDir && <span className="font-mono">{repoDir}</span>}
-          </div>
-        )}
-        {body && (
-          <div className="text-sm text-muted-foreground">
-            <MessageResponse>{body}</MessageResponse>
-          </div>
-        )}
-        {showInput && input && <ToolInput input={part.input} />}
-        {(output !== undefined || errorText !== undefined) && (
-          <ToolOutput output={output} errorText={errorText} />
-        )}
-      </ToolContent>
-    </Tool>
-  );
-}
-
-/** An ask_chad call awaiting Chad: approvals get Approve/Deny, questions
- *  get a freeform answer box — matching what the tool asked for. */
-function AskChadCard({ part }: { part: ToolUIPart }) {
-  const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState("");
-  const answered = part.state === "output-available" || part.state === "output-error";
-  const input = part.input as { kind?: unknown; question?: unknown } | undefined;
-  const kind = input?.kind === "question" ? "question" : "approval";
-  const question = typeof input?.question === "string" ? input.question : undefined;
-
-  const post = async (payload: Record<string, unknown>) => {
-    setBusy(true);
-    try {
-      await fetch("/api/x/input", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ toolCallId: part.toolCallId, ...payload }),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
-      <p className="text-sm font-medium">
-        {kind === "question" ? "Question for you: " : "Approve? "}
-        {question}
-      </p>
-      {!answered ? (
-        kind === "question" ? (
-          <div className="mt-2 flex gap-2">
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Your answer…"
-              disabled={busy}
-              className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2.5 text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && draft.trim()) void post({ answer: draft });
-              }}
-            />
-            <button
-              type="button"
-              disabled={busy || !draft.trim()}
-              onClick={() => void post({ answer: draft })}
-              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
-            >
-              Answer
-            </button>
-          </div>
-        ) : (
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void post({ approved: true })}
-              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void post({ approved: false })}
-              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
-            >
-              Deny
-            </button>
-          </div>
-        )
-      ) : (
-        <p className="mt-1 text-xs text-muted-foreground">
-          {part.state === "output-available" ? String(part.output) : "no answer recorded"}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** One tool call, collapsed by default. */
-const ToolCallView = ({ part }: { part: ToolUIPart }) => {
-  const input = part.state === "input-streaming" ? undefined : part.input;
-  const output = part.state === "output-available" ? part.output : undefined;
-  const errorText = part.state === "output-error" ? (part.errorText ?? "tool failed") : undefined;
-  return (
-    <Tool>
-      <ToolHeader
-        type="dynamic-tool"
-        state={part.state}
-        toolName={part.type.replace(/^tool-/, "")}
-        extra={
-          SANDBOXED_TOOLS.has(part.type.replace(/^tool-/, "")) ? (
-            <SandboxChip toolCallId={part.toolCallId} />
-          ) : undefined
-        }
-      />
-      <ToolContent>
-        {input !== undefined && <ToolInput input={input} />}
-        {(output !== undefined || errorText !== undefined) && (
-          <ToolOutput output={output} errorText={errorText} />
-        )}
-      </ToolContent>
-    </Tool>
-  );
-};
-
-function MessageCopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<number>(0);
-  useEffect(() => () => window.clearTimeout(timeoutRef.current), []);
-
-  const copy = async () => {
-    if (!(await copyText(text))) return;
-    setCopied(true);
-    window.clearTimeout(timeoutRef.current);
-    timeoutRef.current = window.setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <MessageAction
-      type="button"
-      tooltip={copied ? "Copied" : "Copy message"}
-      aria-label="Copy message"
-      onClick={() => void copy()}
-    >
-      {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-    </MessageAction>
-  );
-}
-
-function formatTurnTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return sameDay
-    ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-/** Render one message with the AI Elements kit (memoized per message). */
-export const ChatMessageView = memo(function ChatMessageView({
-  message,
-  conversationId,
-}: {
-  message: UIMessage;
-  conversationId?: string | null;
-}) {
-  const text = useMemo(
-    () =>
-      message.parts
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n\n")
-        .trim(),
-    [message.parts],
-  );
-  const atIso = (message.metadata as { at?: unknown } | undefined)?.at;
-  const timeIso = typeof atIso === "string" ? atIso : undefined;
-  const timeText = timeIso ? formatTurnTime(timeIso) : "";
-  // Timestamps format in the visitor's locale/timezone, which the server
-  // (UTC) cannot predict — render them only once mounted (see use-mounted).
-  const mounted = useMounted();
-  const showTime = timeText !== "" && mounted;
-
-  return (
-    <Message from={message.role}>
-      <MessageContent>
-        {message.parts.map((part, i) => {
-          if (part.type === "text") {
-            return <MessageResponse key={i}>{part.text}</MessageResponse>;
-          }
-          if (part.type.startsWith("tool-")) {
-            const toolPart = part as ToolUIPart;
-            if (toolPart.type === "tool-ask_chad") return <AskChadCard key={i} part={toolPart} />;
-            if (toolPart.type === "tool-pi" || toolPart.type === "tool-claude") {
-              return (
-                <HarnessToolCard key={i} part={toolPart} conversationId={conversationId ?? null} />
-              );
-            }
-            if (toolPart.type === "tool-create_pr") {
-              return <PullRequestToolCard key={i} part={toolPart} />;
-            }
-            return <ToolCallView key={i} part={toolPart} />;
-          }
-          return null;
-        })}
-      </MessageContent>
-      {(text || showTime) && (
-        <MessageActions
-          className={cn(
-            "opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
-            message.role === "user" && "self-end",
-          )}
-        >
-          {showTime && (
-            <time
-              dateTime={timeIso}
-              title={timeIso ? new Date(timeIso).toLocaleString() : undefined}
-              className="px-1 font-mono text-[10px] text-muted-foreground"
-            >
-              {timeText}
-            </time>
-          )}
-          {text && <MessageCopyButton text={text} />}
-        </MessageActions>
-      )}
-    </Message>
-  );
-});
+/**
+ * The chat page frame (0010 Phase 4; split in 0015 Phase 3): the
+ * AppHeader with the model and sandbox pickers, URL behaviour (adopting
+ * `/c/<id>` on first send, ⌘⇧O new chat), and the fresh composer's
+ * machine-run target (0012). The transcript, composer and transport
+ * live in ChatSession, which this frame and the agent panel share.
+ */
 
 /** Model picker — a per-conversation knob, applied on the next send. */
 function ModelPicker({
@@ -744,16 +307,12 @@ function SandboxPicker({
 }
 
 /**
- * The sweatshop chat surface (0010 Phase 4): one WorkflowAgent turn per
- * message, streamed through WorkflowChatTransport. Conversations are
- * URL-addressed — `/` starts fresh (a client-generated c_ id adopted on
- * first send), `/c/[id]` rehydrates history from sqlite and reattaches
- * to a live turn (the active run id doubles as the chat id, which the
- * transport uses to reconnect). While a turn runs, sending queues a
- * steer instead of a new turn.
+ * The sweatshop chat page: ChatSession in its full-page frame — the
+ * AppHeader (crumbs, model and sandbox pickers), `/c/<id>` adoption,
+ * ⌘⇧O new chat, and the fresh composer's machine-run target.
  */
 export function ChatSurface({
-  conversationId: initialConversationId,
+  conversationId,
   initialMessages,
   activeRunId,
   projectId,
@@ -764,7 +323,7 @@ export function ChatSurface({
   initialMachineId,
 }: {
   conversationId?: string;
-  initialMessages?: UIMessage[];
+  initialMessages?: import("ai").UIMessage[];
   activeRunId?: string | null;
   projectId?: string;
   projectName?: string;
@@ -776,221 +335,63 @@ export function ChatSurface({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const mounted = useMounted();
+  const sessionRef = useRef<ChatSessionController>(null);
 
-  // Landing pages hold no conversation yet — the id is client-generated
-  // and adopted by the server on the first send.
-  const [freshId] = useState(() => `c_${nanoid()}`);
-  const conversationId = initialConversationId ?? freshId;
-  const adopted = Boolean(initialConversationId);
-
-  const [storedModelId, setStoredModelId] = useState<string>(() => {
-    if (typeof window === "undefined") return initialModelId ?? DEFAULT_CHAT_MODEL.id;
-    return (
-      window.localStorage.getItem(MODEL_STORAGE_KEY) ??
-      initialModelId ??
-      DEFAULT_CHAT_MODEL.id
-    );
-  });
-  const modelId = findChatModel(storedModelId)?.id ?? DEFAULT_CHAT_MODEL.id;
-  const selectModel = (id: string) => {
-    setStoredModelId(id);
-    window.localStorage.setItem(MODEL_STORAGE_KEY, id);
-  };
-
-  // 0013: the fresh composer's one-time sandbox choice ("auto" = own).
-  const [sandboxChoice, setSandboxChoice] = useState("auto");
-  const [sandboxes, setSandboxes] = useState<SandboxOption[]>([]);
-  const loadSandboxes = async () => {
-    try {
-      const res = await fetch("/api/x/sandboxes");
-      if (res.ok) setSandboxes(((await res.json()) as { sandboxes: SandboxOption[] }).sandboxes);
-    } catch {
-      // the dropdown just shows fewer options
-    }
-  };
-
-  // Turn the knobs into request fields on every send. The refs are
-  // synced in an effect (post-render); sends can only happen after
-  // mount, so the values are always current when a request fires.
-  const modelRef = useRef(modelId);
-  const choiceRef = useRef(sandboxChoice);
-  const conversationRef = useRef({ conversationId, projectId: projectId ?? null });
-  useEffect(() => {
-    modelRef.current = modelId;
-    choiceRef.current = sandboxChoice;
-    conversationRef.current = { conversationId, projectId: projectId ?? null };
-  }, [modelId, sandboxChoice, conversationId, projectId]);
-
-  // The callback runs at send time (never during render) and must see
-  // the current knobs.
-  const [transport] = useState(
-    // eslint-disable-next-line react-hooks/refs -- read at send time only
-    () =>
-      new WorkflowChatTransport({
-        api: "/api/x/chat",
-        prepareSendMessagesRequest: ({ messages, trigger, messageId }) => ({
-          body: {
-            conversationId: conversationRef.current.conversationId,
-            projectId: conversationRef.current.projectId,
-            modelId: modelRef.current,
-            // Only the creating send's choice counts (server-enforced);
-            // "auto" = the chat's own sandbox, the default.
-            ...(choiceRef.current !== "auto" ? { sandbox: choiceRef.current } : {}),
-            messages,
-            trigger,
-            messageId,
-          },
-        }),
-      }),
-  );
-
-  const chat = useChat({
-    id: activeRunId ?? conversationId,
-    resume: Boolean(activeRunId),
-    transport,
-    ...(initialMessages && initialMessages.length > 0 ? { messages: initialMessages } : {}),
-  });
-
-  const status = mounted ? chat.status : "ready";
-  const isBusy = status === "submitted" || status === "streaming";
-  const messages = chat.messages;
-
-  // 0011: the sandbox read-model — which sandbox each sandboxed call ran
-  // in and where the next one would. The call rows are written by the
-  // server when a call acquires its sandbox, so refetch whenever a
-  // sandboxed tool part appears or changes state (not per streamed token).
-  const [sandboxView, setSandboxView] = useState<ConversationSandboxViewData | null>(null);
-  const sandboxSignature = useMemo(
-    () =>
-      messages
-        .flatMap((m) => m.parts)
-        .filter((p) => p.type.startsWith("tool-") && SANDBOXED_TOOLS.has(p.type.slice(5)))
-        .map((p) => `${(p as ToolUIPart).toolCallId}:${(p as ToolUIPart).state}`)
-        .join("|") + `#${status === "ready" ? "r" : "b"}`,
-    [messages, status],
-  );
-  // A chat reached via "/" is not "adopted" but exists server-side from
-  // its first send, so key on having messages, not on the landing route.
-  const started = adopted || messages.length > 0;
-  useEffect(() => {
-    if (!started) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/conversations/${conversationId}/sandbox`, {
-          cache: "no-store",
-        });
-        if (res.ok && !cancelled) {
-          const next = (await res.json()) as ConversationSandboxViewData;
-          setSandboxView(next);
-        }
-      } catch {
-        // chips and the state label are best-effort
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [started, conversationId, sandboxSignature]);
-
-  // Sidebar live-refresh once the first send creates the conversation.
-  const refreshedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (adopted || messages.length === 0) return;
-    if (refreshedRef.current === conversationId) return;
-    refreshedRef.current = conversationId;
-    window.history.replaceState(null, "", `/c/${conversationId}`);
-    router.refresh();
-  }, [adopted, conversationId, messages.length, router]);
-
-  // Opening a thread marks it read (visible + focused only).
-  useMarkSeen(adopted ? conversationId : null, `${messages.length}:${isBusy ? "busy" : status}`);
-
-  const lastUserText = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i];
-      if (message.role !== "user") continue;
-      const text = message.parts
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("")
-        .trim();
-      return text || null;
-    }
-    return null;
-  }, [messages]);
-
-  // ── Draft persistence (unchanged mechanism) ───────────────────────────
-  const draftKey = DRAFT_PREFIX + (adopted ? conversationId : projectId ?? "new");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    const saved = window.localStorage.getItem(draftKey);
-    if (saved && textareaRef.current && textareaRef.current.value === "") {
-      textareaRef.current.value = saved;
-    }
-  }, [draftKey]);
-  const handleDraftChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    const value = event.currentTarget.value;
-    if (value.trim()) {
-      window.localStorage.setItem(draftKey, value);
-    } else {
-      window.localStorage.removeItem(draftKey);
-    }
-  };
-
-  // ── 0012: a fresh composer can start a machine run instead ─────────────
-  const fresh = !adopted && messages.length === 0;
-  const machines = useScopedMachines(fresh ? projectId : undefined);
+  // ── 0012: a fresh composer can start a machine run instead ────────────
+  // Machines load for a not-yet-adopted conversation (the target picker's
+  // moment); an adopted one is already a chat.
+  const machines = useScopedMachines(conversationId ? undefined : projectId);
   const [pickedMachineId, setPickedMachineId] = useState<string | null>(initialMachineId ?? null);
-  const machineId = fresh && machines?.some((m) => m.id === pickedMachineId) ? pickedMachineId : null;
   const [runStart, setRunStart] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const machineTargeted = machines?.some((m) => m.id === pickedMachineId) ?? false;
 
-  const handleStartRun = async (text: string) => {
-    if (!machineId || runStart.busy) return;
-    setRunStart({ busy: true, error: null });
-    try {
-      const runId = await startMachineRun({ machineId, prompt: text, ...(projectId ? { projectId } : {}) });
-      window.localStorage.removeItem(draftKey);
-      router.push(`/r/${runId}`);
-      router.refresh();
-    } catch (err) {
-      setRunStart({ busy: false, error: err instanceof Error ? err.message : "failed to start" });
-    }
+  const freshComposer = (s: ChatSessionState): FreshComposerMode | undefined => {
+    const machine = machines?.find((m) => m.id === pickedMachineId) ?? null;
+    if (!machine) return undefined;
+    const startRun = async (text: string) => {
+      if (runStart.busy) return;
+      setRunStart({ busy: true, error: null });
+      try {
+        const runId = await startMachineRun({ machineId: machine.id, prompt: text, ...(projectId ? { projectId } : {}) });
+        s.clearDraft();
+        router.push(`/r/${runId}`);
+        router.refresh();
+      } catch (err) {
+        setRunStart({ busy: false, error: err instanceof Error ? err.message : "failed to start" });
+      }
+    };
+    return {
+      emptyState: (
+        <ConversationEmptyStateMachine
+          title={machine.name}
+          description={machine.description ?? "Your message becomes the run's prompt."}
+        />
+      ),
+      placeholder: projectId ? "What should it do? (paste the ticket)" : "What should it work on?",
+      footer: (
+        <RunTargetPicker
+          machines={machines}
+          selectedId={machine.id}
+          onSelect={(id) => {
+            setPickedMachineId(id);
+            setRunStart({ busy: false, error: null });
+          }}
+          projectScoped={Boolean(projectId)}
+        />
+      ),
+      onSubmit: (text) => {
+        void startRun(text);
+        return true;
+      },
+      busy: runStart.busy,
+      error: runStart.error,
+    };
   };
 
-  const handleSubmit = (message: PromptInputMessage) => {
-    const text = message.text?.trim();
-    if (!text) return;
-    if (machineId) {
-      void handleStartRun(text);
-      return;
-    }
-    window.localStorage.removeItem(draftKey);
-    if (isBusy) {
-      // A live turn: queue a steer (drained between the turn's slices).
-      void fetch("/api/x/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId, text }),
-      });
-      return;
-    }
-    void chat.sendMessage({ text });
-  };
-
-  const handleStop = async () => {
-    chat.stop();
-    await fetch("/api/x/chat/cancel", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ conversationId }),
-    }).catch(() => undefined);
-  };
-
-  const handleRetry = () => {
-    if (!lastUserText) return;
-    void chat.sendMessage({ text: lastUserText });
+  // ── URL behaviour: adopt /c/<id>, new chat (⌘⇧O) ───────────────────────
+  const handleAdopted = (id: string) => {
+    window.history.replaceState(null, "", `/c/${id}`);
+    router.refresh(); // the sidebar gains the conversation
   };
 
   const handleNewChat = () => {
@@ -1002,8 +403,8 @@ export function ChatSurface({
       router.push("/");
       return;
     }
-    chat.setMessages([]);
-    textareaRef.current?.focus();
+    sessionRef.current?.reset();
+    sessionRef.current?.focus();
   };
 
   const newChatRef = useRef(handleNewChat);
@@ -1022,138 +423,54 @@ export function ChatSurface({
   }, []);
 
   return (
-    <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
-      <AppHeader
-        crumbs={[
-          projectId
-            ? { label: projectName ?? projectId, href: `/p/${projectId}` }
-            : { label: "Chats", href: "/" },
-          { label: conversationTitle ?? "New chat" },
-        ]}
-      >
-        {/* A machine decides model and sandbox per stage. */}
-        {!machineId && (
-          <>
-            <ModelPicker
-              selectedId={modelId}
-              onSelect={selectModel}
-              displayLabel={findChatModel(modelId)?.label ?? modelId}
-            />
-            <SandboxPicker
-              choice={sandboxChoice}
-              editable={!started}
-              onSelect={setSandboxChoice}
-              onOpen={() => void loadSandboxes()}
-              sandboxes={sandboxes}
-              view={sandboxView}
-              hasProject={Boolean(projectId)}
-            />
-          </>
-        )}
-        {headerExtra}
-      </AppHeader>
+    <ChatSession
+      ref={sessionRef}
+      conversationId={conversationId}
+      initialMessages={initialMessages}
+      activeRunId={activeRunId}
+      projectId={projectId}
+      initialModelId={initialModelId}
+      className="mx-auto h-dvh max-w-3xl"
+      onAdopted={handleAdopted}
+      freshComposer={freshComposer}
+      header={(s) => (
+        <AppHeader
+          crumbs={[
+            projectId
+              ? { label: projectName ?? projectId, href: `/p/${projectId}` }
+              : { label: "Chats", href: "/" },
+            { label: conversationTitle ?? "New chat" },
+          ]}
+        >
+          {/* A machine decides model and sandbox per stage. */}
+          {!(s.fresh && machineTargeted) && (
+            <>
+              <ModelPicker
+                selectedId={s.modelId}
+                onSelect={s.selectModel}
+                displayLabel={findChatModel(s.modelId)?.label ?? s.modelId}
+              />
+              <SandboxPicker
+                choice={s.sandboxChoice}
+                editable={!s.started}
+                onSelect={s.setSandboxChoice}
+                onOpen={s.loadSandboxes}
+                sandboxes={s.sandboxes}
+                view={s.sandboxView}
+                hasProject={Boolean(projectId)}
+              />
+            </>
+          )}
+          {headerExtra}
+        </AppHeader>
+      )}
+    />
+  );
+}
 
-      <Conversation className="min-h-0 flex-1">
-        <ConversationContent>
-          {messages.length === 0 && status === "ready" && !chat.error && (
-            machineId ? (
-              <ConversationEmptyState
-                icon={<Workflow className="size-6" />}
-                title={machines?.find((m) => m.id === machineId)?.name ?? "Machine run"}
-                description={
-                  machines?.find((m) => m.id === machineId)?.description ??
-                  "Your message becomes the run's prompt."
-                }
-              />
-            ) : (
-              <ConversationEmptyState
-                icon={<MessageSquarePlus className="size-6" />}
-                title="sweatshop"
-                description="A conversation with your agent. Say anything to begin."
-              />
-            )
-          )}
-          <SandboxViewProvider value={sandboxView}>
-          {messages.map((message) => (
-            <ChatMessageView
-              key={message.id}
-              message={message}
-              conversationId={adopted ? conversationId : null}
-            />
-          ))}
-          </SandboxViewProvider>
-          {isThinking(status, messages) && (
-            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground" role="status">
-              <Spinner className="size-4" />
-              {isBusy && messages.some((m) => m.parts.some((p) => p.type.startsWith("tool-")))
-                ? "Working…"
-                : "Thinking…"}
-            </div>
-          )}
-          {chat.error && (
-            <div
-              role="alert"
-              className="flex flex-wrap items-center gap-3 py-2 text-sm text-destructive"
-            >
-              <span className="min-w-0 flex-1 break-words">{chat.error.message}</span>
-              {lastUserText && (
-                <button
-                  type="button"
-                  onClick={handleRetry}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 text-xs font-medium transition-colors hover:bg-destructive/10"
-                >
-                  <RotateCcw className="size-3.5" aria-hidden />
-                  Retry
-                </button>
-              )}
-            </div>
-          )}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
-
-      <div className="mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
-        <PromptInput onSubmit={handleSubmit} className="composer">
-          <PromptInputTextarea
-            ref={textareaRef}
-            onChange={handleDraftChange}
-            placeholder={
-              isBusy
-                ? "Steer the running turn…"
-                : machineId
-                  ? projectId
-                    ? "What should it do? (paste the ticket)"
-                    : "What should it work on?"
-                  : "Message sweatshop…"
-            }
-            autoFocus
-          />
-          <PromptInputFooter>
-            {fresh ? (
-              <RunTargetPicker
-                machines={machines}
-                selectedId={machineId}
-                onSelect={(id) => {
-                  setPickedMachineId(id);
-                  setRunStart({ busy: false, error: null });
-                }}
-                projectScoped={Boolean(projectId)}
-              />
-            ) : (
-              <span />
-            )}
-            <PromptInputSubmit
-              status={runStart.busy ? "submitted" : status}
-              onStop={() => void handleStop()}
-            />
-          </PromptInputFooter>
-        </PromptInput>
-        {runStart.error && (
-          <p role="alert" className="pt-2 text-sm text-destructive">
-            {runStart.error}
-          </p>
-        )}
-      </div>
-    </div>
+/** The machine-target empty state (kept out of the header closure). */
+function ConversationEmptyStateMachine({ title, description }: { title: string; description: string }) {
+  return (
+    <ConversationEmptyState icon={<Workflow className="size-6" />} title={title} description={description} />
   );
 }
