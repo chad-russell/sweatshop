@@ -1,6 +1,8 @@
 "use client";
 
 import { Archive, Pencil, Trash2 } from "lucide-react";
+import { conversationHref } from "@/lib/conversation-href";
+import { RunGlyph, isLiveRun } from "./run-glyph";
 import Link from "next/link";
 import { cn } from "cn";
 import {
@@ -20,7 +22,9 @@ import { useMounted } from "@/lib/use-mounted";
 /**
  * One conversation in the folder tree or the Unfiled list: a draggable link
  * with a hover menu (rename, move, archive, trash). Dragging only ever
- * *offers* targets in the same group (see use-drop-target).
+ * *offers* targets in the same group (see use-drop-target). 0012: a run
+ * row carries a status glyph and opens the run view; trashing a live run
+ * cancels it, so that asks first.
  */
 export function ConversationRow({
   item,
@@ -40,7 +44,8 @@ export function ConversationRow({
   const { actions, pathname, editing, setEditing, setDrag } = useSidebar();
   // relativeTime is clock- and timezone-dependent — client-only after mount.
   const mounted = useMounted();
-  const active = pathname === `/c/${item.id}`;
+  const href = conversationHref(item);
+  const active = pathname === href;
   const renaming = editing?.kind === "rename-conversation" && editing.id === item.id;
 
   return (
@@ -72,7 +77,7 @@ export function ConversationRow({
         </div>
       ) : (
         <Link
-          href={`/c/${item.id}`}
+          href={href}
           draggable={false}
           title={item.title ?? item.id}
           className="flex items-center justify-between gap-2 px-2 py-1.5"
@@ -88,6 +93,7 @@ export function ConversationRow({
               needsYou={item.needsYou ? 1 : 0}
               className="-ml-1"
             />
+            {item.kind === "run" && <RunGlyph status={item.runStatus} />}
             <span className="truncate">
               {item.title ?? (
                 <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>
@@ -126,7 +132,15 @@ export function ConversationRow({
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
-              onSelect={() => void actions.setTrashed(item.id, true)}
+              onSelect={() => {
+                if (
+                  isLiveRun(item) &&
+                  !confirm(`"${item.title ?? item.id}" is still running. Cancel the run and move it to trash?`)
+                ) {
+                  return;
+                }
+                void actions.setTrashed(item.id, true);
+              }}
             >
               <Trash2 />
               Move to trash

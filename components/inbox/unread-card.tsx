@@ -5,6 +5,7 @@ import Link from "next/link";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { UnreadThread } from "@/db/attention";
+import { conversationHref } from "@/lib/conversation-href";
 import { Where } from "./where";
 
 /**
@@ -36,7 +37,7 @@ export function UnreadCard({
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <Link
-          href={`/c/${thread.id}`}
+          href={conversationHref(thread)}
           className="truncate text-sm font-medium after:absolute after:inset-0 hover:underline"
         >
           {thread.title ?? thread.id}

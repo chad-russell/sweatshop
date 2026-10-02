@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { ChatSurface } from "@/components/chat";
 import { db } from "@/db";
@@ -10,7 +10,8 @@ import { rowsToUIMessages } from "@/lib/chat-ui";
  * Open a conversation by its durable address (0010 Phase 4). History
  * rehydrates from the store (messages rows — the conversation's source
  * of truth); a live turn is reattached by passing its run id, which the
- * transport uses to reconnect to the durable stream.
+ * transport uses to reconnect to the durable stream. Run conversations
+ * (0012) redirect to /r; stage conversations still open here.
  */
 export default async function ConversationPage({
   params,
@@ -25,6 +26,8 @@ export default async function ConversationPage({
     .sync();
 
   if (!conversation) notFound();
+  // 0012: a run conversation's address is its run view.
+  if (conversation.kind === "run") permanentRedirect(`/r/${sessionId}`);
 
   const project = conversation.projectId
     ? db()

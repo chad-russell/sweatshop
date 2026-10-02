@@ -4,6 +4,7 @@ import { ArchiveRestore, Trash2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useSidebar } from "./context";
 import { relativeTime, type ShelvedItem } from "./types";
+import { conversationHref } from "@/lib/conversation-href";
 import { useMounted } from "@/lib/use-mounted";
 
 function Crumbs({ item }: { item: ShelvedItem }) {
@@ -75,12 +76,12 @@ export function ShelfView({
             key={item.id}
             className={
               "group/row flex items-center gap-1 rounded-md px-2 py-1.5 " +
-              (pathname === `/c/${item.id}`
+              (pathname === conversationHref(item)
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "hover:bg-sidebar-accent/60")
             }
           >
-            <Link href={`/c/${item.id}`} title={item.title ?? item.id} className="min-w-0 flex-1">
+            <Link href={conversationHref(item)} title={item.title ?? item.id} className="min-w-0 flex-1">
               <span className="block truncate text-sm">{item.title ?? item.id}</span>
               <Crumbs item={item} />
             </Link>

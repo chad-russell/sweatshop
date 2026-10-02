@@ -1,0 +1,32 @@
+import { CircleAlert, CircleCheck, CircleSlash, CircleX, Hand, Loader2 } from "lucide-react";
+import { cn } from "cn";
+
+/** 0012: statuses where a run is still working (trash cancels it). */
+const LIVE = new Set(["running", "waiting"]);
+
+export function isLiveRun(item: { kind: string; runStatus?: string | null }): boolean {
+  return item.kind === "run" && LIVE.has(item.runStatus ?? "");
+}
+
+/**
+ * A run row's status at a glance: spinning while running, a hand at a
+ * human gate, then its outcome. The attention dot still carries
+ * unread / needs-you; this says what the run is doing.
+ */
+export function RunGlyph({ status, className }: { status: string | null; className?: string }) {
+  const base = cn("size-3.5 shrink-0", className);
+  switch (status) {
+    case "running":
+      return <Loader2 aria-label="Running" className={cn(base, "animate-spin text-info")} />;
+    case "waiting":
+      return <Hand aria-label="Waiting for you" className={cn(base, "text-warning")} />;
+    case "needs-attention":
+      return <CircleAlert aria-label="Needs attention" className={cn(base, "text-warning")} />;
+    case "completed":
+      return <CircleCheck aria-label="Completed" className={cn(base, "text-success")} />;
+    case "failed":
+      return <CircleX aria-label="Failed" className={cn(base, "text-destructive")} />;
+    default:
+      return <CircleSlash aria-label="Cancelled" className={cn(base, "text-sidebar-foreground/60")} />;
+  }
+}

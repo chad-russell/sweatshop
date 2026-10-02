@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/command";
 import { Snippet, whereLabel } from "./search-results";
 import { useConversationSearch } from "./use-search";
+import { conversationHref } from "@/lib/conversation-href";
 
 const ALL = { includeArchived: true } as const;
 
@@ -71,7 +72,7 @@ export function CommandPalette() {
               onSelect={() => {
                 setOpen(false);
                 setQuery("");
-                router.push(`/c/${hit.conversationId}`);
+                router.push(conversationHref({ id: hit.conversationId, kind: hit.kind }));
               }}
               className="flex-col items-start gap-0.5"
             >

@@ -3,6 +3,7 @@
 import { Archive } from "lucide-react";
 import Link from "next/link";
 import type { SearchHit } from "@/db/search";
+import { conversationHref } from "@/lib/conversation-href";
 import { useSidebar } from "./context";
 
 /** Render an FTS snippet, turning [match] markers into <mark>. */
@@ -39,11 +40,11 @@ export function SearchResults({ hits }: { hits: readonly SearchHit[] }) {
       {hits.map((hit) => (
         <li key={hit.conversationId}>
           <Link
-            href={`/c/${hit.conversationId}`}
+            href={conversationHref({ id: hit.conversationId, kind: hit.kind })}
             title={hit.title ?? hit.conversationId}
             className={
               "block rounded-md px-2 py-1.5 transition-colors " +
-              (pathname === `/c/${hit.conversationId}`
+              (pathname === conversationHref({ id: hit.conversationId, kind: hit.kind })
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "hover:bg-sidebar-accent/60")
             }
