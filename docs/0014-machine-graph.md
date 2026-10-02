@@ -1,6 +1,6 @@
 # 0014 — Machine graph: view and edit definitions as a graph
 
-Status: **approved (2026-10-02)** — open question resolved: instructions are edited in the side panel only.
+Status: **shipped (2026-10-02)** — approved with the open question resolved as proposed (instructions are edited in the side panel only). See "Shipped" at the end.
 `@xyflow/react` itself was approved in chat on 2026-10-02.
 
 ## Goal
@@ -82,3 +82,42 @@ Read on 2026-10-02 (after 0013):
    inline on the node (a short preview that expands)? Proposed: panel
    only. Nodes show the title, the kind, and the first line of the
    instructions, read-only.
+
+## Shipped (2026-10-02)
+
+Commits `756ea85` (phase 1) through `1bbf181` (phase 4), verified against
+the live app:
+
+- **Layout and edits:** 11 unit tests (`tests/machine-graph.test.ts`).
+  Both seeds lay out with no overlapping nodes, `verify → implement` is
+  the only back edge, an invalid draft (a target that doesn't exist, an
+  unreachable stage) still lays out deterministically, renaming rewrites
+  every reference, and issues land on the right node or edge.
+- **Editor (driven over CDP):** added a stage; a rename into an existing
+  id was refused with a message; deleting the start stage surfaced
+  `start: … does not exist` and disabled Save; drag-to-connect added
+  `draft → end` and opened its transition panel. A new machine built
+  entirely through the graph saved, and so did an edited title and
+  transition label. Keyboard Delete removed a selected edge, and saving
+  bumped the version to 2.
+- **Run overlay:** a live think run at its gate showed `draft ×1
+  completed`, `critique ×1 completed`, and `decide ×1 waiting` with a
+  warning ring, with taken edges drawn in the primary colour and
+  untaken ones muted.
+- **Themes:** checked in `clickhouse`, `cal`, and `nova`; tokens only.
+
+Decisions made at build time:
+
+- **AI Elements `edge` is not used.** Its Animated edge assumes
+  left-to-right handles, but loops need a curve that returns underneath
+  both nodes. One `TransitionEdge` draws forward, back, and implicit
+  edges. `canvas`, `controls`, and `panel` come from AI Elements (plus
+  the shadcn `card` that `node` brought in).
+- **`@xyflow/react` is pinned to exactly 12.12.0**, like the other
+  load-bearing pins.
+- **Legibility over fit:** `fitView` won't zoom out below 0.6 (0.45 in
+  the run view's strip), and a graph wider than the canvas is anchored
+  at its left edge, so `start` is always visible. Pan to see the rest.
+- **The JSON tab feeds the draft only once the text is graph-shaped**
+  (stages with `next` arrays). Until then the graph keeps the last good
+  draft and the tab explains why.

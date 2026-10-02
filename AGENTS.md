@@ -168,7 +168,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   on `/machines/<id>`, ⌘K "Run …", `POST /api/machine-runs`, the
   `start_machine` chat tool; `/r/<runId>` is the run view (visit
   transcripts open in a side panel; `/c/<runId>` redirects there).
-  Links go through `conversationHref`. Everything runs in the Next
+  Links go through `conversationHref`. Machine graph (0014):
+  `/machines/<id>` is a graph editor (`@xyflow/react` 12.12.0, pinned;
+  AI Elements canvas/controls/panel) over ONE draft definition — every
+  change is a pure op in `lib/machines/edit.ts` (also the planned 0015
+  assistant's tool surface), re-validated by `parseDefinition`, with
+  issues placed on nodes/edges via `issuesByElement`; a JSON tab edits
+  the same draft. Layout is automatic and never stored
+  (`lib/machines/layout.ts`, layered, loops as back edges); the run
+  view shows the run's snapshot with a progress overlay. Graph modules
+  are client-only (`machine-graph-lazy.tsx`, `ssr: false`). Everything runs in the Next
   process — no cross-runtime HTTP. Workflow-transform rule: Node-touching code only inside `"use step"`
   functions, and the workflow body imports harness packages type-only
   (a runtime import drags pi's raw-.ts deps into the bundle). Harness
