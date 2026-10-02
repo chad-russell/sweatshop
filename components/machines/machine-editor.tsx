@@ -6,7 +6,8 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { parseDefinition } from "@/lib/machines/definition";
+import { parseDefinition, type MachineDefinition } from "@/lib/machines/definition";
+import { LazyMachineGraph } from "./machine-graph-lazy";
 
 interface Draft {
   id: string;
@@ -45,6 +46,13 @@ export function MachineEditor({
       return { ok: false as const, errors: [`JSON: ${err instanceof Error ? err.message : String(err)}`] };
     }
   }, [text]);
+
+  // The graph shows the last definition that parsed, so a typo mid-edit
+  // doesn't blank it.
+  const [lastValid, setLastValid] = useState<MachineDefinition>(initial.definition as MachineDefinition);
+  if (check.ok && check.definition !== lastValid && JSON.stringify(check.definition) !== JSON.stringify(lastValid)) {
+    setLastValid(check.definition);
+  }
 
   const save = async () => {
     if (!check.ok || !name.trim()) return;
@@ -117,6 +125,10 @@ export function MachineEditor({
         <span className="text-muted-foreground">Description</span>
         <Input value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
+
+      <div className="h-80 overflow-hidden rounded-lg border border-border">
+        <LazyMachineGraph definition={lastValid} />
+      </div>
 
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground">

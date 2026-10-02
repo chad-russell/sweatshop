@@ -10,6 +10,7 @@ import {
   CircleDot,
   CircleSlash,
   CircleX,
+  ChevronDown,
   ExternalLink,
   Hand,
   Loader2,
@@ -23,7 +24,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ChatMessageView } from "@/components/chat";
@@ -47,6 +48,8 @@ import { shortSandboxId } from "@/lib/sandbox-id";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { cn } from "@/lib/utils";
 import { GateAnswer } from "./gate-answer";
+import { overlayFromVisits } from "./machine-graph";
+import { LazyMachineGraph } from "./machine-graph-lazy";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled", "needs-attention"]);
 const LIVE = new Set(["running", "waiting"]);
@@ -94,6 +97,18 @@ export function MachineRunView({
   const [run, setRun] = useState(initialRun);
   const [visits, setVisits] = useState(initialVisits);
   const [panelSeq, setPanelSeq] = useState<number | null>(null);
+  const [graphOpen, setGraphOpen] = useState(true);
+  const overlay = useMemo(() => overlayFromVisits(visits, run), [visits, run]);
+
+  // A graph node opens its latest visit's transcript (or the card, for
+  // human gates) and scrolls the timeline to it.
+  const focusStage = (stageId: string | null) => {
+    if (!stageId) return;
+    const latest = [...visits].reverse().find((v) => v.stageId === stageId);
+    if (!latest) return;
+    document.getElementById(`visit-${latest.seq}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (visitLink(latest)) setPanelSeq(latest.seq);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -252,6 +267,23 @@ export function MachineRunView({
               </p>
             )}
 
+            <section className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setGraphOpen((v) => !v)}
+                aria-expanded={graphOpen}
+                className="flex items-center gap-1 self-start text-xs font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
+              >
+                <ChevronDown className={cn("size-3.5 transition-transform", !graphOpen && "-rotate-90")} aria-hidden />
+                Machine
+              </button>
+              {graphOpen && (
+                <div className="h-56 overflow-hidden rounded-lg border border-border">
+                  <LazyMachineGraph definition={run.definition} overlay={overlay} onSelectNode={focusStage} compact />
+                </div>
+              )}
+            </section>
+
             <section className="rounded-lg border border-border bg-card p-4 text-card-foreground">
               <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Prompt</h2>
               <p className="mt-2 text-sm whitespace-pre-wrap">{run.prompt}</p>
@@ -316,8 +348,9 @@ function StageCard({
 
   return (
     <li
+      id={`visit-${visit.seq}`}
       className={cn(
-        "flex flex-col gap-3 rounded-lg border border-border bg-card p-4 text-card-foreground",
+        "flex scroll-mt-4 flex-col gap-3 rounded-lg border border-border bg-card p-4 text-card-foreground",
         waitingGate && "border-warning/60",
         selected && "border-ring",
       )}
