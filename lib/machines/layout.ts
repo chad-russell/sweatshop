@@ -48,7 +48,9 @@ export interface Layout {
 
 export const NODE_WIDTH = 220;
 export const NODE_HEIGHT = 84;
-const RANK_GAP = 90;
+/** The terminal `end` node is a narrow pill. */
+export const END_WIDTH = 96;
+const RANK_GAP = 120;
 const SLOT_GAP = 36;
 const SWEEPS = 4;
 

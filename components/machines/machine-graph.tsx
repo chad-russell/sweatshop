@@ -17,7 +17,7 @@ import { memo, useMemo } from "react";
 import { Canvas } from "@/components/ai-elements/canvas";
 import { Controls } from "@/components/ai-elements/controls";
 import { END, type MachineDefinition, type Stage } from "@/lib/machines/definition";
-import { layoutMachine, NODE_HEIGHT, NODE_WIDTH, type LayoutEdge } from "@/lib/machines/layout";
+import { END_WIDTH, layoutMachine, NODE_HEIGHT, NODE_WIDTH, type LayoutEdge } from "@/lib/machines/layout";
 import { cn } from "@/lib/utils";
 
 /**
@@ -92,8 +92,8 @@ const StageNode = memo(function StageNode({ data, selected }: NodeProps<FlowNode
   if (!stage) {
     return (
       <div
-        style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
-        className="flex items-center justify-center gap-2 rounded-full border border-dashed border-border bg-card font-mono text-xs text-muted-foreground"
+        style={{ width: END_WIDTH, height: NODE_HEIGHT }}
+        className="flex items-center justify-center gap-1.5 rounded-full border border-dashed border-border bg-card font-mono text-xs text-muted-foreground"
       >
         {handles}
         <Flag className="size-3.5" aria-hidden />
@@ -211,7 +211,7 @@ const TransitionEdge = memo(function TransitionEdge(props: EdgeProps<FlowEdge<Tr
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
             title={data.issues?.join("\n") ?? data.edge.when}
             className={cn(
-              "nodrag nopan pointer-events-auto absolute max-w-40 truncate rounded border bg-card px-1.5 py-0.5 text-[10px]",
+              "nodrag nopan pointer-events-auto absolute max-w-28 truncate rounded border bg-card px-1.5 py-0.5 text-[10px]",
               broken ? "border-destructive text-destructive" : "border-border text-muted-foreground",
               data.muted && "opacity-60",
             )}
@@ -320,7 +320,9 @@ export function MachineGraph({
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+        // Readability over seeing everything: a long chain stays legible
+        // (pan to see the rest) instead of shrinking to fit.
+        fitViewOptions={{ padding: 0.1, maxZoom: 1, minZoom: compact ? 0.45 : 0.6 }}
         minZoom={0.3}
         nodesDraggable={false}
         nodesConnectable={editable}

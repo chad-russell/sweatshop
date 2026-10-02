@@ -1,13 +1,30 @@
 "use client";
 
-import { Loader2, Trash2 } from "lucide-react";
+import { Bot, Braces, Hand, Loader2, Network, Plus, Terminal, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { parseDefinition, type MachineDefinition } from "@/lib/machines/definition";
+import * as edit from "@/lib/machines/edit";
+import { edgeId } from "@/lib/machines/layout";
+import { cn } from "@/lib/utils";
 import { LazyMachineGraph } from "./machine-graph-lazy";
+import { StagePanel, TransitionPanel } from "./stage-panel";
 
 interface Draft {
   id: string;
@@ -17,9 +34,15 @@ interface Draft {
   version: number;
 }
 
+type Selection = { kind: "stage"; id: string } | { kind: "edge"; source: string; target: string } | null;
+
 /**
- * The v1 machine editor (0009): name, description, and the definition
- * as JSON, validated live with the same schema the store enforces.
+ * The machine editor (0014): one draft definition, three views — the
+ * graph (connect by dragging, select to edit), the side panel (the
+ * selected stage or transition), and a JSON tab. Every change is an
+ * edit operation (lib/machines/edit) applied to the draft, which is then
+ * validated with the same schema the store enforces; issues are drawn on
+ * the stage or edge they name. Save is enabled once the draft is valid.
  */
 export function MachineEditor({
   initial,
@@ -35,29 +58,62 @@ export function MachineEditor({
   const [id, setId] = useState(initial.id);
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
-  const [text, setText] = useState(() => JSON.stringify(initial.definition, null, 2));
+  const [draft, setDraft] = useState<MachineDefinition>(initial.definition as MachineDefinition);
+  const [selection, setSelection] = useState<Selection>(null);
+  const [view, setView] = useState<"graph" | "json">("graph");
+  // The JSON tab's text while it doesn't parse (otherwise derived from the draft).
+  const [jsonText, setJsonText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const check = useMemo(() => {
+  const check = useMemo(() => parseDefinition(draft), [draft]);
+  const issues = useMemo(
+    () => (check.ok ? null : edit.issuesByElement(draft, check.errors)),
+    [check, draft],
+  );
+  const dirty =
+    isNew ||
+    name !== initial.name ||
+    description !== initial.description ||
+    JSON.stringify(draft) !== JSON.stringify(initial.definition);
+
+  /** Apply an edit operation; refused operations surface as a notice. */
+  const apply = (op: (def: MachineDefinition) => MachineDefinition): boolean => {
     try {
-      return parseDefinition(JSON.parse(text));
+      setDraft(op(draft));
+      setJsonText(null);
+      setNotice(null);
+      return true;
     } catch (err) {
-      return { ok: false as const, errors: [`JSON: ${err instanceof Error ? err.message : String(err)}`] };
+      setNotice(err instanceof Error ? err.message : String(err));
+      return false;
     }
-  }, [text]);
+  };
 
-  // The graph shows the last definition that parsed, so a typo mid-edit
-  // doesn't blank it.
-  const [lastValid, setLastValid] = useState<MachineDefinition>(initial.definition as MachineDefinition);
-  if (check.ok && check.definition !== lastValid && JSON.stringify(check.definition) !== JSON.stringify(lastValid)) {
-    setLastValid(check.definition);
-  }
+  const addStage = (kind: edit.StageKind) => {
+    try {
+      const { definition, id: added } = edit.addStage(draft, { kind });
+      setDraft(definition);
+      setJsonText(null);
+      setSelection({ kind: "stage", id: added });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const removeSelected = (target: Selection) => {
+    if (!target) return;
+    if (target.kind === "stage") {
+      if (apply((d) => edit.removeStage(d, target.id))) setSelection(null);
+    } else if (apply((d) => edit.disconnect(d, target.source, target.target))) {
+      setSelection(null);
+    }
+  };
 
   const save = async () => {
     if (!check.ok || !name.trim()) return;
     setBusy(true);
-    setServerError(null);
+    setNotice(null);
     try {
       const res = await fetch(isNew ? "/api/machines" : `/api/machines/${initial.id}`, {
         method: isNew ? "POST" : "PATCH",
@@ -78,7 +134,7 @@ export function MachineEditor({
       router.push(`/machines/${body.machine.id}`);
       router.refresh();
     } catch (err) {
-      setServerError(err instanceof Error ? err.message : "save failed");
+      setNotice(err instanceof Error ? err.message : "save failed");
     } finally {
       setBusy(false);
     }
@@ -92,83 +148,266 @@ export function MachineEditor({
     if (res.ok) {
       router.push("/machines");
       router.refresh();
-    } else setServerError(`delete failed (${res.status})`);
+    } else setNotice(`delete failed (${res.status})`);
   };
 
+  const jsonValue = jsonText ?? JSON.stringify(draft, null, 2);
+  const jsonError = (() => {
+    if (jsonText === null) return null;
+    try {
+      JSON.parse(jsonText);
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  })();
+
+  const selectedStage = selection?.kind === "stage" && draft.stages[selection.id] ? selection.id : null;
+  const selectedEdge =
+    selection?.kind === "edge" && draft.stages[selection.source]?.next.some((t) => t.to === selection.target)
+      ? selection
+      : null;
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-6">
-      <header className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">{isNew ? "New machine" : initial.name}</h1>
-        {!isNew && (
-          <span className="flex items-center gap-3">
-            <span className="font-mono text-xs text-muted-foreground">
-              {initial.id} · v{initial.version}
-            </span>
-            {actions}
+    <div className="flex h-dvh w-full flex-col">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b px-4 py-3">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Machine name"
+          aria-label="Name"
+          className="h-8 w-56 font-semibold"
+        />
+        <Input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What it does"
+          aria-label="Description"
+          className="h-8 min-w-48 flex-1"
+        />
+        {isNew ? (
+          <Input
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+            placeholder="id (auto)"
+            aria-label="Machine id"
+            className="h-8 w-36 font-mono"
+          />
+        ) : (
+          <span className="font-mono text-xs text-muted-foreground">
+            {initial.id} · v{initial.version}
           </span>
         )}
+        <div className="ml-auto flex items-center gap-2">
+          {!isNew && (
+            <Button size="sm" variant="ghost" className="text-destructive" disabled={busy} onClick={() => void remove()}>
+              <Trash2 /> Delete
+            </Button>
+          )}
+          <Button size="sm" variant={dirty ? "default" : "outline"} disabled={busy || !check.ok || !name.trim() || !dirty} onClick={() => void save()}>
+            {busy && <Loader2 className="animate-spin" />}
+            {isNew ? "Create" : "Save"}
+          </Button>
+          {!isNew && !dirty && actions}
+        </div>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {isNew && (
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Id (optional, kebab-case)</span>
-            <Input value={id} onChange={(e) => setId(e.target.value)} className="font-mono" placeholder="auto" />
-          </label>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
+        <div role="tablist" className="flex rounded-md border border-border p-0.5">
+          {(
+            [
+              ["graph", Network, "Graph"],
+              ["json", Braces, "JSON"],
+            ] as const
+          ).map(([key, Icon, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={view === key}
+              onClick={() => setView(key)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground",
+                view === key && "bg-accent text-foreground",
+              )}
+            >
+              <Icon className="size-3.5" aria-hidden />
+              {label}
+            </button>
+          ))}
+        </div>
+        {view === "graph" && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline">
+                <Plus /> Stage
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => addStage("agent")}>
+                <Bot /> Agent — an AI turn
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => addStage("harness")} disabled={draft.workspace !== "project"}>
+                <Terminal /> Harness — pi / claude coding
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => addStage("human")}>
+                <Hand /> Human — a gate for you
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Name</span>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          Workspace
+          <Select value={draft.workspace} onValueChange={(v) => apply((d) => edit.setWorkspace(d, v as MachineDefinition["workspace"]))}>
+            <SelectTrigger size="sm" className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="project">project</SelectItem>
+              <SelectItem value="none">none</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
       </div>
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Description</span>
-        <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-      </label>
 
-      <div className="h-80 overflow-hidden rounded-lg border border-border">
-        <LazyMachineGraph definition={lastValid} />
-      </div>
-
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">
-          Definition — stages are <code className="font-mono">harness</code> (pi | claude, project only),{" "}
-          <code className="font-mono">agent</code>, or <code className="font-mono">human</code>;{" "}
-          <code className="font-mono">next</code> lists targets, <code className="font-mono">end</code> finishes.
-        </span>
-        <Textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          spellCheck={false}
-          className="min-h-96 font-mono text-xs"
-          aria-invalid={!check.ok}
-        />
-      </label>
-
-      {!check.ok && (
-        <ul role="alert" className="flex flex-col gap-0.5 font-mono text-xs text-destructive">
-          {check.errors.map((e) => (
-            <li key={e}>{e}</li>
-          ))}
-        </ul>
-      )}
-      {serverError && (
-        <p role="alert" className="text-sm text-destructive">
-          {serverError}
-        </p>
+      {(issues?.general.length || notice) && (
+        <div role="alert" className="shrink-0 border-b border-destructive/40 px-4 py-2 font-mono text-xs text-destructive">
+          {notice && <p>{notice}</p>}
+          {issues?.general.map((m) => <p key={m}>{m}</p>)}
+        </div>
       )}
 
-      <div className="flex items-center gap-2">
-        <Button disabled={busy || !check.ok || !name.trim()} onClick={() => void save()}>
-          {busy && <Loader2 className="animate-spin" />}
-          {isNew ? "Create" : "Save"}
-        </Button>
-        {!isNew && (
-          <Button variant="ghost" className="ml-auto text-destructive" disabled={busy} onClick={() => void remove()}>
-            <Trash2 /> Delete
-          </Button>
+      <div className="flex min-h-0 flex-1">
+        {view === "graph" ? (
+          <>
+            <div className="min-w-0 flex-1">
+              <LazyMachineGraph
+                definition={draft}
+                issues={issues ?? undefined}
+                editable
+                selection={{
+                  node: selectedStage,
+                  edge: selectedEdge ? edgeId(selectedEdge.source, selectedEdge.target) : null,
+                }}
+                onSelectNode={(nid) => setSelection(nid ? { kind: "stage", id: nid } : null)}
+                onSelectEdge={(e) => setSelection(e ? { kind: "edge", source: e.source, target: e.target } : null)}
+                onConnect={(source, target) => {
+                  if (apply((d) => edit.connect(d, source, target))) setSelection({ kind: "edge", source, target });
+                }}
+                onDelete={(t) =>
+                  removeSelected(t.node ? { kind: "stage", id: t.node } : t.edge ? { kind: "edge", ...t.edge } : null)
+                }
+              />
+            </div>
+            <aside className="w-[min(24rem,40vw)] shrink-0 overflow-y-auto border-l border-border p-4">
+              {selectedStage ? (
+                <StagePanel
+                  key={selectedStage}
+                  definition={draft}
+                  id={selectedStage}
+                  issues={issues?.nodes.get(selectedStage) ?? []}
+                  onPatch={(patch) => apply((d) => edit.updateStage(d, selectedStage, patch))}
+                  onKind={(kind) => apply((d) => edit.setKind(d, selectedStage, kind))}
+                  onRename={(to) => {
+                    try {
+                      setDraft(edit.renameStage(draft, selectedStage, to));
+                      setJsonText(null);
+                      setSelection({ kind: "stage", id: to });
+                      return null;
+                    } catch (err) {
+                      return err instanceof Error ? err.message : String(err);
+                    }
+                  }}
+                  onStart={() => apply((d) => edit.setStart(d, selectedStage))}
+                  onRemove={() => removeSelected({ kind: "stage", id: selectedStage })}
+                  onSelectEdge={(target) => setSelection({ kind: "edge", source: selectedStage, target })}
+                />
+              ) : selectedEdge ? (
+                <TransitionPanel
+                  key={edgeId(selectedEdge.source, selectedEdge.target)}
+                  definition={draft}
+                  source={selectedEdge.source}
+                  target={selectedEdge.target}
+                  issues={issues?.edges.get(edgeId(selectedEdge.source, selectedEdge.target)) ?? []}
+                  onWhen={(when) => apply((d) => edit.updateTransition(d, selectedEdge.source, selectedEdge.target, when))}
+                  onRemove={() => removeSelected(selectedEdge)}
+                  onSelectStage={(sid) => setSelection({ kind: "stage", id: sid })}
+                />
+              ) : (
+                <EditorHelp valid={check.ok} stageCount={Object.keys(draft.stages).length} />
+              )}
+            </aside>
+          </>
+        ) : (
+          <div className="flex min-w-0 flex-1 flex-col gap-2 p-4">
+            <Textarea
+              value={jsonValue}
+              onChange={(e) => {
+                const text = e.target.value;
+                setJsonText(text);
+                try {
+                  // Parsed JSON becomes the draft (validity is checked like
+                  // any edit) — if it is at least graph-shaped, so the graph
+                  // and the edit operations can walk it.
+                  const parsed: unknown = JSON.parse(text);
+                  if (isGraphShaped(parsed)) setDraft(parsed);
+                } catch {
+                  /* keep the text; the draft stays at the last parse */
+                }
+              }}
+              spellCheck={false}
+              aria-invalid={Boolean(jsonError) || !check.ok}
+              className="min-h-0 flex-1 resize-none font-mono text-xs"
+            />
+            {jsonError && <p className="font-mono text-xs text-destructive">JSON: {jsonError}</p>}
+            {!jsonError && jsonText !== null && !isGraphShaped(JSON.parse(jsonText)) && (
+              <p className="font-mono text-xs text-destructive">
+                Not a machine shape yet (needs stages with next arrays) — the graph keeps the last good draft.
+              </p>
+            )}
+            {!check.ok && (
+              <ul className="flex flex-col gap-0.5 font-mono text-xs text-destructive">
+                {check.errors.map((e) => (
+                  <li key={e}>{e}</li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Enough structure to draw and edit: an object of stages with `next`
+ *  arrays. Anything finer is the validator's job. */
+function isGraphShaped(value: unknown): value is MachineDefinition {
+  if (!value || typeof value !== "object") return false;
+  const stages = (value as { stages?: unknown }).stages;
+  if (!stages || typeof stages !== "object" || Array.isArray(stages)) return false;
+  return Object.values(stages).every(
+    (s) =>
+      s !== null &&
+      typeof s === "object" &&
+      Array.isArray((s as { next?: unknown }).next) &&
+      (s as { next: unknown[] }).next.every((t) => t !== null && typeof t === "object" && typeof (t as { to?: unknown }).to === "string"),
+  );
+}
+
+function EditorHelp({ valid, stageCount }: { valid: boolean; stageCount: number }) {
+  return (
+    <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+      <p>
+        {stageCount} stage{stageCount === 1 ? "" : "s"} ·{" "}
+        <span className={valid ? "text-success" : "text-destructive"}>{valid ? "valid" : "has issues"}</span>
+      </p>
+      <ul className="flex list-disc flex-col gap-1.5 pl-4 text-xs">
+        <li>Select a stage or a transition to edit it here.</li>
+        <li>Drag from a stage’s right handle to another stage (or end) to add a transition.</li>
+        <li>Delete or Backspace removes the selection.</li>
+        <li>A stage with no transitions ends the run (dashed line to end).</li>
+        <li>Problems show in red on the stage or transition they belong to.</li>
+      </ul>
     </div>
   );
 }
