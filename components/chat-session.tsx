@@ -620,12 +620,16 @@ export function ChatSession({
         api: "/api/x/chat",
         prepareSendMessagesRequest: ({ messages, trigger, messageId }) => {
           // 0015: read the page context at send time; each send's note
-          // is what the page showed when Chad hit send.
+          // is what the page showed when Chad hit send. A panel
+          // conversation's CREATING send binds to the page's project
+          // (0013: chosen once, never switched) — the frame passes no
+          // projectId until the conversation is adopted and hydrated.
           const viewing = pageContextRef.current?.() ?? null;
+          const projectId = conversationRef.current.projectId ?? viewing?.projectId ?? null;
           return {
             body: {
               conversationId: conversationRef.current.conversationId,
-              projectId: conversationRef.current.projectId,
+              projectId,
               modelId: modelRef.current,
               // Only the creating send's choice counts (server-enforced);
               // "auto" = the chat's own sandbox, the default.

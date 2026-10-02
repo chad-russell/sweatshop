@@ -2,7 +2,9 @@ import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
 import { createUIMessageStreamResponse } from "ai";
 import { NextResponse } from "next/server";
 import { getRun, start } from "workflow/api";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
+import { conversations } from "@/db/schema";
 import {
   ensureConversation,
   enqueueSteer,
@@ -147,5 +149,10 @@ export async function GET(request: Request) {
     modelId: conversation?.modelId ?? null,
     sandbox: getConversationBinding(db(), conversationId),
     projectId: conversation?.projectId ?? null,
+    title: db()
+      .select({ title: conversations.title })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .get()?.title ?? null,
   });
 }

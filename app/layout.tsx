@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AgentPanel } from "@/components/agent-panel";
 import { ConversationSidebar } from "@/components/conversation-sidebar";
 import { PageContextProvider } from "@/components/page-context";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -48,6 +49,9 @@ export default async function RootLayout({
                 {/* max-md gutter reserves the strip the floating sidebar
                     trigger lives in (fixed top-left), on every page. */}
                 <main className="h-dvh min-w-0 flex-1 max-md:pl-12">{children}</main>
+                {/* 0015: the agent panel — an ordinary chat that follows
+                    you across pages (pushes on lg+, overlays below). */}
+                <AgentPanel />
               </div>
             </PageContextProvider>
           </TooltipProvider>

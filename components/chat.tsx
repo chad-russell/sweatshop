@@ -339,12 +339,18 @@ export function ChatSurface({
   const sessionRef = useRef<ChatSessionController>(null);
 
   // 0015: this page is the chat itself (an adopted conversation) or the
-  // project composer (a fresh chat bound to a project).
+  // project composer (a fresh chat bound to a project). projectId rides
+  // along so a panel conversation started here binds to the project.
   usePageContext(
     conversationId
-      ? { kind: "chat", id: conversationId, title: conversationTitle ?? undefined }
+      ? {
+          kind: "chat",
+          id: conversationId,
+          title: conversationTitle ?? undefined,
+          ...(projectId ? { projectId } : {}),
+        }
       : projectId
-        ? { kind: "project", id: projectId, title: projectName }
+        ? { kind: "project", id: projectId, title: projectName, projectId }
         : { kind: "other" },
   );
 

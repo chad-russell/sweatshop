@@ -21,7 +21,7 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
       {/* 0015: the panel's "this" on a sandbox page. */}
-      <PageContextRegistration value={{ kind: "sandbox", id: sandbox.id, title: sandbox.ownerLabel }} />
+      <PageContextRegistration value={{ kind: "sandbox", id: sandbox.id, title: sandbox.ownerLabel, ...(sandbox.projectId ? { projectId: sandbox.projectId } : {}) }} />
       <AppHeader
         crumbs={[
           { label: "Sandboxes", href: "/sandboxes" },

@@ -108,6 +108,7 @@ export function MachineRunView({
     id: run.id,
     title: conversation.title ?? run.machineName,
     runStatus: run.status,
+    ...(run.projectId ? { projectId: run.projectId } : {}),
     ...(run.currentStage ? { currentStage: run.currentStage } : {}),
   });
 
