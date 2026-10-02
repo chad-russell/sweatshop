@@ -394,6 +394,10 @@ export const ChatMessageView = memo(function ChatMessageView({
   const atIso = (message.metadata as { at?: unknown } | undefined)?.at;
   const timeIso = typeof atIso === "string" ? atIso : undefined;
   const timeText = timeIso ? formatTurnTime(timeIso) : "";
+  // Timestamps format in the visitor's locale/timezone, which the server
+  // (UTC) cannot predict — render them only once mounted (see use-mounted).
+  const mounted = useMounted();
+  const showTime = timeText !== "" && mounted;
 
   return (
     <Message from={message.role}>
@@ -418,14 +422,14 @@ export const ChatMessageView = memo(function ChatMessageView({
           return null;
         })}
       </MessageContent>
-      {(text || timeText) && (
+      {(text || showTime) && (
         <MessageActions
           className={cn(
             "opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
             message.role === "user" && "self-end",
           )}
         >
-          {timeText && (
+          {showTime && (
             <time
               dateTime={timeIso}
               title={timeIso ? new Date(timeIso).toLocaleString() : undefined}

@@ -15,6 +15,7 @@ import { InlineName } from "./inline-name";
 import { MoveMenu } from "./move-menu";
 import { RowMenuTrigger } from "./row-menu-trigger";
 import { relativeTime, type FolderChoice, type SidebarItem } from "./types";
+import { useMounted } from "@/lib/use-mounted";
 
 /**
  * One conversation in the folder tree or the Unfiled list: a draggable link
@@ -37,6 +38,8 @@ export function ConversationRow({
   showAge: boolean;
 }) {
   const { actions, pathname, editing, setEditing, setDrag } = useSidebar();
+  // relativeTime is clock- and timezone-dependent — client-only after mount.
+  const mounted = useMounted();
   const active = pathname === `/c/${item.id}`;
   const renaming = editing?.kind === "rename-conversation" && editing.id === item.id;
 
@@ -91,7 +94,7 @@ export function ConversationRow({
               )}
             </span>
           </span>
-          {showAge && (
+          {showAge && mounted && (
             <span className="shrink-0 font-mono text-[10px] text-sidebar-foreground/60 group-focus-within/row:invisible group-hover/row:invisible group-has-[[data-state=open]]/row:invisible pointer-coarse:invisible">
               {relativeTime(item.updatedAt)}
             </span>

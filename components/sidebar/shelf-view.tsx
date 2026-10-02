@@ -4,6 +4,7 @@ import { ArchiveRestore, Trash2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useSidebar } from "./context";
 import { relativeTime, type ShelvedItem } from "./types";
+import { useMounted } from "@/lib/use-mounted";
 
 function Crumbs({ item }: { item: ShelvedItem }) {
   const where = [item.projectName ?? "Chats", ...item.path].join(" / ");
@@ -50,6 +51,8 @@ export function ShelfView({
   items: readonly ShelvedItem[];
 }) {
   const { actions, pathname } = useSidebar();
+  // relativeTime is clock- and timezone-dependent — client-only after mount.
+  const mounted = useMounted();
 
   if (items.length === 0) {
     return (
@@ -81,9 +84,11 @@ export function ShelfView({
               <span className="block truncate text-sm">{item.title ?? item.id}</span>
               <Crumbs item={item} />
             </Link>
-            <span className="shrink-0 font-mono text-[10px] text-sidebar-foreground/60 group-hover/row:hidden">
-              {relativeTime(item.at)}
-            </span>
+            {mounted && (
+              <span className="shrink-0 font-mono text-[10px] text-sidebar-foreground/60 group-hover/row:hidden">
+                {relativeTime(item.at)}
+              </span>
+            )}
             <span className="hidden shrink-0 items-center group-hover/row:flex">
               <IconButton
                 label="Restore"
