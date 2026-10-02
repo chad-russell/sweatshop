@@ -38,6 +38,14 @@ describe("harness event store (0006)", () => {
     ]);
   });
 
+  it("tail returns the newest events, oldest-first", () => {
+    for (let i = 0; i < 6; i += 1) {
+      recordHarnessEvent("wrun_h4", "pi", { kind: "step-end", text: `t${i}` });
+    }
+    const page = getHarnessEvents("wrun_h4", "pi", { limit: 3, tail: true });
+    expect(page.events.map((e) => e.text)).toEqual(["t3", "t4", "t5"]);
+  });
+
   it("pages events with an id cursor", () => {
     for (let i = 0; i < 7; i += 1) {
       recordHarnessEvent("wrun_h2", "pi", { kind: "step-start" });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTimeline, type TimelineEvent } from "../lib/harness-timeline";
+import { buildTimeline, summarizeActivity, toolBrief, type TimelineEvent } from "../lib/harness-timeline";
 
 let n = 0;
 const ev = (e: Omit<TimelineEvent, "id">): TimelineEvent => ({ id: ++n, ...e });
@@ -69,5 +69,45 @@ describe("buildTimeline", () => {
       ev({ kind: "end" }),
     ]);
     expect(items.map((i) => i.type)).toEqual(["turn-start", "compaction", "text", "turn-end"]);
+  });
+});
+
+describe("toolBrief", () => {
+  it("prefers command, then path, and flattens whitespace", () => {
+    expect(toolBrief('{"command":"cd x &&\n  ls"}')).toBe("cd x && ls");
+    expect(toolBrief('{"path":"src/a.ts","content":"zzz"}')).toBe("src/a.ts");
+  });
+  it("survives clipped JSON and truncates long text", () => {
+    expect(toolBrief('{"command":"echo \\"hi\\" && sleep 3')).toBe('echo "hi" && sleep 3');
+    expect(toolBrief(JSON.stringify({ command: "x".repeat(200) }), 20)).toHaveLength(20);
+    expect(toolBrief(null)).toBe("");
+  });
+});
+
+describe("summarizeActivity", () => {
+  it("counts only the latest turn, ignores synthetic events, and reports the call in flight", () => {
+    const a = summarizeActivity([
+      ev({ kind: "start" }),
+      ev({ kind: "tool-start", toolName: "bash", toolCallId: "old", input: '{"command":"old"}' }),
+      ev({ kind: "tool-end", toolName: "bash", toolCallId: "old", output: "" }),
+      ev({ kind: "end" }),
+      ev({ kind: "start" }),
+      ev({ kind: "tool-start", toolName: "read", toolCallId: "r", input: '{"path":"a.ts"}' }),
+      ev({ kind: "tool-end", toolName: "read", toolCallId: "r", output: "" }),
+      ev({ kind: "tool-start", toolName: "fileChange", toolCallId: "f", input: '{"event":"add","path":"zzz"}' }),
+      ev({ kind: "tool-start", toolName: "bash", toolCallId: "b", input: '{"command":"npm test"}' }),
+    ]);
+    expect(a.toolCalls).toBe(2);
+    expect(a.current).toEqual({ toolName: "bash", brief: "npm test" });
+    expect(a.last).toEqual({ toolName: "bash", brief: "npm test" });
+  });
+  it("has no current call between tools", () => {
+    const a = summarizeActivity([
+      ev({ kind: "start" }),
+      ev({ kind: "tool-start", toolName: "read", toolCallId: "r", input: '{"path":"a.ts"}' }),
+      ev({ kind: "tool-end", toolName: "read", toolCallId: "r", output: "" }),
+    ]);
+    expect(a.current).toBeNull();
+    expect(a.last).toEqual({ toolName: "read", brief: "a.ts" });
   });
 });

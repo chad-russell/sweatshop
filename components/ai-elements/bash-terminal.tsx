@@ -1,9 +1,9 @@
 "use client";
 
 import { CheckIcon, ChevronDownIcon, CopyIcon, SquareTerminalIcon } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { parseAnsi, stripAnsi, type AnsiColor, type AnsiSegment } from "@/lib/ansi";
+import { luminance, parseAnsi, stripAnsi, type AnsiColor, type AnsiSegment, type NamedColor } from "@/lib/ansi";
 import { parseBash } from "@/lib/bash-view";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -18,32 +18,77 @@ export type BashState =
   | "approval-requested"
   | "approval-responded";
 
-const COLOR_CLASS: Record<AnsiColor, string> = {
+// Full class strings (not templated) so Tailwind can see them.
+const FG_CLASS: Record<NamedColor, string> = {
+  black: "text-terminal-black",
   red: "text-terminal-red",
   green: "text-terminal-green",
   yellow: "text-terminal-yellow",
   blue: "text-terminal-blue",
   magenta: "text-terminal-magenta",
   cyan: "text-terminal-cyan",
-  gray: "text-terminal-muted",
+  white: "text-terminal-white",
+  foreground: "text-terminal-foreground",
+  background: "text-terminal",
 };
+
+const BG_CLASS: Record<NamedColor, string> = {
+  black: "bg-terminal-bg-black",
+  red: "bg-terminal-bg-red",
+  green: "bg-terminal-bg-green",
+  yellow: "bg-terminal-bg-yellow",
+  blue: "bg-terminal-bg-blue",
+  magenta: "bg-terminal-bg-magenta",
+  cyan: "bg-terminal-bg-cyan",
+  white: "bg-terminal-bg-white",
+  foreground: "bg-terminal-foreground",
+  background: "bg-terminal",
+};
+
+const isLiteral = (c: AnsiColor): c is `#${string}` => c.startsWith("#");
+
+/** Text colour for a segment: explicit fg wins; on a coloured background,
+ *  black/default text becomes the dark "ink" (or light, on a dark block). */
+function fgFor(s: AnsiSegment): { className?: string; style?: CSSProperties } {
+  const { fg, bg } = s;
+  if (bg) {
+    const darkBlock = isLiteral(bg) ? luminance(bg) < 0.35 : bg === "black";
+    if (!fg || fg === "black" || fg === "foreground") {
+      // Inverse of the default (bg=foreground, fg=background) is handled below.
+      if (bg === "foreground") return { className: "text-terminal" };
+      return { className: darkBlock ? "text-terminal-bg-white" : "text-terminal-ink" };
+    }
+  }
+  if (!fg) return {};
+  return isLiteral(fg) ? { style: { color: fg } } : { className: FG_CLASS[fg] };
+}
 
 function Segments({ segments, base }: { segments: AnsiSegment[]; base?: string }) {
   return (
     <>
-      {segments.map((s, i) => (
-        <span
-          key={i}
-          className={cn(
-            base,
-            s.color && COLOR_CLASS[s.color],
-            s.bold && "font-semibold",
-            s.dim && "opacity-60",
-          )}
-        >
-          {s.text}
-        </span>
-      ))}
+      {segments.map((s, i) => {
+        const fg = fgFor(s);
+        const bgStyle = s.bg && isLiteral(s.bg) ? { backgroundColor: s.bg } : undefined;
+        return (
+          <span
+            key={i}
+            style={{ ...fg.style, ...bgStyle }}
+            className={cn(
+              base,
+              fg.className,
+              s.bg && !isLiteral(s.bg) && BG_CLASS[s.bg],
+              s.bg && "rounded-[2px]",
+              s.bold && "font-semibold",
+              s.dim && "opacity-60",
+              s.italic && "italic",
+              s.underline && "underline underline-offset-2",
+              s.strike && "line-through",
+            )}
+          >
+            {s.text}
+          </span>
+        );
+      })}
     </>
   );
 }

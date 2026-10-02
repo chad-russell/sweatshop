@@ -73,12 +73,13 @@ export interface HarnessEventPage {
  * One harness's events for a conversation, oldest-first. `afterId`
  * returns only events appended after that id (incremental polling);
  * `limit` bounds each page so long sessions stream in windows instead
- * of truncating at a hard cap (0006).
+ * of truncating at a hard cap (0006). `tail` returns the newest `limit`
+ * events instead of the oldest.
  */
 export function getHarnessEvents(
   sessionId: string,
   harness: HarnessKind = "pi",
-  options: { afterId?: number; limit?: number } = {},
+  options: { afterId?: number; limit?: number; tail?: boolean } = {},
 ): HarnessEventPage {
   const limit = Math.min(Math.max(options.limit ?? 500, 1), 1000);
   const filters = [
@@ -87,6 +88,18 @@ export function getHarnessEvents(
   ];
   if (options.afterId !== undefined) {
     filters.push(gt(harnessEvents.id, options.afterId));
+  }
+  if (options.tail) {
+    // The newest `limit` events, still returned oldest-first — what a live
+    // "what is it doing now" peek wants, without paging from the start.
+    const newest = db()
+      .select()
+      .from(harnessEvents)
+      .where(and(...filters))
+      .orderBy(desc(harnessEvents.id))
+      .limit(limit)
+      .all() as HarnessEvent[];
+    return { events: newest.reverse(), cursor: null };
   }
   const rows = db()
     .select()

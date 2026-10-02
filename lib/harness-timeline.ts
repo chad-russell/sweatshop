@@ -178,3 +178,50 @@ export function buildTimeline(events: readonly TimelineEvent[]): TimelineItem[] 
 export function isSyntheticTool(name: string | null | undefined): boolean {
   return !!name && SYNTHETIC.has(name);
 }
+
+/**
+ * One short line saying what a tool call is doing — the command for bash,
+ * the path for file tools, else the first string argument. Input may be
+ * clipped mid-JSON, so fall back to a regexp.
+ */
+export function toolBrief(input: string | null | undefined, max = 90): string {
+  if (!input) return "";
+  let text = "";
+  const parsed = parseJson(input);
+  if (parsed && typeof parsed === "object") {
+    const o = parsed as Record<string, unknown>;
+    const pick = ["command", "path", "file_path", "filePath", "pattern", "query"]
+      .map((k) => o[k])
+      .find((v) => typeof v === "string") as string | undefined;
+    text = pick ?? (Object.values(o).find((v) => typeof v === "string") as string | undefined) ?? "";
+  } else {
+    const m = /"(?:command|path|file_path|pattern)"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(input);
+    text = m ? m[1].replace(/\\n/g, " ").replace(/\\"/g, '"') : "";
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+export interface HarnessActivity {
+  /** Tool calls in the latest turn (synthetic events excluded). */
+  toolCalls: number;
+  /** The call in flight, if any. */
+  current: { toolName: string; brief: string } | null;
+  /** The most recent call (finished or not) — what to show between calls. */
+  last: { toolName: string; brief: string } | null;
+}
+
+/** What a harness is doing right now, from the latest turn's events. */
+export function summarizeActivity(events: readonly TimelineEvent[]): HarnessActivity {
+  const items = buildTimeline(events);
+  const turnAt = items.map((i) => i.type).lastIndexOf("turn-start");
+  const tools = items.slice(turnAt + 1).filter((i): i is ToolItem => i.type === "tool");
+  const describe = (t: ToolItem) => ({ toolName: t.toolName, brief: toolBrief(t.input) });
+  const running = [...tools].reverse().find((t) => t.state === "running");
+  const lastTool = tools[tools.length - 1];
+  return {
+    toolCalls: tools.length,
+    current: running ? describe(running) : null,
+    last: lastTool ? describe(lastTool) : null,
+  };
+}

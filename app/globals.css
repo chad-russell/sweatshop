@@ -54,6 +54,7 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  --color-brand-claude: var(--brand-claude);
   --color-terminal: var(--terminal);
   --color-terminal-foreground: var(--terminal-foreground);
   --color-terminal-muted: var(--terminal-muted);
@@ -64,6 +65,17 @@
   --color-terminal-blue: var(--terminal-blue);
   --color-terminal-magenta: var(--terminal-magenta);
   --color-terminal-cyan: var(--terminal-cyan);
+  --color-terminal-black: var(--terminal-black);
+  --color-terminal-white: var(--terminal-white);
+  --color-terminal-ink: var(--terminal-ink);
+  --color-terminal-bg-black: var(--terminal-bg-black);
+  --color-terminal-bg-red: var(--terminal-bg-red);
+  --color-terminal-bg-green: var(--terminal-bg-green);
+  --color-terminal-bg-yellow: var(--terminal-bg-yellow);
+  --color-terminal-bg-blue: var(--terminal-bg-blue);
+  --color-terminal-bg-magenta: var(--terminal-bg-magenta);
+  --color-terminal-bg-cyan: var(--terminal-bg-cyan);
+  --color-terminal-bg-white: var(--terminal-bg-white);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -113,17 +125,30 @@
   --success: #047857;
   --warning: #92400e;
   --info: #1d4ed8;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
   /* terminal surface: soft gray, darker than the card; ANSI hues deepened for contrast */
-  --terminal: #f4f4f5;
+  --terminal: #f9fafb;
   --terminal-foreground: #27272a;
   --terminal-muted: #71717a;
-  --terminal-border: #e4e4e7;
+  --terminal-border: #e5e7eb;
   --terminal-red: #b91c1c;
   --terminal-green: #15803d;
   --terminal-yellow: #a16207;
   --terminal-blue: #1d4ed8;
   --terminal-magenta: #7e22ce;
   --terminal-cyan: #0e7490;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #52525b;
+  --terminal-white: #a1a1aa;
+  --terminal-ink: #0b0d12;
+  --terminal-bg-black: #3f3f46;
+  --terminal-bg-red: #ef4444;
+  --terminal-bg-green: #22c55e;
+  --terminal-bg-yellow: #eab308;
+  --terminal-bg-blue: #3b82f6;
+  --terminal-bg-magenta: #c084fc;
+  --terminal-bg-cyan: #22d3ee;
+  --terminal-bg-white: #e4e4e7;
 }
 
 /* ------------------------------------------------------------------ */
@@ -168,6 +193,7 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --info: #60a5fa;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
   /* terminal surface: dark theme */
   --terminal: #000000;
   --terminal-foreground: #d4d7dd;
@@ -179,6 +205,18 @@
   --terminal-blue: #60a5fa;
   --terminal-magenta: #c084fc;
   --terminal-cyan: #22d3ee;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #6b7280;
+  --terminal-white: #f4f4f5;
+  --terminal-ink: #0b0d12;
+  --terminal-bg-black: #3f3f46;
+  --terminal-bg-red: #ef4444;
+  --terminal-bg-green: #22c55e;
+  --terminal-bg-yellow: #eab308;
+  --terminal-bg-blue: #3b82f6;
+  --terminal-bg-magenta: #c084fc;
+  --terminal-bg-cyan: #22d3ee;
+  --terminal-bg-white: #e4e4e7;
 }
 
 /* ------------------------------------------------------------------ */
@@ -222,17 +260,30 @@
   --success: #047857;
   --warning: #92400e;
   --info: #1d4ed8;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
   /* terminal surface: soft gray, darker than the card; ANSI hues deepened for contrast */
-  --terminal: #f4f4f5;
+  --terminal: #f9fafb;
   --terminal-foreground: #27272a;
   --terminal-muted: #71717a;
-  --terminal-border: #e4e4e7;
+  --terminal-border: #e5e7eb;
   --terminal-red: #b91c1c;
   --terminal-green: #15803d;
   --terminal-yellow: #a16207;
   --terminal-blue: #1d4ed8;
   --terminal-magenta: #7e22ce;
   --terminal-cyan: #0e7490;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #52525b;
+  --terminal-white: #a1a1aa;
+  --terminal-ink: #0b0d12;
+  --terminal-bg-black: #3f3f46;
+  --terminal-bg-red: #ef4444;
+  --terminal-bg-green: #22c55e;
+  --terminal-bg-yellow: #eab308;
+  --terminal-bg-blue: #3b82f6;
+  --terminal-bg-magenta: #c084fc;
+  --terminal-bg-cyan: #22d3ee;
+  --terminal-bg-white: #e4e4e7;
 }
 
 @layer base {

@@ -26,8 +26,15 @@ export async function GET(
   const afterId =
     afterRaw !== null && /^\d+$/.test(afterRaw) ? Number(afterRaw) : undefined;
 
+  // ?tail=<n>: the newest n events (live activity peeks), not the oldest.
+  const tailRaw = url.searchParams.get("tail");
+  const tail = tailRaw !== null && /^\d+$/.test(tailRaw) ? Number(tailRaw) : undefined;
+
   const run = getHarnessRun(sessionId, harness);
-  const page = getHarnessEvents(sessionId, harness, { afterId });
+  const page =
+    tail !== undefined && afterId === undefined
+      ? getHarnessEvents(sessionId, harness, { limit: tail, tail: true })
+      : getHarnessEvents(sessionId, harness, { afterId });
   return Response.json({
     sessionId,
     harness,

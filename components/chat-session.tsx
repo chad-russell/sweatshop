@@ -4,7 +4,7 @@ import { WorkflowChatTransport } from "@ai-sdk/workflow/client";
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { nanoid } from "nanoid";
-import { Bot, Check, ChevronDown, Copy, Eye, GitPullRequest, MessageSquarePlus, RotateCcw } from "lucide-react";
+import { Check, ChevronDown, Copy, Eye, GitPullRequest, MessageSquarePlus, RotateCcw } from "lucide-react";
 import {
   memo,
   useEffect,
@@ -37,6 +37,7 @@ import {
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
+import { HarnessCard } from "@/components/harness-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Spinner } from "@/components/ui/spinner";
@@ -140,52 +141,6 @@ function isThinking(status: ChatStatus, messages: readonly UIMessage[]) {
   return !(
     last?.role === "assistant" &&
     last.parts.some((part) => part.type === "text" && part.text)
-  );
-}
-
-/** One coding-harness delegation: status + a link to /h/<kind>/<id>. */
-function HarnessToolCard({
-  part,
-  conversationId,
-}: {
-  part: ToolUIPart;
-  conversationId: string | null;
-}) {
-  const running = part.state === "input-streaming" || part.state === "input-available";
-  const kind = part.type.replace(/^tool-/, "");
-  const task = (part.input as { task?: unknown } | undefined)?.task;
-  const taskText = typeof task === "string" ? task : undefined;
-  const url = conversationId ? `/h/${kind}/${conversationId}` : null;
-
-  return (
-    <div className="my-1 rounded-lg border border-info/40 bg-card px-3 py-2.5 text-card-foreground">
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-          <Bot className="size-4 shrink-0 text-info" aria-hidden />
-          <span className="shrink-0">{kind} harness</span>
-          <span
-            className={
-              "shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase " +
-              (running ? "animate-pulse bg-info/15 text-info" : "bg-success/15 text-success")
-            }
-          >
-            {running ? "running" : "done"}
-          </span>
-          <SandboxChip toolCallId={part.toolCallId} />
-          {taskText && (
-            <span className="truncate text-xs font-normal text-muted-foreground">{taskText}</span>
-          )}
-        </span>
-        {url && (
-          <a
-            href={url}
-            className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
-          >
-            View session →
-          </a>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -505,8 +460,18 @@ export const ChatMessageView = memo(function ChatMessageView({
             const toolPart = part as ToolUIPart;
             if (toolPart.type === "tool-ask_chad") return <AskChadCard key={i} part={toolPart} />;
             if (toolPart.type === "tool-pi" || toolPart.type === "tool-claude") {
+              const task = (toolPart.input as { task?: unknown } | undefined)?.task;
               return (
-                <HarnessToolCard key={i} part={toolPart} conversationId={conversationId ?? null} />
+                <HarnessCard
+                  key={i}
+                  kind={toolPart.type.slice(5)}
+                  state={toolPart.state}
+                  task={typeof task === "string" ? task : undefined}
+                  output={toolPart.state === "output-available" ? toolPart.output : undefined}
+                  errorText={toolPart.state === "output-error" ? toolPart.errorText : undefined}
+                  toolCallId={toolPart.toolCallId}
+                  conversationId={conversationId ?? null}
+                />
               );
             }
             if (toolPart.type === "tool-create_pr") {
