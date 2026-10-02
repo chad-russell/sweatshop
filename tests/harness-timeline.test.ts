@@ -1,0 +1,73 @@
+import { describe, expect, it } from "vitest";
+import { buildTimeline, type TimelineEvent } from "../lib/harness-timeline";
+
+let n = 0;
+const ev = (e: Omit<TimelineEvent, "id">): TimelineEvent => ({ id: ++n, ...e });
+
+describe("buildTimeline", () => {
+  it("folds start + end into one tool item by toolCallId", () => {
+    const items = buildTimeline([
+      ev({ kind: "tool-start", toolName: "bash", toolCallId: "a", input: "{}" }),
+      ev({ kind: "tool-start", toolName: "bash", toolCallId: "b", input: "{}" }),
+      ev({ kind: "tool-end", toolName: "bash", toolCallId: "b", output: "two" }),
+      ev({ kind: "tool-end", toolName: "bash", toolCallId: "a", output: "one" }),
+    ]);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ toolCallId: "a", state: "completed", output: "one" });
+    expect(items[1]).toMatchObject({ toolCallId: "b", state: "completed", output: "two" });
+  });
+
+  it("leaves an unfinished call running and marks errors", () => {
+    const items = buildTimeline([
+      ev({ kind: "tool-start", toolName: "bash", toolCallId: "a" }),
+      ev({ kind: "tool-start", toolName: "write", toolCallId: "b" }),
+      ev({ kind: "tool-error", toolName: "write", toolCallId: "b", output: "EACCES" }),
+    ]);
+    expect(items[0]).toMatchObject({ state: "running" });
+    expect(items[1]).toMatchObject({ state: "error", output: "EACCES" });
+  });
+
+  it("attaches a fileChange to the running write on that path", () => {
+    const items = buildTimeline([
+      ev({ kind: "tool-start", toolName: "write", toolCallId: "w", input: '{"path":"./scratch/smoke.txt","content":"x"}' }),
+      ev({ kind: "tool-start", toolName: "fileChange", toolCallId: "f", input: '{"event":"add","path":"scratch/smoke.txt"}' }),
+      ev({ kind: "tool-end", toolName: "fileChange", toolCallId: "f", output: '{"event":"add","path":"scratch/smoke.txt"}' }),
+      ev({ kind: "tool-end", toolName: "write", toolCallId: "w", output: "ok" }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      type: "tool",
+      toolName: "write",
+      state: "completed",
+      changes: [{ event: "add", path: "scratch/smoke.txt" }],
+    });
+  });
+
+  it("shows an unmatched fileChange as its own marker", () => {
+    const items = buildTimeline([
+      ev({ kind: "tool-start", toolName: "fileChange", toolCallId: "f", input: '{"event":"update","path":"a.ts"}' }),
+    ]);
+    expect(items).toEqual([expect.objectContaining({ type: "file-change" })]);
+  });
+
+  it("pairs legacy rows (no toolCallId) with the earliest open start of that tool", () => {
+    const items = buildTimeline([
+      ev({ kind: "tool-start", toolName: "bash" }),
+      ev({ kind: "tool-start", toolName: "write" }),
+      ev({ kind: "tool-end", toolName: "bash", output: "done" }),
+    ]);
+    expect(items[0]).toMatchObject({ toolName: "bash", state: "completed" });
+    expect(items[1]).toMatchObject({ toolName: "write", state: "running" });
+  });
+
+  it("renders compaction as a marker and keeps turn boundaries and text", () => {
+    const items = buildTimeline([
+      ev({ kind: "start" }),
+      ev({ kind: "tool-start", toolName: "compaction", toolCallId: "c" }),
+      ev({ kind: "tool-end", toolName: "compaction", toolCallId: "c", output: "{}" }),
+      ev({ kind: "step-end", text: "hello" }),
+      ev({ kind: "end" }),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(["turn-start", "compaction", "text", "turn-end"]);
+  });
+});

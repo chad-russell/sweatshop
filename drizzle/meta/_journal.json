@@ -176,6 +176,13 @@
       "when": 1790978614046,
       "tag": "0024_message_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1790981907587,
+      "tag": "0025_harness_event_tool_call_id",
+      "breakpoints": true
     }
   ]
 }

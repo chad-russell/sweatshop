@@ -28,6 +28,16 @@ describe("harness event store (0006)", () => {
     expect(claude[1].toolName).toBe("bash");
   });
 
+  it("round-trips toolCallId and tool-error rows", () => {
+    recordHarnessEvent("wrun_h3", "pi", { kind: "tool-start", toolName: "write", toolCallId: "tc1" });
+    recordHarnessEvent("wrun_h3", "pi", { kind: "tool-error", toolName: "write", toolCallId: "tc1", output: "boom" });
+    const events = getHarnessEvents("wrun_h3", "pi").events;
+    expect(events.map((e) => [e.kind, e.toolCallId])).toEqual([
+      ["tool-start", "tc1"],
+      ["tool-error", "tc1"],
+    ]);
+  });
+
   it("pages events with an id cursor", () => {
     for (let i = 0; i < 7; i += 1) {
       recordHarnessEvent("wrun_h2", "pi", { kind: "step-start" });

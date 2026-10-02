@@ -120,6 +120,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
           recordHarnessEvent(sessionId, kind, {
             kind: "tool-start",
             toolName: name,
+            toolCallId: String(chunk.toolCallId),
             input: clipHarnessText(chunk.input, 1000),
           });
           break;
@@ -129,12 +130,23 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
           recordHarnessEvent(sessionId, kind, {
             kind: "tool-end",
             toolName: name,
+            toolCallId: String(chunk.toolCallId),
             output: clipHarnessText(chunk.output, 2000),
           });
           const output = chunk.output as { ok?: unknown; to?: unknown } | undefined;
           if (name === "transition" && output?.ok === true && typeof output.to === "string") {
             proposed = output.to;
           }
+          break;
+        }
+        case "tool-output-error": {
+          const name = toolNames.get(String(chunk.toolCallId)) ?? "tool";
+          recordHarnessEvent(sessionId, kind, {
+            kind: "tool-error",
+            toolName: name,
+            toolCallId: String(chunk.toolCallId),
+            output: clipHarnessText(chunk.errorText, 2000),
+          });
           break;
         }
       }

@@ -1,12 +1,14 @@
 "use client";
 
-import { Bot, Box, Loader2, Terminal } from "lucide-react";
+import { Bot, Box, FileText, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
 import type { SandboxLink } from "@/db/sandbox-view";
+import { buildTimeline, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +17,7 @@ export interface HarnessEvent {
   at: number;
   kind: string;
   toolName?: string | null;
+  toolCallId?: string | null;
   input?: string | null;
   output?: string | null;
   text?: string | null;
@@ -30,127 +33,135 @@ export interface HarnessRun {
   error?: string | null;
 }
 
-/** One harness tool call, collapsed by default (ai-elements tool style). */
-function HarnessToolCall({
-  toolName,
-  input,
-  output,
-}: {
-  toolName: string;
-  input?: string | null;
-  output?: string | null;
-}) {
-  const [open, setOpen] = useState(false);
+function parseMaybeJson(value: string | null): unknown {
+  if (value === null) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value; // clipped mid-JSON or plain text
+  }
+}
+
+const CHANGE_LABEL: Record<string, string> = {
+  add: "created",
+  create: "created",
+  created: "created",
+  update: "modified",
+  modify: "modified",
+  modified: "modified",
+  change: "modified",
+  delete: "deleted",
+  deleted: "deleted",
+};
+
+/** A file the harness reported changing — a chip, not a call of its own. */
+function FileChangeChip({ change }: { change: FileChange }) {
   return (
-    <div className="rounded-md border border-border">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-accent/50"
-      >
-        <Terminal className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="font-mono">{toolName}</span>
-        <span className="text-muted-foreground">
-          {output !== undefined && output !== null ? "· completed" : "· running"}
-        </span>
-        <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-          {open ? "−" : "+"}
-        </span>
-      </button>
-      {open && (
-        <div className="space-y-2 border-t border-border px-3 py-2">
-          {input && (
-            <div>
-              <p className="mb-1 font-mono text-[10px] uppercase text-muted-foreground">
-                input
-              </p>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 font-mono text-[11px]">
-                {input}
-              </pre>
-            </div>
-          )}
-          {output && (
-            <div>
-              <p className="mb-1 font-mono text-[10px] uppercase text-muted-foreground">
-                output
-              </p>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 font-mono text-[11px]">
-                {output}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+      <FileText className="size-3 shrink-0" aria-hidden />
+      <span className="shrink-0">{CHANGE_LABEL[change.event] ?? change.event}</span>
+      <span className="truncate text-foreground">{change.path}</span>
+    </span>
+  );
+}
+
+/** One harness tool call: a single card whose state follows the call. */
+function HarnessToolCall({ item }: { item: Extract<TimelineItem, { type: "tool" }> }) {
+  const input = parseMaybeJson(item.input);
+  const output = parseMaybeJson(item.output);
+  const state =
+    item.state === "completed"
+      ? "output-available"
+      : item.state === "error"
+        ? "output-error"
+        : "input-available";
+  return (
+    <Tool className={cn("mb-0", item.state === "error" && "border-destructive/40")}>
+      <ToolHeader
+        type="dynamic-tool"
+        state={state}
+        toolName={item.toolName}
+        extra={
+          item.changes.length > 0 ? (
+            <span className="flex min-w-0 flex-wrap justify-end gap-1">
+              {item.changes.map((c, i) => (
+                <FileChangeChip key={i} change={c} />
+              ))}
+            </span>
+          ) : undefined
+        }
+      />
+      <ToolContent>
+        {input !== undefined && <ToolInput input={input} />}
+        {output !== undefined && (
+          <ToolOutput
+            output={item.state === "error" ? undefined : (output as never)}
+            errorText={item.state === "error" ? String(item.output ?? "tool failed") : undefined}
+          />
+        )}
+      </ToolContent>
+    </Tool>
   );
 }
 
 /** A harness session's events, conversation-style (also the 0012 run
- *  view's side panel). */
+ *  view's side panel). Raw rows are folded into one item per tool call. */
 export function HarnessEventLog({ events }: { events: readonly HarnessEvent[] }) {
+  const items = useMemo(() => buildTimeline(events), [events]);
   return (
     <>
-    {events.length === 0 && (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        No harness activity recorded yet.
-      </p>
-    )}
-    <div className="space-y-3">
-      {events.map((event) => {
-        if (event.kind === "start") {
-          return (
-            <p
-              key={event.id}
-              className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
-            >
-              — pi turn —
-            </p>
-          );
-        }
-        if (event.kind === "end") {
-          return (
-            <p
-              key={event.id}
-              className="py-1 text-center font-mono text-[10px] text-muted-foreground"
-            >
-              ···
-            </p>
-          );
-        }
-        if (event.kind === "step-start") {
-          return null;
-        }
-        if (event.kind === "step-end") {
-          return event.text ? (
-            <div
-              key={event.id}
-              className="rounded-lg bg-muted/40 px-3 py-2 text-sm"
-            >
-              <MessageResponse>{event.text}</MessageResponse>
-            </div>
-          ) : null;
-        }
-        if (event.kind === "tool-start") {
-          return (
-            <HarnessToolCall
-              key={`t-${event.id}`}
-              toolName={event.toolName ?? "?"}
-              input={event.input}
-            />
-          );
-        }
-        if (event.kind === "tool-end") {
-          return (
-            <HarnessToolCall
-              key={`t-${event.id}`}
-              toolName={event.toolName ?? "?"}
-              output={event.output}
-            />
-          );
-        }
-        return null;
-      })}
-    </div>
+      {items.length === 0 && (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          No harness activity recorded yet.
+        </p>
+      )}
+      <div className="space-y-3">
+        {items.map((item) => {
+          switch (item.type) {
+            case "turn-start":
+              return (
+                <p
+                  key={`s-${item.id}`}
+                  className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
+                >
+                  — turn —
+                </p>
+              );
+            case "turn-end":
+              return (
+                <p
+                  key={`e-${item.id}`}
+                  className="py-1 text-center font-mono text-[10px] text-muted-foreground"
+                >
+                  ···
+                </p>
+              );
+            case "text":
+              return (
+                <div key={`x-${item.id}`} className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                  <MessageResponse>{item.text}</MessageResponse>
+                </div>
+              );
+            case "tool":
+              return <HarnessToolCall key={`t-${item.id}`} item={item} />;
+            case "file-change":
+              return (
+                <div key={`f-${item.id}`} className="flex">
+                  <FileChangeChip change={item.change} />
+                </div>
+              );
+            case "compaction":
+              return (
+                <p
+                  key={`c-${item.id}`}
+                  className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
+                >
+                  — context compacted —
+                </p>
+              );
+          }
+        })}
+      </div>
     </>
   );
 }

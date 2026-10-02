@@ -419,6 +419,8 @@ export const harnessEvents = sqliteTable(
     at: integer("at").notNull(),
     kind: text("kind").notNull(),
     toolName: text("tool_name"),
+    /** Pairs a tool-start with its tool-end/tool-error (null on pre-0025 rows). */
+    toolCallId: text("tool_call_id"),
     input: text("input"),
     output: text("output"),
     text: text("text"),

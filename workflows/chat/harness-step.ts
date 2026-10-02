@@ -203,10 +203,12 @@ export async function harnessToolStep(
           case "tool-input-available": {
             const name = String(chunk.toolName ?? "");
             toolNames.set(String(chunk.toolCallId), name);
-            toolCalls += 1;
+            // fileChange / compaction are synthetic harness events, not calls.
+            if (name !== "fileChange" && name !== "compaction") toolCalls += 1;
             recordHarnessEvent(conversationId, kind, {
               kind: "tool-start",
               toolName: name,
+              toolCallId: String(chunk.toolCallId),
               input: clipHarnessText(chunk.input, 1000),
             });
             break;
@@ -216,7 +218,18 @@ export async function harnessToolStep(
             recordHarnessEvent(conversationId, kind, {
               kind: "tool-end",
               toolName: name,
+              toolCallId: String(chunk.toolCallId),
               output: clipHarnessText(chunk.output, 2000),
+            });
+            break;
+          }
+          case "tool-output-error": {
+            const name = toolNames.get(String(chunk.toolCallId)) ?? "tool";
+            recordHarnessEvent(conversationId, kind, {
+              kind: "tool-error",
+              toolName: name,
+              toolCallId: String(chunk.toolCallId),
+              output: clipHarnessText(chunk.errorText, 2000),
             });
             break;
           }

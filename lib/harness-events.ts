@@ -24,9 +24,12 @@ export interface HarnessEvent {
     | "step-start"
     | "tool-start"
     | "tool-end"
+    | "tool-error"
     | "step-end"
     | "end";
   readonly toolName?: string | null;
+  /** Pairs tool-start with its tool-end/tool-error; null on pre-0025 rows. */
+  readonly toolCallId?: string | null;
   readonly input?: string | null;
   readonly output?: string | null;
   readonly text?: string | null;
@@ -52,6 +55,7 @@ export function recordHarnessEvent(
       at: Date.now(),
       kind: event.kind,
       toolName: event.toolName ?? null,
+      toolCallId: event.toolCallId ?? null,
       input: event.input ?? null,
       output: event.output ?? null,
       text: event.text ?? null,
