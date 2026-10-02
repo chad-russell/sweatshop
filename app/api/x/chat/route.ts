@@ -1,3 +1,5 @@
+import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
+import { createUIMessageStreamResponse } from "ai";
 import { NextResponse } from "next/server";
 import { getRun, start } from "workflow/api";
 import { db } from "@/db";
@@ -46,6 +48,19 @@ export async function POST(request: Request) {
     ?.parts?.flatMap((part) => (part.type === "text" ? [part.text ?? ""] : []))
     .join("");
   const text = (body.text ?? transportText ?? "").trim();
+  // WorkflowChatTransport callers (`messages` present) need the turn's UI
+  // stream plus an `x-workflow-run-id` header; plain fetch callers (steer)
+  // get JSON.
+  const wantsStream = body.text === undefined && body.messages !== undefined;
+  const respond = (runId: string, steered: boolean) =>
+    wantsStream
+      ? createUIMessageStreamResponse({
+          stream: getRun(runId)
+            .getReadable({ startIndex: 0 })
+            .pipeThrough(createModelCallToUIChunkTransform({ uiStartIndex: 0 })),
+          headers: { "x-workflow-run-id": runId },
+        })
+      : NextResponse.json({ runId, steered });
   if (!body.conversationId || !text) {
     return NextResponse.json(
       { error: "conversationId and non-empty text are required" },
@@ -71,7 +86,7 @@ export async function POST(request: Request) {
   if (active) {
     if (ACTIVE.has(await getRun(active).status)) {
       enqueueSteer(db(), body.conversationId, text);
-      return NextResponse.json({ runId: active, steered: true });
+      return respond(active, true);
     }
     setActiveRun(db(), body.conversationId, null);
     active = null;
@@ -90,7 +105,7 @@ export async function POST(request: Request) {
   if (ACTIVE.has(await run.status)) {
     setActiveRun(db(), body.conversationId, run.runId);
   }
-  return NextResponse.json({ runId: run.runId, steered: false });
+  return respond(run.runId, false);
 }
 
 function isValidSandboxPref(value: string): boolean {
