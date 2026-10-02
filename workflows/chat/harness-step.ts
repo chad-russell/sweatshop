@@ -1,3 +1,4 @@
+import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "../../lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { BoundSandbox } from "../../db/sandboxes";
 
@@ -209,7 +210,7 @@ export async function harnessToolStep(
               kind: "tool-start",
               toolName: name,
               toolCallId: String(chunk.toolCallId),
-              input: clipHarnessText(chunk.input, 1000),
+              input: clipHarnessText(chunk.input, HARNESS_INPUT_CLIP),
             });
             break;
           }
@@ -219,7 +220,7 @@ export async function harnessToolStep(
               kind: "tool-end",
               toolName: name,
               toolCallId: String(chunk.toolCallId),
-              output: clipHarnessText(chunk.output, 2000),
+              output: clipHarnessText(chunk.output, HARNESS_OUTPUT_CLIP),
             });
             break;
           }
@@ -229,7 +230,7 @@ export async function harnessToolStep(
               kind: "tool-error",
               toolName: name,
               toolCallId: String(chunk.toolCallId),
-              output: clipHarnessText(chunk.errorText, 2000),
+              output: clipHarnessText(chunk.errorText, HARNESS_OUTPUT_CLIP),
             });
             break;
           }

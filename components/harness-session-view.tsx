@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
+import { FileCard } from "@/components/ai-elements/file-card";
+import { ListCard } from "@/components/ai-elements/list-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
@@ -44,6 +46,9 @@ function parseMaybeJson(value: string | null): unknown {
   }
 }
 
+/** Tools whose output is text to show verbatim — a JSON file read must not be parsed away. */
+const RAW_OUTPUT_TOOLS = new Set(["read", "ls", "grep", "glob", "find"]);
+
 const CHANGE_LABEL: Record<string, string> = {
   add: "created",
   create: "created",
@@ -70,13 +75,36 @@ function FileChangeChip({ change }: { change: FileChange }) {
 /** One harness tool call: a single card whose state follows the call. */
 function HarnessToolCall({ item }: { item: Extract<TimelineItem, { type: "tool" }> }) {
   const input = parseMaybeJson(item.input);
-  const output = parseMaybeJson(item.output);
+  const output = RAW_OUTPUT_TOOLS.has(item.toolName) ? (item.output ?? undefined) : parseMaybeJson(item.output);
   const state =
     item.state === "completed"
       ? "output-available"
       : item.state === "error"
         ? "output-error"
         : "input-available";
+  const cardState = item.state === "error" ? "error" : item.state === "completed" ? "completed" : "running";
+  const errorText = item.state === "error" ? String(item.output ?? "tool failed") : undefined;
+  const plainOutput = item.state === "error" ? undefined : output;
+  if (item.toolName === "write" || item.toolName === "edit" || item.toolName === "read") {
+    // pi's write output doesn't say create vs overwrite; its fileChange event does.
+    const ev = item.changes[0]?.event;
+    const hint = ev && /^(add|create)/.test(ev) ? "create" : ev ? "update" : undefined;
+    return (
+      <FileCard
+        tool={item.toolName}
+        state={cardState}
+        input={input}
+        output={plainOutput}
+        errorText={errorText}
+        hintChange={hint}
+      />
+    );
+  }
+  if (item.toolName === "ls" || item.toolName === "grep" || item.toolName === "glob" || item.toolName === "find") {
+    return (
+      <ListCard tool={item.toolName} state={cardState} input={input} output={plainOutput} errorText={errorText} />
+    );
+  }
   if (item.toolName === "bash") {
     return (
       <BashTerminal

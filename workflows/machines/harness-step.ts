@@ -1,3 +1,4 @@
+import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "@/lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { MachineDefinition } from "@/lib/machines/definition";
 import type { BoundSandbox } from "@/db/sandboxes";
@@ -121,7 +122,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
             kind: "tool-start",
             toolName: name,
             toolCallId: String(chunk.toolCallId),
-            input: clipHarnessText(chunk.input, 1000),
+            input: clipHarnessText(chunk.input, HARNESS_INPUT_CLIP),
           });
           break;
         }
@@ -131,7 +132,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
             kind: "tool-end",
             toolName: name,
             toolCallId: String(chunk.toolCallId),
-            output: clipHarnessText(chunk.output, 2000),
+            output: clipHarnessText(chunk.output, HARNESS_OUTPUT_CLIP),
           });
           const output = chunk.output as { ok?: unknown; to?: unknown } | undefined;
           if (name === "transition" && output?.ok === true && typeof output.to === "string") {
@@ -145,7 +146,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
             kind: "tool-error",
             toolName: name,
             toolCallId: String(chunk.toolCallId),
-            output: clipHarnessText(chunk.errorText, 2000),
+            output: clipHarnessText(chunk.errorText, HARNESS_OUTPUT_CLIP),
           });
           break;
         }
