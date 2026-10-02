@@ -10,7 +10,7 @@ import type { SandboxLink } from "@/db/sandbox-view";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { cn } from "@/lib/utils";
 
-interface HarnessEvent {
+export interface HarnessEvent {
   id: number;
   at: number;
   kind: string;
@@ -20,7 +20,7 @@ interface HarnessEvent {
   text?: string | null;
 }
 
-interface HarnessRun {
+export interface HarnessRun {
   sessionId: string;
   kind: string;
   status: string;
@@ -82,6 +82,76 @@ function HarnessToolCall({
         </div>
       )}
     </div>
+  );
+}
+
+/** A harness session's events, conversation-style (also the 0012 run
+ *  view's side panel). */
+export function HarnessEventLog({ events }: { events: readonly HarnessEvent[] }) {
+  return (
+    <>
+    {events.length === 0 && (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        No harness activity recorded yet.
+      </p>
+    )}
+    <div className="space-y-3">
+      {events.map((event) => {
+        if (event.kind === "start") {
+          return (
+            <p
+              key={event.id}
+              className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
+            >
+              — pi turn —
+            </p>
+          );
+        }
+        if (event.kind === "end") {
+          return (
+            <p
+              key={event.id}
+              className="py-1 text-center font-mono text-[10px] text-muted-foreground"
+            >
+              ···
+            </p>
+          );
+        }
+        if (event.kind === "step-start") {
+          return null;
+        }
+        if (event.kind === "step-end") {
+          return event.text ? (
+            <div
+              key={event.id}
+              className="rounded-lg bg-muted/40 px-3 py-2 text-sm"
+            >
+              <MessageResponse>{event.text}</MessageResponse>
+            </div>
+          ) : null;
+        }
+        if (event.kind === "tool-start") {
+          return (
+            <HarnessToolCall
+              key={`t-${event.id}`}
+              toolName={event.toolName ?? "?"}
+              input={event.input}
+            />
+          );
+        }
+        if (event.kind === "tool-end") {
+          return (
+            <HarnessToolCall
+              key={`t-${event.id}`}
+              toolName={event.toolName ?? "?"}
+              output={event.output}
+            />
+          );
+        }
+        return null;
+      })}
+    </div>
+    </>
   );
 }
 
@@ -191,67 +261,7 @@ export function HarnessSessionView({
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {events.length === 0 && (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            No harness activity recorded yet.
-          </p>
-        )}
-        <div className="space-y-3">
-          {events.map((event) => {
-            if (event.kind === "start") {
-              return (
-                <p
-                  key={event.id}
-                  className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
-                >
-                  — pi turn —
-                </p>
-              );
-            }
-            if (event.kind === "end") {
-              return (
-                <p
-                  key={event.id}
-                  className="py-1 text-center font-mono text-[10px] text-muted-foreground"
-                >
-                  ···
-                </p>
-              );
-            }
-            if (event.kind === "step-start") {
-              return null;
-            }
-            if (event.kind === "step-end") {
-              return event.text ? (
-                <div
-                  key={event.id}
-                  className="rounded-lg bg-muted/40 px-3 py-2 text-sm"
-                >
-                  <MessageResponse>{event.text}</MessageResponse>
-                </div>
-              ) : null;
-            }
-            if (event.kind === "tool-start") {
-              return (
-                <HarnessToolCall
-                  key={`t-${event.id}`}
-                  toolName={event.toolName ?? "?"}
-                  input={event.input}
-                />
-              );
-            }
-            if (event.kind === "tool-end") {
-              return (
-                <HarnessToolCall
-                  key={`t-${event.id}`}
-                  toolName={event.toolName ?? "?"}
-                  output={event.output}
-                />
-              );
-            }
-            return null;
-          })}
-        </div>
+        <HarnessEventLog events={events} />
       </div>
     </div>
   );

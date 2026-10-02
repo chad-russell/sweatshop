@@ -148,7 +148,10 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
             .trim()
         : "") ||
       "";
-    await chatSteps.persistTurn(sessionId, result.messages, 1);
+    // result.messages leads with the system prompt; skip it plus the
+    // brief (already recorded above) so only the new tail is stored.
+    const system = result.messages.findIndex((m) => m.role !== "system");
+    await chatSteps.persistTurn(sessionId, result.messages, Math.max(system, 0) + 1);
     return { text: outcomeText, proposed };
   } finally {
     writer.releaseLock();
