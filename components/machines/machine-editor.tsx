@@ -2,7 +2,7 @@
 
 import { Bot, Braces, Hand, Loader2, Network, Plus, Terminal, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,6 +25,7 @@ import { edgeId } from "@/lib/machines/layout";
 import { cn } from "@/lib/utils";
 import { LazyMachineGraph } from "./machine-graph-lazy";
 import { StagePanel, TransitionPanel } from "./stage-panel";
+import { useMachineVersionSync, type MachineSnapshot } from "./use-machine-version-sync";
 
 interface Draft {
   id: string;
@@ -65,6 +66,14 @@ export function MachineEditor({
   const [jsonText, setJsonText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // 0015: what this draft is based on. Starts as the page's snapshot and
+  // moves when the editor adopts a newer saved machine (version sync).
+  const [base, setBase] = useState<MachineSnapshot>({
+    name: initial.name,
+    description: initial.description,
+    definition: initial.definition as MachineDefinition,
+    version: initial.version,
+  });
 
   const check = useMemo(() => parseDefinition(draft), [draft]);
   const issues = useMemo(
@@ -73,9 +82,28 @@ export function MachineEditor({
   );
   const dirty =
     isNew ||
-    name !== initial.name ||
-    description !== initial.description ||
-    JSON.stringify(draft) !== JSON.stringify(initial.definition);
+    name !== base.name ||
+    description !== base.description ||
+    JSON.stringify(draft) !== JSON.stringify(base.definition);
+
+  /** Take a saved machine as the new base and draft (silent reload, or the
+   *  stale banner's Reload). Unparsed JSON text is dropped with it. */
+  const adopt = useCallback((snapshot: MachineSnapshot) => {
+    setBase(snapshot);
+    setDraft(snapshot.definition);
+    setName(snapshot.name);
+    setDescription(snapshot.description);
+    setJsonText(null);
+    setNotice(null);
+  }, []);
+
+  const { sync, reload } = useMachineVersionSync({
+    id: isNew ? null : initial.id,
+    baseVersion: base.version,
+    // unparsed JSON tab text is an unsaved edit too — never drop it silently
+    dirty: dirty || jsonText !== null,
+    onAdopt: adopt,
+  });
 
   /** Apply an edit operation; refused operations surface as a notice. */
   const apply = (op: (def: MachineDefinition) => MachineDefinition): boolean => {
@@ -126,10 +154,16 @@ export function MachineEditor({
         }),
       });
       const body = (await res.json().catch(() => null)) as
-        | { machine?: { id: string }; error?: string; details?: string[] }
+        | { machine?: { id: string; name: string; description: string; definition: MachineDefinition; version: number }; error?: string; details?: string[] }
         | null;
       if (!res.ok || !body?.machine) {
         throw new Error([body?.error, ...(body?.details ?? [])].filter(Boolean).join(" — ") || `save failed (${res.status})`);
+      }
+      if (!isNew) {
+        // The saved machine is the new base — no dirty flash before the
+        // router refresh re-renders the page with it.
+        const saved = body.machine;
+        adopt({ name: saved.name, description: saved.description, definition: saved.definition, version: saved.version });
       }
       router.push(`/machines/${body.machine.id}`);
       router.refresh();
@@ -195,7 +229,8 @@ export function MachineEditor({
           />
         ) : (
           <span className="font-mono text-xs text-muted-foreground">
-            {initial.id} · v{initial.version}
+            {initial.id} · v{base.version}
+            {sync.state === "stale" && <span className="text-warning"> → v{sync.version} saved</span>}
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -269,6 +304,24 @@ export function MachineEditor({
           </Select>
         </label>
       </div>
+
+      {(sync.state === "stale" || sync.state === "gone") && (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center gap-3 border-b border-warning/50 px-4 py-2 text-xs text-warning"
+        >
+          {sync.state === "stale" ? (
+            <>
+              <span>This machine changed elsewhere (v{sync.version} is saved) while you have unsaved edits.</span>
+              <Button size="sm" variant="outline" className="ml-auto" onClick={() => void reload()}>
+                Reload (discard your changes)
+              </Button>
+            </>
+          ) : (
+            <span>This machine was deleted elsewhere. Copy out anything you want to keep — saving here will fail.</span>
+          )}
+        </div>
+      )}
 
       {(issues?.general.length || notice) && (
         <div role="alert" className="shrink-0 border-b border-destructive/40 px-4 py-2 font-mono text-xs text-destructive">
