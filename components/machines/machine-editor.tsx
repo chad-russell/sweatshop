@@ -105,7 +105,7 @@ export function MachineEditor({ initial, isNew = false }: { initial: Draft; isNe
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground">
           Definition — stages are <code className="font-mono">harness</code> (pi | claude, project only),{" "}
-          <code className="font-mono">eve</code>, or <code className="font-mono">human</code>;{" "}
+          <code className="font-mono">agent</code>, or <code className="font-mono">human</code>;{" "}
           <code className="font-mono">next</code> lists targets, <code className="font-mono">end</code> finishes.
         </span>
         <Textarea

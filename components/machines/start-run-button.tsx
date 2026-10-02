@@ -91,7 +91,7 @@ export function StartRunButton({ projectId }: { projectId?: string }) {
             <DialogDescription>
               {projectId
                 ? "Every coding stage works in one fresh sandbox of this project."
-                : "Workspace-free machines: eve conversations and your decisions."}
+                : "Workspace-free machines: agent conversations and your decisions."}
             </DialogDescription>
           </DialogHeader>
 

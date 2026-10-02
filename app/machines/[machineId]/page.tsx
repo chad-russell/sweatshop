@@ -10,7 +10,7 @@ const STARTER = {
   start: "draft",
   stages: {
     draft: {
-      kind: "eve",
+      kind: "agent",
       title: "Draft",
       instructions: "Answer the prompt.",
       next: [{ to: "review" }],
