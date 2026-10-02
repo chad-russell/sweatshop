@@ -25,6 +25,76 @@ type HarnessResumeFrom = NonNullable<HarnessWorkflowState["resumeFrom"]>;
 
 const MAX_STEPS = 200;
 
+/**
+ * UI chunk → ModelCallStreamPart. runHarnessAgentStep emits UI chunks,
+ * but the durable run stream carries ModelCallStreamPart values
+ * (ChatSessionModeling.md) and the routes convert with
+ * createModelCallToUIChunkTransform — which re-keys by the model-part
+ * shape, so a raw UI `tool-input-start` would lose its toolCallId and
+ * fail the client's stream schema. Translate at the sink; this is the
+ * exact inverse of the transform's toUIMessageChunk cases that the
+ * harness emits. Chunk types with no model-part form (message-metadata,
+ * source-*, file, custom data-*) drop out — the transform would drop
+ * those anyway.
+ */
+function uiChunkToModelPart(chunk: Record<string, unknown>): Record<string, unknown> | undefined {
+  const meta =
+    chunk.providerMetadata != null ? { providerMetadata: chunk.providerMetadata } : {};
+  switch (chunk.type) {
+    // Identical shapes both ways.
+    case "text-start":
+    case "text-end":
+    case "reasoning-start":
+    case "reasoning-end":
+    case "start-step":
+    case "finish-step":
+    case "reset-step":
+    case "tool-output-denied":
+      return chunk;
+    case "text-delta":
+    case "reasoning-delta":
+      return { type: chunk.type, id: chunk.id, text: chunk.delta, ...meta };
+    case "tool-input-start":
+      return {
+        type: "tool-input-start",
+        id: chunk.toolCallId,
+        toolName: chunk.toolName,
+        ...(chunk.providerExecuted != null ? { providerExecuted: chunk.providerExecuted } : {}),
+        ...(chunk.dynamic != null ? { dynamic: chunk.dynamic } : {}),
+      };
+    case "tool-input-delta":
+      return {
+        type: "tool-input-delta",
+        id: chunk.toolCallId,
+        delta: chunk.inputTextDelta,
+      };
+    case "tool-input-available":
+      return {
+        type: "tool-call",
+        toolCallId: chunk.toolCallId,
+        toolName: chunk.toolName,
+        input: chunk.input,
+        ...(chunk.providerExecuted != null ? { providerExecuted: chunk.providerExecuted } : {}),
+        ...meta,
+      };
+    case "tool-output-available":
+      return { type: "tool-result", toolCallId: chunk.toolCallId, output: chunk.output };
+    case "tool-output-error":
+      return { type: "tool-error", toolCallId: chunk.toolCallId, error: chunk.errorText };
+    case "error":
+      return { type: "error", error: chunk.errorText };
+    case "tool-approval-request":
+      return {
+        type: "tool-approval-request",
+        approvalId: chunk.approvalId,
+        toolCall: { toolCallId: chunk.toolCallId },
+        ...(chunk.signature != null ? { signature: chunk.signature } : {}),
+      };
+    default:
+      return undefined;
+  }
+}
+
 export interface HarnessToolStepInput {
   conversationId: string;
   kind: "pi" | "claude";
@@ -144,7 +214,12 @@ export async function harnessToolStep(
             break;
           }
         }
-        await writer.write({ ...chunk, chatConversation: conversationId, chatHarness: kind });
+        // Events are recorded from the UI chunk (its shape is what the
+        // harness emits); the durable stream gets the model-part form.
+        const part = uiChunkToModelPart(chunk);
+        if (part !== undefined) {
+          await writer.write({ ...part, chatConversation: conversationId, chatHarness: kind });
+        }
       },
     });
 
