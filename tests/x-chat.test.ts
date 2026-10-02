@@ -259,10 +259,14 @@ describe("0010 spike: chat turn workflow", () => {
       // The model saw exactly the current note.
       expect(serialized(id)).toContain("mock-viewing:1");
 
-      // The note lives on the user row as metadata — never as text.
+      // The note lives on the user row as metadata — never as text — and
+      // the send is persisted exactly once (the injected note shifts the
+      // user message; the skip must count it — live-caught in phase 6).
       const rows = listMessageTexts(db(), id);
-      expect(rows.find((r) => r.role === "user")?.text).toBe("what about this?");
-      expect(rows.find((r) => r.role === "user")?.metadata?.viewing).toMatchObject({
+      const userRows = rows.filter((r) => r.role === "user" && r.text === "what about this?");
+      expect(userRows).toHaveLength(1);
+      expect(userRows[0]?.text).toBe("what about this?");
+      expect(userRows[0]?.metadata?.viewing).toMatchObject({
         kind: "machine",
         id: "ticket",
         selection: "stage verify",

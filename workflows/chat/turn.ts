@@ -100,9 +100,9 @@ export async function chatTurn(input: ChatTurnInput) {
   }
 
   // skip = everything already persisted (loaded history + this turn's
-  // user message); persistTurn stores only the new tail. The injected
-  // viewing note sits before the user message, inside the skipped head.
-  const skip = history.length + 1;
+  // user message) plus the injected note, which sits right before it —
+  // persistTurn stores only the new tail.
+  const skip = history.length + (input.viewing ? 1 : 0) + 1;
   const stored = await persistTurn(conversationId, messages, skip);
   // Generated titles (0007) — skipped under the scripted mock so tests
   // never wait on (or pay for) a real title call.
