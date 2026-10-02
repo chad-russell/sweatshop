@@ -25,6 +25,9 @@ export interface SandboxSpec {
   root?: string;
   /** Deterministic provider name prefix (owner id is used). */
   namePrefix: string;
+  /** 0013: the image to run — the project's sandbox config `image_ref`;
+   *  unset = the provider default (`localhost/sweatshop-sandbox`). */
+  image?: string;
 }
 
 export interface SandboxHandle {
@@ -54,8 +57,8 @@ function suffix(): string {
 }
 
 /**
- * The podman provider (the only one today): a
- * `localhost/sweatshop-sandbox` sibling container on host podman, with
+ * The podman provider (the only one today): a sibling container on host
+ * podman — the project config's image, else `localhost/sweatshop-sandbox` — with
  * the project's repos cloned under the work root. `stop` is a plain
  * container stop — filesystem state survives (unlike eve's selector,
  * which replaced stopped session containers with fresh ones).
@@ -65,7 +68,7 @@ export const podmanProvider: SandboxProvider = {
 
   async create(spec) {
     const ref = `sweatshop-sbx-${spec.namePrefix}-${suffix()}`;
-    await createContainer(ref);
+    await createContainer(ref, spec.image);
 
     const root = spec.root ?? sandboxWorkRoot(spec.namePrefix);
     const handle = this.attach(ref, root);

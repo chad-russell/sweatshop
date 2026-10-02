@@ -336,7 +336,8 @@ export const sandboxConfigs = sqliteTable("sandbox_configs", {
   name: text("name").notNull(),
   /** Sandbox provider, e.g. "docker". */
   provider: text("provider").notNull().default("docker"),
-  /** Optional image override; unset = provider default (eve's image). */
+  /** Image the project's sandboxes run (0013 — passed to the provider);
+   *  unset = the provider default, `localhost/sweatshop-sandbox`. */
   imageRef: text("image_ref"),
   /** Coarse egress policy for live sandbox containers. */
   networkPolicy: text("network_policy").notNull().default("allow-all"),

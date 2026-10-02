@@ -171,3 +171,41 @@ describe("0010 sandbox leases", () => {
     expect(ids).not.toContain(fresh.id);
   });
 });
+
+describe("0013 project image", () => {
+  it("creates a project sandbox with its config's image_ref; default config otherwise", async () => {
+    const { sandboxConfigs } = await import("../db/schema");
+    const { eq } = await import("drizzle-orm");
+    const { projectSandboxImage } = await import("../lib/sandboxes/lease");
+    db().insert(sandboxConfigs).values({ id: "img-custom", name: "c", imageRef: "localhost/custom:1", createdAt: 0 })
+      .onConflictDoNothing().run();
+    db().insert(sandboxConfigs).values({ id: "default", name: "d", imageRef: null, createdAt: 0 })
+      .onConflictDoNothing().run();
+    db().insert(projects).values({ id: "p_img", name: "img", sandboxConfigId: "img-custom", createdAt: 0 })
+      .onConflictDoNothing().run();
+    db().insert(projects).values({ id: "p_noimg", name: "noimg", createdAt: 0 }).onConflictDoNothing().run();
+
+    expect(projectSandboxImage("p_img")).toBe("localhost/custom:1");
+    expect(projectSandboxImage("p_noimg")).toBeNull();
+
+    const provider = new FakeProvider();
+    await acquireSandbox(
+      { mode: "dedicated", ownerKind: "conversation", ownerId: "c_img", projectId: "p_img" },
+      provider,
+    );
+    await acquireSandbox(
+      { mode: "dedicated", ownerKind: "conversation", ownerId: "c_noimg", projectId: "p_noimg" },
+      provider,
+    );
+    await acquireSandbox(
+      { mode: "dedicated", ownerKind: "conversation", ownerId: "c_bare", projectId: null },
+      provider,
+    );
+    expect(provider.created.map((s) => s.image)).toEqual(["localhost/custom:1", undefined, undefined]);
+
+    // a project whose config falls back to "default" picks up its image
+    db().update(sandboxConfigs).set({ imageRef: "localhost/default-img" }).where(eq(sandboxConfigs.id, "default")).run();
+    expect(projectSandboxImage("p_noimg")).toBe("localhost/default-img");
+    db().update(sandboxConfigs).set({ imageRef: null }).where(eq(sandboxConfigs.id, "default")).run();
+  });
+});

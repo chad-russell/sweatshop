@@ -38,7 +38,7 @@ upsert("sandbox_configs", {
   id: "default",
   name: "Default sandbox",
   provider: "docker",
-  image_ref: null, // unset = eve's published sandbox image
+  image_ref: null, // unset = localhost/sweatshop-sandbox (Containerfile.sandbox)
   network_policy: "allow-all",
   notes: "Shared base image (0004 decision 2).",
   created_at: now(),

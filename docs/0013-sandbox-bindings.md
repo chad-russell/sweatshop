@@ -197,7 +197,8 @@ available without a project:
    (`POST /api/sandboxes/<id>`, refused while busy; Destroy confirms
    what it strands). The eve-container reaping is retired (leftovers
    removed once by hand).
-5. **Project image.** `image_ref` reaches `createContainer`.
+5. **Project image.** `image_ref` reaches `createContainer` (resolved in
+   the lease layer at create time; no config → the `default` config).
 6. **Outside inspection.** `inspect` + `sandbox_exec`.
 
 Each phase lands green on its own; phases 1 and 5 are independent of the

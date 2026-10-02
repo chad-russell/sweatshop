@@ -26,12 +26,15 @@ export interface ProvisionedSandbox {
   remove(): Promise<void>;
 }
 
-const SANDBOX_IMAGE = "localhost/sweatshop-sandbox";
+/** The image a sandbox runs when its project's config names none
+ *  (built from Containerfile.sandbox). */
+export const DEFAULT_SANDBOX_IMAGE = "localhost/sweatshop-sandbox";
 
 /** Container lifecycle primitives (0010 Phase 2): the podman provider
- *  composes these; `ref` is the container name. */
-export async function createContainer(name: string): Promise<void> {
-  await exec("docker", ["run", "-d", "--name", name, SANDBOX_IMAGE]);
+ *  composes these; `ref` is the container name. 0013: `image` is the
+ *  project's sandbox config `image_ref` (default above). */
+export async function createContainer(name: string, image: string = DEFAULT_SANDBOX_IMAGE): Promise<void> {
+  await exec("docker", ["run", "-d", "--name", name, image]);
 }
 
 /** Stop a container, preserving its state (idle reaping). */
@@ -159,7 +162,7 @@ export async function provisionProjectSandbox(
     "-d",
     "--name",
     containerName,
-    SANDBOX_IMAGE,
+    DEFAULT_SANDBOX_IMAGE,
   ]);
 
   const run = (

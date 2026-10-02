@@ -1,4 +1,6 @@
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { projects, sandboxConfigs } from "@/db/schema";
 import {
   deleteLease,
   getLease,
@@ -66,10 +68,12 @@ async function acquireDedicated(
       projectId: request.projectId,
     });
     try {
+      const image = request.projectId ? projectSandboxImage(request.projectId) : null;
       const handle = await provider.create({
         projectId: request.projectId,
         root: request.root ?? sandboxWorkRoot(request.ownerId),
         namePrefix: request.ownerId,
+        ...(image ? { image } : {}),
       });
       updateLease(db(), lease.id, { ref: handle.ref, status: "running" });
       return { sandboxId: lease.id, handle };
@@ -86,6 +90,25 @@ async function acquireDedicated(
   }
   touchLease(db(), existing.id);
   return { sandboxId: existing.id, handle: provider.attach(existing.ref, root) };
+}
+
+/**
+ * 0013: the image a project's sandboxes run — its sandbox config's
+ * `image_ref` (a project with no config uses the "default" config).
+ * Null = the provider default. `network_policy` stays recorded but
+ * unenforced.
+ */
+export function projectSandboxImage(projectId: string): string | null {
+  const row = db()
+    .select({ imageRef: sandboxConfigs.imageRef })
+    .from(projects)
+    .leftJoin(
+      sandboxConfigs,
+      eq(sandboxConfigs.id, sql`coalesce(${projects.sandboxConfigId}, 'default')`),
+    )
+    .where(eq(projects.id, projectId))
+    .get();
+  return row?.imageRef?.trim() || null;
 }
 
 /**

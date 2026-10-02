@@ -97,7 +97,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`getConversationBinding`/`bindConversation` in `db/sandboxes.ts`);
   tools open it with `openConversationSandbox`/`openSandbox`
   (`lib/sandboxes/binding.ts`), which never stop or destroy. A bound
-  conversation never switches sandboxes — start a new chat.
+  conversation never switches sandboxes — start a new chat. A
+  project's sandboxes run its sandbox config's `image_ref` (a project
+  with no config uses `default`; unset = `localhost/sweatshop-sandbox`,
+  built from `Containerfile.sandbox`); `network_policy` is recorded,
+  not enforced.
   Entities
   are managed db-first via `npm run db:seed` (secrets from env only);
   `/p/[projectId]` starts a project conversation; `create_pr` is the
