@@ -130,8 +130,8 @@ export async function listMachinesStep(
 /** 0010 Phase 3: start a machine run directly, in-process (0009). */
 export async function startMachineStep(
   conversationId: string,
-  input: { machineId: string; prompt: string },
-): Promise<{ runId: string; url: string }> {
+  input: { machineId: string; prompt: string; fresh?: boolean },
+): Promise<{ runId: string; url: string; sandbox: "inherited" | "own" | "none" }> {
   "use step";
   const { startMachineRun } = await import("../../lib/agent/tools/start-machine");
   return startMachineRun({ conversationId, ...input });

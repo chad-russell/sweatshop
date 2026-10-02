@@ -1,6 +1,7 @@
 import type { ModelCallStreamPart } from "@ai-sdk/workflow";
 import type { ToolSet } from "ai";
 import type { MachineDefinition, Stage } from "@/lib/machines/definition";
+import type { BoundSandbox } from "@/db/sandboxes";
 
 /**
  * 0010 Phase 5: one agent-stage visit — an in-process WorkflowAgent turn
@@ -15,6 +16,11 @@ import type { MachineDefinition, Stage } from "@/lib/machines/definition";
  * the old eve stage sessions did. Branching stages get a side-effect-
  * free `transition` tool (0009's pattern — the interpreter validates and
  * commits the proposal); single-target stages advance on completion.
+ *
+ * 0013: in a project run the stage inherits the run's sandbox binding and
+ * gets bash / pi / claude in it (same sandbox, same directory as every
+ * other stage). Tool executes call the plain cores directly — the whole
+ * visit is already one step.
  */
 
 export interface AgentStageInput {
@@ -24,6 +30,9 @@ export interface AgentStageInput {
   stageId: string;
   brief: string;
   model?: string;
+  /** 0013: the run's binding (project runs); null = no sandbox tools. */
+  binding?: BoundSandbox | null;
+  projectId?: string | null;
 }
 
 export interface AgentStageResult {
@@ -71,8 +80,11 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
   const { updateStageRun } = await import("../../db/machines");
   updateStageRun(db(), runId, seq, { sessionId, status: "running" });
 
-  const tools: ToolSet =
-    targets.length > 1
+  const tools: ToolSet = {
+    ...(input.binding && input.projectId
+      ? await stageSandboxTools(sessionId, input.binding, input.projectId)
+      : {}),
+    ...(targets.length > 1
       ? {
           transition: tool({
             description:
@@ -90,7 +102,8 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
             }),
           }),
         }
-      : {};
+      : {}),
+  };
 
   // Tee the turn into the run's output stream (the /r view shows agent
   // stages live) and watch for the transition proposal.
@@ -156,4 +169,50 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
   } finally {
     writer.releaseLock();
   }
+}
+
+/** 0013: bash / pi / claude for an agent stage, in the run's binding. */
+async function stageSandboxTools(
+  sessionId: string,
+  binding: BoundSandbox,
+  projectId: string,
+): Promise<ToolSet> {
+  const [{ tool }, { z }, { runBashIn }, { harnessToolStep }] = await Promise.all([
+    import("ai"),
+    import("zod"),
+    import("../../lib/agent/tools/bash"),
+    import("../chat/harness-step"),
+  ]);
+  const harness = (kind: "pi" | "claude") =>
+    tool({
+      description:
+        kind === "pi"
+          ? "Hand a coding task to the pi harness, working in this run's sandbox (repos under " +
+            `${binding.workDir}). Keeps context across calls in this stage.`
+          : "Hand a coding task to the Claude Code harness, working in this run's sandbox " +
+            `(repos under ${binding.workDir}). Keeps context across calls in this stage.`,
+      inputSchema: z.object({
+        task: z.string().min(1).describe("The coding task, with enough context to act on."),
+      }),
+      execute: ({ task }, { toolCallId }) =>
+        harnessToolStep({
+          conversationId: sessionId,
+          kind,
+          task,
+          toolCallId,
+          inherited: { binding, projectId },
+        }),
+    });
+  return {
+    bash: tool({
+      description:
+        `Run a bash command in this run's sandbox, in ${binding.workDir} — the same checkout ` +
+        "every stage of the run works in.",
+      inputSchema: z.object({ command: z.string().max(20_000).describe("The bash command to run.") }),
+      execute: ({ command }, { toolCallId }) =>
+        runBashIn(sessionId, binding, command, undefined, toolCallId),
+    }),
+    pi: harness("pi"),
+    ...(process.env.CLAUDE_CODE_OAUTH_TOKEN ? { claude: harness("claude") } : {}),
+  };
 }

@@ -54,7 +54,8 @@ export function buildBrief(input: {
     );
   }
   if (input.feedback) parts.push(`# Feedback from Chad\n\n${input.feedback}`);
-  if (input.workspaceRoot && stage.kind === "harness") {
+  // 0013: agent stages also work in the run's sandbox (bash/pi/claude).
+  if (input.workspaceRoot && (stage.kind === "harness" || stage.kind === "agent")) {
     parts.push(
       `# Workspace\n\nThe project's git repos are cloned under \`${input.workspaceRoot}/<repo>\` ` +
         "(your working directory). Earlier stages worked in the same checkout.",

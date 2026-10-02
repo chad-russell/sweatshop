@@ -1,4 +1,5 @@
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
+import type { BoundSandbox } from "../../db/sandboxes";
 
 /** The resume handle a terminal state carries for the next user turn. */
 type HarnessResumeFrom = NonNullable<HarnessWorkflowState["resumeFrom"]>;
@@ -96,11 +97,16 @@ function uiChunkToModelPart(chunk: Record<string, unknown>): Record<string, unkn
 }
 
 export interface HarnessToolStepInput {
+  /** The harness session: a chat's conversation id, or an agent stage's
+   *  visit conversation (`<runId>_<seq>`). */
   conversationId: string;
   kind: "pi" | "claude";
   task: string;
   /** 0011: the AI SDK tool call, for sandbox attribution. */
   toolCallId?: string;
+  /** 0013: run in this binding (an agent stage's — the run's) with
+   *  this project, instead of the conversation's own binding. */
+  inherited?: { binding: BoundSandbox; projectId: string };
 }
 
 export interface HarnessToolStepResult {
@@ -114,7 +120,7 @@ export async function harnessToolStep(
   input: HarnessToolStepInput,
 ): Promise<HarnessToolStepResult> {
   "use step";
-  const { conversationId, kind, task, toolCallId } = input;
+  const { conversationId, kind, task, toolCallId, inherited } = input;
   const [
     { createHarnessWorkflowState, runHarnessAgentStep },
     { toNetworkSandboxSession },
@@ -139,8 +145,8 @@ export async function harnessToolStep(
     import("zod"),
   ]);
 
-  const conversation = getConversation(db(), conversationId);
-  if (!conversation?.projectId) {
+  const projectId = inherited?.projectId ?? getConversation(db(), conversationId)?.projectId;
+  if (!projectId) {
     throw new Error(
       `${kind} requires a project conversation — start one from a project page`,
     );
@@ -165,12 +171,12 @@ export async function harnessToolStep(
   try {
     // 0013: the conversation's binding — its own sandbox (bound on first
     // use) or the one it attached to, in the bound working directory.
-    const { openConversationSandbox } = await import("../../lib/sandboxes/binding");
-    const { sandboxId, workDir, handle } = await openConversationSandbox(
-      conversationId,
-      undefined,
-      toolCallId ? { toolCallId, tool: kind } : undefined,
-    );
+    // An agent stage passes the run's binding instead (0013 inherit).
+    const { openConversationSandbox, openInheritedSandbox } = await import("../../lib/sandboxes/binding");
+    const attribution = toolCallId ? { toolCallId, tool: kind } : undefined;
+    const { sandboxId, workDir, handle } = inherited
+      ? await openInheritedSandbox(conversationId, inherited.binding, undefined, attribution)
+      : await openConversationSandbox(conversationId, undefined, attribution);
     const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
 
     const resumeFrom =
@@ -224,7 +230,6 @@ export async function harnessToolStep(
       },
     });
 
-    const projectId = conversation.projectId;
     const hostTools = {
       create_pr: tool({
         description:

@@ -63,6 +63,31 @@ export async function openSandbox(
   };
 }
 
+/**
+ * Open an inherited binding on behalf of a session that does not own a
+ * stored binding (a machine agent stage's visit conversation) and record
+ * the call against it (0011 attribution).
+ */
+export async function openInheritedSandbox(
+  sessionId: string,
+  binding: BoundSandbox,
+  provider: SandboxProvider = sandboxProvider(),
+  attribution?: CallAttribution,
+): Promise<OpenedSandbox> {
+  const opened = await openSandbox(binding, provider);
+  if (attribution) {
+    recordSandboxCall(db(), {
+      toolCallId: attribution.toolCallId,
+      sandboxId: opened.sandboxId,
+      conversationId: sessionId,
+      tool: attribution.tool,
+      via: "attached",
+      workdir: binding.workDir,
+    });
+  }
+  return opened;
+}
+
 /** The copy an attacher or child gets: same sandbox, same directory. */
 export function inheritBinding(binding: BoundSandbox): BoundSandbox {
   return { kind: "bound", sandboxId: binding.sandboxId, workDir: binding.workDir, owner: false };

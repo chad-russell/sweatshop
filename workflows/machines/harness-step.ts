@@ -1,5 +1,6 @@
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { MachineDefinition } from "@/lib/machines/definition";
+import type { BoundSandbox } from "@/db/sandboxes";
 
 /**
  * 0009: the ONE workflow step a harness stage repeats — rebuild the
@@ -19,7 +20,8 @@ export interface HarnessStepInput {
   stageId: string;
   definition: MachineDefinition;
   projectId: string;
-  containerName: string;
+  /** 0013: the run's binding (own or inherited). */
+  binding: BoundSandbox;
   state: HarnessWorkflowState;
 }
 
@@ -35,7 +37,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   "use step";
   const [
     { runHarnessAgentStep },
-    { attachSandbox },
+    { openSandbox },
     { toNetworkSandboxSession },
     { buildHarnessAgent, transitionTool },
     { recordHarnessEvent, clipHarnessText, claimHarnessRun },
@@ -45,7 +47,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     { getWritable },
   ] = await Promise.all([
     import("@ai-sdk/workflow-harness"),
-    import("@/lib/sandboxes/provision"),
+    import("@/lib/sandboxes/binding"),
     import("@/lib/sandboxes/ai-sdk-adapter"),
     import("./harness-agent"),
     import("@/lib/harness-events"),
@@ -54,8 +56,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     import("zod"),
     import("workflow"),
   ]);
-  const { stageSessionId, runWorkspaceRoot } = await import("@/db/machines");
-  const [{ db }, { getLeaseByOwner }] = await Promise.all([import("@/db"), import("@/db/sandboxes")]);
+  const { stageSessionId } = await import("@/db/machines");
 
   const stage = input.definition.stages[input.stageId];
   if (!stage || stage.kind !== "harness") throw new Error(`stage ${input.stageId} is not a harness stage`);
@@ -63,22 +64,12 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   const kind = stage.harness;
   const firstStep = input.state.status === "not_started";
 
-  // Commands default to the run's workspace root: harnesses resolve
-  // their sandbox home with `pwd`, and pi's in-process tools resolve
-  // paths against that directory on the HOST too — so it must be a path
-  // that does not exist in this runtime (a bare /workspace collides with
-  // the dev container's repo mount, 0009 finding).
-  const workDir = runWorkspaceRoot(input.runId);
-  const sandbox = attachSandbox(input.containerName, workDir);
-  // The run's lease id names the session (0013 phase 3 replaces
-  // containerName with the run's binding, which carries it directly).
-  const lease = getLeaseByOwner(db(), "machine_run", input.runId);
-  if (!lease) throw new Error(`run ${input.runId} has no sandbox lease`);
-  const sandboxSession = toNetworkSandboxSession({
-    id: lease.id,
-    handle: { ref: input.containerName, run: sandbox.run, spawn: sandbox.spawn },
-    workDir,
-  });
+  // Commands default to the binding's workDir: harnesses resolve their
+  // sandbox home from it, and pi's in-process tools resolve paths
+  // against it on the HOST too — so it is always a /work/<owner> path,
+  // never one that exists in this runtime (0009 finding).
+  const { sandboxId, workDir, handle } = await openSandbox(input.binding);
+  const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
 
   const projectId = input.projectId;
   const tools = {

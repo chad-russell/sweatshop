@@ -1,4 +1,8 @@
-import { openConversationSandbox } from "@/lib/sandboxes/binding";
+import {
+  openConversationSandbox,
+  openInheritedSandbox,
+  type BoundSandbox,
+} from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /**
@@ -33,6 +37,30 @@ export async function runBash(
 ): Promise<BashResult> {
   const { handle } = await openConversationSandbox(
     conversationId,
+    provider,
+    toolCallId ? { toolCallId, tool: "bash" } : undefined,
+  );
+  const result = await handle.run(command);
+  return {
+    exitCode: result.exitCode,
+    stdout: clipOutput(result.stdout),
+    stderr: clipOutput(result.stderr),
+  };
+}
+
+/** 0013: bash in an inherited binding on behalf of `sessionId` (an
+ *  agent stage's visit conversation, running in the run's sandbox).
+ *  Never binds, stops, or destroys anything. */
+export async function runBashIn(
+  sessionId: string,
+  binding: BoundSandbox,
+  command: string,
+  provider?: SandboxProvider,
+  toolCallId?: string,
+): Promise<BashResult> {
+  const { handle } = await openInheritedSandbox(
+    sessionId,
+    binding,
     provider,
     toolCallId ? { toolCallId, tool: "bash" } : undefined,
   );

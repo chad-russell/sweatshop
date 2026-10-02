@@ -3,6 +3,8 @@ import { z } from "zod";
 // Type-only: a runtime import would drag the harness stack (pi →
 // pi-mcp-adapter .ts sources) into the workflow bundle and break it.
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
+// Type-only (db/sandboxes is Node; the binding itself is plain data).
+import type { BoundSandbox } from "@/db/sandboxes";
 import {
   DEFAULT_MAX_VISITS,
   END,
@@ -28,8 +30,11 @@ import {
  * orchestration (the workflow transform forbids Node here): every side
  * effect is a step in ./steps or ./harness-step.
  *
- *   project workspace → provision one container, shared by every
- *   harness stage; removed in finally.
+ *   project workspace → the run's sandbox binding (0013): inherited
+ *   from the starting chat, or one sandbox provisioned here; every
+ *   harness and agent stage runs in it. An OWNED sandbox is removed in
+ *   finally (0013 phase 4 lets it outlive the run); an inherited one is
+ *   never touched — lifecycle belongs to its owner.
  *   harness → harnessStep() per semantic agent step until the turn ends
  *   eve     → start an unsandboxed session, suspend on its stage hook
  *             until its `transition` tool resumes it
@@ -52,6 +57,9 @@ export interface RunMachineInput {
   definition: MachineDefinition;
   prompt: string;
   projectId: string | null;
+  /** 0013: an inherited binding (the starting chat's); null = provision
+   *  the run's own sandbox at start (project machines). */
+  binding?: BoundSandbox | null;
 }
 
 type VisitOutcome =
@@ -61,11 +69,11 @@ type VisitOutcome =
 export async function runMachine(input: RunMachineInput) {
   "use workflow";
   const { runId, definition, prompt } = input;
-  let containerName: string | null = null;
+  let binding: BoundSandbox | null = input.binding ?? null;
   try {
-    if (definition.workspace === "project") {
+    if (definition.workspace === "project" && !binding) {
       if (!input.projectId) throw new Error("project machine run without a project");
-      containerName = await provisionWorkspace(runId, input.projectId);
+      binding = await provisionWorkspace(runId, input.projectId);
     }
 
     const visits = new Map<string, number>();
@@ -105,8 +113,7 @@ export async function runMachine(input: RunMachineInput) {
         stageId: at,
         history: prior,
         feedback,
-        // = runWorkspaceRoot(runId) (db/machines — not importable here).
-        workspaceRoot: containerName ? `/work/${runId}` : null,
+        workspaceRoot: binding?.workDir ?? null,
       });
       feedback = null;
       const token = `${runId}:${seq}`;
@@ -119,7 +126,7 @@ export async function runMachine(input: RunMachineInput) {
           stageId: at,
           definition,
           projectId: input.projectId!,
-          containerName: containerName!,
+          binding: binding!,
           brief,
           harness: stage.harness,
         });
@@ -132,6 +139,8 @@ export async function runMachine(input: RunMachineInput) {
           definition,
           stageId: at,
           brief,
+          binding,
+          projectId: input.projectId,
         });
         result = { ok: true, outcome: visit.text, proposed: visit.proposed };
       } else {
@@ -168,7 +177,7 @@ export async function runMachine(input: RunMachineInput) {
     await markRun(runId, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     throw err;
   } finally {
-    if (containerName) await removeWorkspace(runId);
+    if (binding?.owner) await removeWorkspace(binding.sandboxId);
   }
 }
 
@@ -179,7 +188,7 @@ async function runHarnessVisit(input: {
   stageId: string;
   definition: MachineDefinition;
   projectId: string;
-  containerName: string;
+  binding: BoundSandbox;
   brief: string;
   harness: "pi" | "claude";
 }): Promise<VisitOutcome> {
@@ -199,7 +208,7 @@ async function runHarnessVisit(input: {
         stageId: input.stageId,
         definition: input.definition,
         projectId: input.projectId,
-        containerName: input.containerName,
+        binding: input.binding,
         state,
       });
       state = r.state;

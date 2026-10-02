@@ -1,4 +1,5 @@
 import type { MachineStageRun } from "@/db/schema";
+import type { BoundSandbox } from "@/db/sandboxes";
 
 /**
  * 0009 machine-run side effects — every function here is a `"use step"`
@@ -8,44 +9,39 @@ import type { MachineStageRun } from "@/db/schema";
 
 export async function markRun(
   runId: string,
-  set: { status?: string; currentStage?: string | null; containerName?: string | null; error?: string | null },
+  set: { status?: string; currentStage?: string | null; error?: string | null },
 ): Promise<void> {
   "use step";
   const [{ db }, { updateRun }] = await Promise.all([import("@/db"), import("@/db/machines")]);
   updateRun(db(), runId, set);
 }
 
-export async function provisionWorkspace(runId: string, projectId: string): Promise<string> {
+export async function provisionWorkspace(runId: string, projectId: string): Promise<BoundSandbox> {
   "use step";
-  const [{ db }, { updateRun }, { acquireSandbox }] = await Promise.all([
+  const [{ db }, { bindRun, runWorkspaceRoot }, { acquireSandbox }] = await Promise.all([
     import("@/db"),
     import("@/db/machines"),
     import("@/lib/sandboxes/lease"),
   ]);
-  // 0010 Phase 2: the run's sandbox is a lease — one dedicated sandbox
-  // per run through the provider seam, destroyed with the run (0009
-  // semantics: one container for the whole run, removed at the end).
-  // A failed create cleans up after itself inside the lease layer.
-  const { handle } = await acquireSandbox({
+  // 0013: the run's own sandbox — a dedicated lease at /work/<runId>,
+  // bound once (a retried step finds the same lease and binding). It
+  // is removed when the run ends (removeWorkspace) until phase 4.
+  const workDir = runWorkspaceRoot(runId);
+  const { sandboxId } = await acquireSandbox({
     mode: "dedicated",
     ownerKind: "machine_run",
     ownerId: runId,
     projectId,
+    root: workDir,
   });
-  updateRun(db(), runId, { containerName: handle.ref });
-  return handle.ref;
+  return bindRun(db(), runId, { kind: "bound", sandboxId, workDir, owner: true });
 }
 
-export async function removeWorkspace(runId: string): Promise<void> {
+/** Destroy the run's OWN sandbox (callers pass only owned bindings). */
+export async function removeWorkspace(sandboxId: string): Promise<void> {
   "use step";
-  const [{ db }, { getLeaseByOwner }] = await Promise.all([
-    import("@/db"),
-    import("@/db/sandboxes"),
-  ]);
-  const lease = getLeaseByOwner(db(), "machine_run", runId);
-  if (!lease) return;
   const { destroySandbox } = await import("@/lib/sandboxes/lease");
-  await destroySandbox(lease.id);
+  await destroySandbox(sandboxId);
 }
 
 /** Begin (or, on replay, re-find) a stage visit row. */

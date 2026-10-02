@@ -215,4 +215,16 @@ describe("briefs and transitions", async () => {
     expect(brief).toContain("# Your stage: Build\n\nbuild");
     expect(brief).not.toContain("# Finishing");
   });
+
+  it("tells sandboxed stages (harness and agent, 0013) where the checkout is", () => {
+    const withAgent: MachineDefinition = {
+      ...coding,
+      stages: { ...coding.stages, review: { kind: "agent", title: "Review", instructions: "r", next: [] } },
+    };
+    const at = (stageId: string) =>
+      buildBrief({ prompt: "x", definition: withAgent, stageId, history: [], workspaceRoot: "/work/c_1" });
+    expect(at("plan")).toContain("`/work/c_1/<repo>`");
+    expect(at("review")).toContain("`/work/c_1/<repo>`");
+    expect(at("gate")).not.toContain("# Workspace");
+  });
 });

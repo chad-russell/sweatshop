@@ -2,13 +2,18 @@ import { db } from "@/db";
 import { listMachines } from "@/db/machines";
 import { startRun } from "@/lib/machines/runs";
 import { getConversation } from "@/db/chat";
+import { getConversationBinding, type BoundSandbox } from "@/db/sandboxes";
+import { inheritBinding, openConversationSandbox } from "@/lib/sandboxes/binding";
+import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /**
  * 0010 Phase 3: the start_machine tool's core (port of agent/tools/
  * start_machine.ts, 0009). In a project conversation, project machines
  * run against THIS project; in Chats, only workspace-free machines are
- * offered. The run is independent of this conversation (its own
- * workflow, its own sandbox) — the tool returns the run's URL.
+ * offered. The run is its own workflow; 0013: a project run inherits
+ * this conversation's sandbox binding (same sandbox, same directory —
+ * binding the chat first if it was still pending) unless `fresh` asks
+ * for a new sandbox of its own. The tool returns the run's URL.
  *
  * Plain function: the workflow step wraps it; the run starts in-process
  * through lib/machines/runs (0012) — no SWEATSHOP_APP_ORIGIN round trip
@@ -42,7 +47,12 @@ export async function startMachineRun(input: {
   conversationId: string;
   machineId: string;
   prompt: string;
-}): Promise<{ runId: string; url: string }> {
+  /** 0013: give the run its own new sandbox instead of this chat's. */
+  fresh?: boolean;
+  provider?: SandboxProvider;
+  /** Test seam: the run starter (default lib/machines/runs startRun). */
+  start?: typeof startRun;
+}): Promise<{ runId: string; url: string; sandbox: "inherited" | "own" | "none" }> {
   const { machines } = listAvailableMachines(input.conversationId);
   if (!machines.some((m) => m.id === input.machineId)) {
     const projectId = getConversation(db(), input.conversationId)?.projectId ?? null;
@@ -52,10 +62,25 @@ export async function startMachineRun(input: {
     );
   }
   const projectId = getConversation(db(), input.conversationId)?.projectId ?? null;
-  const run = await startRun({
+  // Project machines inherit the chat's sandbox by default (workspace-
+  // free ones have nothing to inherit into).
+  let inherit: BoundSandbox | undefined;
+  if (projectId && !input.fresh) {
+    const binding = getConversationBinding(db(), input.conversationId);
+    if (binding && binding.kind !== "none") {
+      const { binding: bound } = await openConversationSandbox(input.conversationId, input.provider);
+      inherit = inheritBinding(bound);
+    }
+  }
+  const run = await (input.start ?? startRun)({
     machineId: input.machineId,
     prompt: input.prompt,
     projectId,
+    ...(inherit ? { inherit } : {}),
   });
-  return { runId: run.id, url: `/r/${run.id}` };
+  return {
+    runId: run.id,
+    url: `/r/${run.id}`,
+    sandbox: inherit ? "inherited" : projectId ? "own" : "none",
+  };
 }

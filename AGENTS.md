@@ -117,14 +117,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   stage session id; branching stages choose via a side-effect-free
   `transition` tool, single-target ones advance on completion; was
   `eve` in 0009), `human` (a `defineHook`
-  gate shown in `/inbox`). A project run provisions ONE sandbox — a
-  dedicated lease through the 0010 seam (`acquireSandbox`,
+  gate shown in `/inbox`). A project run has ONE sandbox binding
+  (0013, `machine_runs.sandbox_id`/`sandbox_work_dir`/`sandbox_owner`):
+  inherited from the chat that started it via `start_machine` (same
+  sandbox and directory; `fresh: true` opts out), or its own dedicated
+  lease provisioned at start through the 0010 seam (`acquireSandbox`,
   `lib/sandboxes/lease.ts`; `SandboxProvider` in `provider.ts`,
-  podman today/VMs later; rows in `sandboxes`) — whose repos clone to
+  podman today/VMs later; rows in `sandboxes`) whose repos clone to
   `/work/<runId>` — never `/workspace`: pi runs
   in-process and treats a sandbox workdir that also exists on the host
   as shared, and the dev runtime's `/workspace` is this repo. Every
-  harness stage shares that checkout. Branching agent stages pick a
+  harness stage, and every agent stage (which gets bash/pi/claude),
+  works in that checkout; only an owned binding is ever released. Branching agent stages pick a
   target with a `transition` tool; the interpreter validates and commits
   it. Runs are conversations (0012): `createRun` writes a
   `conversations` row with `kind = 'run'` and the SAME id as the run

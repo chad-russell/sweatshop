@@ -496,7 +496,14 @@ export const machineRuns = sqliteTable(
     /** running | waiting | needs-attention | completed | failed | cancelled */
     status: text("status").notNull(),
     currentStage: text("current_stage"),
-    containerName: text("container_name"),
+    /** 0013 binding: the sandbox the whole run (every stage) runs in —
+     *  its own (provisioned at start, `/work/<runId>`) or inherited from
+     *  the chat that started it (same sandbox and directory). Null for
+     *  workspace-free runs. */
+    sandboxId: text("sandbox_id").references((): AnySQLiteColumn => sandboxes.id),
+    sandboxWorkDir: text("sandbox_work_dir"),
+    /** 0013: 1 = the run owns its sandbox's lifecycle; 0 = inherited. */
+    sandboxOwner: integer("sandbox_owner", { mode: "boolean" }),
     /** Bounded failure / parking reason. */
     error: text("error"),
     /** 0012: Unix ms the run last entered a settled status (waiting,

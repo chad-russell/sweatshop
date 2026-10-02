@@ -155,6 +155,20 @@
       "when": 1790967272092,
       "tag": "0021_drop_sandbox_pref",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790968078610,
+      "tag": "0022_run_sandbox_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1790968090551,
+      "tag": "0023_drop_run_container_name",
+      "breakpoints": true
     }
   ]
 }

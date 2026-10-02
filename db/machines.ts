@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Db } from "./index";
+import type { BoundSandbox } from "./sandboxes";
 import { conversations, machineRuns, machines, machineStageRuns, projects } from "./schema";
 import type { MachineRow, MachineRun, MachineStageRun } from "./schema";
 import {
@@ -150,7 +151,14 @@ function hydrateRun(row: MachineRun): RunView {
 /** Create the run row (status running) — the trigger then start()s the workflow. */
 export function createRun(
   db: Db,
-  input: { machineId: string; prompt: unknown; projectId?: unknown },
+  input: {
+    machineId: string;
+    prompt: unknown;
+    projectId?: unknown;
+    /** 0013: run inside this (inherited) binding instead of provisioning
+     *  its own sandbox — the starting chat's. Project machines only. */
+    inherit?: BoundSandbox;
+  },
   now = Date.now(),
 ): RunView {
   const machine = getMachine(db, input.machineId);
@@ -168,6 +176,9 @@ export function createRun(
   } else if (input.projectId) {
     throw new MachineError("invalid", `machine ${machine.id} does not use a project workspace`);
   }
+  if (input.inherit && machine.definition.workspace !== "project") {
+    throw new MachineError("invalid", `machine ${machine.id} has no workspace to inherit a sandbox into`);
+  }
   const id = `mr_${now.toString(36)}${randomUUID().replace(/-/g, "").slice(0, 6)}`;
   const prompt = input.prompt.trim().slice(0, 50_000);
   db.transaction((tx) => {
@@ -180,6 +191,13 @@ export function createRun(
         definition: JSON.stringify(machine.definition),
         projectId,
         prompt,
+        ...(input.inherit
+          ? {
+              sandboxId: input.inherit.sandboxId,
+              sandboxWorkDir: input.inherit.workDir,
+              sandboxOwner: false,
+            }
+          : {}),
         status: "running",
         currentStage: machine.definition.start,
         createdAt: now,
@@ -213,6 +231,34 @@ export function getRun(db: Db, id: string): RunView {
   return hydrateRun(row);
 }
 
+/** 0013: the run's sandbox binding (null for workspace-free runs, or a
+ *  project run that has not provisioned yet). */
+export function getRunBinding(db: Db, id: string): BoundSandbox | null {
+  const row = db
+    .select({
+      sandboxId: machineRuns.sandboxId,
+      workDir: machineRuns.sandboxWorkDir,
+      owner: machineRuns.sandboxOwner,
+    })
+    .from(machineRuns)
+    .where(eq(machineRuns.id, id))
+    .get();
+  if (!row?.sandboxId || !row.workDir) return null;
+  return { kind: "bound", sandboxId: row.sandboxId, workDir: row.workDir, owner: !!row.owner };
+}
+
+/** Bind a run that provisioned its own sandbox — once; returns the
+ *  binding that holds afterwards. */
+export function bindRun(db: Db, id: string, binding: BoundSandbox): BoundSandbox {
+  db.update(machineRuns)
+    .set({ sandboxId: binding.sandboxId, sandboxWorkDir: binding.workDir, sandboxOwner: binding.owner })
+    .where(and(eq(machineRuns.id, id), sql`${machineRuns.sandboxId} is null`))
+    .run();
+  const now = getRunBinding(db, id);
+  if (!now) throw new Error(`could not bind run ${id}`);
+  return now;
+}
+
 export function listRuns(
   db: Db,
   filter: { projectId?: string; machineId?: string; limit?: number } = {},
@@ -233,7 +279,7 @@ export function listRuns(
 export function updateRun(
   db: Db,
   id: string,
-  set: Partial<Pick<MachineRun, "status" | "currentStage" | "containerName" | "error" | "workflowRunId">>,
+  set: Partial<Pick<MachineRun, "status" | "currentStage" | "error" | "workflowRunId">>,
   now = Date.now(),
 ): void {
   const settled = set.status !== undefined && SETTLED_STATUSES.has(set.status);

@@ -1,0 +1,1 @@
+ALTER TABLE `machine_runs` DROP COLUMN `container_name`;

@@ -82,15 +82,21 @@ export function buildChatTools(
     start_machine: tool({
       description:
         "Start a machine run (a multi-stage pipeline: coding harnesses, agent conversations, and " +
-        "Chad's approval gates) and return its URL. Call with no machineId to list machines available here.",
+        "Chad's approval gates) and return its URL. Call with no machineId to list machines available here. " +
+        "A project machine runs in THIS conversation's sandbox and directory (it sees and changes the same " +
+        "files) unless fresh: true gives it a new sandbox of its own.",
       inputSchema: z.object({
         machineId: z.string().optional().describe("Machine id; omit to list machines"),
         prompt: z.string().optional().describe("The task the run works on (required to start)"),
+        fresh: z
+          .boolean()
+          .optional()
+          .describe("Give the run its own new sandbox instead of sharing this conversation's"),
       }),
-      execute: async ({ machineId, prompt }) => {
+      execute: async ({ machineId, prompt, fresh }) => {
         if (!machineId) return listMachinesStep(conversationId);
         if (!prompt?.trim()) throw new Error("prompt is required to start a run");
-        return startMachineStep(conversationId, { machineId, prompt });
+        return startMachineStep(conversationId, { machineId, prompt, ...(fresh ? { fresh } : {}) });
       },
     }),
 

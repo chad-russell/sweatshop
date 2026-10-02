@@ -1,6 +1,7 @@
 import { getRun as getWorkflowRun, start } from "workflow/api";
 import { db } from "@/db";
-import { createRun, getRun, LIVE_STATUSES, markRunCancelled, updateRun, type RunView } from "@/db/machines";
+import { createRun, getRun, getRunBinding, LIVE_STATUSES, markRunCancelled, updateRun, type RunView } from "@/db/machines";
+import type { BoundSandbox } from "@/db/sandboxes";
 
 /**
  * 0012: the one way to start and cancel a machine run (route, the
@@ -8,12 +9,24 @@ import { createRun, getRun, LIVE_STATUSES, markRunCancelled, updateRun, type Run
  * Workflow SDK runtime.
  */
 
-export async function startRun(input: { machineId: string; prompt: unknown; projectId?: unknown }): Promise<RunView> {
+export async function startRun(input: {
+  machineId: string;
+  prompt: unknown;
+  projectId?: unknown;
+  /** 0013: run in this inherited binding (the starting chat's). */
+  inherit?: BoundSandbox;
+}): Promise<RunView> {
   const run = createRun(db(), input);
   try {
     const { runMachine } = await import("@/workflows/machines/run-machine");
     const workflow = await start(runMachine, [
-      { runId: run.id, definition: run.definition, prompt: run.prompt, projectId: run.projectId },
+      {
+        runId: run.id,
+        definition: run.definition,
+        prompt: run.prompt,
+        projectId: run.projectId,
+        binding: getRunBinding(db(), run.id),
+      },
     ]);
     updateRun(db(), run.id, { workflowRunId: workflow.runId });
   } catch (err) {
@@ -27,7 +40,8 @@ export async function startRun(input: { machineId: string; prompt: unknown; proj
  * Stop a live run: cancel its workflow (when known and present), then
  * mark it cancelled. Runs started before 0012 have no workflow id; they
  * are only marked. A cancelled workflow skips its `finally`, so the
- * run's sandbox is released here too.
+ * run's own sandbox is released here too — never an inherited one
+ * (0013: only the owner touches lifecycle).
  */
 export async function cancelRun(runId: string, reason = "cancelled by user"): Promise<boolean> {
   const run = getRun(db(), runId);
@@ -37,11 +51,10 @@ export async function cancelRun(runId: string, reason = "cancelled by user"): Pr
     if (await workflow.exists) await workflow.cancel({ cancelReason: reason });
   }
   const cancelled = markRunCancelled(db(), runId);
-  const { getLeaseByOwner } = await import("@/db/sandboxes");
-  const lease = getLeaseByOwner(db(), "machine_run", runId);
-  if (lease) {
+  const binding = getRunBinding(db(), runId);
+  if (binding?.owner) {
     const { destroySandbox } = await import("@/lib/sandboxes/lease");
-    await destroySandbox(lease.id).catch((err: unknown) => {
+    await destroySandbox(binding.sandboxId).catch((err: unknown) => {
       console.error(`[machines] could not release sandbox for cancelled run ${runId}`, err);
     });
   }
