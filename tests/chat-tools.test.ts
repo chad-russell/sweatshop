@@ -9,7 +9,7 @@ import {
   updateConversationSettings,
 } from "../db/chat";
 import { getLease, getLeaseByOwner, listCallsForConversation, listCallsForSandbox } from "../db/sandboxes";
-import { loadConversationSandboxView } from "../db/sandbox-view";
+import { getSandboxDetail, listSandboxSummaries, loadConversationSandboxView } from "../db/sandbox-view";
 import { buildChatTools } from "../workflows/chat/tools";
 import { projects } from "../db/schema";
 import { clipOutput, runBash } from "../lib/agent/tools/bash";
@@ -290,6 +290,49 @@ describe("0010 chat tool cores", () => {
       expect(view.sandboxes[old.id]).toMatchObject({ status: "destroyed" });
       expect(view.calls.g_1!.sandboxId).toBe(old.id);
       expect(view.state).toEqual({ kind: "pending" });
+    });
+  });
+
+  describe("0011 sandbox pages", () => {
+    it("summarises owners, call counts and chats; detail lists users and calls", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_pg_owner", "p_tools");
+      ensureConversation(db(), "c_pg_guest");
+      await runBash("c_pg_owner", "pwd", provider, "pg_1");
+      await runBash("c_pg_owner", "ls", provider, "pg_2");
+      const lease = getLeaseByOwner(db(), "conversation", "c_pg_owner")!;
+
+      // a guest that attached but has not run anything yet still counts
+      await attachConversationSandbox("c_pg_guest", { sandboxId: lease.id }, provider);
+      let summary = listSandboxSummaries(db()).find((s) => s.id === lease.id)!;
+      expect(summary).toMatchObject({ calls: 2, chats: 2, ownerHref: "/c/c_pg_owner", status: "running" });
+
+      await runBash("c_pg_guest", "echo hi", provider, "pg_3");
+      summary = listSandboxSummaries(db()).find((s) => s.id === lease.id)!;
+      expect(summary).toMatchObject({ calls: 3, chats: 2 });
+
+      const detail = getSandboxDetail(db(), lease.id)!;
+      expect(detail.users.map((u) => [u.conversationId, u.owner, u.calls])).toEqual([
+        ["c_pg_owner", true, 2],
+        ["c_pg_guest", false, 1],
+      ]);
+      expect(detail.recentCalls.map((c) => c.toolCallId)).toEqual(["pg_3", "pg_2", "pg_1"]);
+      expect(getSandboxDetail(db(), "sbx_missing")).toBeNull();
+    });
+
+    it("lists destroyed sandboxes after live ones", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_pg_old", "p_tools");
+      await runBash("c_pg_old", "pwd", provider, "old_1");
+      const old = getLeaseByOwner(db(), "conversation", "c_pg_old")!;
+      await destroySandbox(old.id, provider);
+      ensureConversation(db(), "c_pg_new", "p_tools");
+      await runBash("c_pg_new", "pwd", provider, "new_1");
+
+      const all = listSandboxSummaries(db());
+      const firstDestroyed = all.findIndex((s) => s.status === "destroyed");
+      expect(all.slice(firstDestroyed).every((s) => s.status === "destroyed")).toBe(true);
+      expect(all.find((s) => s.id === old.id)).toMatchObject({ status: "destroyed", calls: 1 });
     });
   });
 

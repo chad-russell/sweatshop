@@ -45,11 +45,11 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { AppHeader } from "@/components/app-header";
+import { shortSandboxId } from "@/lib/sandbox-id";
 import {
   SANDBOXED_TOOLS,
   SandboxChip,
   SandboxViewProvider,
-  shortSandboxId,
   type ConversationSandboxViewData,
 } from "@/components/sandbox-view";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";

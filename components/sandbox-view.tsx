@@ -1,7 +1,9 @@
 "use client";
 
 import { Box } from "lucide-react";
+import Link from "next/link";
 import { createContext, useContext, type ReactNode } from "react";
+import { shortSandboxId } from "@/lib/sandbox-id";
 import { cn } from "@/lib/utils";
 
 /**
@@ -51,15 +53,10 @@ export function useSandboxView(): ConversationSandboxViewData | null {
 /** Tools whose calls run inside a sandbox (and so get a chip). */
 export const SANDBOXED_TOOLS = new Set(["bash", "pi", "claude"]);
 
-/** Short, stable display form of a sandbox id (mono, DESIGN.md rule 4). */
-export function shortSandboxId(id: string): string {
-  return id.replace(/^sbx_/, "").slice(0, 6);
-}
-
 /**
- * Which sandbox one tool call ran in. Renders nothing for calls with no
- * record (made before 0011, or not yet recorded). Not a link until the
- * sandbox pages exist (phase 3).
+ * Which sandbox one tool call ran in; links to its /sandboxes page.
+ * Renders nothing for calls with no record (made before 0011, or not yet
+ * recorded).
  */
 export function SandboxChip({
   toolCallId,
@@ -79,7 +76,8 @@ export function SandboxChip({
       : "own sandbox";
 
   return (
-    <span
+    <Link
+      href={`/sandboxes/${call.sandboxId}`}
       title={[
         `Ran in sandbox ${call.sandboxId}`,
         where,
@@ -93,6 +91,7 @@ export function SandboxChip({
         call.changed
           ? "border-warning/50 bg-warning/10 text-warning"
           : "border-border bg-muted/50 text-muted-foreground",
+        "transition-colors hover:border-ring hover:text-foreground",
         gone && "opacity-60",
         className,
       )}
@@ -103,6 +102,6 @@ export function SandboxChip({
       </span>
       {call.via === "attached" && <span aria-hidden>↗</span>}
       {call.changed && <span className="font-sans">switched</span>}
-    </span>
+    </Link>
   );
 }

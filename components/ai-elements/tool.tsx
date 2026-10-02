@@ -85,22 +85,28 @@ export const ToolHeader = ({
   const derivedName =
     type === "dynamic-tool" ? toolName : type.split("-").slice(1).join("-");
 
+  // The trigger is split in two (name/status on the left, chevron on the
+  // right) so `extra` can sit between them as real interactive content —
+  // a link inside a <button> trigger would be invalid and would toggle
+  // the card.
   return (
-    <CollapsibleTrigger
-      className={cn(
-        "flex w-full items-center justify-between gap-4 p-3",
-        className
-      )}
-      {...props}
-    >
-      <div className="flex items-center gap-2">
-        <WrenchIcon className="size-4 text-muted-foreground" />
+    <div className={cn("flex w-full items-center gap-2 pr-1", className)}>
+      <CollapsibleTrigger
+        className="flex min-w-0 flex-1 items-center gap-2 p-3 text-left"
+        {...props}
+      >
+        <WrenchIcon className="size-4 shrink-0 text-muted-foreground" />
         <span className="font-medium text-sm">{title ?? derivedName}</span>
         {getStatusBadge(state)}
-        {extra}
-      </div>
-      <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
-    </CollapsibleTrigger>
+      </CollapsibleTrigger>
+      {extra}
+      <CollapsibleTrigger
+        aria-label="Toggle details"
+        className="rounded-md p-2 text-muted-foreground"
+      >
+        <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+      </CollapsibleTrigger>
+    </div>
   );
 };
 
