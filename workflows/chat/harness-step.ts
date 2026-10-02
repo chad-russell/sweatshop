@@ -175,7 +175,9 @@ export async function harnessToolStep(
       undefined,
       toolCallId ? { toolCallId, tool: kind } : undefined,
     );
-    const sandboxSession = toSandboxSession(handle);
+    // Dedicated and attached both work under /work/<conversationId>.
+    const { sandboxWorkRoot } = await import("../../lib/sandboxes/provision");
+    const sandboxSession = toSandboxSession(handle, sandboxWorkRoot(conversationId));
     const bridgeIp =
       kind === "claude" ? (await connectContainerToHarnessNetwork(handle.ref)).ip : undefined;
 

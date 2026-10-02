@@ -26,12 +26,16 @@ export interface SandboxShellLike extends SandboxShell {
  */
 export function toSandboxSession(
   sandbox: SandboxShellLike,
+  /** The work root commands default to (/work/<owner>); named in the
+   *  description because sandbox-aware tools put it into prompts. */
+  workDir?: string,
 ): Experimental_SandboxSession {
   return {
-    description:
-      `Sandboxed Linux environment with the project's git repositories ` +
-      `cloned under /workspace. Commands run via bash; use absolute or ` +
-      `/workspace-relative paths.`,
+    description: workDir
+      ? `Sandboxed Linux environment with the project's git repositories ` +
+        `cloned under ${workDir} (the default working directory). ` +
+        `Commands run via bash; use absolute or ${workDir}-relative paths.`
+      : `Sandboxed Linux environment. Commands run via bash.`,
 
     async run(options) {
       // Env rides through execSandbox as docker exec -e flags (a shell

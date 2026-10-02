@@ -69,8 +69,9 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   // paths against that directory on the HOST too — so it must be a path
   // that does not exist in this runtime (a bare /workspace collides with
   // the dev container's repo mount, 0009 finding).
-  const sandbox = attachSandbox(input.containerName, runWorkspaceRoot(input.runId));
-  const sandboxSession = toSandboxSession(sandbox);
+  const workDir = runWorkspaceRoot(input.runId);
+  const sandbox = attachSandbox(input.containerName, workDir);
+  const sandboxSession = toSandboxSession(sandbox, workDir);
   const bridgeIp =
     kind === "claude" ? (await connectContainerToHarnessNetwork(input.containerName)).ip : undefined;
 
