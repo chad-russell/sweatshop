@@ -20,7 +20,16 @@ interface Draft {
  * The v1 machine editor (0009): name, description, and the definition
  * as JSON, validated live with the same schema the store enforces.
  */
-export function MachineEditor({ initial, isNew = false }: { initial: Draft; isNew?: boolean }) {
+export function MachineEditor({
+  initial,
+  isNew = false,
+  actions,
+}: {
+  initial: Draft;
+  isNew?: boolean;
+  /** Header actions (0012: Run). */
+  actions?: React.ReactNode;
+}) {
   const router = useRouter();
   const [id, setId] = useState(initial.id);
   const [name, setName] = useState(initial.name);
@@ -80,9 +89,16 @@ export function MachineEditor({ initial, isNew = false }: { initial: Draft; isNe
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-6">
-      <header className="flex items-baseline justify-between gap-2">
+      <header className="flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold">{isNew ? "New machine" : initial.name}</h1>
-        {!isNew && <span className="font-mono text-xs text-muted-foreground">{initial.id} · v{initial.version}</span>}
+        {!isNew && (
+          <span className="flex items-center gap-3">
+            <span className="font-mono text-xs text-muted-foreground">
+              {initial.id} · v{initial.version}
+            </span>
+            {actions}
+          </span>
+        )}
       </header>
 
       <div className="grid gap-3 sm:grid-cols-2">

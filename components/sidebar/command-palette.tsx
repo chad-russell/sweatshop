@@ -1,12 +1,13 @@
 "use client";
 
-import { Archive } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Archive, Workflow } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Command,
   CommandDialog,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
@@ -17,11 +18,19 @@ import { conversationHref } from "@/lib/conversation-href";
 
 const ALL = { includeArchived: true } as const;
 
+interface PaletteMachine {
+  id: string;
+  name: string;
+  definition: { workspace: "project" | "none" };
+}
+
 /**
  * ⌘K / Ctrl-K jump-to-conversation palette (0007), available on every
  * page. Same search as the sidebar — title/summary matches first, then
  * message text — with the folder breadcrumb on each result. cmdk's own
- * filtering is off: ranking comes from the server.
+ * filtering is off: ranking comes from the server. 0012: "Run <machine>"
+ * commands open a fresh composer with that machine preselected (in the
+ * current project for project machines).
  */
 export function CommandPalette() {
   const router = useRouter();
@@ -29,6 +38,27 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const results = useConversationSearch(query, ALL);
   const hits = query.trim() ? (results ?? []) : [];
+  const pathname = usePathname();
+  const projectId = /^\/p\/([^/]+)/.exec(pathname)?.[1] ?? null;
+  const [machines, setMachines] = useState<PaletteMachine[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    void fetch("/api/machines", { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ machines: PaletteMachine[] }>) : { machines: [] }))
+      .then(({ machines: all }) => setMachines(all))
+      .catch(() => setMachines([]));
+  }, [open]);
+  const needle = query.trim().toLowerCase();
+  // Project machines need a project: offered only on a project page.
+  const runnable = machines.filter(
+    (m) =>
+      (m.definition.workspace === "none" || projectId) &&
+      (!needle || `run ${m.name}`.toLowerCase().includes(needle)),
+  );
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,19 +89,38 @@ export function CommandPalette() {
           placeholder="Search conversations…"
         />
         <CommandList>
-          {query.trim() && hits.length === 0 && <CommandEmpty>No matches.</CommandEmpty>}
+          {query.trim() && hits.length === 0 && runnable.length === 0 && (
+            <CommandEmpty>No matches.</CommandEmpty>
+          )}
           {!query.trim() && (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+            <p className="px-3 pt-4 pb-2 text-center text-sm text-muted-foreground">
               Type to search every conversation.
             </p>
+          )}
+          {runnable.length > 0 && (
+            <CommandGroup heading="Run machine">
+              {runnable.map((m) => (
+                <CommandItem
+                  key={`run:${m.id}`}
+                  value={`run:${m.id}`}
+                  onSelect={() => {
+                    close();
+                    const scope = m.definition.workspace === "project" ? `/p/${projectId}` : "/";
+                    router.push(`${scope}?machine=${encodeURIComponent(m.id)}`);
+                  }}
+                >
+                  <Workflow className="text-muted-foreground" />
+                  <span className="truncate">Run {m.name}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
           )}
           {hits.map((hit) => (
             <CommandItem
               key={hit.conversationId}
               value={hit.conversationId}
               onSelect={() => {
-                setOpen(false);
-                setQuery("");
+                close();
                 router.push(conversationHref({ id: hit.conversationId, kind: hit.kind }));
               }}
               className="flex-col items-start gap-0.5"

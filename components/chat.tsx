@@ -14,6 +14,7 @@ import {
   GitPullRequest,
   MessageSquarePlus,
   RotateCcw,
+  Workflow,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -47,6 +48,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { AppHeader } from "@/components/app-header";
+import { RunTargetPicker, startMachineRun, useScopedMachines } from "@/components/machines/run-target";
 import { LocalTime } from "@/components/local-time";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import {
@@ -681,6 +683,7 @@ export function ChatSurface({
   initialSandboxPref,
   conversationTitle,
   headerExtra,
+  initialMachineId,
 }: {
   conversationId?: string;
   initialMessages?: UIMessage[];
@@ -691,6 +694,8 @@ export function ChatSurface({
   initialSandboxPref?: string | null;
   conversationTitle?: string | null;
   headerExtra?: React.ReactNode;
+  /** 0012: preselect this machine as the fresh composer's target. */
+  initialMachineId?: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -872,9 +877,33 @@ export function ChatSurface({
     }
   };
 
+  // ── 0012: a fresh composer can start a machine run instead ─────────────
+  const fresh = !adopted && messages.length === 0;
+  const machines = useScopedMachines(fresh ? projectId : undefined);
+  const [pickedMachineId, setPickedMachineId] = useState<string | null>(initialMachineId ?? null);
+  const machineId = fresh && machines?.some((m) => m.id === pickedMachineId) ? pickedMachineId : null;
+  const [runStart, setRunStart] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+
+  const handleStartRun = async (text: string) => {
+    if (!machineId || runStart.busy) return;
+    setRunStart({ busy: true, error: null });
+    try {
+      const runId = await startMachineRun({ machineId, prompt: text, ...(projectId ? { projectId } : {}) });
+      window.localStorage.removeItem(draftKey);
+      router.push(`/r/${runId}`);
+      router.refresh();
+    } catch (err) {
+      setRunStart({ busy: false, error: err instanceof Error ? err.message : "failed to start" });
+    }
+  };
+
   const handleSubmit = (message: PromptInputMessage) => {
     const text = message.text?.trim();
     if (!text) return;
+    if (machineId) {
+      void handleStartRun(text);
+      return;
+    }
     window.localStorage.removeItem(draftKey);
     if (isBusy) {
       // A live turn: queue a steer (drained between the turn's slices).
@@ -940,32 +969,48 @@ export function ChatSurface({
           { label: conversationTitle ?? "New chat" },
         ]}
       >
-        <ModelPicker
-          selectedId={modelId}
-          onSelect={selectModel}
-          displayLabel={findChatModel(modelId)?.label ?? modelId}
-        />
-        <SandboxPicker
-          pref={sandboxPref}
-          onSelect={(pref) => {
-            prefTouchedRef.current = true;
-            setSandboxPref(pref);
-          }}
-          onOpen={() => void loadSandboxes()}
-          sandboxes={sandboxes}
-          view={sandboxView}
-        />
+        {/* A machine decides model and sandbox per stage. */}
+        {!machineId && (
+          <>
+            <ModelPicker
+              selectedId={modelId}
+              onSelect={selectModel}
+              displayLabel={findChatModel(modelId)?.label ?? modelId}
+            />
+            <SandboxPicker
+              pref={sandboxPref}
+              onSelect={(pref) => {
+                prefTouchedRef.current = true;
+                setSandboxPref(pref);
+              }}
+              onOpen={() => void loadSandboxes()}
+              sandboxes={sandboxes}
+              view={sandboxView}
+            />
+          </>
+        )}
         {headerExtra}
       </AppHeader>
 
       <Conversation className="min-h-0 flex-1">
         <ConversationContent>
           {messages.length === 0 && status === "ready" && !chat.error && (
-            <ConversationEmptyState
-              icon={<MessageSquarePlus className="size-6" />}
-              title="sweatshop"
-              description="A conversation with your agent. Say anything to begin."
-            />
+            machineId ? (
+              <ConversationEmptyState
+                icon={<Workflow className="size-6" />}
+                title={machines?.find((m) => m.id === machineId)?.name ?? "Machine run"}
+                description={
+                  machines?.find((m) => m.id === machineId)?.description ??
+                  "Your message becomes the run's prompt."
+                }
+              />
+            ) : (
+              <ConversationEmptyState
+                icon={<MessageSquarePlus className="size-6" />}
+                title="sweatshop"
+                description="A conversation with your agent. Say anything to begin."
+              />
+            )
           )}
           <SandboxViewProvider value={sandboxView}>
           {messages.map((message) => (
@@ -1011,16 +1056,42 @@ export function ChatSurface({
           <PromptInputTextarea
             ref={textareaRef}
             onChange={handleDraftChange}
-            placeholder={isBusy ? "Steer the running turn…" : "Message sweatshop…"}
+            placeholder={
+              isBusy
+                ? "Steer the running turn…"
+                : machineId
+                  ? projectId
+                    ? "What should it do? (paste the ticket)"
+                    : "What should it work on?"
+                  : "Message sweatshop…"
+            }
             autoFocus
           />
           <PromptInputFooter>
+            {fresh ? (
+              <RunTargetPicker
+                machines={machines}
+                selectedId={machineId}
+                onSelect={(id) => {
+                  setPickedMachineId(id);
+                  setRunStart({ busy: false, error: null });
+                }}
+                projectScoped={Boolean(projectId)}
+              />
+            ) : (
+              <span />
+            )}
             <PromptInputSubmit
-              status={status}
+              status={runStart.busy ? "submitted" : status}
               onStop={() => void handleStop()}
             />
           </PromptInputFooter>
         </PromptInput>
+        {runStart.error && (
+          <p role="alert" className="pt-2 text-sm text-destructive">
+            {runStart.error}
+          </p>
+        )}
       </div>
     </div>
   );

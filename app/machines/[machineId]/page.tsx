@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { MachineEditor } from "@/components/machines/machine-editor";
+import { RunMachineButton } from "@/components/machines/run-machine-button";
 import { db } from "@/db";
 import { getMachine, MachineError } from "@/db/machines";
+import { projects } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -40,9 +42,11 @@ export default async function MachinePage({ params }: { params: Promise<{ machin
     if (err instanceof MachineError && err.code === "not-found") notFound();
     throw err;
   }
+  const projectRows = db().select({ id: projects.id, name: projects.name }).from(projects).orderBy(projects.name).all();
   return (
     <MachineEditor
       initial={{ id: m.id, name: m.name, description: m.description ?? "", definition: m.definition, version: m.version }}
+      actions={<RunMachineButton machineId={m.id} workspace={m.definition.workspace} projects={projectRows} />}
     />
   );
 }
