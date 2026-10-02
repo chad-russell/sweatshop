@@ -13,7 +13,6 @@ import {
   GitPullRequest,
   MessageSquarePlus,
   RotateCcw,
-  SquarePen,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -39,12 +38,13 @@ import {
 } from "@/components/ai-elements/message";
 import {
   PromptInput,
+  PromptInputFooter,
   type PromptInputMessage,
   PromptInputSubmit,
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AppHeader } from "@/components/app-header";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
@@ -462,7 +462,7 @@ function ModelPicker({
           type="button"
           aria-label="Chat model"
           title="Model for this conversation"
-          className="inline-flex h-9 max-w-full items-center gap-1 rounded-md border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="inline-flex h-8 max-w-40 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <span className="truncate">{displayLabel}</span>
           <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
@@ -496,10 +496,13 @@ function ModelPicker({
 function SandboxPicker({
   pref,
   onSelect,
+  onOpen,
   sandboxes,
 }: {
   pref: string;
   onSelect: (pref: string) => void;
+  /** Fired each time the menu opens — refresh the attachable list. */
+  onOpen: () => void;
   sandboxes: SandboxOption[];
 }) {
   const label =
@@ -509,26 +512,36 @@ function SandboxPicker({
         ? `attached: ${sandboxes.find((s) => `attached:${s.id}` === pref)?.ownerId ?? pref.slice(9, 21)}`
         : "sandbox: auto";
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => open && onOpen()}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
           aria-label="Sandbox"
           title="Sandbox for this conversation — auto (own, created on first use), none, or attach to a running sandbox"
-          className="inline-flex h-9 max-w-full items-center gap-1 rounded-md border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="inline-flex h-8 max-w-40 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <span className="truncate">{label}</span>
           <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align="start" className="w-80">
         <DropdownMenuItem onSelect={() => onSelect("auto")}>
           <Check className={cn(pref === "auto" ? "opacity-100" : "opacity-0")} aria-hidden />
-          Auto — own sandbox, created on first use
+          <span className="flex flex-col">
+            <span>Auto</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              Own sandbox, created on first use
+            </span>
+          </span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onSelect("none")}>
           <Check className={cn(pref === "none" ? "opacity-100" : "opacity-0")} aria-hidden />
-          None — no sandboxed tools
+          <span className="flex flex-col">
+            <span>None</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              No sandboxed tools
+            </span>
+          </span>
         </DropdownMenuItem>
         {sandboxes.length > 0 && (
           <>
@@ -578,6 +591,7 @@ export function ChatSurface({
   projectName,
   initialModelId,
   initialSandboxPref,
+  conversationTitle,
   headerExtra,
 }: {
   conversationId?: string;
@@ -587,6 +601,7 @@ export function ChatSurface({
   projectName?: string;
   initialModelId?: string | null;
   initialSandboxPref?: string | null;
+  conversationTitle?: string | null;
   headerExtra?: React.ReactNode;
 }) {
   const router = useRouter();
@@ -629,6 +644,11 @@ export function ChatSurface({
   // mount, so the values are always current when a request fires.
   const modelRef = useRef(modelId);
   const prefRef = useRef(sandboxPref);
+  // 0011: the pref is only sent once the user has chosen one in the
+  // picker. Otherwise an agent-side change (attach_sandbox sets the
+  // conversation's pref) would be overwritten by the stale "auto" on the
+  // next send.
+  const prefTouchedRef = useRef(false);
   const conversationRef = useRef({ conversationId, projectId: projectId ?? null });
   useEffect(() => {
     modelRef.current = modelId;
@@ -647,7 +667,9 @@ export function ChatSurface({
             conversationId: conversationRef.current.conversationId,
             projectId: conversationRef.current.projectId,
             modelId: modelRef.current,
-            sandboxPref: prefRef.current === "auto" ? null : prefRef.current,
+            ...(prefTouchedRef.current
+              ? { sandboxPref: prefRef.current === "auto" ? null : prefRef.current }
+              : {}),
             messages,
             trigger,
             messageId,
@@ -772,39 +794,30 @@ export function ChatSurface({
 
   return (
     <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
-      <header className="flex items-center justify-between gap-3 border-b px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 font-mono text-sm text-muted-foreground">
-            sweatshop{projectName ? ` / ${projectName}` : ""}
-          </span>
-          <ModelPicker
-            selectedId={modelId}
-            onSelect={selectModel}
-            displayLabel={findChatModel(modelId)?.label ?? modelId}
-          />
-          <SandboxPicker
-            pref={sandboxPref}
-            onSelect={(pref) => {
-              setSandboxPref(pref);
-              void loadSandboxes();
-            }}
-            sandboxes={sandboxes}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          {headerExtra}
-          <button
-            type="button"
-            aria-label="New chat"
-            title="New chat (⌘⇧O)"
-            onClick={handleNewChat}
-            className="inline-flex size-9 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-          >
-            <SquarePen className="size-4" />
-          </button>
-          <ThemeToggle />
-        </div>
-      </header>
+      <AppHeader
+        crumbs={[
+          projectId
+            ? { label: projectName ?? projectId, href: `/p/${projectId}` }
+            : { label: "Chats", href: "/" },
+          { label: conversationTitle ?? "New chat" },
+        ]}
+      >
+        <ModelPicker
+          selectedId={modelId}
+          onSelect={selectModel}
+          displayLabel={findChatModel(modelId)?.label ?? modelId}
+        />
+        <SandboxPicker
+          pref={sandboxPref}
+          onSelect={(pref) => {
+            prefTouchedRef.current = true;
+            setSandboxPref(pref);
+          }}
+          onOpen={() => void loadSandboxes()}
+          sandboxes={sandboxes}
+        />
+        {headerExtra}
+      </AppHeader>
 
       <Conversation className="min-h-0 flex-1">
         <ConversationContent>
@@ -852,15 +865,20 @@ export function ChatSurface({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="border-t p-4">
-        <PromptInput onSubmit={handleSubmit}>
+      <div className="mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
+        <PromptInput onSubmit={handleSubmit} className="composer">
           <PromptInputTextarea
             ref={textareaRef}
             onChange={handleDraftChange}
             placeholder={isBusy ? "Steer the running turn…" : "Message sweatshop…"}
             autoFocus
           />
-          <PromptInputSubmit status={status} onStop={() => void handleStop()} />
+          <PromptInputFooter>
+            <PromptInputSubmit
+              status={status}
+              onStop={() => void handleStop()}
+            />
+          </PromptInputFooter>
         </PromptInput>
       </div>
     </div>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { CommandPalette } from "@/components/sidebar/command-palette";
 import { SidebarContext } from "@/components/sidebar/context";
 import { GroupSection } from "@/components/sidebar/group-section";
@@ -125,6 +126,7 @@ export function ConversationSidebar({
             >
               <SquarePen className="size-4" />
             </Link>
+            <ThemeToggle />
             {/* Drawer mode only (the nav is otherwise hidden below md). */}
             <button
               type="button"

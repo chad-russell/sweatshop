@@ -214,3 +214,41 @@
     }
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* .composer — the chat message input (components/chat.tsx).          */
+/* Unlayered on purpose: it must beat the InputGroup utility classes   */
+/* that live in Tailwind's utilities layer. Tokens only.               */
+/* ------------------------------------------------------------------ */
+.composer [data-slot="input-group"] {
+  border-radius: var(--radius-2xl);
+  border-color: var(--border);
+  background-color: var(--card);
+  box-shadow: 0 1px 2px 0 color-mix(in oklab, var(--foreground) 6%, transparent);
+  transition:
+    box-shadow 200ms,
+    border-color 200ms;
+}
+.composer [data-slot="input-group"]:hover {
+  border-color: color-mix(in oklab, var(--ring) 40%, var(--border));
+}
+.composer [data-slot="input-group"]:focus-within {
+  border-color: var(--ring);
+  box-shadow:
+    0 0 0 1px var(--ring),
+    0 0 24px -2px color-mix(in oklab, var(--ring) 45%, transparent);
+}
+.composer [data-slot="input-group-control"] {
+  min-height: 3.5rem;
+  padding: 0.875rem 1rem 0;
+  font-size: 15px;
+  background-color: transparent;
+}
+.composer [data-slot="input-group-addon"][data-align="block-end"] {
+  padding: 0 0.75rem 0.625rem;
+}
+.composer [data-slot="input-group-addon"] button[type="submit"],
+.composer [data-slot="input-group-addon"] button[aria-label="Stop"] {
+  margin-left: auto;
+  border-radius: 9999px;
+}

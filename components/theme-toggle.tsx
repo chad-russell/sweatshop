@@ -3,6 +3,7 @@
 import { Palette } from "lucide-react";
 import { useTheme } from "next-themes";
 import { THEMES } from "@/components/theme-provider";
+import { cn } from "@/lib/utils";
 import { useMounted } from "@/lib/use-mounted";
 
 /**
@@ -29,10 +30,10 @@ export function ThemeToggle({ className }: { className?: string }) {
       aria-label={next ? `Switch theme to ${next.label}` : "Switch theme"}
       title={next ? `Theme: ${current} → ${next.value}` : "Switch theme"}
       onClick={() => next && setTheme(next.value)}
-      className={
-        "inline-flex size-9 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground " +
-        (className ?? "")
-      }
+      className={cn(
+        "inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        className,
+      )}
     >
       <Palette className="size-4" />
     </button>

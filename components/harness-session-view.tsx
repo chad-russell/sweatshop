@@ -2,6 +2,9 @@
 
 import { Bot, Loader2, Terminal } from "lucide-react";
 import { useEffect, useState } from "react";
+import { MessageResponse } from "@/components/ai-elements/message";
+import { AppHeader } from "@/components/app-header";
+import { cn } from "@/lib/utils";
 
 interface HarnessEvent {
   id: number;
@@ -88,9 +91,18 @@ function HarnessToolCall({
 export function HarnessSessionView({
   initialRun,
   initialEvents,
+  parent,
 }: {
   initialRun: HarnessRun;
   initialEvents: readonly HarnessEvent[];
+  /** The conversation that spawned this session (session id = its id). */
+  parent: {
+    id: string;
+    title: string | null;
+    exists: boolean;
+    projectId: string | null;
+    projectName: string | null;
+  };
 }) {
   const [run, setRun] = useState(initialRun);
   const [events, setEvents] = useState(initialEvents);
@@ -128,37 +140,37 @@ export function HarnessSessionView({
 
   return (
     <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
-      <header className="border-b px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-info/40 bg-info/10 px-2.5 py-0.5 text-xs font-medium text-info">
-              <Bot className="size-3.5" aria-hidden />
-              {run.kind} harness session
-            </span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {run.sessionId}
-            </span>
+      <AppHeader
+        crumbs={[
+          parent.projectId
+            ? { label: parent.projectName ?? parent.projectId, href: `/p/${parent.projectId}` }
+            : { label: "Chats", href: "/" },
+          {
+            label: parent.title ?? "Untitled chat",
+            href: parent.exists ? `/c/${parent.id}` : undefined,
+          },
+          {
+            label: (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-info/40 bg-info/10 px-2.5 py-0.5 text-xs font-medium text-info">
+                <Bot className="size-3.5" aria-hidden />
+                {run.kind} harness
+              </span>
+            ),
+          },
+        ]}
+      >
+        <span className="flex items-center gap-2 font-mono text-xs">
+          {running && <Loader2 className="size-3.5 animate-spin text-info" aria-hidden />}
+          <span className={cn(running ? "text-info" : failed ? "text-destructive" : "text-success")}>
+            {run.status}
           </span>
-          <span className="flex items-center gap-2 font-mono text-xs">
-            {running && (
-              <Loader2 className="size-3.5 animate-spin text-info" aria-hidden />
-            )}
-            <span
-              className={
-                running ? "text-info" : failed ? "text-destructive" : "text-success"
-              }
-            >
-              {run.status}
-            </span>
-            <span className="text-muted-foreground">{run.toolCalls} calls</span>
-          </span>
-        </div>
-        {failed && run.error && (
-          <p className="mt-2 break-words rounded-md bg-destructive/10 px-2 py-1 font-mono text-[11px] text-destructive">
-            {run.error}
-          </p>
-        )}
-      </header>
+        </span>
+      </AppHeader>
+      {failed && run.error && (
+        <p className="mx-4 mt-3 break-words rounded-md bg-destructive/10 px-2 py-1 font-mono text-[11px] text-destructive">
+          {run.error}
+        </p>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {events.length === 0 && (
@@ -197,7 +209,7 @@ export function HarnessSessionView({
                   key={event.id}
                   className="rounded-lg bg-muted/40 px-3 py-2 text-sm"
                 >
-                  {event.text}
+                  <MessageResponse>{event.text}</MessageResponse>
                 </div>
               ) : null;
             }

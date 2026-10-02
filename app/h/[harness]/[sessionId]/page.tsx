@@ -1,5 +1,8 @@
 import { notFound, permanentRedirect } from "next/navigation";
+import { eq } from "drizzle-orm";
 import { HarnessSessionView } from "@/components/harness-session-view";
+import { db } from "@/db";
+import { conversations, projects } from "@/db/schema";
 import {
   getHarnessEvents,
   getHarnessRun,
@@ -27,8 +30,32 @@ export default async function HarnessSessionPage({
     const run = getHarnessRun(sessionId, harness);
     if (run) {
       const page = getHarnessEvents(sessionId, harness);
+      // The parent conversation anchors the breadcrumb (the session id
+      // IS the conversation id); it may be gone, so everything degrades.
+      const parent = db()
+        .query.conversations.findFirst({
+          where: eq(conversations.id, sessionId),
+        })
+        .sync();
+      const project = parent?.projectId
+        ? db()
+            .query.projects.findFirst({
+              where: eq(projects.id, parent.projectId),
+            })
+            .sync()
+        : undefined;
       return (
-        <HarnessSessionView initialRun={run} initialEvents={page.events} />
+        <HarnessSessionView
+          initialRun={run}
+          initialEvents={page.events}
+          parent={{
+            id: sessionId,
+            title: parent?.title ?? null,
+            exists: !!parent,
+            projectId: project?.id ?? null,
+            projectName: project?.name ?? null,
+          }}
+        />
       );
     }
   }

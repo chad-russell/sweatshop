@@ -43,6 +43,7 @@ export default async function ConversationPage({
 
   return (
     <ChatSurface
+      conversationTitle={conversation.title}
       conversationId={sessionId}
       initialMessages={initialMessages}
       activeRunId={getActiveRun(db(), sessionId)}
