@@ -45,6 +45,13 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { AppHeader } from "@/components/app-header";
+import {
+  SANDBOXED_TOOLS,
+  SandboxChip,
+  SandboxViewProvider,
+  shortSandboxId,
+  type ConversationSandboxViewData,
+} from "@/components/sandbox-view";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
@@ -115,6 +122,7 @@ function HarnessToolCard({
           >
             {running ? "running" : "done"}
           </span>
+          <SandboxChip toolCallId={part.toolCallId} />
           {taskText && (
             <span className="truncate text-xs font-normal text-muted-foreground">{taskText}</span>
           )}
@@ -330,7 +338,16 @@ const ToolCallView = ({ part }: { part: ToolUIPart }) => {
   const errorText = part.state === "output-error" ? (part.errorText ?? "tool failed") : undefined;
   return (
     <Tool>
-      <ToolHeader type="dynamic-tool" state={part.state} toolName={part.type.replace(/^tool-/, "")} />
+      <ToolHeader
+        type="dynamic-tool"
+        state={part.state}
+        toolName={part.type.replace(/^tool-/, "")}
+        extra={
+          SANDBOXED_TOOLS.has(part.type.replace(/^tool-/, "")) ? (
+            <SandboxChip toolCallId={part.toolCallId} />
+          ) : undefined
+        }
+      />
       <ToolContent>
         {input !== undefined && <ToolInput input={input} />}
         {(output !== undefined || errorText !== undefined) && (
@@ -493,24 +510,43 @@ function ModelPicker({
 }
 
 /** Sandbox picker — the explicit knob from docs/0010 (auto / none / attach). */
+/**
+ * What the trigger says. The stored choice ("auto") is not an answer to
+ * "where will my next command run?", so prefer the resolved state.
+ */
+function sandboxLabel(
+  pref: string,
+  view: ConversationSandboxViewData | null,
+  sandboxes: SandboxOption[],
+): string {
+  const state = view?.state;
+  if (pref === "none" || state?.kind === "none") return "no sandbox";
+  if (pref.startsWith("attached:")) {
+    const id = pref.slice("attached:".length);
+    const label = view?.sandboxes[id]?.ownerLabel ?? sandboxes.find((s) => s.id === id)?.ownerId;
+    return `attached: ${label ?? id.slice(4, 12)}`;
+  }
+  if (state?.kind === "unavailable") return "no sandbox (no project)";
+  if (state?.kind === "own") return `sandbox: ${shortSandboxId(state.sandboxId)}`;
+  return "sandbox: auto";
+}
+
 function SandboxPicker({
   pref,
   onSelect,
   onOpen,
   sandboxes,
+  view,
 }: {
+  /** 0011: the server-resolved state; the label prefers it over `pref`. */
+  view: ConversationSandboxViewData | null;
   pref: string;
   onSelect: (pref: string) => void;
   /** Fired each time the menu opens — refresh the attachable list. */
   onOpen: () => void;
   sandboxes: SandboxOption[];
 }) {
-  const label =
-    pref === "none"
-      ? "no sandbox"
-      : pref.startsWith("attached:")
-        ? `attached: ${sandboxes.find((s) => `attached:${s.id}` === pref)?.ownerId ?? pref.slice(9, 21)}`
-        : "sandbox: auto";
+  const label = sandboxLabel(pref, view, sandboxes);
   return (
     <DropdownMenu onOpenChange={(open) => open && onOpen()}>
       <DropdownMenuTrigger asChild>
@@ -689,6 +725,55 @@ export function ChatSurface({
   const isBusy = status === "submitted" || status === "streaming";
   const messages = chat.messages;
 
+  // 0011: the sandbox read-model — which sandbox each sandboxed call ran
+  // in and where the next one would. The call rows are written by the
+  // server when a call acquires its sandbox, so refetch whenever a
+  // sandboxed tool part appears or changes state (not per streamed token).
+  const [sandboxView, setSandboxView] = useState<ConversationSandboxViewData | null>(null);
+  const sandboxSignature = useMemo(
+    () =>
+      messages
+        .flatMap((m) => m.parts)
+        .filter((p) => p.type.startsWith("tool-") && SANDBOXED_TOOLS.has(p.type.slice(5)))
+        .map((p) => `${(p as ToolUIPart).toolCallId}:${(p as ToolUIPart).state}`)
+        .join("|") + `#${status === "ready" ? "r" : "b"}`,
+    [messages, status],
+  );
+  // A chat reached via "/" is not "adopted" but exists server-side from
+  // its first send, so key on having messages, not on the landing route.
+  const started = adopted || messages.length > 0;
+  useEffect(() => {
+    if (!started) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/conversations/${conversationId}/sandbox`, {
+          cache: "no-store",
+        });
+        if (res.ok && !cancelled) {
+          const next = (await res.json()) as ConversationSandboxViewData;
+          setSandboxView(next);
+          // The agent can change the choice server-side (attach_sandbox);
+          // follow it until the user has picked something themselves.
+          if (!prefTouchedRef.current) {
+            setSandboxPref(
+              next.state.kind === "attached"
+                ? `attached:${next.state.sandboxId}`
+                : next.state.kind === "none"
+                  ? "none"
+                  : "auto",
+            );
+          }
+        }
+      } catch {
+        // chips and the state label are best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [started, conversationId, sandboxSignature]);
+
   // Sidebar live-refresh once the first send creates the conversation.
   const refreshedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -815,6 +900,7 @@ export function ChatSurface({
           }}
           onOpen={() => void loadSandboxes()}
           sandboxes={sandboxes}
+          view={sandboxView}
         />
         {headerExtra}
       </AppHeader>
@@ -828,6 +914,7 @@ export function ChatSurface({
               description="A conversation with your agent. Say anything to begin."
             />
           )}
+          <SandboxViewProvider value={sandboxView}>
           {messages.map((message) => (
             <ChatMessageView
               key={message.id}
@@ -835,6 +922,7 @@ export function ChatSurface({
               conversationId={adopted ? conversationId : null}
             />
           ))}
+          </SandboxViewProvider>
           {isThinking(status, messages) && (
             <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground" role="status">
               <Spinner className="size-4" />

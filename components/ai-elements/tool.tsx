@@ -35,6 +35,8 @@ export type ToolPart = ToolUIPart | DynamicToolUIPart;
 export type ToolHeaderProps = {
   title?: string;
   className?: string;
+  /** Extra content after the status badge (e.g. a sandbox chip). */
+  extra?: ReactNode;
 } & (
   | { type: ToolUIPart["type"]; state: ToolUIPart["state"]; toolName?: never }
   | {
@@ -77,6 +79,7 @@ export const ToolHeader = ({
   type,
   state,
   toolName,
+  extra,
   ...props
 }: ToolHeaderProps) => {
   const derivedName =
@@ -94,6 +97,7 @@ export const ToolHeader = ({
         <WrenchIcon className="size-4 text-muted-foreground" />
         <span className="font-medium text-sm">{title ?? derivedName}</span>
         {getStatusBadge(state)}
+        {extra}
       </div>
       <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
     </CollapsibleTrigger>

@@ -9,6 +9,7 @@ import {
   updateConversationSettings,
 } from "../db/chat";
 import { getLease, getLeaseByOwner, listCallsForConversation, listCallsForSandbox } from "../db/sandboxes";
+import { loadConversationSandboxView } from "../db/sandbox-view";
 import { buildChatTools } from "../workflows/chat/tools";
 import { projects } from "../db/schema";
 import { clipOutput, runBash } from "../lib/agent/tools/bash";
@@ -237,6 +238,58 @@ describe("0010 chat tool cores", () => {
       await expect(
         attachConversationSandbox("c_dead", { sandboxId: owner.sandboxId }, provider),
       ).rejects.toThrow(/no sandbox/);
+    });
+  });
+
+  describe("0011 sandbox view", () => {
+    it("maps calls to sandboxes, flags a change, and reports current state", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_view", "p_tools");
+      const view0 = loadConversationSandboxView(db(), "c_view");
+      expect(view0.state).toEqual({ kind: "pending" });
+      expect(view0.calls).toEqual({});
+
+      await runBash("c_view", "pwd", provider, "v_1");
+      const own = getLeaseByOwner(db(), "conversation", "c_view")!;
+      const view1 = loadConversationSandboxView(db(), "c_view");
+      expect(view1.state).toEqual({ kind: "own", sandboxId: own.id });
+      expect(view1.calls.v_1).toEqual({ sandboxId: own.id, via: "dedicated", changed: false });
+      expect(view1.sandboxes[own.id]).toMatchObject({ own: true, status: "running" });
+
+      const other = await acquireSandbox(
+        { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_view", projectId: null },
+        provider,
+      );
+      updateConversationSettings(db(), "c_view", { sandboxPref: `attached:${other.sandboxId}` });
+      await runBash("c_view", "pwd", provider, "v_2");
+      await runBash("c_view", "pwd", provider, "v_3");
+
+      const view2 = loadConversationSandboxView(db(), "c_view");
+      expect(view2.state).toEqual({ kind: "attached", sandboxId: other.sandboxId });
+      expect(view2.calls.v_2).toMatchObject({ via: "attached", changed: true });
+      expect(view2.calls.v_3).toMatchObject({ via: "attached", changed: false });
+      expect(view2.sandboxes[other.sandboxId]).toMatchObject({ own: false, ownerKind: "machine_run" });
+
+      updateConversationSettings(db(), "c_view", { sandboxPref: "none" });
+      expect(loadConversationSandboxView(db(), "c_view").state).toEqual({ kind: "none" });
+    });
+
+    it("a plain chat with nothing attached is unavailable", () => {
+      ensureConversation(db(), "c_view_plain");
+      expect(loadConversationSandboxView(db(), "c_view_plain").state).toEqual({ kind: "unavailable" });
+    });
+
+    it("keeps destroyed sandboxes resolvable for past calls", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_view_gone", "p_tools");
+      await runBash("c_view_gone", "pwd", provider, "g_1");
+      const old = getLeaseByOwner(db(), "conversation", "c_view_gone")!;
+      await destroySandbox(old.id, provider);
+
+      const view = loadConversationSandboxView(db(), "c_view_gone");
+      expect(view.sandboxes[old.id]).toMatchObject({ status: "destroyed" });
+      expect(view.calls.g_1!.sandboxId).toBe(old.id);
+      expect(view.state).toEqual({ kind: "pending" });
     });
   });
 
