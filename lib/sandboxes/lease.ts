@@ -123,8 +123,12 @@ async function acquireAttached(
   touchLease(db(), lease.id);
   // The attacher gets its own workdir (created lazily by the first
   // command that needs it; mkdir on every attach would race nothing).
+  // The mkdir runs from "/" — the handle's default cwd is the workdir
+  // itself, which does not exist until this command succeeds.
   const handle = provider.attach(lease.ref, workdir);
-  await handle.run(`mkdir -p ${JSON.stringify(workdir)}`).catch(() => undefined);
+  await handle
+    .run(`mkdir -p ${JSON.stringify(workdir)}`, undefined, "/")
+    .catch(() => undefined);
   return { sandboxId: lease.id, handle };
 }
 

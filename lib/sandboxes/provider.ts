@@ -70,8 +70,11 @@ export const podmanProvider: SandboxProvider = {
     const root = spec.root ?? sandboxWorkRoot(spec.namePrefix);
     const handle = this.attach(ref, root);
     try {
-      // The root must exist before any command can use it as a cwd.
-      const made = await handle.run(`mkdir -p ${JSON.stringify(root)}`);
+      // The root must exist before any command can use it as a cwd —
+      // including this mkdir, which therefore runs from "/" (the handle's
+      // default cwd IS the root, and crun refuses to chdir into a
+      // directory that does not exist yet).
+      const made = await handle.run(`mkdir -p ${JSON.stringify(root)}`, undefined, "/");
       if (made.exitCode !== 0) {
         throw new Error(`could not create ${root}: ${made.stderr}`);
       }
