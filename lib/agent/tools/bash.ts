@@ -32,9 +32,11 @@ export async function runBash(
   conversationId: string,
   command: string,
   provider?: SandboxProvider,
+  toolCallId?: string,
 ): Promise<BashResult> {
   const conversation = getConversation(db(), conversationId);
-  if (!conversation?.projectId) {
+  // 0011: a plain chat may still run in a sandbox it explicitly attached to.
+  if (!conversation?.projectId && !conversation?.sandboxPref?.startsWith("attached:")) {
     throw new Error(
       "no project bound to this conversation — bash is only available in project conversations (start one from a project page)",
     );
@@ -43,6 +45,7 @@ export async function runBash(
     conversationId,
     conversation.projectId,
     provider,
+    toolCallId ? { toolCallId, tool: "bash" } : undefined,
   );
   const result = await handle.run(command);
   return {

@@ -32,6 +32,9 @@ export interface ChatTurnInput {
   /** Explicit sandbox choice: "none" omits sandboxed tools; null (or
    *  anything else) keeps them (attach is resolved inside the tools). */
   sandboxPref?: string | null;
+  /** 0011: whether the conversation is bound to a project (gates the
+   *  sandboxed tools for plain chats). */
+  hasProject?: boolean;
 }
 
 const INSTRUCTIONS = `You are sweatshop's agent (new chat runtime spike). Be concise.
@@ -49,7 +52,7 @@ export async function chatTurn(input: ChatTurnInput) {
   const agent = new WorkflowAgent({
     model,
     instructions: INSTRUCTIONS,
-    tools: buildChatTools(conversationId, input.sandboxPref),
+    tools: buildChatTools(conversationId, input.sandboxPref, input.hasProject ?? true),
   });
 
   let messages: ModelMessage[] = [...history, { role: "user", content: userText }];

@@ -1,6 +1,8 @@
 import { db } from "@/db";
 import { getConversation } from "@/db/chat";
+import { recordSandboxCall } from "@/db/sandboxes";
 import { acquireSandbox, type AcquireRequest } from "@/lib/sandboxes/lease";
+import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /**
@@ -12,10 +14,17 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
  *
  * Used inside workflow steps only (it reads sqlite).
  */
+/** 0011: identifies the tool call to attribute to the sandbox it lands in. */
+export interface CallAttribution {
+  toolCallId: string;
+  tool: "bash" | "pi" | "claude";
+}
+
 export async function acquireConversationSandbox(
   conversationId: string,
-  projectId: string,
+  projectId: string | null,
   provider?: SandboxProvider,
+  attribution?: CallAttribution,
 ): Promise<{ sandboxId: string; handle: ReturnType<SandboxProvider["attach"]> }> {
   const pref = getConversation(db(), conversationId)?.sandboxPref;
   const request: AcquireRequest = pref?.startsWith("attached:")
@@ -26,5 +35,18 @@ export async function acquireConversationSandbox(
         ownerId: conversationId,
         projectId,
       };
-  return acquireSandbox(request, provider);
+  const acquired = await acquireSandbox(request, provider);
+  // 0011: record where the call ACTUALLY ran (not what the pref said
+  // when the message was sent), once the sandbox is in hand.
+  if (attribution) {
+    recordSandboxCall(db(), {
+      toolCallId: attribution.toolCallId,
+      sandboxId: acquired.sandboxId,
+      conversationId,
+      tool: attribution.tool,
+      via: request.mode === "attach" ? "attached" : "dedicated",
+      workdir: sandboxWorkRoot(conversationId),
+    });
+  }
+  return acquired;
 }

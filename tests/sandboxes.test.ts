@@ -144,13 +144,17 @@ describe("0010 sandbox leases", () => {
     expect(attachment.workdir).toBe("/work/c_f");
   });
 
-  it("destroy removes the container and the registry row", async () => {
+  it("destroy removes the sandbox and keeps the registry row as history (0011)", async () => {
     const provider = new FakeProvider();
     const { sandboxId } = await acquireSandbox(dedicated("c_g"), provider);
     await destroySandbox(sandboxId, provider);
 
     expect(provider.destroyed).toEqual(["fake-ref-1"]);
-    expect(getLease(db(), sandboxId)).toBeNull();
+    expect(getLease(db(), sandboxId)).toMatchObject({ status: "destroyed" });
+    expect(getLeaseByOwner(db(), "conversation", "c_g")).toBeNull();
+    // destroying twice is a no-op, not a second provider call
+    await destroySandbox(sandboxId, provider);
+    expect(provider.destroyed).toEqual(["fake-ref-1"]);
   });
 
   it("the reaper's idle query finds only old running/stopped leases", () => {

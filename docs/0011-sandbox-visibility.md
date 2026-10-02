@@ -1,6 +1,6 @@
 # 0011 — Sandbox visibility: per-call attribution
 
-Status: **proposed** — awaiting Chad's approval before implementation.
+Status: **approved (2026-10-02)** — phase 1 in progress.
 
 ## Goal
 
@@ -47,7 +47,7 @@ Reading the code (2026-10-02) established:
 | History | Leases are **soft-destroyed**: `status = "destroyed"` + `destroyed_at`; rows stay. `sandboxes_owner_idx` becomes a partial unique index over non-destroyed rows so an owner can get a fresh sandbox later. | Calls keep pointing at something; implements what 0010 specified. |
 | Existing history | Not backfilled. Calls before this ships show no sandbox chip. | The data was never recorded; guessing would be fabrication. |
 | `attach_sandbox` | A successful attach **sets `sandbox_pref = attached:<id>`** for the conversation. Changing back is the composer picker. | Makes the tool mean what its description says, and makes the header truthful. |
-| Plain chats | Sandboxed tools (`bash`, `pi`, `claude`, `create_pr`) are offered only when the conversation has a project (or an `attached:` pref). | Matches 0010 defaults; removes a tool that can only error. |
+| Plain chats | Sandboxed tools (`bash`, `pi`, `claude`) are offered only when the conversation has a project (or an `attached:` pref). `create_pr` is not sandboxed (it calls the git host API) and is unaffected. | Matches 0010 defaults; removes a tool that can only error. |
 | Mixed-state chats | Supported. The UI shows state per call and flags a change between consecutive calls. | Locking the pref after first use would be simpler but removes the ability to switch mid-chat. |
 
 ## Schema (one migration)
@@ -111,12 +111,11 @@ Stop/destroy/reap controls in the UI, per-sandbox terminals, resource
 metrics, and the idle-stop reaper from 0010 (unchanged). Revisit once
 the pages exist and show what is actually needed.
 
-## Open questions
+## Resolved questions
 
-1. `create_pr` runs git against the sandbox too — attribute it as a
-   fourth tool, or leave it out since it is not a user-visible
-   sandboxed command? (Proposal: include it.)
-2. Machine-run stages: calls inside runs already share one sandbox
-   owned by the run. Record per-stage calls in `sandbox_calls` too, or
-   only show the run's sandbox on `/r/<runId>`? (Proposal: the latter
-   for now.)
+1. **`create_pr`** — Chad approved attributing it, but the premise was
+   wrong: it resolves a credential and calls the git host API
+   (`openProjectPR`); it never touches a sandbox. It gets no chip and is
+   not gated. (Found during phase 1.)
+2. **Machine-run stages** — no per-stage `sandbox_calls`; the run's one
+   sandbox is shown on `/r/<runId>` (phase 3).

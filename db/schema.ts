@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   type AnySQLiteColumn,
   index,
@@ -190,14 +191,21 @@ export const sandboxes = sqliteTable(
     ownerKind: text("owner_kind").notNull(),
     ownerId: text("owner_id").notNull(),
     projectId: text("project_id").references(() => projects.id),
-    /** "creating" | "running" | "stopped". */
+    /** "creating" | "running" | "stopped" | "destroyed" (0011: soft —
+     *  the row stays so past calls still point at it). */
     status: text("status").notNull(),
+    /** 0011: Unix ms when the sandbox was destroyed; null while live. */
+    destroyedAt: integer("destroyed_at"),
     /** Unix ms; bumped on every acquire (idle reaping's signal). */
     lastUsedAt: integer("last_used_at").notNull(),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    uniqueIndex("sandboxes_owner_idx").on(table.ownerKind, table.ownerId),
+    // 0011: unique among LIVE sandboxes only, so an owner whose sandbox
+    // was destroyed can get a fresh one while the old row stays as history.
+    uniqueIndex("sandboxes_owner_idx")
+      .on(table.ownerKind, table.ownerId)
+      .where(sql`${table.status} != 'destroyed'`),
     index("sandboxes_status_idx").on(table.status),
   ],
 );
@@ -274,6 +282,35 @@ export const sandboxAttachments = sqliteTable(
   (table) => [
     uniqueIndex("sandbox_attachments_idx").on(table.sandboxId, table.conversationId),
     index("sandbox_attachments_conversation_idx").on(table.conversationId),
+  ],
+);
+
+/**
+ * 0011: which sandbox each sandboxed tool call actually ran in, keyed by
+ * the AI SDK toolCallId. Written when the call acquires its sandbox, so
+ * it records what happened, not what the conversation's pref said.
+ */
+export const sandboxCalls = sqliteTable(
+  "sandbox_calls",
+  {
+    toolCallId: text("tool_call_id").primaryKey(),
+    sandboxId: text("sandbox_id")
+      .notNull()
+      .references(() => sandboxes.id),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    /** "bash" | "pi" | "claude". */
+    tool: text("tool").notNull(),
+    /** "dedicated" | "attached". */
+    via: text("via").notNull(),
+    /** Workdir inside the sandbox: /work/<conversationId>. */
+    workdir: text("workdir").notNull(),
+    at: integer("at").notNull(),
+  },
+  (table) => [
+    index("sandbox_calls_sandbox_idx").on(table.sandboxId),
+    index("sandbox_calls_conversation_idx").on(table.conversationId),
   ],
 );
 

@@ -1,7 +1,15 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Experimental_SandboxSession } from "ai";
 import { db } from "../db";
-import { ensureConversation, getHarnessResumeState, saveHarnessResumeState } from "../db/chat";
+import {
+  ensureConversation,
+  getConversation,
+  getHarnessResumeState,
+  saveHarnessResumeState,
+  updateConversationSettings,
+} from "../db/chat";
+import { getLease, getLeaseByOwner, listCallsForConversation, listCallsForSandbox } from "../db/sandboxes";
+import { buildChatTools } from "../workflows/chat/tools";
 import { projects } from "../db/schema";
 import { clipOutput, runBash } from "../lib/agent/tools/bash";
 import { attachConversationSandbox } from "../lib/agent/tools/attach-sandbox";
@@ -127,5 +135,130 @@ describe("0010 chat tool cores", () => {
     const updated = { harnessId: "pi", data: { session: "s2" } };
     saveHarnessResumeState(db(), "c_harness", "pi", updated);
     expect(getHarnessResumeState(db(), "c_harness", "pi")).toEqual(updated);
+  });
+
+  describe("0011 sandbox attribution", () => {
+    it("records the sandbox a bash call actually ran in", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_attr", "p_tools");
+      await runBash("c_attr", "pwd", provider, "call_1");
+      await runBash("c_attr", "ls", provider, "call_2");
+
+      const lease = getLeaseByOwner(db(), "conversation", "c_attr")!;
+      const calls = listCallsForConversation(db(), "c_attr");
+      expect(calls.map((c) => c.toolCallId)).toEqual(["call_1", "call_2"]);
+      expect(calls.every((c) => c.sandboxId === lease.id && c.via === "dedicated")).toBe(true);
+      expect(calls[0]).toMatchObject({ tool: "bash", workdir: "/work/c_attr" });
+      expect(listCallsForSandbox(db(), lease.id)).toHaveLength(2);
+    });
+
+    it("re-recording the same toolCallId (step retry) keeps one row", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_retry", "p_tools");
+      await runBash("c_retry", "pwd", provider, "call_r");
+      await runBash("c_retry", "pwd", provider, "call_r");
+      expect(listCallsForConversation(db(), "c_retry")).toHaveLength(1);
+    });
+
+    it("a pref change mid-chat attributes later calls to the new sandbox", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_mix", "p_tools");
+      const owner = await acquireSandbox(
+        { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_mix", projectId: null },
+        provider,
+      );
+      await runBash("c_mix", "echo own", provider, "mix_1");
+
+      updateConversationSettings(db(), "c_mix", { sandboxPref: `attached:${owner.sandboxId}` });
+      await runBash("c_mix", "echo shared", provider, "mix_2");
+
+      const [first, second] = listCallsForConversation(db(), "c_mix");
+      expect(first).toMatchObject({ toolCallId: "mix_1", via: "dedicated" });
+      expect(second).toMatchObject({ toolCallId: "mix_2", via: "attached", sandboxId: owner.sandboxId });
+      expect(first!.sandboxId).not.toBe(second!.sandboxId);
+    });
+
+    it("attach_sandbox sets the pref so the next bash lands in the attached sandbox", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_att2", "p_tools");
+      const owner = await acquireSandbox(
+        { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_att2", projectId: null },
+        provider,
+      );
+      await attachConversationSandbox("c_att2", { sandboxId: owner.sandboxId }, provider);
+      expect(getConversation(db(), "c_att2")!.sandboxPref).toBe(`attached:${owner.sandboxId}`);
+
+      await runBash("c_att2", "pwd", provider, "att_1");
+      expect(listCallsForConversation(db(), "c_att2")[0]).toMatchObject({
+        sandboxId: owner.sandboxId,
+        via: "attached",
+      });
+    });
+
+    it("a plain chat can run bash after attaching", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_plain_att");
+      const owner = await acquireSandbox(
+        { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_plain", projectId: null },
+        provider,
+      );
+      await attachConversationSandbox("c_plain_att", { sandboxId: owner.sandboxId }, provider);
+      const result = await runBash("c_plain_att", "pwd", provider, "plain_1");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("a destroyed sandbox stays as history and its owner can get a fresh one", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_gone", "p_tools");
+      await runBash("c_gone", "pwd", provider, "gone_1");
+      const old = getLeaseByOwner(db(), "conversation", "c_gone")!;
+
+      await destroySandbox(old.id, provider);
+      expect(getLeaseByOwner(db(), "conversation", "c_gone")).toBeNull();
+      const row = getLease(db(), old.id)!;
+      expect(row.status).toBe("destroyed");
+      expect(row.destroyedAt).not.toBeNull();
+      expect(listCallsForSandbox(db(), old.id)).toHaveLength(1);
+
+      await runBash("c_gone", "pwd", provider, "gone_2");
+      const fresh = getLeaseByOwner(db(), "conversation", "c_gone")!;
+      expect(fresh.id).not.toBe(old.id);
+      expect(listCallsForConversation(db(), "c_gone").map((c) => c.sandboxId)).toEqual([old.id, fresh.id]);
+    });
+
+    it("attaching to a destroyed sandbox is refused", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_dead");
+      const owner = await acquireSandbox(
+        { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_dead", projectId: null },
+        provider,
+      );
+      await destroySandbox(owner.sandboxId, provider);
+      await expect(
+        attachConversationSandbox("c_dead", { sandboxId: owner.sandboxId }, provider),
+      ).rejects.toThrow(/no sandbox/);
+    });
+  });
+
+  describe("0011 tool gating", () => {
+    const names = (pref: string | null, hasProject: boolean) =>
+      Object.keys(buildChatTools("c_x", pref, hasProject));
+
+    it("project chats get bash/pi/claude", () => {
+      expect(names(null, true)).toEqual(expect.arrayContaining(["bash", "pi", "claude"]));
+    });
+    it("plain chats get none of them", () => {
+      const tools = names(null, false);
+      for (const t of ["bash", "pi", "claude"]) expect(tools).not.toContain(t);
+    });
+    it("a plain chat that attached gets bash only", () => {
+      const tools = names("attached:sbx_1", false);
+      expect(tools).toContain("bash");
+      expect(tools).not.toContain("pi");
+      expect(tools).not.toContain("claude");
+    });
+    it("pref none removes them everywhere", () => {
+      for (const t of ["bash", "pi", "claude"]) expect(names("none", true)).not.toContain(t);
+    });
   });
 });

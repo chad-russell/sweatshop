@@ -4,6 +4,7 @@ import {
   getLease,
   getLeaseByOwner,
   insertLease,
+  markDestroyed,
   touchLease,
   updateLease,
   upsertAttachment,
@@ -109,7 +110,7 @@ async function acquireAttached(
   provider: SandboxProvider,
 ): Promise<AcquiredSandbox> {
   const lease = getLease(db(), sandboxId);
-  if (!lease) throw new Error(`no sandbox ${sandboxId}`);
+  if (!lease || lease.status === "destroyed") throw new Error(`no sandbox ${sandboxId}`);
   const workdir = sandboxWorkRoot(conversationId);
   if (lease.status === "stopped") {
     await provider.resume(lease.ref);
@@ -134,15 +135,15 @@ async function acquireAttached(
 
 /**
  * Destroy a lease (owner deleted, long-idle reaping, or a machine run's
- * explicit end-of-run teardown): remove the container and the registry
- * row together.
+ * explicit end-of-run teardown): remove the sandbox and mark the registry
+ * row destroyed (0011 — the row stays so recorded calls keep a target).
  */
 export async function destroySandbox(
   sandboxId: string,
   provider: SandboxProvider = sandboxProvider(),
 ): Promise<void> {
   const lease = getLease(db(), sandboxId);
-  if (!lease) return;
+  if (!lease || lease.status === "destroyed") return;
   await provider.destroy(lease.ref);
-  deleteLease(db(), lease.id);
+  markDestroyed(db(), lease.id);
 }

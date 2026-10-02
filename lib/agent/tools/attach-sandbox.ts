@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { updateConversationSettings } from "@/db/chat";
 import { getLease, getLeaseByOwner } from "@/db/sandboxes";
 import { acquireSandbox } from "@/lib/sandboxes/lease";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
@@ -8,7 +9,8 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
  * hatch from docs/0010. Attaching is always an explicit choice (never
  * automatic): join another conversation's or a machine run's sandbox,
  * getting your own workdir (/work/<conversationId>) while knowingly
- * sharing ports and processes with the owner.
+ * sharing ports and processes with the owner. A successful attach also
+ * sets the conversation's sandbox pref (0011), so it actually takes effect.
  */
 
 export type AttachTarget =
@@ -24,7 +26,7 @@ export async function attachConversationSandbox(
     "sandboxId" in target
       ? getLease(db(), target.sandboxId)
       : getLeaseByOwner(db(), target.ownerKind, target.ownerId);
-  if (!lease) {
+  if (!lease || lease.status === "destroyed") {
     throw new Error(
       "sandboxId" in target
         ? `no sandbox ${target.sandboxId}`
@@ -35,5 +37,8 @@ export async function attachConversationSandbox(
     { mode: "attach", sandboxId: lease.id, conversationId },
     provider,
   );
+  // 0011: attaching means something — the conversation's sandbox choice
+  // becomes this sandbox, so its next bash/pi/claude call lands here.
+  updateConversationSettings(db(), conversationId, { sandboxPref: `attached:${lease.id}` });
   return { sandboxId: lease.id, ref: lease.ref, workdir: `/work/${conversationId}` };
 }

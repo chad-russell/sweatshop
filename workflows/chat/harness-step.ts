@@ -99,6 +99,8 @@ export interface HarnessToolStepInput {
   conversationId: string;
   kind: "pi" | "claude";
   task: string;
+  /** 0011: the AI SDK tool call, for sandbox attribution. */
+  toolCallId?: string;
 }
 
 export interface HarnessToolStepResult {
@@ -112,7 +114,7 @@ export async function harnessToolStep(
   input: HarnessToolStepInput,
 ): Promise<HarnessToolStepResult> {
   "use step";
-  const { conversationId, kind, task } = input;
+  const { conversationId, kind, task, toolCallId } = input;
   const [
     { createHarnessWorkflowState, runHarnessAgentStep },
     { toSandboxSession },
@@ -167,7 +169,12 @@ export async function harnessToolStep(
     // (lazy, /work/<conversationId> is the cwd the harness resolves as
     // its home) or attached.
     const { acquireConversationSandbox } = await import("../../lib/agent/tools/sandbox-pref");
-    const { handle } = await acquireConversationSandbox(conversationId, conversation.projectId);
+    const { handle } = await acquireConversationSandbox(
+      conversationId,
+      conversation.projectId,
+      undefined,
+      toolCallId ? { toolCallId, tool: kind } : undefined,
+    );
     const sandboxSession = toSandboxSession(handle);
     const bridgeIp =
       kind === "claude" ? (await connectContainerToHarnessNetwork(handle.ref)).ip : undefined;

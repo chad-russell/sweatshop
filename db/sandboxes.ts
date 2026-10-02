@@ -1,7 +1,7 @@
-import { and, eq, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, lt, ne, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Db } from "./index";
-import { sandboxAttachments, sandboxes } from "./schema";
+import { sandboxAttachments, sandboxCalls, sandboxes } from "./schema";
 
 /**
  * 0010 Phase 2 sandbox lease store. The `sandboxes` table is a registry
@@ -11,7 +11,7 @@ import { sandboxAttachments, sandboxes } from "./schema";
  */
 
 export type SandboxOwnerKind = "conversation" | "machine_run";
-export type SandboxLeaseStatus = "creating" | "running" | "stopped";
+export type SandboxLeaseStatus = "creating" | "running" | "stopped" | "destroyed";
 
 export interface SandboxLease {
   id: string;
@@ -23,6 +23,8 @@ export interface SandboxLease {
   status: SandboxLeaseStatus;
   lastUsedAt: number;
   createdAt: number;
+  /** 0011: set when destroyed; the row stays as history. */
+  destroyedAt: number | null;
 }
 
 type SandboxRow = typeof sandboxes.$inferSelect;
@@ -38,6 +40,7 @@ function hydrate(row: SandboxRow): SandboxLease {
     status: row.status as SandboxLease["status"],
     lastUsedAt: row.lastUsedAt,
     createdAt: row.createdAt,
+    destroyedAt: row.destroyedAt,
   };
 }
 
@@ -64,12 +67,13 @@ export function insertLease(
     status: "creating" as const,
     lastUsedAt: now,
     createdAt: now,
+    destroyedAt: null,
   };
   db.insert(sandboxes).values(row).run();
   return hydrate(row);
 }
 
-/** The owner's dedicated lease, if one exists (any status). */
+/** The owner's live dedicated lease, if one exists (destroyed rows are history). */
 export function getLeaseByOwner(
   db: Db,
   ownerKind: SandboxOwnerKind,
@@ -78,7 +82,13 @@ export function getLeaseByOwner(
   const row = db
     .select()
     .from(sandboxes)
-    .where(and(eq(sandboxes.ownerKind, ownerKind), eq(sandboxes.ownerId, ownerId)))
+    .where(
+      and(
+        eq(sandboxes.ownerKind, ownerKind),
+        eq(sandboxes.ownerId, ownerId),
+        ne(sandboxes.status, "destroyed"),
+      ),
+    )
     .get();
   return row ? hydrate(row) : null;
 }
@@ -103,10 +113,22 @@ export function touchLease(db: Db, id: string): void {
     .run();
 }
 
-/** Destroy a lease: delete the row (and any attachments). */
+/**
+ * Remove a lease that never became usable (a failed create). Real
+ * teardown is `markDestroyed` — the row must outlive the sandbox so
+ * recorded calls keep pointing at it.
+ */
 export function deleteLease(db: Db, id: string): void {
   db.delete(sandboxAttachments).where(eq(sandboxAttachments.sandboxId, id)).run();
   db.delete(sandboxes).where(eq(sandboxes.id, id)).run();
+}
+
+/** 0011: soft-destroy — status flips, the row and its attachments stay. */
+export function markDestroyed(db: Db, id: string): void {
+  db.update(sandboxes)
+    .set({ status: "destroyed", destroyedAt: Date.now() })
+    .where(eq(sandboxes.id, id))
+    .run();
 }
 
 /** Leases whose last use is older than `before` (the reaper's input). */
@@ -149,4 +171,48 @@ export function getAttachmentByConversation(
     .where(eq(sandboxAttachments.conversationId, conversationId))
     .get();
   return row ?? null;
+}
+
+/** 0011: one sandboxed tool call's attribution row. */
+export interface SandboxCall {
+  toolCallId: string;
+  sandboxId: string;
+  conversationId: string;
+  tool: "bash" | "pi" | "claude";
+  via: "dedicated" | "attached";
+  workdir: string;
+  at: number;
+}
+
+/**
+ * Record the sandbox a tool call actually ran in. Idempotent on
+ * toolCallId (a step retry re-records the same call), keeping the first
+ * row's timestamp.
+ */
+export function recordSandboxCall(db: Db, call: Omit<SandboxCall, "at">): void {
+  db.insert(sandboxCalls)
+    .values({ ...call, at: Date.now() })
+    .onConflictDoUpdate({
+      target: sandboxCalls.toolCallId,
+      set: { sandboxId: call.sandboxId, via: call.via, workdir: call.workdir },
+    })
+    .run();
+}
+
+export function listCallsForConversation(db: Db, conversationId: string): SandboxCall[] {
+  return db
+    .select()
+    .from(sandboxCalls)
+    .where(eq(sandboxCalls.conversationId, conversationId))
+    .orderBy(asc(sandboxCalls.at))
+    .all() as SandboxCall[];
+}
+
+export function listCallsForSandbox(db: Db, sandboxId: string): SandboxCall[] {
+  return db
+    .select()
+    .from(sandboxCalls)
+    .where(eq(sandboxCalls.sandboxId, sandboxId))
+    .orderBy(desc(sandboxCalls.at))
+    .all() as SandboxCall[];
 }

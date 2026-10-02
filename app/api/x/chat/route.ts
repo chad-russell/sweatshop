@@ -98,6 +98,7 @@ export async function POST(request: Request) {
       userText: text,
       modelId: model.id,
       sandboxPref: conversation.sandboxPref,
+      hasProject: !!conversation.projectId,
     },
   ]);
   // The run may complete before this write lands (fast turns); that is

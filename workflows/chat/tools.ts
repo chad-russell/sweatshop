@@ -27,8 +27,14 @@ import {
  *
  * sandboxPref "none" (an explicit composer choice) omits the sandboxed
  * tools entirely; the tool cores resolve "attached:<id>" vs dedicated.
+ * 0011: without a project (and no attach) bash/pi/claude are omitted too.
  */
-export function buildChatTools(conversationId: string, sandboxPref?: string | null) {
+export function buildChatTools(
+  conversationId: string,
+  sandboxPref?: string | null,
+  hasProject = true,
+) {
+  const attached = sandboxPref?.startsWith("attached:") ?? false;
   return {
     ask_chad: tool({
       description:
@@ -92,7 +98,9 @@ export function buildChatTools(conversationId: string, sandboxPref?: string | nu
       description:
         "Attach this conversation to an existing sandbox (another conversation's or a machine run's) " +
         "instead of using its own — you get your own workdir but share ports and processes with the owner. " +
-        "Explicit by design; pass an ownerId (e.g. a machine run id) to join it.",
+        "Explicit by design; pass an ownerId (e.g. a machine run id) to join it. Once attached, this " +
+        "conversation's bash/pi/claude calls run in that sandbox until Chad changes the sandbox choice. " +
+        "In a chat without a project, bash becomes available from the next turn.",
       inputSchema: z.object({
         ownerKind: z.enum(["conversation", "machine_run"]).optional(),
         ownerId: z.string().optional(),
@@ -107,7 +115,9 @@ export function buildChatTools(conversationId: string, sandboxPref?: string | nu
         ),
     }),
 
-    ...(sandboxPref !== "none" && {
+    // 0011: plain chats are not offered tools that can only error —
+    // bash needs a project or an explicit attach; pi/claude need a project.
+    ...(sandboxPref !== "none" && (hasProject || attached) && {
       bash: tool({
         description:
           "Run a bash command in this conversation's sandbox (a fresh one is created on first use; " +
@@ -115,9 +125,10 @@ export function buildChatTools(conversationId: string, sandboxPref?: string | nu
         inputSchema: z.object({
           command: z.string().max(20_000).describe("The bash command to run."),
         }),
-        execute: ({ command }) => bashStep(conversationId, command),
+        execute: ({ command }, { toolCallId }) => bashStep(conversationId, command, toolCallId),
       }),
-
+    }),
+    ...(sandboxPref !== "none" && hasProject && {
       pi: tool({
         description:
           "Hand a coding task to the pi harness, which works in this conversation's sandbox " +
@@ -127,7 +138,8 @@ export function buildChatTools(conversationId: string, sandboxPref?: string | nu
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
-        execute: ({ task }) => harnessToolStep({ conversationId, kind: "pi", task }),
+        execute: ({ task }, { toolCallId }) =>
+          harnessToolStep({ conversationId, kind: "pi", task, toolCallId }),
       }),
 
       claude: tool({
@@ -139,7 +151,8 @@ export function buildChatTools(conversationId: string, sandboxPref?: string | nu
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
-        execute: ({ task }) => harnessToolStep({ conversationId, kind: "claude", task }),
+        execute: ({ task }, { toolCallId }) =>
+          harnessToolStep({ conversationId, kind: "claude", task, toolCallId }),
       }),
     }),
 

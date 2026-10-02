@@ -127,6 +127,13 @@
       "when": 1790897255470,
       "tag": "0017_agent_stage_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790915360186,
+      "tag": "0018_sandbox_calls",
+      "breakpoints": true
     }
   ]
 }
