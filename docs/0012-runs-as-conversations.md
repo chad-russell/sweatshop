@@ -1,6 +1,6 @@
 # 0012 — Runs as conversations
 
-Status: **proposed (2026-10-02)** — awaiting Chad's approval.
+Status: **shipped (2026-10-02)**. Approved as written; the open question was resolved as proposed (stage conversations are hidden from Unread too). See "Shipped" at the end.
 
 ## Goal
 
@@ -112,3 +112,37 @@ dialog still say "eve".
 1. Should `stage` conversations be hidden from the Inbox's **Unread**
    too, with only the parent run lighting up? Proposed: yes. A stage's
    output is surfaced through the run settling, not separately.
+
+## Shipped (2026-10-02)
+
+Commits `d872757` (eve leftovers) → `9dce91f`, verified against the live app:
+
+- **Migration 0019** applied to the live db (backup at
+  `data/sweatshop.db.pre-0019.bak`): 12 existing runs became `run` rows,
+  2 visit sessions became `stage` rows, and 11 settled runs were stamped.
+- **think run end to end:** started via the API (run row, stage row and
+  `workflow_run_id` recorded). The sidebar row showed the hand glyph and
+  the amber dot at the gate. **Trash cancelled it**: the workflow stopped,
+  the gate visit was parked, and attention cleared. A second run was
+  answered at its gate, completed, and became unread on settling.
+- **Search:** a stage's message hits counted toward the parent run's
+  result (`hits: 6`, kind `run`).
+- **Composer:** `/?machine=think` preselects the machine, swaps the empty
+  state and placeholder, and hides the model and sandbox pickers.
+
+Decisions made at build time:
+
+- **`machine_runs.workflow_run_id`** (one more column than the doc's
+  schema): cancel needs the Workflow SDK run id, and `start()` was
+  discarding it. Runs started before 0012 have none, so cancelling them
+  only marks them.
+- **Cancel is final in the store:** `updateRun` ignores writes to a
+  cancelled run, so a step still in flight cannot revive it. A cancelled
+  workflow skips its `finally`, so `cancelRun` releases the sandbox
+  itself.
+- **Machine-page Run** opens the composer (`/p/<id>?machine=` for project
+  machines, chosen from a project menu) rather than its own prompt
+  dialog: one way to write a prompt.
+- **Found while verifying:** agent-stage visits stored the brief twice,
+  because `persistTurn`'s skip ignored the leading system message in
+  `result.messages`. Fixed in phase 4. Older visits keep the duplicate.

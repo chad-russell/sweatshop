@@ -120,10 +120,26 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   as shared, and the dev runtime's `/workspace` is this repo. Every
   harness stage shares that checkout. Branching agent stages pick a
   target with a `transition` tool; the interpreter validates and commits
-  it. Triggers: `/machines`, project/Chats run buttons, `POST
-  /api/machine-runs`, the `start_machine` chat tool; `/r/<runId>` is
-  the run view. Everything runs in the Next process — no cross-runtime
-  HTTP. Workflow-transform rule: Node-touching code only inside `"use step"`
+  it. Runs are conversations (0012): `createRun` writes a
+  `conversations` row with `kind = 'run'` and the SAME id as the run
+  (`mr_…`), so runs live in the sidebar beside chats (folders, archive,
+  trash, search, dots); `machine_runs` stays the source of truth for
+  status/visits. Agent-stage visit conversations are `kind = 'stage'`
+  (`<runId>_<seq>`) — hidden from sidebar/unread/search, whose body
+  hits report the parent run. Run unread = `machine_runs.settled_at`
+  (stamped on waiting/needs-attention/completed/failed) newer than
+  `last_seen_at`; a waiting gate puts needs-you on the run row.
+  `lib/machines/runs.ts` is the one start/cancel path (`startRun`
+  records `workflow_run_id`; `cancelRun` cancels the workflow, marks
+  the run cancelled — final, later status writes are ignored — and
+  releases its sandbox); trashing a live run cancels it, purge removes
+  the run and its visit sessions. Triggers: the fresh composer's
+  target picker (`?machine=<id>` preselects; `/` and `/p/<id>`), Run
+  on `/machines/<id>`, ⌘K "Run …", `POST /api/machine-runs`, the
+  `start_machine` chat tool; `/r/<runId>` is the run view (visit
+  transcripts open in a side panel; `/c/<runId>` redirects there).
+  Links go through `conversationHref`. Everything runs in the Next
+  process — no cross-runtime HTTP. Workflow-transform rule: Node-touching code only inside `"use step"`
   functions, and the workflow body imports harness packages type-only
   (a runtime import drags pi's raw-.ts deps into the bundle). Harness
   packages are `serverExternalPackages` in next.config. Keep
