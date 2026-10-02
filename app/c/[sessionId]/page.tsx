@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import type { UIMessage } from "ai";
 import { ChatSurface } from "@/components/chat";
 import { db } from "@/db";
 import { conversations, projects } from "@/db/schema";
 import { getActiveRun, listMessageTexts } from "@/db/chat";
+import { rowsToUIMessages } from "@/lib/chat-ui";
 
 /**
  * Open a conversation by its durable address (0010 Phase 4). History
@@ -34,21 +34,16 @@ export default async function ConversationPage({
         .sync()
     : undefined;
 
-  const initialMessages: UIMessage[] = listMessageTexts(db(), sessionId).map((row) => ({
-    id: row.id,
-    role: row.role === "assistant" ? "assistant" : "user",
-    parts: [{ type: "text", text: row.text }],
-    metadata: { at: new Date(row.at).toISOString() },
-  }));
+  const initialMessages = rowsToUIMessages(listMessageTexts(db(), sessionId));
 
   return (
     <ChatSurface
-      conversationTitle={conversation.title}
       conversationId={sessionId}
       initialMessages={initialMessages}
       activeRunId={getActiveRun(db(), sessionId)}
       projectId={project?.id}
       projectName={project?.name}
+      conversationTitle={conversation.title}
       initialModelId={conversation.modelId}
       initialSandboxPref={conversation.sandboxPref}
     />

@@ -209,7 +209,13 @@ export function listModelMessages(db: Db, conversationId: string): ModelMessage[
 export function listMessageTexts(
   db: Db,
   conversationId: string,
-): { id: string; role: string; text: string; at: number }[] {
+): {
+  id: string;
+  role: string;
+  text: string;
+  at: number;
+  modelMessage: ModelMessage | null;
+}[] {
   const rows = db
     .select({
       id: messages.id,
@@ -221,7 +227,11 @@ export function listMessageTexts(
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(sql`rowid`))
-    .all();
+    .all()
+    .map((row) => ({
+      ...row,
+      modelMessage: row.modelMessage ? (JSON.parse(row.modelMessage) as ModelMessage) : null,
+    }));
   // One lineage: once a conversation has model_message rows (new
   // runtime or imported), older mirror-extracted rows are superseded.
   if (rows.some((row) => row.modelMessage != null)) {
