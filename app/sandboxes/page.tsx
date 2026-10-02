@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Box } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { LocalTime } from "@/components/local-time";
+import { RunCleanupButton } from "@/components/sandbox-actions";
 import { SandboxStatus } from "@/components/sandbox-status";
 import { db } from "@/db";
 import { listSandboxSummaries } from "@/db/sandbox-view";
@@ -22,6 +23,7 @@ export default function SandboxesPage() {
         <span className="font-mono text-xs text-muted-foreground">
           {live.length} live{gone.length > 0 ? ` · ${gone.length} destroyed` : ""}
         </span>
+        <RunCleanupButton />
       </AppHeader>
       <div className="flex flex-col gap-8 p-6">
         {sandboxes.length === 0 && (

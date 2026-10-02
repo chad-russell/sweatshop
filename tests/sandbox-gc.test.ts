@@ -1,130 +1,202 @@
-import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import Database from "better-sqlite3";
+import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
+import { db } from "../db";
+import { ensureConversation, setActiveRun } from "../db/chat";
+import { getLease, listCallsForSandbox } from "../db/sandboxes";
+import { createMachine, createRun, bindRun } from "../db/machines";
+import { projects } from "../db/schema";
+import { claimHarnessRun } from "../lib/harness-events";
+import { openConversationSandbox } from "../lib/sandboxes/binding";
+import {
+  boundToSandbox,
+  destroySandboxNow,
+  reap,
+  SandboxActionError,
+  stopSandboxNow,
+} from "../lib/sandboxes/reaper";
+import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 
 /**
- * 0013 Phase 4 — scripts/sandbox-gc.mjs against a scratch db and a stub
- * container engine (records its argv, lists no containers): windows are
- * per owner kind (runs 10 min / 3 days, chats 30 min / 14 days), and a
- * destroyed sandbox's row is MARKED destroyed, never deleted — its
- * recorded calls keep their target.
+ * 0013 — the one sandbox reaper (timer, "Run cleanup now",
+ * `npm run sandbox:gc`) and the manual Stop / Destroy, against a fake
+ * provider: windows per owner kind (runs 10 min / 3 days, chats 30 min /
+ * 14 days), destroyed rows are MARKED (calls keep their target), busy
+ * sandboxes are never touched, and dry runs change nothing.
  */
 
 const MIN = 60_000;
 const DAY = 86_400_000;
 
-function scratch() {
-  const dir = mkdtempSync(path.join(tmpdir(), "sweatshop-gc-"));
-  const dbPath = path.join(dir, "gc.db");
-  const sqlite = new Database(dbPath);
-  const folder = path.join(process.cwd(), "drizzle");
-  for (const file of readdirSync(folder).filter((f) => f.endsWith(".sql")).sort()) {
-    for (const stmt of readFileSync(path.join(folder, file), "utf8").split("--> statement-breakpoint")) {
-      if (stmt.trim()) sqlite.exec(stmt);
-    }
+class FakeProvider implements SandboxProvider {
+  readonly kind = "podman";
+  log: string[] = [];
+  failOn = new Set<string>();
+  private created = 0;
+  async create(): Promise<SandboxHandle> {
+    this.created += 1;
+    return this.attach(`gc-created-${this.created}`);
   }
-  const log = path.join(dir, "engine.log");
-  const engine = path.join(dir, "engine");
-  writeFileSync(engine, `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\n`);
-  chmodSync(engine, 0o755);
-  return { dir, dbPath, sqlite, engine, log };
+  attach(ref: string): SandboxHandle {
+    return {
+      ref,
+      run: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      spawn: (() => {
+        throw new Error("unused");
+      }) as unknown as Experimental_SandboxSession["spawn"],
+    };
+  }
+  async stop(ref: string) {
+    if (this.failOn.has(ref)) throw new Error(`cannot stop ${ref}`);
+    this.log.push(`stop ${ref}`);
+  }
+  async resume(ref: string) {
+    this.log.push(`resume ${ref}`);
+  }
+  async destroy(ref: string) {
+    this.log.push(`destroy ${ref}`);
+  }
 }
 
-function lease(
-  sqlite: Database.Database,
-  id: string,
-  ownerKind: "conversation" | "machine_run",
-  status: string,
-  idleMs: number,
-) {
-  sqlite
+let n = 0;
+/** A lease row idle for `idleMs` (unique ids per call). */
+function lease(ownerKind: "conversation" | "machine_run", status: string, idleMs: number, ownerId?: string) {
+  n += 1;
+  const id = `sbx_gc${n}`;
+  db().$client
     .prepare(
       "insert into sandboxes (id, provider, ref, owner_kind, owner_id, status, last_used_at, created_at) " +
         "values (?, 'podman', ?, ?, ?, ?, ?, 0)",
     )
-    .run(id, `ref-${id}`, ownerKind, `owner-${id}`, status, Date.now() - idleMs);
+    .run(id, `ref-${id}`, ownerKind, ownerId ?? `owner-${id}`, status, Date.now() - idleMs);
+  return id;
 }
+const status = (id: string) => getLease(db(), id)?.status;
 
-function gc(env: { dbPath: string; engine: string }, apply: boolean) {
-  return execFileSync("node", ["scripts/sandbox-gc.mjs"], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      SWEATSHOP_DB: env.dbPath,
-      GC_ENGINE: env.engine,
-      ...(apply ? { GC_APPLY: "1" } : {}),
-    },
-  });
-}
+db().insert(projects).values({ id: "p_gc", name: "GC", createdAt: 0 }).onConflictDoNothing().run();
+createMachine(db(), {
+  id: "gc-build",
+  name: "GC build",
+  definition: {
+    workspace: "project",
+    start: "b",
+    stages: { b: { kind: "agent", title: "B", instructions: "b", next: [{ to: "end" }] } },
+  },
+});
 
-describe("sandbox-gc (0013)", () => {
-  it("reaps runs on the short window and chats on the long one", () => {
-    const env = scratch();
-    lease(env.sqlite, "run_fresh", "machine_run", "running", 5 * MIN);
-    lease(env.sqlite, "run_idle", "machine_run", "running", 15 * MIN);
-    lease(env.sqlite, "run_old", "machine_run", "stopped", 4 * DAY);
-    lease(env.sqlite, "chat_idle_15", "conversation", "running", 15 * MIN);
-    lease(env.sqlite, "chat_idle_45", "conversation", "running", 45 * MIN);
-    lease(env.sqlite, "chat_4d", "conversation", "stopped", 4 * DAY);
-    lease(env.sqlite, "chat_old", "conversation", "stopped", 15 * DAY);
-
-    gc(env, true);
-    const status = Object.fromEntries(
-      (env.sqlite.prepare("select id, status from sandboxes").all() as { id: string; status: string }[]).map(
-        (r) => [r.id, r.status],
-      ),
-    );
-    expect(status).toEqual({
-      run_fresh: "running",
-      run_idle: "stopped",
-      run_old: "destroyed",
-      chat_idle_15: "running",
-      chat_idle_45: "stopped",
-      chat_4d: "stopped",
-      chat_old: "destroyed",
+describe("0013 sandbox reaper", () => {
+  it("reaps runs on the short window and chats on the long one", async () => {
+    const provider = new FakeProvider();
+    const ids = {
+      runFresh: lease("machine_run", "running", 5 * MIN),
+      runIdle: lease("machine_run", "running", 15 * MIN),
+      runOld: lease("machine_run", "stopped", 4 * DAY),
+      chat15: lease("conversation", "running", 15 * MIN),
+      chat45: lease("conversation", "running", 45 * MIN),
+      chat4d: lease("conversation", "stopped", 4 * DAY),
+      chatOld: lease("conversation", "stopped", 15 * DAY),
+    };
+    await reap({ apply: true, provider });
+    expect(Object.fromEntries(Object.entries(ids).map(([k, id]) => [k, status(id)]))).toEqual({
+      runFresh: "running",
+      runIdle: "stopped",
+      runOld: "destroyed",
+      chat15: "running",
+      chat45: "stopped",
+      chat4d: "stopped",
+      chatOld: "destroyed",
     });
-    const engineCalls = readFileSync(env.log, "utf8");
-    expect(engineCalls).toContain("stop ref-run_idle");
-    expect(engineCalls).toContain("rm -f ref-run_old");
-    expect(engineCalls).toContain("rm -f ref-chat_old");
-    expect(engineCalls).not.toContain("ref-chat_4d");
+    expect(provider.log).toEqual(
+      expect.arrayContaining([`stop ref-${ids.runIdle}`, `destroy ref-${ids.runOld}`, `destroy ref-${ids.chatOld}`]),
+    );
+    expect(provider.log.join(" ")).not.toContain(ids.chat4d);
   });
 
-  it("marks destroyed rows (with a timestamp) and keeps their call history", () => {
-    const env = scratch();
-    lease(env.sqlite, "sbx_hist", "conversation", "stopped", 20 * DAY);
-    env.sqlite
-      .prepare("insert into conversations (id, created_at, updated_at) values ('c_hist', 0, 0)")
-      .run();
-    env.sqlite
+  it("marks destroyed rows and keeps their call history", async () => {
+    const provider = new FakeProvider();
+    const id = lease("conversation", "stopped", 20 * DAY, "c_gc_hist");
+    ensureConversation(db(), "c_gc_hist");
+    db().$client
       .prepare(
         "insert into sandbox_calls (tool_call_id, sandbox_id, conversation_id, tool, via, workdir, at) " +
-          "values ('call_h', 'sbx_hist', 'c_hist', 'bash', 'dedicated', '/work/c_hist', 0)",
+          "values ('gc_call', ?, 'c_gc_hist', 'bash', 'dedicated', '/work/c_gc_hist', 0)",
       )
-      .run();
-
-    gc(env, true);
-    const row = env.sqlite.prepare("select status, destroyed_at from sandboxes where id = 'sbx_hist'").get() as {
-      status: string;
-      destroyed_at: number | null;
-    };
-    expect(row.status).toBe("destroyed");
-    expect(row.destroyed_at).not.toBeNull();
-    expect(env.sqlite.prepare("select count(*) n from sandbox_calls where sandbox_id = 'sbx_hist'").get()).toEqual({
-      n: 1,
-    });
+      .run(id);
+    await reap({ apply: true, provider });
+    expect(getLease(db(), id)).toMatchObject({ status: "destroyed", destroyedAt: expect.any(Number) });
+    expect(listCallsForSandbox(db(), id)).toHaveLength(1);
   });
 
-  it("is a dry run by default", () => {
-    const env = scratch();
-    lease(env.sqlite, "run_dry", "machine_run", "running", 4 * DAY);
-    const out = gc(env, false);
-    expect(out).toContain("would destroy run_dry");
-    expect(
-      (env.sqlite.prepare("select status from sandboxes where id = 'run_dry'").get() as { status: string }).status,
-    ).toBe("running");
+  it("a dry run changes nothing", async () => {
+    const provider = new FakeProvider();
+    const id = lease("machine_run", "running", 4 * DAY);
+    const report = await reap({ apply: false, provider });
+    expect(report.actions).toContainEqual(expect.objectContaining({ sandboxId: id, action: "destroy" }));
+    expect(status(id)).toBe("running");
+    expect(provider.log).toEqual([]);
+  });
+
+  it("never touches a sandbox with live work in it", async () => {
+    const provider = new FakeProvider();
+    // a chat mid-turn
+    ensureConversation(db(), "c_gc_busy", "p_gc");
+    const chat = await openConversationSandbox("c_gc_busy", provider);
+    db().$client.prepare("update sandboxes set last_used_at = ? where id = ?").run(Date.now() - 20 * DAY, chat.sandboxId);
+    setActiveRun(db(), "c_gc_busy", "wrun_live");
+    // a harness running in an attached chat
+    const shared = lease("conversation", "running", 2 * 60 * MIN);
+    db().$client
+      .prepare("insert into conversations (id, sandbox_id, sandbox_work_dir, sandbox_owner, created_at, updated_at) values ('c_gc_h', ?, '/work/x', 0, 0, 0)")
+      .run(shared);
+    claimHarnessRun("c_gc_h", "pi");
+    // a run waiting at a gate
+    const run = createRun(db(), { machineId: "gc-build", prompt: "x", projectId: "p_gc" });
+    const runBox = lease("machine_run", "running", 4 * DAY, run.id);
+    bindRun(db(), run.id, { kind: "bound", sandboxId: runBox, workDir: `/work/${run.id}`, owner: true });
+    db().$client.prepare("update machine_runs set status = 'waiting' where id = ?").run(run.id);
+
+    const report = await reap({ apply: true, provider });
+    for (const id of [chat.sandboxId, shared, runBox]) {
+      expect(report.actions).toContainEqual(expect.objectContaining({ sandboxId: id, action: "skip-busy" }));
+      expect(status(id)).toBe("running");
+    }
+    await expect(stopSandboxNow(shared, provider)).rejects.toThrow(SandboxActionError);
+    await expect(destroySandboxNow(runBox, provider)).rejects.toThrow(/working in this sandbox/);
+  });
+
+  it("one failing sandbox does not block the rest", async () => {
+    const provider = new FakeProvider();
+    const bad = lease("conversation", "running", 60 * MIN);
+    const good = lease("conversation", "running", 60 * MIN);
+    provider.failOn.add(`ref-${bad}`);
+    const report = await reap({ apply: true, provider });
+    expect(report.errors).toContainEqual(expect.objectContaining({ sandboxId: bad }));
+    expect(status(bad)).toBe("running");
+    expect(status(good)).toBe("stopped");
+  });
+
+  it("drops stale creating rows only", async () => {
+    const provider = new FakeProvider();
+    const stale = lease("conversation", "creating", 20 * MIN);
+    const fresh = lease("conversation", "creating", 1 * MIN);
+    await reap({ apply: true, provider });
+    expect(getLease(db(), stale)).toBeNull();
+    expect(status(fresh)).toBe("creating");
+  });
+
+  it("manual stop and destroy; destroy reports what it strands", async () => {
+    const provider = new FakeProvider();
+    ensureConversation(db(), "c_gc_man", "p_gc");
+    const chat = await openConversationSandbox("c_gc_man", provider);
+    expect(boundToSandbox(chat.sandboxId)).toEqual({ conversations: 1, runs: 0 });
+
+    await stopSandboxNow(chat.sandboxId, provider);
+    expect(status(chat.sandboxId)).toBe("stopped");
+    await stopSandboxNow(chat.sandboxId, provider); // idempotent
+
+    await destroySandboxNow(chat.sandboxId, provider);
+    expect(status(chat.sandboxId)).toBe("destroyed");
+    await destroySandboxNow(chat.sandboxId, provider); // idempotent
+    await expect(stopSandboxNow(chat.sandboxId, provider)).rejects.toThrow(/destroyed/);
+    await expect(destroySandboxNow("sbx_nope", provider)).rejects.toMatchObject({ code: "not-found" });
   });
 });

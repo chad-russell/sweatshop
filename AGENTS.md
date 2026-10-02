@@ -129,10 +129,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   as shared, and the dev runtime's `/workspace` is this repo. Every
   harness stage, and every agent stage (which gets bash/pi/claude),
   works in that checkout. The sandbox outlives the run (finished or
-  cancelled work stays inspectable/attachable): `npm run sandbox:gc`
-  reaps run-owned sandboxes on 10 min stop / 3 day destroy (chats 30
-  min / 14 days) and MARKS rows destroyed, never deletes them; purging
-  a run destroys the sandbox it owns. An inherited binding is never
+  cancelled work stays inspectable/attachable). One reaper
+  (`lib/sandboxes/reaper.ts`) stops/destroys idle sandboxes — runs 10
+  min / 3 days, chats 30 min / 14 days (`GC_*` env), never one with
+  live work in it — and MARKS rows destroyed, never deletes them. It
+  runs on a timer from `instrumentation.ts` (every 5 min while the
+  server is up; `SANDBOX_REAPER=off` disables), from "Run cleanup now"
+  on `/sandboxes`, and via `./dev exec -- npm run sandbox:gc` (a client
+  of `POST /api/sandboxes/reap`; `GC_APPLY=1` to act). Each sandbox
+  page has manual Stop / Destroy. Purging a run destroys the sandbox it
+  owns. An inherited binding is never
   released by the run. Branching agent stages pick a
   target with a `transition` tool; the interpreter validates and commits
   it. Runs are conversations (0012): `createRun` writes a

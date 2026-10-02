@@ -186,6 +186,17 @@ available without a project:
    `/work/<runId>`; agent stages get bash/pi/claude.
 4. **Lifecycle.** Remove end-of-run destroy; per-owner-kind GC windows;
    GC marks rows `destroyed`; purge destroys owned run sandboxes.
+4b. **Reaping in the app** (added 2026-10-02, approved in chat). One
+   reaper (`lib/sandboxes/reaper.ts`) run by a timer from Next's
+   `instrumentation.ts` (first pass 30 s after boot, then every 5 min;
+   `SANDBOX_REAPER=off` disables), by "Run cleanup now" on `/sandboxes`
+   (`POST /api/sandboxes/reap`), and by `npm run sandbox:gc` (now a thin
+   client of that route). Sandboxes with live work — an active chat
+   turn or harness run in a bound conversation, or a running/waiting
+   run — are never reaped. Manual Stop / Destroy per sandbox
+   (`POST /api/sandboxes/<id>`, refused while busy; Destroy confirms
+   what it strands). The eve-container reaping is retired (leftovers
+   removed once by hand).
 5. **Project image.** `image_ref` reaches `createContainer`.
 6. **Outside inspection.** `inspect` + `sandbox_exec`.
 

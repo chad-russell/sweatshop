@@ -2,10 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { LocalTime } from "@/components/local-time";
+import { SandboxActions } from "@/components/sandbox-actions";
 import { SandboxStatus } from "@/components/sandbox-status";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { db } from "@/db";
 import { getSandboxDetail } from "@/db/sandbox-view";
+import { boundToSandbox } from "@/lib/sandboxes/reaper";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,7 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
         ]}
       >
         <SandboxStatus status={sandbox.status} />
+        <SandboxActions sandboxId={sandbox.id} status={sandbox.status} bound={boundToSandbox(sandbox.id)} />
       </AppHeader>
 
       <div className="flex flex-col gap-8 p-6">
