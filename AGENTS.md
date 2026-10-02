@@ -101,7 +101,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   project's sandboxes run its sandbox config's `image_ref` (a project
   with no config uses `default`; unset = `localhost/sweatshop-sandbox`,
   built from `Containerfile.sandbox`); `network_policy` is recorded,
-  not enforced.
+  not enforced. Post-mortems from outside (0013 phase 6): every chat
+  has `inspect` (read-only status / transcript tail / harness activity
+  / binding / call attribution of a chat, run, or stage visit) and
+  `sandbox_exec` (one command in a named sandbox, in its owner's
+  workDir, without binding the caller; resumes a stopped one, never
+  stops or destroys) — `lib/agent/tools/inspect.ts`.
   Entities
   are managed db-first via `npm run db:seed` (secrets from env only);
   `/p/[projectId]` starts a project conversation; `create_pr` is the

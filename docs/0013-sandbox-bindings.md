@@ -1,7 +1,8 @@
 # 0013 — Sandbox bindings: chosen once, inherited recursively
 
-Status: **approved (2026-10-02)** — direction agreed in chat with Chad;
-text approved by Chad 2026-10-02.
+Status: **shipped (2026-10-02)** — direction agreed in chat with Chad;
+text approved by Chad 2026-10-02; phases 1–6 (plus 4b) implemented the
+same day.
 
 ## Goal
 
@@ -199,7 +200,12 @@ available without a project:
    removed once by hand).
 5. **Project image.** `image_ref` reaches `createContainer` (resolved in
    the lease layer at create time; no config → the `default` config).
-6. **Outside inspection.** `inspect` + `sandbox_exec`.
+6. **Outside inspection.** `inspect` + `sandbox_exec` (`lib/agent/tools/
+   inspect.ts`), offered in every chat. `inspect` takes a chat, run, or
+   stage-visit id; `sandbox_exec` takes a sandbox id or a chat/run id
+   and runs in the owner's workDir (overridable). The `attach_sandbox`
+   chat tool was removed in phase 2 — attaching is a start-of-chat
+   choice in the composer.
 
 Each phase lands green on its own; phases 1 and 5 are independent of the
 rest.

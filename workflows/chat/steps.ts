@@ -137,6 +137,24 @@ export async function startMachineStep(
   return startMachineRun({ conversationId, ...input });
 }
 
+/** 0013 Phase 6: read-only look at another chat, run, or stage visit. */
+export async function inspectStep(id: string): Promise<unknown> {
+  "use step";
+  const { inspectTarget } = await import("../../lib/agent/tools/inspect");
+  return inspectTarget(id);
+}
+
+/** 0013 Phase 6: one command in a named sandbox, without binding to it. */
+export async function sandboxExecStep(
+  target: string,
+  command: string,
+  workDir?: string,
+): Promise<unknown> {
+  "use step";
+  const { sandboxExec } = await import("../../lib/agent/tools/inspect");
+  return sandboxExec(target, command, workDir ? { workDir } : {});
+}
+
 /** 0010 Phase 4: record a pending human-input request (the ask_chad
  *  tool calls this before awaiting its hook — workflow context cannot
  *  touch sqlite, and the inbox needs the row before the answer). */

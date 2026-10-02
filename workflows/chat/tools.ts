@@ -5,8 +5,10 @@ import { harnessToolStep } from "./harness-step";
 import {
   bashStep,
   createPrStep,
+  inspectStep,
   listMachinesStep,
   pendingStep,
+  sandboxExecStep,
   startMachineStep,
 } from "./steps";
 
@@ -98,6 +100,32 @@ export function buildChatTools(
         if (!prompt?.trim()) throw new Error("prompt is required to start a run");
         return startMachineStep(conversationId, { machineId, prompt, ...(fresh ? { fresh } : {}) });
       },
+    }),
+
+    // 0013 Phase 6: post-mortems from outside — no project or binding
+    // needed, and neither tool changes this conversation's sandbox.
+    inspect: tool({
+      description:
+        "Look at another chat or machine run without joining it: its status, transcript tail, " +
+        "harness (pi/claude) activity, which sandbox it is bound to, and where each sandboxed call ran. " +
+        "Pass a chat id (c_…), a run id (mr_…), or a run's stage visit (mr_…_<seq>). Read-only.",
+      inputSchema: z.object({
+        id: z.string().min(1).describe("Chat id (c_…), run id (mr_…), or stage visit id (mr_…_<seq>)"),
+      }),
+      execute: ({ id }) => inspectStep(id),
+    }),
+
+    sandbox_exec: tool({
+      description:
+        "Run one shell command inside another chat's or run's sandbox without binding this conversation " +
+        "to it (e.g. `git log`, `ls`, run the tests) — it runs in that sandbox's working directory. " +
+        "Target a sandbox id (sbx_…) or a chat/run id. A stopped sandbox is resumed; a destroyed one cannot be.",
+      inputSchema: z.object({
+        target: z.string().min(1).describe("Sandbox id (sbx_…), chat id (c_…), or run id (mr_…)"),
+        command: z.string().min(1).max(20_000).describe("The bash command to run."),
+        workDir: z.string().optional().describe("Override the working directory (absolute path)"),
+      }),
+      execute: ({ target, command, workDir }) => sandboxExecStep(target, command, workDir),
     }),
 
     // 0011/0013: chats are not offered tools that can only error — bash
