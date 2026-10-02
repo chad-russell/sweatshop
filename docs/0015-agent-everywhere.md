@@ -1,6 +1,7 @@
 # 0015 — Agent everywhere: machine tools and an always-available agent panel
 
-Status: **approved (2026-10-02)** — the panel toggle floats bottom-right.
+Status: **shipped (2026-10-02)** — phases 1–6 complete; the panel
+toggle floats bottom-right.
 
 ## Goal
 
@@ -117,6 +118,14 @@ changes.
    graph updates in place, the version bumps, and the panel conversation
    shows in the sidebar with its "viewing" chip. Then from a run, "why
    did this fail?" uses `inspect` on the run in context.
+
+   Verified live 2026-10-02 (real model turns against the dev server,
+   panel-style requests): the ticket machine went v2 → v3 with a Lint
+   stage looping implement → lint → verify/implement; the second check
+   answered "why did this fail?" by calling `inspect` on the run in its
+   viewing note. The check caught one bug (persistTurn's skip counted
+   past the injected note, duplicating the user row) — fixed and
+   regression-tested.
 
 ## Resolved questions
 
