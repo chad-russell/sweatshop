@@ -171,10 +171,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   Links go through `conversationHref`. Machine graph (0014):
   `/machines/<id>` is a graph editor (`@xyflow/react` 12.12.0, pinned;
   AI Elements canvas/controls/panel) over ONE draft definition — every
-  change is a pure op in `lib/machines/edit.ts` (also the planned 0015
-  assistant's tool surface), re-validated by `parseDefinition`, with
-  issues placed on nodes/edges via `issuesByElement`; a JSON tab edits
-  the same draft. Layout is automatic and never stored
+  change is a pure op in `lib/machines/edit.ts` (also the 0015 agent
+  tools' surface through `applyOps`/`editOpSchema`), re-validated by
+  `parseDefinition`, with issues placed on nodes/edges via
+  `issuesByElement`; a JSON tab edits the same draft. The editor polls
+  its machine's version every 5 s while visible (0015): newer + clean
+  draft reloads silently; newer + unsaved edits shows a stale banner
+  (`components/machines/use-machine-version-sync.ts`). Layout is automatic and never stored
   (`lib/machines/layout.ts`, layered, loops as back edges); the run
   view shows the run's snapshot with a progress overlay. Graph modules
   are client-only (`machine-graph-lazy.tsx`, `ssr: false`). Everything runs in the Next
@@ -188,6 +191,29 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   satisfied by a scoped npm override). These pins are exact in
   package.json on purpose — a caret range would let a routine install
   break a load-bearing pairing; bump them deliberately, together.
+- Agent everywhere (0015): every chat has machine tools —
+  `list_machines`, `get_machine`, `create_machine` (full definition),
+  `edit_machine` (a batch of `edit.ts` ops applied in order,
+  all-or-nothing against `baseVersion`; an invalid batch returns issues
+  by stage/transition plus the draft shape and saves nothing, a stale
+  `baseVersion` is a conflict) and `delete_machine` (asks through the
+  ask_chad hook) — cores in `lib/agent/tools/machines.ts`, errors
+  value-shaped so the model repairs them. Page context: pages register
+  what they are (`components/page-context.tsx` provider in the root
+  layout; `usePageContext`; the machine editor includes its selection,
+  the run view its status) and a panel send carries it as a
+  "[viewing]" note — a user-role message injected before the send (the
+  agent forbids system messages in `messages`), stored as
+  `messages.metadata` (never text), rebuilt each turn
+  (`listTurnMessages`), shown as a transcript chip. The agent panel
+  (`components/agent-panel.tsx`, in the root layout) is an ordinary
+  ChatSession (`components/chat-session.tsx` — the frame-independent
+  transcript/composer/transport the page frame `components/chat.tsx`
+  shares) in a right-side frame: floating bottom-right toggle + ⌘J,
+  pushes the page on lg+ / overlays below / full-screen under md,
+  resizable; one current conversation in localStorage, New / Open full
+  page; binds to the page's project at the creating send and never
+  switches (0013); marks seen while open.
 - Harness agents (0005/0006 + 0010 Phase 3): project conversations
   have `pi` and `claude` tools — separate coding harnesses on the
   conversation's sandbox (0010 lease seam; `harnessToolStep` in
