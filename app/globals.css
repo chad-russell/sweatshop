@@ -113,17 +113,17 @@
   --success: #047857;
   --warning: #92400e;
   --info: #1d4ed8;
-  /* terminal surface: always dark, in every theme */
-  --terminal: #0b0d12;
-  --terminal-foreground: #d4d7dd;
-  --terminal-muted: #6b7280;
-  --terminal-border: #1f2430;
-  --terminal-red: #f87171;
-  --terminal-green: #4ade80;
-  --terminal-yellow: #fbbf24;
-  --terminal-blue: #60a5fa;
-  --terminal-magenta: #c084fc;
-  --terminal-cyan: #22d3ee;
+  /* terminal surface: soft gray, darker than the card; ANSI hues deepened for contrast */
+  --terminal: #f4f4f5;
+  --terminal-foreground: #27272a;
+  --terminal-muted: #71717a;
+  --terminal-border: #e4e4e7;
+  --terminal-red: #b91c1c;
+  --terminal-green: #15803d;
+  --terminal-yellow: #a16207;
+  --terminal-blue: #1d4ed8;
+  --terminal-magenta: #7e22ce;
+  --terminal-cyan: #0e7490;
 }
 
 /* ------------------------------------------------------------------ */
@@ -168,7 +168,7 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --info: #60a5fa;
-  /* terminal surface: always dark, in every theme */
+  /* terminal surface: dark theme */
   --terminal: #000000;
   --terminal-foreground: #d4d7dd;
   --terminal-muted: #6b7280;
@@ -222,17 +222,17 @@
   --success: #047857;
   --warning: #92400e;
   --info: #1d4ed8;
-  /* terminal surface: always dark, in every theme */
-  --terminal: #0b0d12;
-  --terminal-foreground: #d4d7dd;
-  --terminal-muted: #6b7280;
-  --terminal-border: #1f2430;
-  --terminal-red: #f87171;
-  --terminal-green: #4ade80;
-  --terminal-yellow: #fbbf24;
-  --terminal-blue: #60a5fa;
-  --terminal-magenta: #c084fc;
-  --terminal-cyan: #22d3ee;
+  /* terminal surface: soft gray, darker than the card; ANSI hues deepened for contrast */
+  --terminal: #f4f4f5;
+  --terminal-foreground: #27272a;
+  --terminal-muted: #71717a;
+  --terminal-border: #e4e4e7;
+  --terminal-red: #b91c1c;
+  --terminal-green: #15803d;
+  --terminal-yellow: #a16207;
+  --terminal-blue: #1d4ed8;
+  --terminal-magenta: #7e22ce;
+  --terminal-cyan: #0e7490;
 }
 
 @layer base {
