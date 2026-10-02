@@ -141,6 +141,20 @@
       "when": 1790919884102,
       "tag": "0019_runs_as_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1790967255523,
+      "tag": "0020_sandbox_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1790967272092,
+      "tag": "0021_drop_sandbox_pref",
+      "breakpoints": true
     }
   ]
 }

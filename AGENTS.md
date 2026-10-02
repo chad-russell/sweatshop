@@ -87,11 +87,17 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   resolve by host through the pluggable `GitHost` seam (`lib/git-hosts/`
   — github + forgejo, `installAuth` + `createPR`). Conversations bind to
   a project at creation (the plain `project_id` column,
-  set by the chat route on first send); sandboxed tools acquire the
-  conversation's own sandbox lazily through the 0010 lease seam
-  (`acquireSandbox`, dedicated per conversation, repos cloned into
-  `/work/<conversationId>`) — or join another owner's when the explicit
-  `sandbox_pref` says so (`none` omits the sandboxed tools entirely).
+  set by the chat route on first send). Sandbox bindings (0013): a
+  conversation's sandbox is chosen once, by the send that creates it —
+  its own (created lazily on the first sandboxed call through the 0010
+  lease seam, repos cloned into `/work/<conversationId>`), none, or
+  attached (a copy of the owner's binding: same sandbox AND same
+  workDir). The binding lives in `conversations.sandbox_id` /
+  `sandbox_work_dir` / `sandbox_owner` / `sandbox_disabled`
+  (`getConversationBinding`/`bindConversation` in `db/sandboxes.ts`);
+  tools open it with `openConversationSandbox`/`openSandbox`
+  (`lib/sandboxes/binding.ts`), which never stop or destroy. A bound
+  conversation never switches sandboxes — start a new chat.
   Entities
   are managed db-first via `npm run db:seed` (secrets from env only);
   `/p/[projectId]` starts a project conversation; `create_pr` is the

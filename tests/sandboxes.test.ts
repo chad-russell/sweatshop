@@ -2,9 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { Experimental_SandboxSession } from "ai";
 import { db } from "../db";
 import { projects } from "../db/schema";
-import { ensureConversation } from "../db/chat";
 import {
-  getAttachmentByConversation,
   getLease,
   getLeaseByOwner,
   insertLease,
@@ -124,24 +122,6 @@ describe("0010 sandbox leases", () => {
     };
     await expect(acquireSandbox(dedicated("c_d"), provider)).rejects.toThrow("boom");
     expect(getLeaseByOwner(db(), "conversation", "c_d")).toBeNull();
-  });
-
-  it("attach joins an existing sandbox with its own workdir", async () => {
-    const provider = new FakeProvider();
-    ensureConversation(db(), "c_f");
-    const owner = await acquireSandbox(dedicated("c_e"), provider);
-
-    const joined = await acquireSandbox(
-      { mode: "attach", sandboxId: owner.sandboxId, conversationId: "c_f" },
-      provider,
-    );
-    expect(joined.handle.ref).toBe("fake-ref-1");
-    // the attacher's workdir was created inside the sandbox
-    expect(provider.ran.some((entry) => entry.includes("/work/c_f"))).toBe(true);
-
-    const attachment = getAttachmentByConversation(db(), "c_f")!;
-    expect(attachment.sandboxId).toBe(owner.sandboxId);
-    expect(attachment.workdir).toBe("/work/c_f");
   });
 
   it("destroy removes the sandbox and keeps the registry row as history (0011)", async () => {

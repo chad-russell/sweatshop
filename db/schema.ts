@@ -36,11 +36,17 @@ export const conversations = sqliteTable(
     /** 0010: the model this conversation runs (plain column — the
      *  header→principal-attribute plumbing is gone). Null = default. */
     modelId: text("model_id"),
-    /** 0010: explicit sandbox choice (docs/0010 "knobs above the SDK
-     *  layer"): null = the default (dedicated, lazy, project
-     *  conversations), "none" = no sandboxed tools, or
-     *  "attached:<sandboxId>" to join another owner's sandbox. */
-    sandboxPref: text("sandbox_pref"),
+    /** 0013 binding: the sandbox this conversation runs in — null until
+     *  bound (a project chat binds on its first sandboxed call, an
+     *  attacher at creation), then fixed for the conversation's life. */
+    sandboxId: text("sandbox_id").references((): AnySQLiteColumn => sandboxes.id),
+    /** 0013: the bound working directory (the target's, when attached). */
+    sandboxWorkDir: text("sandbox_work_dir"),
+    /** 0013: 1 = this conversation owns the bound sandbox's lifecycle;
+     *  0 = attached (never stops or destroys it). */
+    sandboxOwner: integer("sandbox_owner", { mode: "boolean" }),
+    /** 0013: chosen "no sandbox" at creation — no sandboxed tools. */
+    sandboxDisabled: integer("sandbox_disabled", { mode: "boolean" }).notNull().default(false),
     /** 0007: user-visible folder; null = unfiled. Must belong to
      *  the same group (project) as the conversation. */
     folderId: text("folder_id").references((): AnySQLiteColumn => folders.id),

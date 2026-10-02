@@ -12,7 +12,9 @@ import {
   setActiveRun,
   updateConversationSettings,
 } from "@/db/chat";
+import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
 import { resolveChatModel } from "@/lib/model";
+import { attachConversation } from "@/lib/sandboxes/binding";
 import { chatTurn } from "@/workflows/chat/turn";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +24,11 @@ const ACTIVE = new Set(["pending", "running"]);
 
 /**
  * 0010 turn starter (Phase 4 cutover: the chat surface's transport).
- * Project, model and sandbox pref are plain conversation columns — set
- * here on send, no headers or principal attributes. If a turn is live
+ * Project and model are plain conversation columns — set here on send.
+ * 0013: the sandbox is chosen once, by the send that creates the
+ * conversation ("none", or "attached:<sandboxId>" to copy that
+ * sandbox's binding; omitted = its own, created on first use). Later
+ * sends cannot change it. If a turn is live
  * for the conversation, the text is queued as steer (drained between
  * slices); otherwise a new one-run-per-turn workflow starts. Stale
  * active rows (a run that finished before the route could clear it) are
@@ -38,8 +43,8 @@ export async function POST(request: Request) {
     modelId?: string;
     /** Conversation-creation binding (landing pages). */
     projectId?: string;
-    /** Explicit sandbox choice: "none" | "attached:<sandboxId>" | null. */
-    sandboxPref?: string | null;
+    /** 0013, creation only: "none" | "attached:<sandboxId>" | null (own). */
+    sandbox?: string | null;
     messages?: { role: string; parts?: { type: string; text?: string }[] }[];
   };
   const transportText = body.messages
@@ -67,17 +72,28 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  if (body.sandboxPref != null && !isValidSandboxPref(body.sandboxPref)) {
-    return NextResponse.json({ error: "invalid sandboxPref" }, { status: 400 });
+  if (body.sandbox != null && !isValidSandboxChoice(body.sandbox)) {
+    return NextResponse.json({ error: "invalid sandbox choice" }, { status: 400 });
   }
 
   const existing = getConversation(db(), body.conversationId);
   if (!existing) {
     ensureConversation(db(), body.conversationId, body.projectId ?? null);
+    if (body.sandbox === "none") {
+      disableConversationSandbox(db(), body.conversationId);
+    } else if (body.sandbox?.startsWith("attached:")) {
+      try {
+        await attachConversation(body.conversationId, body.sandbox.slice("attached:".length));
+      } catch (err) {
+        return NextResponse.json(
+          { error: err instanceof Error ? err.message : "could not attach" },
+          { status: 409 },
+        );
+      }
+    }
   }
   updateConversationSettings(db(), body.conversationId, {
     ...(body.modelId ? { modelId: resolveChatModel(body.modelId).id } : {}),
-    ...(body.sandboxPref !== undefined ? { sandboxPref: body.sandboxPref } : {}),
   });
   const conversation = getConversation(db(), body.conversationId)!;
   const model = resolveChatModel(conversation.modelId);
@@ -97,7 +113,7 @@ export async function POST(request: Request) {
       conversationId: body.conversationId,
       userText: text,
       modelId: model.id,
-      sandboxPref: conversation.sandboxPref,
+      hasSandbox: getConversationBinding(db(), body.conversationId)?.kind !== "none",
       hasProject: !!conversation.projectId,
     },
   ]);
@@ -109,8 +125,8 @@ export async function POST(request: Request) {
   return respond(run.runId, false);
 }
 
-function isValidSandboxPref(value: string): boolean {
-  return value === "none" || value.startsWith("attached:");
+function isValidSandboxChoice(value: string): boolean {
+  return value === "none" || /^attached:sbx_[\w-]+$/.test(value);
 }
 
 /** Conversation state for the chat surface (reload/initial render). */
@@ -124,7 +140,7 @@ export async function GET(request: Request) {
     messages: listMessageTexts(db(), conversationId),
     activeRunId: getActiveRun(db(), conversationId),
     modelId: conversation?.modelId ?? null,
-    sandboxPref: conversation?.sandboxPref ?? null,
+    sandbox: getConversationBinding(db(), conversationId),
     projectId: conversation?.projectId ?? null,
   });
 }

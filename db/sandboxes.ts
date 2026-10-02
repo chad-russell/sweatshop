@@ -1,13 +1,14 @@
 import { and, asc, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Db } from "./index";
-import { sandboxAttachments, sandboxCalls, sandboxes } from "./schema";
+import { conversations, sandboxAttachments, sandboxCalls, sandboxes } from "./schema";
 
 /**
  * 0010 Phase 2 sandbox lease store. The `sandboxes` table is a registry
- * of live leases (rows are deleted on destroy — history lives in run and
- * harness tables); every invariant about ownership, status, and idle
- * age lives here so routes, the lease layer, and the reaper agree.
+ * of leases (0011: destroyed rows stay as history so recorded calls keep
+ * a target); every invariant about ownership, status, and idle age lives
+ * here so routes, the lease layer, and the reaper agree. 0013 adds the
+ * conversation's sandbox binding (columns on `conversations`).
  */
 
 export type SandboxOwnerKind = "conversation" | "machine_run";
@@ -217,4 +218,76 @@ export function listCallsForSandbox(db: Db, sandboxId: string): SandboxCall[] {
     .where(eq(sandboxCalls.sandboxId, sandboxId))
     .orderBy(desc(sandboxCalls.at), desc(sql`rowid`))
     .all() as SandboxCall[];
+}
+
+// ── 0013: conversation sandbox bindings ─────────────────────────────────
+
+/**
+ * Which sandbox a top-level chat or run (and everything below it) runs
+ * in — chosen once. Plain data: it crosses workflow step boundaries
+ * as-is (lib/sandboxes/binding.ts turns it into a live handle).
+ *
+ *   none:    no sandboxed tools (plain chat, or "no sandbox" chosen)
+ *   pending: a project chat whose own sandbox is created on first use
+ *   bound:   fixed for good; `owner` = controls lifecycle, false =
+ *            attached/inherited (never stops or destroys it)
+ */
+export type SandboxBinding =
+  /** `disabled`: "no sandbox" was chosen (vs. a plain chat, unbound). */
+  | { kind: "none"; disabled?: true }
+  | { kind: "pending"; projectId: string }
+  | { kind: "bound"; sandboxId: string; workDir: string; owner: boolean };
+
+export type BoundSandbox = Extract<SandboxBinding, { kind: "bound" }>;
+
+/** The conversation's binding; null when the conversation is absent. */
+export function getConversationBinding(db: Db, conversationId: string): SandboxBinding | null {
+  const row = db
+    .select({
+      projectId: conversations.projectId,
+      sandboxId: conversations.sandboxId,
+      workDir: conversations.sandboxWorkDir,
+      owner: conversations.sandboxOwner,
+      disabled: conversations.sandboxDisabled,
+    })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  if (!row) return null;
+  if (row.sandboxId && row.workDir) {
+    return { kind: "bound", sandboxId: row.sandboxId, workDir: row.workDir, owner: !!row.owner };
+  }
+  if (row.disabled) return { kind: "none", disabled: true };
+  return row.projectId ? { kind: "pending", projectId: row.projectId } : { kind: "none" };
+}
+
+/**
+ * Bind an unbound conversation — exactly once. Returns the binding that
+ * holds afterwards: `binding` when this call bound it, otherwise the one
+ * an earlier call already set (a binding never changes).
+ */
+export function bindConversation(
+  db: Db,
+  conversationId: string,
+  binding: BoundSandbox,
+): BoundSandbox {
+  db.update(conversations)
+    .set({
+      sandboxId: binding.sandboxId,
+      sandboxWorkDir: binding.workDir,
+      sandboxOwner: binding.owner,
+    })
+    .where(and(eq(conversations.id, conversationId), sql`${conversations.sandboxId} is null`))
+    .run();
+  const now = getConversationBinding(db, conversationId);
+  if (now?.kind !== "bound") throw new Error(`could not bind conversation ${conversationId}`);
+  return now;
+}
+
+/** Choose "no sandbox" for a not-yet-bound conversation (creation only). */
+export function disableConversationSandbox(db: Db, conversationId: string): void {
+  db.update(conversations)
+    .set({ sandboxDisabled: true })
+    .where(and(eq(conversations.id, conversationId), sql`${conversations.sandboxId} is null`))
+    .run();
 }

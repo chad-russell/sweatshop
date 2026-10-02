@@ -3,7 +3,6 @@ import { z } from "zod";
 import { chatApprovalHook } from "./hooks";
 import { harnessToolStep } from "./harness-step";
 import {
-  attachSandboxStep,
   bashStep,
   createPrStep,
   listMachinesStep,
@@ -25,16 +24,17 @@ import {
  * db-touching tools ARE steps — only step bodies may use Node APIs, and
  * their results (clipped/POJO) serialize into the run log.
  *
- * sandboxPref "none" (an explicit composer choice) omits the sandboxed
- * tools entirely; the tool cores resolve "attached:<id>" vs dedicated.
- * 0011: without a project (and no attach) bash/pi/claude are omitted too.
+ * 0013: the conversation's sandbox binding decides the sandboxed tools —
+ * "none" (no project, or "no sandbox" chosen) omits bash/pi/claude;
+ * pending or bound keeps bash, and pi/claude also need a project (their
+ * create_pr host tool is project-scoped). The tool cores open the
+ * binding themselves; nothing here picks a sandbox.
  */
 export function buildChatTools(
   conversationId: string,
-  sandboxPref?: string | null,
-  hasProject = true,
+  sandbox: { hasSandbox: boolean; hasProject: boolean } = { hasSandbox: true, hasProject: true },
 ) {
-  const attached = sandboxPref?.startsWith("attached:") ?? false;
+  const { hasSandbox, hasProject } = sandbox;
   return {
     ask_chad: tool({
       description:
@@ -94,41 +94,21 @@ export function buildChatTools(
       },
     }),
 
-    attach_sandbox: tool({
-      description:
-        "Attach this conversation to an existing sandbox (another conversation's or a machine run's) " +
-        "instead of using its own — you get your own workdir but share ports and processes with the owner. " +
-        "Explicit by design; pass an ownerId (e.g. a machine run id) to join it. Once attached, this " +
-        "conversation's bash/pi/claude calls run in that sandbox until Chad changes the sandbox choice. " +
-        "In a chat without a project, bash becomes available from the next turn.",
-      inputSchema: z.object({
-        ownerKind: z.enum(["conversation", "machine_run"]).optional(),
-        ownerId: z.string().optional(),
-        sandboxId: z.string().optional(),
-      }),
-      execute: ({ ownerKind, ownerId, sandboxId }) =>
-        attachSandboxStep(
-          conversationId,
-          sandboxId
-            ? { sandboxId }
-            : { ownerKind: ownerKind ?? "machine_run", ownerId: ownerId ?? "" },
-        ),
-    }),
-
-    // 0011: plain chats are not offered tools that can only error —
-    // bash needs a project or an explicit attach; pi/claude need a project.
-    ...(sandboxPref !== "none" && (hasProject || attached) && {
+    // 0011/0013: chats are not offered tools that can only error — bash
+    // needs a sandbox binding; pi/claude also need a project.
+    ...(hasSandbox && {
       bash: tool({
         description:
-          "Run a bash command in this conversation's sandbox (a fresh one is created on first use; " +
-          "the project's repos are cloned under /work/<conversation>). Not available without a project.",
+          "Run a bash command in this conversation's sandbox, in its working directory (a project " +
+          "chat's own sandbox is created on first use with the repos cloned there; an attached chat " +
+          "works in the sandbox and directory it attached to).",
         inputSchema: z.object({
           command: z.string().max(20_000).describe("The bash command to run."),
         }),
         execute: ({ command }, { toolCallId }) => bashStep(conversationId, command, toolCallId),
       }),
     }),
-    ...(sandboxPref !== "none" && hasProject && {
+    ...(hasSandbox && hasProject && {
       pi: tool({
         description:
           "Hand a coding task to the pi harness, which works in this conversation's sandbox " +

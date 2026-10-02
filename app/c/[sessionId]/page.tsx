@@ -48,7 +48,6 @@ export default async function ConversationPage({
       projectName={project?.name}
       conversationTitle={conversation.title}
       initialModelId={conversation.modelId}
-      initialSandboxPref={conversation.sandboxPref}
     />
   );
 }

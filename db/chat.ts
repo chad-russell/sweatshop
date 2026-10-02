@@ -51,14 +51,12 @@ export function getConversation(
   id: string;
   projectId: string | null;
   modelId: string | null;
-  sandboxPref: string | null;
 } | null {
   const row = db
     .select({
       id: conversations.id,
       projectId: conversations.projectId,
       modelId: conversations.modelId,
-      sandboxPref: conversations.sandboxPref,
     })
     .from(conversations)
     .where(eq(conversations.id, id))
@@ -66,11 +64,12 @@ export function getConversation(
   return row ?? null;
 }
 
-/** 0010: update the conversation's explicit knobs (model, sandbox pref). */
+/** 0010: update the conversation's explicit knobs (model; the sandbox
+ *  binding is set once, through db/sandboxes.ts). */
 export function updateConversationSettings(
   db: Db,
   id: string,
-  set: { modelId?: string; sandboxPref?: string | null },
+  set: { modelId?: string },
 ): void {
   if (Object.keys(set).length === 0) return;
   db.update(conversations).set(set).where(eq(conversations.id, id)).run();

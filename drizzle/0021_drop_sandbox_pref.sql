@@ -1,0 +1,1 @@
+ALTER TABLE `conversations` DROP COLUMN `sandbox_pref`;

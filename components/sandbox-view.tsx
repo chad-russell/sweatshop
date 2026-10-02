@@ -25,8 +25,8 @@ export type SandboxStateView =
   | { kind: "none" }
   | { kind: "pending" }
   | { kind: "unavailable" }
-  | { kind: "own"; sandboxId: string }
-  | { kind: "attached"; sandboxId: string };
+  | { kind: "own"; sandboxId: string; workDir: string }
+  | { kind: "attached"; sandboxId: string; workDir: string };
 
 export interface ConversationSandboxViewData {
   state: SandboxStateView;

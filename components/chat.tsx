@@ -520,55 +520,124 @@ function ModelPicker({
   );
 }
 
-/** Sandbox picker — the explicit knob from docs/0010 (auto / none / attach). */
 /**
- * What the trigger says. The stored choice ("auto") is not an answer to
- * "where will my next command run?", so prefer the resolved state.
+ * 0013: what the trigger says. A fresh conversation shows its pending
+ * choice; a started one shows its binding (fixed for its life).
  */
 function sandboxLabel(
-  pref: string,
+  choice: string,
+  editable: boolean,
   view: ConversationSandboxViewData | null,
   sandboxes: SandboxOption[],
+  hasProject: boolean,
 ): string {
-  const state = view?.state;
-  if (pref === "none" || state?.kind === "none") return "no sandbox";
-  if (pref.startsWith("attached:")) {
-    const id = pref.slice("attached:".length);
-    const label = view?.sandboxes[id]?.ownerLabel ?? sandboxes.find((s) => s.id === id)?.ownerLabel;
-    return `attached: ${label ?? id.slice(4, 12)}`;
+  if (editable) {
+    if (choice === "none") return "no sandbox";
+    if (choice.startsWith("attached:")) {
+      const id = choice.slice("attached:".length);
+      const label = sandboxes.find((s) => s.id === id)?.ownerLabel;
+      return `attach: ${label ?? shortSandboxId(id)}`;
+    }
+    return hasProject ? "sandbox: new" : "no sandbox (no project)";
   }
-  if (state?.kind === "unavailable") return "no sandbox (no project)";
-  if (state?.kind === "own") return `sandbox: ${shortSandboxId(state.sandboxId)}`;
-  return "sandbox: auto";
+  const state = view?.state;
+  if (!state) return "sandbox";
+  switch (state.kind) {
+    case "none":
+      return "no sandbox";
+    case "unavailable":
+      return "no sandbox (no project)";
+    case "pending":
+      return "sandbox: on first use";
+    case "own":
+      return `sandbox: ${shortSandboxId(state.sandboxId)}`;
+    case "attached": {
+      const label = view?.sandboxes[state.sandboxId]?.ownerLabel;
+      return `attached: ${label ?? shortSandboxId(state.sandboxId)}`;
+    }
+  }
 }
 
+const SANDBOX_TRIGGER =
+  "inline-flex h-8 max-w-48 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+
+/**
+ * 0013 sandbox picker. Choosing happens once, on a fresh conversation:
+ * its own new sandbox (created on first use), none, or attach to an
+ * existing one — landing in that sandbox's own working directory. A
+ * started conversation shows its binding read-only; switching sandboxes
+ * means starting a new chat.
+ */
 function SandboxPicker({
-  pref,
+  choice,
+  editable,
   onSelect,
   onOpen,
   sandboxes,
   view,
+  hasProject,
 }: {
-  /** 0011: the server-resolved state; the label prefers it over `pref`. */
-  view: ConversationSandboxViewData | null;
-  pref: string;
-  onSelect: (pref: string) => void;
+  choice: string;
+  /** Only a fresh conversation can choose. */
+  editable: boolean;
+  onSelect: (choice: string) => void;
   /** Fired each time the menu opens — refresh the attachable list. */
   onOpen: () => void;
   sandboxes: SandboxOption[];
+  view: ConversationSandboxViewData | null;
+  hasProject: boolean;
 }) {
-  const label = sandboxLabel(pref, view, sandboxes);
-  const state = view?.state;
-  // Joining your own sandbox is just "Auto"; don't offer it as a target.
-  const attachable = sandboxes.filter(
-    (sandbox) => !(state?.kind === "own" && sandbox.id === state.sandboxId),
-  );
-  const autoNote =
-    state?.kind === "own"
-      ? `Your own sandbox, ${shortSandboxId(state.sandboxId)}`
-      : state?.kind === "unavailable"
-        ? "Needs a project — start from a project page"
-        : "Your own sandbox, created on first use";
+  const label = sandboxLabel(choice, editable, view, sandboxes, hasProject);
+
+  if (!editable) {
+    const state = view?.state;
+    const bound = state?.kind === "own" || state?.kind === "attached" ? state : null;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Sandbox"
+            title="Where this conversation's bash / pi / claude calls run (fixed for this conversation)"
+            className={SANDBOX_TRIGGER}
+          >
+            <span className="truncate">{label}</span>
+            <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-80">
+          <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
+            <span className="text-xs font-medium text-foreground">{label}</span>
+            {bound && (
+              <span className="font-mono text-xs text-muted-foreground">{bound.workDir}</span>
+            )}
+            <span className="text-xs text-muted-foreground">
+              {state?.kind === "pending"
+                ? "This chat's own sandbox is created the first time a tool needs it."
+                : state?.kind === "attached"
+                  ? "Attached: same sandbox and directory as its owner, shared ports and processes."
+                  : "Chosen when the chat started. Start a new chat to use a different sandbox."}
+            </span>
+          </DropdownMenuLabel>
+          {bound && (
+            <DropdownMenuItem asChild>
+              <Link href={`/sandboxes/${bound.sandboxId}`} className="text-xs">
+                <Box aria-hidden />
+                Open sandbox {shortSandboxId(bound.sandboxId)}
+              </Link>
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href="/sandboxes" className="text-xs text-muted-foreground">
+              <Box aria-hidden />
+              Manage sandboxes
+            </Link>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
 
   return (
     <DropdownMenu onOpenChange={(open) => open && onOpen()}>
@@ -576,27 +645,37 @@ function SandboxPicker({
         <button
           type="button"
           aria-label="Sandbox"
-          title="Where this conversation's bash / pi / claude calls run"
-          className="inline-flex h-8 max-w-40 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          title="Where this conversation's bash / pi / claude calls will run — chosen once, now"
+          className={SANDBOX_TRIGGER}
         >
           <span className="truncate">{label}</span>
           <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-96">
-        <DropdownMenuItem onSelect={() => onSelect("auto")} className="items-start py-2">
+        {hasProject && (
+          <DropdownMenuItem onSelect={() => onSelect("auto")} className="items-start py-2">
+            <Check
+              className={cn("mt-0.5", choice === "auto" ? "opacity-100" : "opacity-0")}
+              aria-hidden
+            />
+            <span className="flex flex-col">
+              <span>New sandbox</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                This chat&apos;s own, created on first use
+              </span>
+            </span>
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem
+          onSelect={() => onSelect(hasProject ? "none" : "auto")}
+          className="items-start py-2"
+        >
           <Check
-            className={cn("mt-0.5", pref === "auto" ? "opacity-100" : "opacity-0")}
-            aria-hidden
-          />
-          <span className="flex flex-col">
-            <span>Auto</span>
-            <span className="text-xs font-normal text-muted-foreground">{autoNote}</span>
-          </span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onSelect("none")} className="items-start py-2">
-          <Check
-            className={cn("mt-0.5", pref === "none" ? "opacity-100" : "opacity-0")}
+            className={cn(
+              "mt-0.5",
+              choice === "none" || (!hasProject && choice === "auto") ? "opacity-100" : "opacity-0",
+            )}
             aria-hidden
           />
           <span className="flex flex-col">
@@ -608,16 +687,16 @@ function SandboxPicker({
         <DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
           <span className="text-xs font-medium text-foreground">Attach to a sandbox</span>
           <span className="text-xs text-muted-foreground">
-            You get your own /work folder inside it, but share its ports and processes with
-            everyone using it.
+            Work in its directory, alongside its owner — same files, shared ports and processes.
+            Fixed for this chat once you send.
           </span>
         </DropdownMenuLabel>
-        {attachable.length === 0 && (
+        {sandboxes.length === 0 && (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            No other sandboxes to join yet.
+            No sandboxes to join yet.
           </div>
         )}
-        {attachable.map((sandbox) => {
+        {sandboxes.map((sandbox) => {
           const value = `attached:${sandbox.id}`;
           return (
             <DropdownMenuItem
@@ -626,7 +705,7 @@ function SandboxPicker({
               className="items-start py-2"
             >
               <Check
-                className={cn("mt-0.5", value === pref ? "opacity-100" : "opacity-0")}
+                className={cn("mt-0.5", value === choice ? "opacity-100" : "opacity-0")}
                 aria-hidden
               />
               <span className="flex min-w-0 flex-1 flex-col">
@@ -680,7 +759,6 @@ export function ChatSurface({
   projectId,
   projectName,
   initialModelId,
-  initialSandboxPref,
   conversationTitle,
   headerExtra,
   initialMachineId,
@@ -691,7 +769,6 @@ export function ChatSurface({
   projectId?: string;
   projectName?: string;
   initialModelId?: string | null;
-  initialSandboxPref?: string | null;
   conversationTitle?: string | null;
   headerExtra?: React.ReactNode;
   /** 0012: preselect this machine as the fresh composer's target. */
@@ -721,7 +798,8 @@ export function ChatSurface({
     window.localStorage.setItem(MODEL_STORAGE_KEY, id);
   };
 
-  const [sandboxPref, setSandboxPref] = useState(initialSandboxPref ?? "auto");
+  // 0013: the fresh composer's one-time sandbox choice ("auto" = own).
+  const [sandboxChoice, setSandboxChoice] = useState("auto");
   const [sandboxes, setSandboxes] = useState<SandboxOption[]>([]);
   const loadSandboxes = async () => {
     try {
@@ -736,18 +814,13 @@ export function ChatSurface({
   // synced in an effect (post-render); sends can only happen after
   // mount, so the values are always current when a request fires.
   const modelRef = useRef(modelId);
-  const prefRef = useRef(sandboxPref);
-  // 0011: the pref is only sent once the user has chosen one in the
-  // picker. Otherwise an agent-side change (attach_sandbox sets the
-  // conversation's pref) would be overwritten by the stale "auto" on the
-  // next send.
-  const prefTouchedRef = useRef(false);
+  const choiceRef = useRef(sandboxChoice);
   const conversationRef = useRef({ conversationId, projectId: projectId ?? null });
   useEffect(() => {
     modelRef.current = modelId;
-    prefRef.current = sandboxPref;
+    choiceRef.current = sandboxChoice;
     conversationRef.current = { conversationId, projectId: projectId ?? null };
-  }, [modelId, sandboxPref, conversationId, projectId]);
+  }, [modelId, sandboxChoice, conversationId, projectId]);
 
   // The callback runs at send time (never during render) and must see
   // the current knobs.
@@ -761,9 +834,9 @@ export function ChatSurface({
             conversationId: conversationRef.current.conversationId,
             projectId: conversationRef.current.projectId,
             modelId: modelRef.current,
-            ...(prefTouchedRef.current
-              ? { sandboxPref: prefRef.current === "auto" ? null : prefRef.current }
-              : {}),
+            // Only the creating send's choice counts (server-enforced);
+            // "auto" = the chat's own sandbox, the default.
+            ...(choiceRef.current !== "auto" ? { sandbox: choiceRef.current } : {}),
             messages,
             trigger,
             messageId,
@@ -811,17 +884,6 @@ export function ChatSurface({
         if (res.ok && !cancelled) {
           const next = (await res.json()) as ConversationSandboxViewData;
           setSandboxView(next);
-          // The agent can change the choice server-side (attach_sandbox);
-          // follow it until the user has picked something themselves.
-          if (!prefTouchedRef.current) {
-            setSandboxPref(
-              next.state.kind === "attached"
-                ? `attached:${next.state.sandboxId}`
-                : next.state.kind === "none"
-                  ? "none"
-                  : "auto",
-            );
-          }
         }
       } catch {
         // chips and the state label are best-effort
@@ -978,14 +1040,13 @@ export function ChatSurface({
               displayLabel={findChatModel(modelId)?.label ?? modelId}
             />
             <SandboxPicker
-              pref={sandboxPref}
-              onSelect={(pref) => {
-                prefTouchedRef.current = true;
-                setSandboxPref(pref);
-              }}
+              choice={sandboxChoice}
+              editable={!started}
+              onSelect={setSandboxChoice}
               onOpen={() => void loadSandboxes()}
               sandboxes={sandboxes}
               view={sandboxView}
+              hasProject={Boolean(projectId)}
             />
           </>
         )}

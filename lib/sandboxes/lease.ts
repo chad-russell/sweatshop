@@ -7,7 +7,6 @@ import {
   markDestroyed,
   touchLease,
   updateLease,
-  upsertAttachment,
   type SandboxOwnerKind,
 } from "@/db/sandboxes";
 import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
@@ -18,33 +17,21 @@ import {
 } from "@/lib/sandboxes/provider";
 
 /**
- * 0010 Phase 2 — sandbox leases: the ONE entry point for borrowing a
- * sandbox. Requests are explicit (docs/0010's "explicit options at the
- * SDK layer, knobs above"); defaults — plain chats none, project chats
- * dedicated-on-first-use, machine runs dedicated at start, attach only
- * by explicit choice — are layered above this in the callers.
- *
- *   dedicated: this owner's own sandbox, created on first acquire,
- *              resumed if idle-stopped, reused after. Own ports and
- *              processes.
- *   attach:    join someone else's sandbox — own workdir under
- *              /work/<conversationId>, knowingly shared ports/processes.
+ * 0010 Phase 2 — sandbox leases: the ONE entry point for creating an
+ * owner's sandbox. A dedicated lease is created on first acquire,
+ * resumed if idle-stopped, and reused after. 0013: attaching is not a
+ * lease mode any more — an attacher copies the owner's binding
+ * (lib/sandboxes/binding.ts) and opens the same sandbox and directory.
  */
 
-export type AcquireRequest =
-  | {
-      mode: "dedicated";
-      ownerKind: SandboxOwnerKind;
-      ownerId: string;
-      projectId: string | null;
-      /** Work root override (machine runs keep /work/<runId>). */
-      root?: string;
-    }
-  | {
-      mode: "attach";
-      sandboxId: string;
-      conversationId: string;
-    };
+export type AcquireRequest = {
+  mode: "dedicated";
+  ownerKind: SandboxOwnerKind;
+  ownerId: string;
+  projectId: string | null;
+  /** Work root override (machine runs keep /work/<runId>). */
+  root?: string;
+};
 
 export interface AcquiredSandbox {
   sandboxId: string;
@@ -55,14 +42,11 @@ export async function acquireSandbox(
   request: AcquireRequest,
   provider: SandboxProvider = sandboxProvider(),
 ): Promise<AcquiredSandbox> {
-  if (request.mode === "attach") {
-    return acquireAttached(request.sandboxId, request.conversationId, provider);
-  }
   return acquireDedicated(request, provider);
 }
 
 async function acquireDedicated(
-  request: Extract<AcquireRequest, { mode: "dedicated" }>,
+  request: AcquireRequest,
   provider: SandboxProvider,
 ): Promise<AcquiredSandbox> {
   const existing = getLeaseByOwner(db(), request.ownerKind, request.ownerId);
@@ -102,35 +86,6 @@ async function acquireDedicated(
   }
   touchLease(db(), existing.id);
   return { sandboxId: existing.id, handle: provider.attach(existing.ref, root) };
-}
-
-async function acquireAttached(
-  sandboxId: string,
-  conversationId: string,
-  provider: SandboxProvider,
-): Promise<AcquiredSandbox> {
-  const lease = getLease(db(), sandboxId);
-  if (!lease || lease.status === "destroyed") throw new Error(`no sandbox ${sandboxId}`);
-  const workdir = sandboxWorkRoot(conversationId);
-  if (lease.status === "stopped") {
-    await provider.resume(lease.ref);
-    updateLease(db(), lease.id, { status: "running" });
-  }
-  upsertAttachment(db(), {
-    sandboxId: lease.id,
-    conversationId,
-    workdir,
-  });
-  touchLease(db(), lease.id);
-  // The attacher gets its own workdir (created lazily by the first
-  // command that needs it; mkdir on every attach would race nothing).
-  // The mkdir runs from "/" — the handle's default cwd is the workdir
-  // itself, which does not exist until this command succeeds.
-  const handle = provider.attach(lease.ref, workdir);
-  await handle
-    .run(`mkdir -p ${JSON.stringify(workdir)}`, undefined, "/")
-    .catch(() => undefined);
-  return { sandboxId: lease.id, handle };
 }
 
 /**

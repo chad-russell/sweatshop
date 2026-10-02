@@ -163,23 +163,15 @@ export async function harnessToolStep(
   let toolCalls = 0;
   let failure: string | undefined;
   try {
-    // The conversation's sandbox — its explicit pref decides dedicated
-    // (lazy, /work/<conversationId> is the cwd the harness resolves as
-    // its home) or attached.
-    const { acquireConversationSandbox } = await import("../../lib/agent/tools/sandbox-pref");
-    const { sandboxId, handle } = await acquireConversationSandbox(
+    // 0013: the conversation's binding — its own sandbox (bound on first
+    // use) or the one it attached to, in the bound working directory.
+    const { openConversationSandbox } = await import("../../lib/sandboxes/binding");
+    const { sandboxId, workDir, handle } = await openConversationSandbox(
       conversationId,
-      conversation.projectId,
       undefined,
       toolCallId ? { toolCallId, tool: kind } : undefined,
     );
-    // Dedicated and attached both work under /work/<conversationId>.
-    const { sandboxWorkRoot } = await import("../../lib/sandboxes/provision");
-    const sandboxSession = toNetworkSandboxSession({
-      id: sandboxId,
-      handle,
-      workDir: sandboxWorkRoot(conversationId),
-    });
+    const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
 
     const resumeFrom =
       (getHarnessResumeState(db(), conversationId, kind) as HarnessResumeFrom | null) ?? undefined;

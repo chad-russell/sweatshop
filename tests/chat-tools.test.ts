@@ -1,14 +1,15 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Experimental_SandboxSession } from "ai";
 import { db } from "../db";
+import { ensureConversation, getHarnessResumeState, saveHarnessResumeState } from "../db/chat";
 import {
-  ensureConversation,
-  getConversation,
-  getHarnessResumeState,
-  saveHarnessResumeState,
-  updateConversationSettings,
-} from "../db/chat";
-import { getLease, getLeaseByOwner, listCallsForConversation, listCallsForSandbox } from "../db/sandboxes";
+  disableConversationSandbox,
+  getConversationBinding,
+  getLease,
+  getLeaseByOwner,
+  listCallsForConversation,
+  listCallsForSandbox,
+} from "../db/sandboxes";
 import {
   getSandboxDetail,
   listSandboxSummaries,
@@ -20,6 +21,7 @@ import { buildChatTools } from "../workflows/chat/tools";
 import { projects } from "../db/schema";
 import { clipOutput, runBash } from "../lib/agent/tools/bash";
 import { attachConversationSandbox } from "../lib/agent/tools/attach-sandbox";
+import { openConversationSandbox } from "../lib/sandboxes/binding";
 import { acquireSandbox, destroySandbox } from "../lib/sandboxes/lease";
 import type { SandboxHandle, SandboxProvider, SandboxSpec } from "../lib/sandboxes/provider";
 
@@ -85,10 +87,10 @@ describe("0010 chat tool cores", () => {
     expect(provider.commands.filter((c) => c.startsWith("create"))).toHaveLength(1);
   });
 
-  it("bash without a project fails with the 0004 explanation", async () => {
+  it("bash without a sandbox binding explains itself", async () => {
     provider = new FakeProvider();
     await expect(runBash("c_unbound", "pwd", provider)).rejects.toThrow(
-      /no project bound to this conversation/,
+      /this conversation has no sandbox/,
     );
   });
 
@@ -101,7 +103,7 @@ describe("0010 chat tool cores", () => {
     expect(clipOutput("short")).toBe("short");
   });
 
-  it("attach joins a machine run's sandbox with the conversation's workdir", async () => {
+  it("attach joins a machine run's sandbox in the run's own workdir (0013)", async () => {
     provider = new FakeProvider();
     const owner = await acquireSandbox(
       { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_1", projectId: null },
@@ -114,10 +116,13 @@ describe("0010 chat tool cores", () => {
       { ownerKind: "machine_run", ownerId: "run_1" },
       provider,
     );
-    expect(joined.sandboxId).toBe(owner.sandboxId);
-    expect(joined.workdir).toBe("/work/c_joiner");
-    // the joiner's workdir was created inside the sandbox
-    expect(provider.commands.some((c) => c.includes("mkdir -p \"/work/c_joiner\""))).toBe(true);
+    expect(joined).toEqual({ sandboxId: owner.sandboxId, workdir: "/work/run_1" });
+    expect(getConversationBinding(db(), "c_joiner")).toEqual({
+      kind: "bound",
+      sandboxId: owner.sandboxId,
+      workDir: "/work/run_1",
+      owner: false,
+    });
 
     await destroySandbox(owner.sandboxId, provider);
   });
@@ -167,39 +172,25 @@ describe("0010 chat tool cores", () => {
       expect(listCallsForConversation(db(), "c_retry")).toHaveLength(1);
     });
 
-    it("a pref change mid-chat attributes later calls to the new sandbox", async () => {
+    it("attaching makes the next bash land in the target's sandbox and directory", async () => {
       provider = new FakeProvider();
-      ensureConversation(db(), "c_mix", "p_tools");
-      const owner = await acquireSandbox(
-        { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_mix", projectId: null },
-        provider,
-      );
-      await runBash("c_mix", "echo own", provider, "mix_1");
+      ensureConversation(db(), "c_owner2", "p_tools");
+      await runBash("c_owner2", "pwd", provider, "own_1");
+      const owner = getLeaseByOwner(db(), "conversation", "c_owner2")!;
 
-      updateConversationSettings(db(), "c_mix", { sandboxPref: `attached:${owner.sandboxId}` });
-      await runBash("c_mix", "echo shared", provider, "mix_2");
-
-      const [first, second] = listCallsForConversation(db(), "c_mix");
-      expect(first).toMatchObject({ toolCallId: "mix_1", via: "dedicated" });
-      expect(second).toMatchObject({ toolCallId: "mix_2", via: "attached", sandboxId: owner.sandboxId });
-      expect(first!.sandboxId).not.toBe(second!.sandboxId);
-    });
-
-    it("attach_sandbox sets the pref so the next bash lands in the attached sandbox", async () => {
-      provider = new FakeProvider();
       ensureConversation(db(), "c_att2", "p_tools");
-      const owner = await acquireSandbox(
-        { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_att2", projectId: null },
-        provider,
-      );
-      await attachConversationSandbox("c_att2", { sandboxId: owner.sandboxId }, provider);
-      expect(getConversation(db(), "c_att2")!.sandboxPref).toBe(`attached:${owner.sandboxId}`);
-
+      await attachConversationSandbox("c_att2", { sandboxId: owner.id }, provider);
+      provider.commands = [];
       await runBash("c_att2", "pwd", provider, "att_1");
+
       expect(listCallsForConversation(db(), "c_att2")[0]).toMatchObject({
-        sandboxId: owner.sandboxId,
+        sandboxId: owner.id,
         via: "attached",
+        workdir: "/work/c_owner2",
       });
+      // no new sandbox for the attacher
+      expect(provider.commands.filter((c) => c.startsWith("create"))).toEqual([]);
+      expect(getLeaseByOwner(db(), "conversation", "c_att2")).toBeNull();
     });
 
     it("a plain chat can run bash after attaching", async () => {
@@ -214,7 +205,7 @@ describe("0010 chat tool cores", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("a destroyed sandbox stays as history and its owner can get a fresh one", async () => {
+    it("a destroyed sandbox stays as history; its bound chat is told to start fresh", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_gone", "p_tools");
       await runBash("c_gone", "pwd", provider, "gone_1");
@@ -227,10 +218,11 @@ describe("0010 chat tool cores", () => {
       expect(row.destroyedAt).not.toBeNull();
       expect(listCallsForSandbox(db(), old.id)).toHaveLength(1);
 
-      await runBash("c_gone", "pwd", provider, "gone_2");
-      const fresh = getLeaseByOwner(db(), "conversation", "c_gone")!;
-      expect(fresh.id).not.toBe(old.id);
-      expect(listCallsForConversation(db(), "c_gone").map((c) => c.sandboxId)).toEqual([old.id, fresh.id]);
+      // 0013: the binding never changes — no silent replacement sandbox
+      await expect(runBash("c_gone", "pwd", provider, "gone_2")).rejects.toThrow(
+        /was destroyed.*start a new chat/,
+      );
+      expect(getLeaseByOwner(db(), "conversation", "c_gone")).toBeNull();
     });
 
     it("attaching to a destroyed sandbox is refused", async () => {
@@ -248,7 +240,7 @@ describe("0010 chat tool cores", () => {
   });
 
   describe("0011 sandbox view", () => {
-    it("maps calls to sandboxes, flags a change, and reports current state", async () => {
+    it("maps calls to sandboxes and reports the binding", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_view", "p_tools");
       const view0 = loadConversationSandboxView(db(), "c_view");
@@ -256,28 +248,29 @@ describe("0010 chat tool cores", () => {
       expect(view0.calls).toEqual({});
 
       await runBash("c_view", "pwd", provider, "v_1");
+      await runBash("c_view", "pwd", provider, "v_2");
       const own = getLeaseByOwner(db(), "conversation", "c_view")!;
       const view1 = loadConversationSandboxView(db(), "c_view");
-      expect(view1.state).toEqual({ kind: "own", sandboxId: own.id });
+      expect(view1.state).toEqual({ kind: "own", sandboxId: own.id, workDir: "/work/c_view" });
       expect(view1.calls.v_1).toEqual({ sandboxId: own.id, via: "dedicated", changed: false });
+      expect(view1.calls.v_2).toMatchObject({ changed: false });
       expect(view1.sandboxes[own.id]).toMatchObject({ own: true, status: "running" });
 
       const other = await acquireSandbox(
         { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_view", projectId: null },
         provider,
       );
-      updateConversationSettings(db(), "c_view", { sandboxPref: `attached:${other.sandboxId}` });
-      await runBash("c_view", "pwd", provider, "v_2");
-      await runBash("c_view", "pwd", provider, "v_3");
-
-      const view2 = loadConversationSandboxView(db(), "c_view");
-      expect(view2.state).toEqual({ kind: "attached", sandboxId: other.sandboxId });
-      expect(view2.calls.v_2).toMatchObject({ via: "attached", changed: true });
+      ensureConversation(db(), "c_view_att");
+      await attachConversationSandbox("c_view_att", { sandboxId: other.sandboxId }, provider);
+      await runBash("c_view_att", "pwd", provider, "v_3");
+      const view2 = loadConversationSandboxView(db(), "c_view_att");
+      expect(view2.state).toEqual({ kind: "attached", sandboxId: other.sandboxId, workDir: "/work/run_view" });
       expect(view2.calls.v_3).toMatchObject({ via: "attached", changed: false });
       expect(view2.sandboxes[other.sandboxId]).toMatchObject({ own: false, ownerKind: "machine_run" });
 
-      updateConversationSettings(db(), "c_view", { sandboxPref: "none" });
-      expect(loadConversationSandboxView(db(), "c_view").state).toEqual({ kind: "none" });
+      ensureConversation(db(), "c_view_none", "p_tools");
+      disableConversationSandbox(db(), "c_view_none");
+      expect(loadConversationSandboxView(db(), "c_view_none").state).toEqual({ kind: "none" });
     });
 
     it("a plain chat with nothing attached is unavailable", () => {
@@ -295,7 +288,8 @@ describe("0010 chat tool cores", () => {
       const view = loadConversationSandboxView(db(), "c_view_gone");
       expect(view.sandboxes[old.id]).toMatchObject({ status: "destroyed" });
       expect(view.calls.g_1!.sandboxId).toBe(old.id);
-      expect(view.state).toEqual({ kind: "pending" });
+      // still bound to it (0013); the sandbox ref says it is gone
+      expect(view.state).toMatchObject({ kind: "own", sandboxId: old.id });
     });
   });
 
@@ -359,8 +353,7 @@ describe("0010 chat tool cores", () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_link_chat", "p_tools");
       // bash and pi both acquire through the same seam; record a pi call
-      const { acquireConversationSandbox } = await import("../lib/agent/tools/sandbox-pref");
-      const { sandboxId } = await acquireConversationSandbox("c_link_chat", "p_tools", provider, {
+      const { sandboxId } = await openConversationSandbox("c_link_chat", provider, {
         toolCallId: "link_pi_1",
         tool: "pi",
       });
@@ -383,25 +376,27 @@ describe("0010 chat tool cores", () => {
     });
   });
 
-  describe("0011 tool gating", () => {
-    const names = (pref: string | null, hasProject: boolean) =>
-      Object.keys(buildChatTools("c_x", pref, hasProject));
+  describe("0011/0013 tool gating", () => {
+    const names = (hasSandbox: boolean, hasProject: boolean) =>
+      Object.keys(buildChatTools("c_x", { hasSandbox, hasProject }));
 
     it("project chats get bash/pi/claude", () => {
-      expect(names(null, true)).toEqual(expect.arrayContaining(["bash", "pi", "claude"]));
+      expect(names(true, true)).toEqual(expect.arrayContaining(["bash", "pi", "claude"]));
     });
-    it("plain chats get none of them", () => {
-      const tools = names(null, false);
-      for (const t of ["bash", "pi", "claude"]) expect(tools).not.toContain(t);
+    it("chats with no sandbox get none of them", () => {
+      for (const hasProject of [true, false]) {
+        const tools = names(false, hasProject);
+        for (const t of ["bash", "pi", "claude"]) expect(tools).not.toContain(t);
+      }
     });
-    it("a plain chat that attached gets bash only", () => {
-      const tools = names("attached:sbx_1", false);
+    it("a plain chat started attached gets bash only", () => {
+      const tools = names(true, false);
       expect(tools).toContain("bash");
       expect(tools).not.toContain("pi");
       expect(tools).not.toContain("claude");
     });
-    it("pref none removes them everywhere", () => {
-      for (const t of ["bash", "pi", "claude"]) expect(names("none", true)).not.toContain(t);
+    it("attach_sandbox is gone — attaching is a start-of-chat choice", () => {
+      expect(names(true, true)).not.toContain("attach_sandbox");
     });
   });
 });

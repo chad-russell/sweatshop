@@ -1,7 +1,6 @@
 import { and, count, countDistinct, desc, eq, inArray, max, sql } from "drizzle-orm";
 import type { Db } from "./index";
-import { getConversation } from "./chat";
-import { getLeaseByOwner, listCallsForConversation } from "./sandboxes";
+import { getConversationBinding, listCallsForConversation } from "./sandboxes";
 import {
   conversations,
   machineRuns,
@@ -36,15 +35,15 @@ export interface CallSandbox {
   changed: boolean;
 }
 
-/** Where the conversation's next sandboxed call would run. */
+/** Where the conversation's sandboxed calls run (0013: its binding). */
 export type SandboxState =
   | { kind: "none" }
   /** No sandbox exists yet; one is created on first use. */
   | { kind: "pending" }
   /** Plain chat with no project and no attach: nothing to run in. */
   | { kind: "unavailable" }
-  | { kind: "own"; sandboxId: string }
-  | { kind: "attached"; sandboxId: string };
+  | { kind: "own"; sandboxId: string; workDir: string }
+  | { kind: "attached"; sandboxId: string; workDir: string };
 
 export interface ConversationSandboxView {
   state: SandboxState;
@@ -75,7 +74,7 @@ export function loadConversationSandboxView(
   db: Db,
   conversationId: string,
 ): ConversationSandboxView {
-  const conversation = getConversation(db, conversationId);
+  const binding = getConversationBinding(db, conversationId);
   const calls = listCallsForConversation(db, conversationId);
 
   const callMap: Record<string, CallSandbox> = {};
@@ -89,20 +88,17 @@ export function loadConversationSandboxView(
     previous = call.sandboxId;
   }
 
-  const pref = conversation?.sandboxPref ?? null;
-  let state: SandboxState;
-  if (pref === "none") {
-    state = { kind: "none" };
-  } else if (pref?.startsWith("attached:")) {
-    state = { kind: "attached", sandboxId: pref.slice("attached:".length) };
-  } else {
-    const own = getLeaseByOwner(db, "conversation", conversationId);
-    state = own
-      ? { kind: "own", sandboxId: own.id }
-      : conversation?.projectId
+  // 0013: the state IS the binding (fixed once bound).
+  const state: SandboxState =
+    !binding || binding.kind === "none"
+      ? binding?.disabled
+        ? { kind: "none" }
+        : { kind: "unavailable" }
+      : binding.kind === "pending"
         ? { kind: "pending" }
-        : { kind: "unavailable" };
-  }
+        : binding.owner
+          ? { kind: "own", sandboxId: binding.sandboxId, workDir: binding.workDir }
+          : { kind: "attached", sandboxId: binding.sandboxId, workDir: binding.workDir };
 
   const ids = new Set(Object.values(callMap).map((c) => c.sandboxId));
   if (state.kind === "own" || state.kind === "attached") ids.add(state.sandboxId);

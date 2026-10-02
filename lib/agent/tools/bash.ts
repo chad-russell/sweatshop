@@ -1,14 +1,11 @@
-import { db } from "@/db";
-import { getConversation } from "@/db/chat";
-import { acquireConversationSandbox } from "@/lib/agent/tools/sandbox-pref";
+import { openConversationSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /**
- * 0010 Phase 3: the bash tool's core (port of eve/tools/bash onto the
- * lease seam). A project conversation's dedicated sandbox is created on
- * first use and shared thereafter; unbound conversations get the same
- * self-explanatory error 0004 chose (the failure surfaces as whatever
- * tool call first touched the sandbox).
+ * 0010 Phase 3: the bash tool's core. 0013: runs in the conversation's
+ * binding — a pending project chat creates its own sandbox on first use
+ * (then stays bound), an attached chat runs in the target's sandbox and
+ * directory, and a chat with no sandbox gets a self-explanatory error.
  *
  * Plain function on purpose: the workflow step is a thin wrapper, and
  * tests inject a fake provider here (step args must serialize, so the
@@ -34,16 +31,8 @@ export async function runBash(
   provider?: SandboxProvider,
   toolCallId?: string,
 ): Promise<BashResult> {
-  const conversation = getConversation(db(), conversationId);
-  // 0011: a plain chat may still run in a sandbox it explicitly attached to.
-  if (!conversation?.projectId && !conversation?.sandboxPref?.startsWith("attached:")) {
-    throw new Error(
-      "no project bound to this conversation — bash is only available in project conversations (start one from a project page)",
-    );
-  }
-  const { handle } = await acquireConversationSandbox(
+  const { handle } = await openConversationSandbox(
     conversationId,
-    conversation.projectId,
     provider,
     toolCallId ? { toolCallId, tool: "bash" } : undefined,
   );

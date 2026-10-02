@@ -29,11 +29,10 @@ export interface ChatTurnInput {
   userText: string;
   /** Endpoint model id (resolveChatModel already applied). */
   modelId: string;
-  /** Explicit sandbox choice: "none" omits sandboxed tools; null (or
-   *  anything else) keeps them (attach is resolved inside the tools). */
-  sandboxPref?: string | null;
-  /** 0011: whether the conversation is bound to a project (gates the
-   *  sandboxed tools for plain chats). */
+  /** 0013: the conversation has a sandbox binding (pending or bound);
+   *  false omits the sandboxed tools. */
+  hasSandbox?: boolean;
+  /** Whether the conversation is bound to a project (pi/claude). */
   hasProject?: boolean;
 }
 
@@ -52,7 +51,10 @@ export async function chatTurn(input: ChatTurnInput) {
   const agent = new WorkflowAgent({
     model,
     instructions: INSTRUCTIONS,
-    tools: buildChatTools(conversationId, input.sandboxPref, input.hasProject ?? true),
+    tools: buildChatTools(conversationId, {
+      hasSandbox: input.hasSandbox ?? true,
+      hasProject: input.hasProject ?? true,
+    }),
   });
 
   let messages: ModelMessage[] = [...history, { role: "user", content: userText }];

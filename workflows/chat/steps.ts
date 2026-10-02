@@ -137,16 +137,6 @@ export async function startMachineStep(
   return startMachineRun({ conversationId, ...input });
 }
 
-/** 0010 Phase 3: attach to another owner's sandbox (explicit choice). */
-export async function attachSandboxStep(
-  conversationId: string,
-  target: { ownerKind: "conversation" | "machine_run"; ownerId: string } | { sandboxId: string },
-): Promise<{ sandboxId: string; ref: string; workdir: string }> {
-  "use step";
-  const { attachConversationSandbox } = await import("../../lib/agent/tools/attach-sandbox");
-  return attachConversationSandbox(conversationId, target);
-}
-
 /** 0010 Phase 4: record a pending human-input request (the ask_chad
  *  tool calls this before awaiting its hook — workflow context cannot
  *  touch sqlite, and the inbox needs the row before the answer). */
