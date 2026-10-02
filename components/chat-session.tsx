@@ -570,6 +570,14 @@ export function ChatSession({
   const [freshId] = useState(() => `c_${nanoid()}`);
   const conversationId = initialConversationId ?? freshId;
   const adopted = Boolean(initialConversationId);
+  // 0015: a session that started fresh is adopted the moment its first
+  // send creates the conversation server-side. From then on it behaves
+  // adopted (mark-seen, harness links, frame state) WITHOUT remounting
+  // or changing its chat id — the client-generated id IS the server id,
+  // and killing the useChat instance mid-turn would drop the stream
+  // (the transport's reconnect only works while the instance lives).
+  const [selfAdopted, setSelfAdopted] = useState(false);
+  const adoptedNow = adopted || selfAdopted;
 
   const [storedModelId, setStoredModelId] = useState<string>(() => {
     if (typeof window === "undefined") return initialModelId ?? DEFAULT_CHAT_MODEL.id;
@@ -704,11 +712,13 @@ export function ChatSession({
     if (adopted || messages.length === 0) return;
     if (adoptedRef.current) return;
     adoptedRef.current = true;
+    setSelfAdopted(true);
     onAdoptedRef.current?.(conversationId);
   }, [adopted, conversationId, messages.length]);
 
-  // Opening a thread marks it read (visible + focused only).
-  useMarkSeen(adopted ? conversationId : null, `${messages.length}:${isBusy ? "busy" : status}`);
+  // Opening a thread marks it read (visible + focused only) — including
+  // a fresh session after its first send created the conversation.
+  useMarkSeen(adoptedNow ? conversationId : null, `${messages.length}:${isBusy ? "busy" : status}`);
 
   const lastUserText = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -750,7 +760,7 @@ export function ChatSession({
   // ── The frame's fresh-composer takeover (page frame: machine target) ──
   const state: ChatSessionState = {
     conversationId,
-    adopted,
+    adopted: adoptedNow,
     started,
     fresh,
     modelId,
@@ -832,7 +842,7 @@ export function ChatSession({
             <ChatMessageView
               key={message.id}
               message={message}
-              conversationId={adopted ? conversationId : null}
+              conversationId={adoptedNow ? conversationId : null}
             />
           ))}
           </SandboxViewProvider>

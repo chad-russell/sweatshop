@@ -213,7 +213,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   pushes the page on lg+ / overlays below / full-screen under md,
   resizable; one current conversation in localStorage, New / Open full
   page; binds to the page's project at the creating send and never
-  switches (0013); marks seen while open.
+  switches (0013); marks seen while open. The session instance is never
+  remounted on adoption — the transport's mid-turn reconnect only works
+  while its useChat instance lives, so the session self-adopts (same
+  id) and the panel re-mounts only for New or a reopened stored
+  conversation (hydrated before mount; initialMessages/activeRunId are
+  init-only props).
 - Harness agents (0005/0006 + 0010 Phase 3): project conversations
   have `pi` and `claude` tools — separate coding harnesses on the
   conversation's sandbox (0010 lease seam; `harnessToolStep` in

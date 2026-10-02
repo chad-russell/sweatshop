@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ChatSession } from "@/components/chat-session";
 import { usePageContextReader } from "@/components/page-context";
 import { rowsToUIMessages, type StoredRow } from "@/lib/chat-ui";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,13 +62,34 @@ function store(key: string, value: string | null): void {
   }
 }
 
+/**
+ * The mounted session's lifecycle. The ChatSession instance must live
+ * as long as the conversation does: its transport reconnects to a live
+ * turn only while its useChat instance survives, so adoption NEVER
+ * remounts or re-keys it (the session self-adopts — same id). Remounts
+ * happen only when the conversation truly changes: New (a fresh client
+ * id) or reopening the panel on a stored conversation (hydrated first,
+ * because initialMessages/activeRunId are init-only props).
+ */
+type PanelMode =
+  /** A stored conversation is being fetched before its session mounts. */
+  | "hydrating"
+  /** Mounted on the hydrated stored conversation. */
+  | "stored"
+  /** Mounted fresh (no conversation yet; self-adopts on first send). */
+  | "fresh";
+
 export function AgentPanel() {
   const router = useRouter();
   const readPageContext = usePageContextReader();
 
   const [open, setOpen] = useState(() => stored(OPEN_KEY) === "1");
   const [conversationId, setConversationId] = useState(() => stored(CONVERSATION_KEY));
+  const [mode, setMode] = useState<PanelMode>(() => (stored(CONVERSATION_KEY) ? "hydrating" : "fresh"));
   const [hydration, setHydration] = useState<PanelHydration | null>(null);
+  // The title of a conversation adopted live this open (best-effort
+  // fetch; the stored path gets it from hydration).
+  const [liveTitle, setLiveTitle] = useState<string | null>(null);
   // Bumped by New so the fresh ChatSession gets a brand-new client id.
   const [nonce, setNonce] = useState(0);
   const [width, setWidth] = useState(() => {
@@ -75,29 +97,45 @@ export function AgentPanel() {
     return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
   });
 
-  const toggle = () => {
-    setOpen((was) => {
-      const next = !was;
-      store(OPEN_KEY, next ? "1" : "0");
-      return next;
-    });
+  const openPanel = () => {
+    setOpen(true);
+    store(OPEN_KEY, "1");
   };
 
-  // ⌘J / Ctrl-J toggles from anywhere (⌘K stays the palette).
+  /** Closing unmounts the session; the next open rehydrates the stored
+   *  conversation (it may have grown) or starts fresh. */
+  const closePanel = () => {
+    setOpen(false);
+    store(OPEN_KEY, "0");
+    setHydration(null);
+    setLiveTitle(null);
+    setMode(conversationId ? "hydrating" : "fresh");
+  };
+
+  const togglePanel = () => (open ? closePanel() : openPanel());
+
+  // ⌘J / Ctrl-J toggles from anywhere (⌘K stays the palette). The
+  // listener registers once; the handler rides a ref so it stays current.
+  const toggleRef = useRef(togglePanel);
+  useEffect(() => {
+    toggleRef.current = togglePanel;
+  });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        toggle();
+        toggleRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Hydrate the current conversation when the panel opens on one.
+  // Fetch the stored conversation before its session mounts. "hydrating"
+  // is only ever entered with a conversation id (init, closePanel), so
+  // no id here means nothing to do.
   useEffect(() => {
-    if (!open || !conversationId || hydration?.id === conversationId) return;
+    if (!open || mode !== "hydrating" || !conversationId) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -119,26 +157,38 @@ export function AgentPanel() {
           projectId: body.projectId,
           title: body.title,
         });
+        setMode("stored");
       } catch {
-        /* transient — reopening the panel retries */
+        /* transient — closing and reopening the panel retries */
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, conversationId, hydration?.id]);
+  }, [open, mode, conversationId]);
 
+  /** First send created the conversation: record it — NEVER remount the
+   *  live session (its id already IS the conversation's). */
   const handleAdopted = (id: string) => {
     setConversationId(id);
     store(CONVERSATION_KEY, id);
     // The sidebar gains the conversation (server-rendered shell).
     router.refresh();
+    // Best-effort title for the header.
+    void fetch(`/api/x/chat?conversationId=${id}`, { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<{ title: string | null }>) : null))
+      .then((body) => {
+        if (body) setLiveTitle(body.title);
+      })
+      .catch(() => undefined);
   };
 
   const handleNew = () => {
     setConversationId(null);
     setHydration(null);
+    setLiveTitle(null);
     setNonce((n) => n + 1);
+    setMode("fresh");
     store(CONVERSATION_KEY, null);
   };
 
@@ -160,14 +210,53 @@ export function AgentPanel() {
     store(WIDTH_KEY, String(width));
   };
 
-  const title = hydration?.id === conversationId && conversationId ? hydration.title : null;
+  const title = mode === "stored" ? hydration?.title : liveTitle;
+  const sessionHeader = (s: Parameters<NonNullable<Parameters<typeof ChatSession>[0]["header"]>>[0]) => (
+    <div className="flex h-11 shrink-0 items-center gap-1 border-b px-2.5">
+      <Bot className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="min-w-0 flex-1 truncate px-1 text-sm font-medium">
+        {title ?? (s.adopted ? "Agent" : "New chat")}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="New chat"
+        title="New chat"
+        onClick={handleNew}
+      >
+        <MessageSquarePlus />
+      </Button>
+      {s.adopted && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Open full page"
+          title="Open full page"
+          asChild
+        >
+          <Link href={`/c/${s.conversationId}`}>
+            <ExternalLink />
+          </Link>
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Close panel"
+        title="Close (⌘J)"
+        onClick={closePanel}
+      >
+        <X />
+      </Button>
+    </div>
+  );
 
   return (
     <>
       {!open && (
         <button
           type="button"
-          onClick={toggle}
+          onClick={openPanel}
           aria-label="Open agent panel (⌘J)"
           title="Agent panel (⌘J)"
           className="fixed right-4 bottom-4 z-40 inline-flex size-10 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
@@ -200,56 +289,33 @@ export function AgentPanel() {
             className="absolute top-0 bottom-0 -left-1 z-10 hidden w-2 cursor-col-resize lg:block"
           />
 
-          <ChatSession
-            key={`${nonce}:${conversationId ?? "fresh"}`}
-            frameId="panel"
-            conversationId={conversationId ?? undefined}
-            initialMessages={hydration?.id === conversationId ? hydration.messages : undefined}
-            activeRunId={hydration?.id === conversationId ? hydration.activeRunId : undefined}
-            initialModelId={hydration?.id === conversationId ? hydration.modelId : undefined}
-            projectId={hydration?.id === conversationId ? (hydration.projectId ?? undefined) : undefined}
-            pageContext={readPageContext}
-            onAdopted={handleAdopted}
-            header={(s) => (
-              <div className="flex h-11 shrink-0 items-center gap-1 border-b px-2.5">
-                <Bot className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="min-w-0 flex-1 truncate px-1 text-sm font-medium">
-                  {title ?? (s.adopted ? "Agent" : "New chat")}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="New chat"
-                  title="New chat"
-                  onClick={handleNew}
-                >
-                  <MessageSquarePlus />
-                </Button>
-                {s.adopted && (
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Open full page"
-                    title="Open full page"
-                    asChild
-                  >
-                    <Link href={`/c/${s.conversationId}`}>
-                      <ExternalLink />
-                    </Link>
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Close panel"
-                  title="Close (⌘J)"
-                  onClick={toggle}
-                >
-                  <X />
-                </Button>
-              </div>
-            )}
-          />
+          {mode === "fresh" ? (
+            <ChatSession
+              key={`fresh-${nonce}`}
+              frameId="panel"
+              pageContext={readPageContext}
+              onAdopted={handleAdopted}
+              header={sessionHeader}
+            />
+          ) : mode === "stored" && hydration?.id === conversationId && conversationId ? (
+            <ChatSession
+              key={conversationId}
+              frameId="panel"
+              conversationId={conversationId}
+              initialMessages={hydration.messages}
+              activeRunId={hydration.activeRunId}
+              initialModelId={hydration.modelId}
+              projectId={hydration.projectId ?? undefined}
+              pageContext={readPageContext}
+              onAdopted={handleAdopted}
+              header={sessionHeader}
+            />
+          ) : (
+            <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Spinner className="size-4" />
+              Loading conversation…
+            </div>
+          )}
         </aside>
       )}
     </>
