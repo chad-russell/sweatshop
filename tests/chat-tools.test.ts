@@ -9,7 +9,13 @@ import {
   updateConversationSettings,
 } from "../db/chat";
 import { getLease, getLeaseByOwner, listCallsForConversation, listCallsForSandbox } from "../db/sandboxes";
-import { getSandboxDetail, listSandboxSummaries, loadConversationSandboxView } from "../db/sandbox-view";
+import {
+  getSandboxDetail,
+  listSandboxSummaries,
+  loadConversationSandboxView,
+  sandboxForHarnessSession,
+  sandboxForMachineRun,
+} from "../db/sandbox-view";
 import { buildChatTools } from "../workflows/chat/tools";
 import { projects } from "../db/schema";
 import { clipOutput, runBash } from "../lib/agent/tools/bash";
@@ -333,6 +339,47 @@ describe("0010 chat tool cores", () => {
       const firstDestroyed = all.findIndex((s) => s.status === "destroyed");
       expect(all.slice(firstDestroyed).every((s) => s.status === "destroyed")).toBe(true);
       expect(all.find((s) => s.id === old.id)).toMatchObject({ status: "destroyed", calls: 1 });
+    });
+  });
+
+  describe("0011 session and run sandbox links", () => {
+    it("a machine run resolves to its sandbox, and a stage session id finds it", async () => {
+      provider = new FakeProvider();
+      const owner = await acquireSandbox(
+        { mode: "dedicated", ownerKind: "machine_run", ownerId: "mr_link1", projectId: null },
+        provider,
+      );
+      expect(sandboxForMachineRun(db(), "mr_link1")).toMatchObject({ id: owner.sandboxId, status: "running" });
+      expect(sandboxForHarnessSession(db(), "mr_link1_3", "pi")).toMatchObject({ id: owner.sandboxId });
+      expect(sandboxForMachineRun(db(), "mr_nothing")).toBeNull();
+      expect(sandboxForHarnessSession(db(), "mr_nothing_0", "pi")).toBeNull();
+    });
+
+    it("a chat's harness session resolves via its recorded pi/claude calls, per harness", async () => {
+      provider = new FakeProvider();
+      ensureConversation(db(), "c_link_chat", "p_tools");
+      // bash and pi both acquire through the same seam; record a pi call
+      const { acquireConversationSandbox } = await import("../lib/agent/tools/sandbox-pref");
+      const { sandboxId } = await acquireConversationSandbox("c_link_chat", "p_tools", provider, {
+        toolCallId: "link_pi_1",
+        tool: "pi",
+      });
+      expect(sandboxForHarnessSession(db(), "c_link_chat", "pi")).toMatchObject({
+        id: sandboxId,
+        note: "own sandbox",
+      });
+      // no claude call was ever recorded for this chat
+      expect(sandboxForHarnessSession(db(), "c_link_chat", "claude")).toBeNull();
+    });
+
+    it("keeps pointing at a destroyed sandbox, flagged as such", async () => {
+      provider = new FakeProvider();
+      const owner = await acquireSandbox(
+        { mode: "dedicated", ownerKind: "machine_run", ownerId: "mr_link2", projectId: null },
+        provider,
+      );
+      await destroySandbox(owner.sandboxId, provider);
+      expect(sandboxForMachineRun(db(), "mr_link2")).toMatchObject({ id: owner.sandboxId, status: "destroyed" });
     });
   });
 

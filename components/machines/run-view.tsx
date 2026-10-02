@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, CircleCheck, CircleDot, CircleX, Hand, Loader2, MessageSquare, PauseCircle, Terminal } from "lucide-react";
+import { Bot, Box, CircleCheck, CircleDot, CircleX, Hand, Loader2, MessageSquare, PauseCircle, Terminal } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -9,6 +9,9 @@ import type { MachineStageRun } from "@/db/schema";
 import type { RunView as Run } from "@/db/machines";
 import { cn } from "cn";
 import { GateAnswer } from "./gate-answer";
+import { SandboxStatus } from "@/components/sandbox-status";
+import type { SandboxLink } from "@/db/sandbox-view";
+import { shortSandboxId } from "@/lib/sandbox-id";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled", "needs-attention"]);
 
@@ -26,10 +29,13 @@ export function MachineRunView({
   initialRun,
   initialVisits,
   projectName,
+  sandbox,
 }: {
   initialRun: Run;
   initialVisits: MachineStageRun[];
   projectName: string | null;
+  /** The run's one sandbox, if it has one (project machines). */
+  sandbox: SandboxLink | null;
 }) {
   const [run, setRun] = useState(initialRun);
   const [visits, setVisits] = useState(initialVisits);
@@ -66,6 +72,17 @@ export function MachineRunView({
           <span>{run.id}</span>
           <span>v{run.machineVersion}</span>
           <span>{projectName ?? (run.projectId ? run.projectId : "no workspace")}</span>
+          {sandbox && (
+            <Link
+              href={`/sandboxes/${sandbox.id}`}
+              title="Every stage of this run works in this sandbox"
+              className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
+            >
+              <Box className="size-3" aria-hidden />
+              {shortSandboxId(sandbox.id)}
+              <SandboxStatus status={sandbox.status} className="text-[10px]" />
+            </Link>
+          )}
           {run.machineId && (
             <Link href={`/machines/${run.machineId}`} className="underline-offset-2 hover:underline">
               edit machine

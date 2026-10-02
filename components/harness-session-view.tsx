@@ -1,9 +1,13 @@
 "use client";
 
-import { Bot, Loader2, Terminal } from "lucide-react";
+import { Bot, Box, Loader2, Terminal } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { AppHeader } from "@/components/app-header";
+import { SandboxStatus } from "@/components/sandbox-status";
+import type { SandboxLink } from "@/db/sandbox-view";
+import { shortSandboxId } from "@/lib/sandbox-id";
 import { cn } from "@/lib/utils";
 
 interface HarnessEvent {
@@ -92,9 +96,12 @@ export function HarnessSessionView({
   initialRun,
   initialEvents,
   parent,
+  sandbox,
 }: {
   initialRun: HarnessRun;
   initialEvents: readonly HarnessEvent[];
+  /** Where this session works: its chat's recorded sandbox or the run's. */
+  sandbox: SandboxLink | null;
   /** The conversation that spawned this session (session id = its id). */
   parent: {
     id: string;
@@ -159,7 +166,18 @@ export function HarnessSessionView({
           },
         ]}
       >
-        <span className="flex items-center gap-2 font-mono text-xs">
+        <span className="flex items-center gap-3 font-mono text-xs">
+          {sandbox && (
+            <Link
+              href={`/sandboxes/${sandbox.id}`}
+              title={`${sandbox.note} — ${sandbox.id}`}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:border-ring hover:text-foreground"
+            >
+              <Box className="size-3" aria-hidden />
+              {shortSandboxId(sandbox.id)}
+              <SandboxStatus status={sandbox.status} className="text-[10px]" />
+            </Link>
+          )}
           {running && <Loader2 className="size-3.5 animate-spin text-info" aria-hidden />}
           <span className={cn(running ? "text-info" : failed ? "text-destructive" : "text-success")}>
             {run.status}

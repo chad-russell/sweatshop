@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { MachineRunView } from "@/components/machines/run-view";
 import { db } from "@/db";
 import { getRun, listStageRuns, MachineError } from "@/db/machines";
+import { sandboxForMachineRun } from "@/db/sandbox-view";
 import { projects } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export default async function MachineRunPage({ params }: { params: Promise<{ run
       initialRun={run}
       initialVisits={listStageRuns(db(), runId)}
       projectName={project?.name ?? null}
+      sandbox={sandboxForMachineRun(db(), runId)}
     />
   );
 }

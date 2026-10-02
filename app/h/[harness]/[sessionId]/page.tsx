@@ -2,6 +2,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { HarnessSessionView } from "@/components/harness-session-view";
 import { db } from "@/db";
+import { sandboxForHarnessSession } from "@/db/sandbox-view";
 import { conversations, projects } from "@/db/schema";
 import {
   getHarnessEvents,
@@ -48,6 +49,7 @@ export default async function HarnessSessionPage({
         <HarnessSessionView
           initialRun={run}
           initialEvents={page.events}
+          sandbox={sandboxForHarnessSession(db(), sessionId, harness)}
           parent={{
             id: sessionId,
             title: parent?.title ?? null,

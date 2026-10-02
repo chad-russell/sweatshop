@@ -1,4 +1,4 @@
-import { count, countDistinct, desc, eq, inArray, max } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, inArray, max, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import { getConversation } from "./chat";
 import { getLeaseByOwner, listCallsForConversation } from "./sandboxes";
@@ -314,7 +314,7 @@ export function getSandboxDetail(db: Db, id: string): SandboxDetail | null {
     .select()
     .from(sandboxCalls)
     .where(eq(sandboxCalls.sandboxId, id))
-    .orderBy(desc(sandboxCalls.at))
+    .orderBy(desc(sandboxCalls.at), desc(sql`rowid`))
     .limit(RECENT_CALLS)
     .all()
     .map((c) => ({
@@ -327,4 +327,58 @@ export function getSandboxDetail(db: Db, id: string): SandboxDetail | null {
     }));
 
   return { ...summary!, users, recentCalls };
+}
+
+// ── Which sandbox does this session / run live in? ───────────────────────
+
+export interface SandboxLink {
+  id: string;
+  status: string;
+  /** Short note for the UI: how this thing relates to the sandbox. */
+  note: string;
+}
+
+function linkFor(db: Db, id: string, note: string): SandboxLink | null {
+  const row = db
+    .select({ id: sandboxes.id, status: sandboxes.status })
+    .from(sandboxes)
+    .where(eq(sandboxes.id, id))
+    .get();
+  return row ? { id: row.id, status: row.status, note } : null;
+}
+
+/** A machine run's one sandbox (live, or the most recent if destroyed). */
+export function sandboxForMachineRun(db: Db, runId: string): SandboxLink | null {
+  const row = db
+    .select({ id: sandboxes.id })
+    .from(sandboxes)
+    .where(and(eq(sandboxes.ownerKind, "machine_run"), eq(sandboxes.ownerId, runId)))
+    .orderBy(desc(sandboxes.createdAt))
+    .limit(1)
+    .get();
+  return row ? linkFor(db, row.id, "run sandbox") : null;
+}
+
+/**
+ * The sandbox behind a harness session page. A session id is either a
+ * chat's conversation id (the chat's recorded pi/claude calls say where
+ * they ran) or a machine stage `<runId>_<seq>` (the run's sandbox).
+ */
+export function sandboxForHarnessSession(
+  db: Db,
+  sessionId: string,
+  harness: string,
+): SandboxLink | null {
+  const call = db
+    .select({ sandboxId: sandboxCalls.sandboxId, via: sandboxCalls.via })
+    .from(sandboxCalls)
+    .where(and(eq(sandboxCalls.conversationId, sessionId), eq(sandboxCalls.tool, harness)))
+    .orderBy(desc(sandboxCalls.at), desc(sql`rowid`))
+    .limit(1)
+    .get();
+  if (call) {
+    return linkFor(db, call.sandboxId, call.via === "attached" ? "attached sandbox" : "own sandbox");
+  }
+  const run = sessionId.match(/^(mr_.+)_\d+$/);
+  return run ? sandboxForMachineRun(db, run[1]!) : null;
 }

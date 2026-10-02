@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Db } from "./index";
 import { sandboxAttachments, sandboxCalls, sandboxes } from "./schema";
@@ -204,7 +204,9 @@ export function listCallsForConversation(db: Db, conversationId: string): Sandbo
     .select()
     .from(sandboxCalls)
     .where(eq(sandboxCalls.conversationId, conversationId))
-    .orderBy(asc(sandboxCalls.at))
+    // rowid breaks ties between calls recorded in the same millisecond, so
+    // "previous call" (the switched flag) is insertion order, not luck.
+    .orderBy(asc(sandboxCalls.at), asc(sql`rowid`))
     .all() as SandboxCall[];
 }
 
@@ -213,6 +215,6 @@ export function listCallsForSandbox(db: Db, sandboxId: string): SandboxCall[] {
     .select()
     .from(sandboxCalls)
     .where(eq(sandboxCalls.sandboxId, sandboxId))
-    .orderBy(desc(sandboxCalls.at))
+    .orderBy(desc(sandboxCalls.at), desc(sql`rowid`))
     .all() as SandboxCall[];
 }
