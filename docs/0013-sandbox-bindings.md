@@ -1,7 +1,7 @@
 # 0013 — Sandbox bindings: chosen once, inherited recursively
 
-Status: **draft (2026-10-02)** — direction agreed in chat with Chad;
-awaiting approval of this text.
+Status: **approved (2026-10-02)** — direction agreed in chat with Chad;
+text approved by Chad 2026-10-02.
 
 ## Goal
 
