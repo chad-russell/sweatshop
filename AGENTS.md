@@ -128,7 +128,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   in-process and treats a sandbox workdir that also exists on the host
   as shared, and the dev runtime's `/workspace` is this repo. Every
   harness stage, and every agent stage (which gets bash/pi/claude),
-  works in that checkout; only an owned binding is ever released. Branching agent stages pick a
+  works in that checkout. The sandbox outlives the run (finished or
+  cancelled work stays inspectable/attachable): `npm run sandbox:gc`
+  reaps run-owned sandboxes on 10 min stop / 3 day destroy (chats 30
+  min / 14 days) and MARKS rows destroyed, never deletes them; purging
+  a run destroys the sandbox it owns. An inherited binding is never
+  released by the run. Branching agent stages pick a
   target with a `transition` tool; the interpreter validates and commits
   it. Runs are conversations (0012): `createRun` writes a
   `conversations` row with `kind = 'run'` and the SAME id as the run
@@ -141,9 +146,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `last_seen_at`; a waiting gate puts needs-you on the run row.
   `lib/machines/runs.ts` is the one start/cancel path (`startRun`
   records `workflow_run_id`; `cancelRun` cancels the workflow, marks
-  the run cancelled — final, later status writes are ignored — and
-  releases its sandbox); trashing a live run cancels it, purge removes
-  the run and its visit sessions. Triggers: the fresh composer's
+  the run cancelled — final, later status writes are ignored; the
+  sandbox stays); trashing a live run cancels it, purge removes the run
+  and its visit sessions (and destroys its own sandbox). Triggers: the fresh composer's
   target picker (`?machine=<id>` preselects; `/` and `/p/<id>`), Run
   on `/machines/<id>`, ⌘K "Run …", `POST /api/machine-runs`, the
   `start_machine` chat tool; `/r/<runId>` is the run view (visit

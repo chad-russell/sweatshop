@@ -194,3 +194,20 @@ export async function attachConversation(
   await openSandbox(bound, provider);
   return bound;
 }
+
+/**
+ * 0013: destroy sandboxes a purge released (owned by the purged run).
+ * Best-effort: a failure leaves the sandbox to the reaper's run window.
+ */
+export async function destroyOwnedSandboxes(
+  sandboxIds: string[],
+  provider: SandboxProvider = sandboxProvider(),
+): Promise<void> {
+  if (sandboxIds.length === 0) return;
+  const { destroySandbox } = await import("@/lib/sandboxes/lease");
+  for (const id of sandboxIds) {
+    await destroySandbox(id, provider).catch((err: unknown) => {
+      console.error(`[sandboxes] could not destroy purged run sandbox ${id}`, err);
+    });
+  }
+}

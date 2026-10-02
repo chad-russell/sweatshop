@@ -183,3 +183,44 @@ describe("0013 machines inherit the chat's binding", () => {
     expect(bindRun(db(), run.id, { ...own, sandboxId: "sbx_other" })).toEqual(own);
   });
 });
+
+describe("0013 run sandboxes on purge", () => {
+  it("returns an owned run sandbox for destruction, never an inherited one", async () => {
+    const { deleteConversationForever } = await import("../db/organize");
+    const own = createRun(db(), { machineId: "mb-build", prompt: "own", projectId: "p_mb" });
+    db().$client
+      .prepare(
+        "insert into sandboxes (id, provider, ref, owner_kind, owner_id, status, last_used_at, created_at) values (?, 'fake', 'r', 'machine_run', ?, 'running', 0, 0)",
+      )
+      .run("sbx_purge_own", own.id);
+    bindRun(db(), own.id, { kind: "bound", sandboxId: "sbx_purge_own", workDir: `/work/${own.id}`, owner: true });
+    expect(deleteConversationForever(db(), own.id)).toEqual(["sbx_purge_own"]);
+
+    const provider = new FakeProvider();
+    ensureConversation(db(), "c_mb_purge", "p_mb");
+    const chat = await openConversationSandbox("c_mb_purge", provider);
+    const inherited = createRun(db(), {
+      machineId: "mb-build",
+      prompt: "inherited",
+      projectId: "p_mb",
+      inherit: chat.binding,
+    });
+    expect(deleteConversationForever(db(), inherited.id)).toEqual([]);
+  });
+
+  it("a chat with recorded sandbox calls and an attachment can be purged", async () => {
+    const { deleteConversationForever } = await import("../db/organize");
+    const { attachConversation } = await import("../lib/sandboxes/binding");
+    const { listCallsForSandbox, getLease } = await import("../db/sandboxes");
+    const provider = new FakeProvider();
+    ensureConversation(db(), "c_mb_owner", "p_mb");
+    const owner = await openConversationSandbox("c_mb_owner", provider, { toolCallId: "own_call", tool: "bash" });
+    ensureConversation(db(), "c_mb_guest");
+    await attachConversation("c_mb_guest", owner.sandboxId, provider);
+    await openConversationSandbox("c_mb_guest", provider, { toolCallId: "guest_call", tool: "bash" });
+
+    expect(deleteConversationForever(db(), "c_mb_guest")).toEqual([]);
+    expect(listCallsForSandbox(db(), owner.sandboxId).map((c) => c.toolCallId)).toEqual(["own_call"]);
+    expect(getLease(db(), owner.sandboxId)?.status).toBe("running");
+  });
+});

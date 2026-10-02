@@ -25,7 +25,7 @@ export async function provisionWorkspace(runId: string, projectId: string): Prom
   ]);
   // 0013: the run's own sandbox — a dedicated lease at /work/<runId>,
   // bound once (a retried step finds the same lease and binding). It
-  // is removed when the run ends (removeWorkspace) until phase 4.
+  // outlives the run; reaping and purge release it.
   const workDir = runWorkspaceRoot(runId);
   const { sandboxId } = await acquireSandbox({
     mode: "dedicated",
@@ -35,13 +35,6 @@ export async function provisionWorkspace(runId: string, projectId: string): Prom
     root: workDir,
   });
   return bindRun(db(), runId, { kind: "bound", sandboxId, workDir, owner: true });
-}
-
-/** Destroy the run's OWN sandbox (callers pass only owned bindings). */
-export async function removeWorkspace(sandboxId: string): Promise<void> {
-  "use step";
-  const { destroySandbox } = await import("@/lib/sandboxes/lease");
-  await destroySandbox(sandboxId);
 }
 
 /** Begin (or, on replay, re-find) a stage visit row. */

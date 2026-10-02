@@ -204,7 +204,7 @@ describe("rename, archive, trash", () => {
     tdb.update(conversations).set({ trashedAt: now - TRASH_RETENTION_MS - 1000 })
       .where(eq(conversations.id, old)).run();
     setTrashed(tdb, fresh, true);
-    expect(purgeExpiredTrash(tdb, now)).toBeGreaterThanOrEqual(1);
+    purgeExpiredTrash(tdb, now);
     expect(tdb.select().from(conversations).where(eq(conversations.id, old)).get()).toBeUndefined();
     expect(tdb.select().from(conversations).where(eq(conversations.id, fresh)).get()).toBeDefined();
   });

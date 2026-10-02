@@ -22,7 +22,6 @@ import {
   markRun,
   provisionWorkspace,
   recordSteps,
-  removeWorkspace,
 } from "./steps";
 
 /**
@@ -32,9 +31,10 @@ import {
  *
  *   project workspace → the run's sandbox binding (0013): inherited
  *   from the starting chat, or one sandbox provisioned here; every
- *   harness and agent stage runs in it. An OWNED sandbox is removed in
- *   finally (0013 phase 4 lets it outlive the run); an inherited one is
- *   never touched — lifecycle belongs to its owner.
+ *   harness and agent stage runs in it. The sandbox outlives the run so
+ *   finished work can be inspected or attached to: an owned one is
+ *   reaped on the run windows (sandbox-gc) or destroyed when the run is
+ *   purged; an inherited one belongs to its owner and is never touched.
  *   harness → harnessStep() per semantic agent step until the turn ends
  *   eve     → start an unsandboxed session, suspend on its stage hook
  *             until its `transition` tool resumes it
@@ -176,8 +176,6 @@ export async function runMachine(input: RunMachineInput) {
   } catch (err) {
     await markRun(runId, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     throw err;
-  } finally {
-    if (binding?.owner) await removeWorkspace(binding.sandboxId);
   }
 }
 

@@ -39,9 +39,9 @@ export async function startRun(input: {
 /**
  * Stop a live run: cancel its workflow (when known and present), then
  * mark it cancelled. Runs started before 0012 have no workflow id; they
- * are only marked. A cancelled workflow skips its `finally`, so the
- * run's own sandbox is released here too — never an inherited one
- * (0013: only the owner touches lifecycle).
+ * are only marked. 0013: the sandbox is left alone — a cancelled run's
+ * work stays inspectable like a finished one's; the run windows of
+ * sandbox-gc (or purging the run) release an owned sandbox.
  */
 export async function cancelRun(runId: string, reason = "cancelled by user"): Promise<boolean> {
   const run = getRun(db(), runId);
@@ -50,13 +50,5 @@ export async function cancelRun(runId: string, reason = "cancelled by user"): Pr
     const workflow = getWorkflowRun(run.workflowRunId);
     if (await workflow.exists) await workflow.cancel({ cancelReason: reason });
   }
-  const cancelled = markRunCancelled(db(), runId);
-  const binding = getRunBinding(db(), runId);
-  if (binding?.owner) {
-    const { destroySandbox } = await import("@/lib/sandboxes/lease");
-    await destroySandbox(binding.sandboxId).catch((err: unknown) => {
-      console.error(`[machines] could not release sandbox for cancelled run ${runId}`, err);
-    });
-  }
-  return cancelled;
+  return markRunCancelled(db(), runId);
 }

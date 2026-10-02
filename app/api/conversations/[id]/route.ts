@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
+import { destroyOwnedSandboxes } from "@/lib/sandboxes/binding";
 import {
   OrganizeError,
   deleteConversationForever,
@@ -63,7 +64,8 @@ export async function DELETE(
     if (row.trashedAt === null) {
       throw new OrganizeError("invalid", "move to trash before deleting forever");
     }
-    deleteConversationForever(db(), id);
+    // 0013: a purged run takes its own sandbox with it.
+    await destroyOwnedSandboxes(deleteConversationForever(db(), id));
     return NextResponse.json({ ok: true });
   } catch (err) {
     return organizeErrorResponse(err);

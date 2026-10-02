@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "@/db";
 import { loadAttention } from "@/db/attention";
 import { loadSidebar, purgeExpiredTrash } from "@/db/organize";
+import { destroyOwnedSandboxes } from "@/lib/sandboxes/binding";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,7 +22,8 @@ export default async function RootLayout({
   // 0007: lazy trash retention — the layout already reads the store on
   // every request, so expired trash is swept here (a cheap indexed-free
   // scan over a small table) instead of needing a scheduler.
-  purgeExpiredTrash(db());
+  // 0013: purged runs' own sandboxes are destroyed in the background.
+  void destroyOwnedSandboxes(purgeExpiredTrash(db()));
   const attention = loadAttention(db());
   const data = loadSidebar(db(), attention);
 

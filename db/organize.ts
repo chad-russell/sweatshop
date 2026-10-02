@@ -9,6 +9,8 @@ import {
   harnessRuns,
   machineRuns,
   messages,
+  sandboxAttachments,
+  sandboxCalls,
 } from "./schema";
 
 /**
@@ -305,12 +307,24 @@ export function setTrashed(db: Db, id: string, trashed: boolean) {
  * conversation takes its whole run with it — the machine_runs row (its
  * visits cascade), each visit's session (`<runId>_<seq>`: stage
  * conversations and harness activity) — so purge leaves no orphans.
+ *
+ * 0013: returns the sandbox ids the purged run OWNED (an inherited one
+ * belongs to its owner). The store is synchronous and cannot reach the
+ * provider, so the caller destroys them (`destroyOwnedSandboxes`); the
+ * sandbox rows stay as destroyed history (0011).
  */
-export function deleteConversationForever(db: Db, id: string) {
+export function deleteConversationForever(db: Db, id: string): string[] {
+  const owned: string[] = [];
   db.transaction((tx) => {
     const row = getConversation(tx, id);
     const sessions = [id];
     if (row.kind === "run") {
+      const run = tx
+        .select({ sandboxId: machineRuns.sandboxId, owner: machineRuns.sandboxOwner })
+        .from(machineRuns)
+        .where(eq(machineRuns.id, id))
+        .get();
+      if (run?.sandboxId && run.owner) owned.push(run.sandboxId);
       const visitSessions = sql`glob ${`${id}_[0-9]*`}`;
       for (const c of tx
         .select({ id: conversations.id })
@@ -330,13 +344,19 @@ export function deleteConversationForever(db: Db, id: string) {
         .run();
       tx.delete(harnessEvents).where(eq(harnessEvents.sessionId, sid)).run();
       tx.delete(harnessRuns).where(eq(harnessRuns.sessionId, sid)).run();
+      // 0011 sandbox records name the conversation (FKs): its calls and
+      // attachments go with it; the sandbox rows themselves stay.
+      tx.delete(sandboxCalls).where(eq(sandboxCalls.conversationId, sid)).run();
+      tx.delete(sandboxAttachments).where(eq(sandboxAttachments.conversationId, sid)).run();
       tx.delete(conversations).where(eq(conversations.id, sid)).run();
     }
   });
+  return owned;
 }
 
-/** Lazy retention sweep; returns how many conversations were purged. */
-export function purgeExpiredTrash(db: Db, now: number = Date.now()): number {
+/** Lazy retention sweep: purges expired trash and returns the sandbox
+ *  ids the purged runs owned (the caller destroys them). */
+export function purgeExpiredTrash(db: Db, now: number = Date.now()): string[] {
   const expired = db
     .select({ id: conversations.id })
     .from(conversations)
@@ -347,8 +367,7 @@ export function purgeExpiredTrash(db: Db, now: number = Date.now()): number {
       ),
     )
     .all();
-  for (const { id } of expired) deleteConversationForever(db, id);
-  return expired.length;
+  return expired.flatMap(({ id }) => deleteConversationForever(db, id));
 }
 
 // ---------------------------------------------------------------------
