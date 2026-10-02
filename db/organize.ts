@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import {
   conversationEvents,
@@ -7,6 +7,7 @@ import {
   folders,
   harnessEvents,
   harnessRuns,
+  machineRuns,
   messages,
 } from "./schema";
 
@@ -300,19 +301,37 @@ export function setTrashed(db: Db, id: string, trashed: boolean) {
 
 /**
  * Permanently remove a conversation from the sweatshop store: the
- * mirror (events, extracted messages) and harness activity. eve's own
- * session stream is authoritative and untouched.
+ * mirror (events, extracted messages) and harness activity. 0012: a run
+ * conversation takes its whole run with it — the machine_runs row (its
+ * visits cascade), each visit's session (`<runId>_<seq>`: stage
+ * conversations and harness activity) — so purge leaves no orphans.
  */
 export function deleteConversationForever(db: Db, id: string) {
   db.transaction((tx) => {
-    getConversation(tx, id);
-    tx.delete(messages).where(eq(messages.conversationId, id)).run();
-    tx.delete(conversationEvents)
-      .where(eq(conversationEvents.conversationId, id))
-      .run();
-    tx.delete(harnessEvents).where(eq(harnessEvents.sessionId, id)).run();
-    tx.delete(harnessRuns).where(eq(harnessRuns.sessionId, id)).run();
-    tx.delete(conversations).where(eq(conversations.id, id)).run();
+    const row = getConversation(tx, id);
+    const sessions = [id];
+    if (row.kind === "run") {
+      const visitSessions = sql`glob ${`${id}_[0-9]*`}`;
+      for (const c of tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(sql`${conversations.id} ${visitSessions}`)
+        .all()) {
+        if (!sessions.includes(c.id)) sessions.push(c.id);
+      }
+      tx.delete(harnessEvents).where(sql`${harnessEvents.sessionId} ${visitSessions}`).run();
+      tx.delete(harnessRuns).where(sql`${harnessRuns.sessionId} ${visitSessions}`).run();
+      tx.delete(machineRuns).where(eq(machineRuns.id, id)).run();
+    }
+    for (const sid of sessions) {
+      tx.delete(messages).where(eq(messages.conversationId, sid)).run();
+      tx.delete(conversationEvents)
+        .where(eq(conversationEvents.conversationId, sid))
+        .run();
+      tx.delete(harnessEvents).where(eq(harnessEvents.sessionId, sid)).run();
+      tx.delete(harnessRuns).where(eq(harnessRuns.sessionId, sid)).run();
+      tx.delete(conversations).where(eq(conversations.id, sid)).run();
+    }
   });
 }
 
@@ -339,6 +358,10 @@ export interface SidebarItem {
   id: string;
   title: string | null;
   updatedAt: number;
+  /** 0012: "chat" | "run" (stage rows never reach the sidebar). */
+  kind: string;
+  /** 0012: the run's status for run rows; null for chats. */
+  runStatus: string | null;
   /** 0008: assistant output the user has not viewed yet. */
   unread: boolean;
   /** 0008: a pending approval/question is waiting on the user. */
@@ -373,7 +396,7 @@ export interface SidebarGroup {
 }
 
 /** A conversation outside the main tree (Archive / Trash view). */
-export interface ShelvedItem extends Omit<SidebarItem, "unread" | "needsYou"> {
+export interface ShelvedItem extends Omit<SidebarItem, "unread" | "needsYou" | "runStatus"> {
   projectName: string | null;
   /** Folder breadcrumb, e.g. ["Spikes", "Sandbox"]. */
   path: string[];
@@ -419,9 +442,14 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
       folderId: conversations.folderId,
       archivedAt: conversations.archivedAt,
       trashedAt: conversations.trashedAt,
+      kind: conversations.kind,
     })
     .from(conversations)
+    .where(ne(conversations.kind, "stage"))
     .all();
+  const runStatus = new Map(
+    db.select({ id: machineRuns.id, status: machineRuns.status }).from(machineRuns).all().map((r) => [r.id, r.status]),
+  );
 
   const projectName = new Map(projectRows.map((p) => [p.id, p.name]));
   const shelved = (
@@ -433,6 +461,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
         id: r.id,
         title: r.title,
         updatedAt: r.updatedAt,
+        kind: r.kind,
         projectName: r.projectId ? (projectName.get(r.projectId) ?? r.projectId) : null,
         path: folderPath(folderIndex, r.folderId),
         at: pick(r) ?? 0,
@@ -454,6 +483,8 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     id: r.id,
     title: r.title,
     updatedAt: r.updatedAt,
+    kind: r.kind,
+    runStatus: r.kind === "run" ? (runStatus.get(r.id) ?? null) : null,
     unread: flags.unread.has(r.id),
     needsYou: flags.needsYou.has(r.id),
   });
@@ -521,7 +552,13 @@ export function countLive(db: Db): number {
   const row = db
     .select({ n: sql<number>`count(*)` })
     .from(conversations)
-    .where(and(isNull(conversations.trashedAt), isNull(conversations.archivedAt)))
+    .where(
+      and(
+        isNull(conversations.trashedAt),
+        isNull(conversations.archivedAt),
+        ne(conversations.kind, "stage"),
+      ),
+    )
     .get();
   return row?.n ?? 0;
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "./index";
-import { machineRuns, machines, machineStageRuns, projects } from "./schema";
+import { conversations, machineRuns, machines, machineStageRuns, projects } from "./schema";
 import type { MachineRow, MachineRun, MachineStageRun } from "./schema";
 import {
   parseDefinition,
@@ -15,7 +15,12 @@ import {
  * - every definition change bumps `version`;
  * - a run freezes its machine's definition at start and binds a project
  *   iff the machine's workspace is "project" (and the project exists);
- * - stage visits are numbered 0.. per run, append-only.
+ * - stage visits are numbered 0.. per run, append-only;
+ * - 0012: every run IS a conversation — `createRun` writes the
+ *   `kind = 'run'` conversations row (same id) in the same transaction,
+ *   so a run is filed, archived, trashed, and searched like a chat;
+ * - a cancelled run is final: later status writes are ignored (a step
+ *   still in flight when the workflow was cancelled must not revive it).
  */
 
 export type MachineErrorCode = "not-found" | "invalid";
@@ -164,23 +169,43 @@ export function createRun(
     throw new MachineError("invalid", `machine ${machine.id} does not use a project workspace`);
   }
   const id = `mr_${now.toString(36)}${randomUUID().replace(/-/g, "").slice(0, 6)}`;
-  db.insert(machineRuns)
-    .values({
-      id,
-      machineId: machine.id,
-      machineName: machine.name,
-      machineVersion: machine.version,
-      definition: JSON.stringify(machine.definition),
-      projectId,
-      prompt: input.prompt.trim().slice(0, 50_000),
-      status: "running",
-      currentStage: machine.definition.start,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  const prompt = input.prompt.trim().slice(0, 50_000);
+  db.transaction((tx) => {
+    tx.insert(machineRuns)
+      .values({
+        id,
+        machineId: machine.id,
+        machineName: machine.name,
+        machineVersion: machine.version,
+        definition: JSON.stringify(machine.definition),
+        projectId,
+        prompt,
+        status: "running",
+        currentStage: machine.definition.start,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    // Seen as of now: the user just started it.
+    tx.insert(conversations)
+      .values({ id, kind: "run", title: runTitle(prompt), projectId, createdAt: now, updatedAt: now, lastSeenAt: now })
+      .run();
+  });
   return getRun(db, id);
 }
+
+const RUN_TITLE_MAX = 60;
+
+/** A run's conversation title: the prompt's first non-empty line, clipped. */
+export function runTitle(prompt: string): string {
+  const line = prompt.split("\n").map((l) => l.replace(/\s+/g, " ").trim()).find(Boolean) ?? "";
+  return line.length > RUN_TITLE_MAX ? `${line.slice(0, RUN_TITLE_MAX - 1).trimEnd()}…` : line;
+}
+
+/** Statuses where a run stops and wants the user — its "unread" moment. */
+export const SETTLED_STATUSES: ReadonlySet<string> = new Set(["waiting", "needs-attention", "completed", "failed"]);
+/** Statuses where the run's workflow is still alive (cancel applies). */
+export const LIVE_STATUSES: ReadonlySet<string> = new Set(["running", "waiting"]);
 
 export function getRun(db: Db, id: string): RunView {
   const row = db.select().from(machineRuns).where(eq(machineRuns.id, id)).get();
@@ -208,10 +233,39 @@ export function listRuns(
 export function updateRun(
   db: Db,
   id: string,
-  set: Partial<Pick<MachineRun, "status" | "currentStage" | "containerName" | "error">>,
+  set: Partial<Pick<MachineRun, "status" | "currentStage" | "containerName" | "error" | "workflowRunId">>,
   now = Date.now(),
 ): void {
-  db.update(machineRuns).set({ ...set, updatedAt: now }).where(eq(machineRuns.id, id)).run();
+  const settled = set.status !== undefined && SETTLED_STATUSES.has(set.status);
+  const changed = db
+    .update(machineRuns)
+    .set({ ...set, ...(settled ? { settledAt: now } : {}), updatedAt: now })
+    .where(and(eq(machineRuns.id, id), ne(machineRuns.status, "cancelled")))
+    .run().changes;
+  // A status change is the run conversation's activity (sidebar order).
+  if (changed && set.status !== undefined) {
+    db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, id)).run();
+  }
+}
+
+/**
+ * Mark a run cancelled (final). The caller has already stopped its
+ * workflow (lib/machines/runs cancelRun). Returns false when the run was
+ * not live.
+ */
+export function markRunCancelled(db: Db, id: string, now = Date.now()): boolean {
+  const run = getRun(db, id);
+  if (!LIVE_STATUSES.has(run.status)) return false;
+  db.update(machineRuns)
+    .set({ status: "cancelled", currentStage: null, error: null, updatedAt: now })
+    .where(eq(machineRuns.id, id))
+    .run();
+  db.update(machineStageRuns)
+    .set({ status: "parked", error: "run cancelled", endedAt: now })
+    .where(and(eq(machineStageRuns.runId, id), inArray(machineStageRuns.status, ["running", "waiting"])))
+    .run();
+  db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, id)).run();
+  return true;
 }
 
 // --- stage visits -----------------------------------------------------------

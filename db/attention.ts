@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import { OrganizeError, folderPath } from "./organize";
 import {
@@ -19,6 +19,9 @@ import type { MachineDefinition } from "../lib/machines/definition";
  *  - **Unread** — a conversation with an assistant message newer than
  *    `conversations.last_seen_at`. Opening a conversation (while the tab
  *    is visible and focused) marks it seen; it can be marked unread again.
+ *    0012: a run conversation's "output" is the moment it settled
+ *    (`machine_runs.settled_at`); `stage` conversations never count —
+ *    their output surfaces through the run.
  *  - **Needs you** — a pending human-input request (tool approval,
  *    question, session limit) or a machine run waiting at a human stage
  *    (0009 — machines replaced the 0004 ticket pipeline and its gate).
@@ -236,25 +239,42 @@ function mergePendingInputs(db: Conn, out: Map<string, PendingRequest[]>): void 
   }
 }
 
-/** Newest assistant message time per conversation. */
-function latestAssistantAt(db: Conn): Map<string, number> {
-  const rows = db
+/**
+ * Newest unread-worthy activity per conversation: the latest assistant
+ * message for chats, the settle time for runs (0012). `id` narrows the
+ * scan to one conversation (markSeen / markUnread).
+ */
+function latestActivityAt(db: Conn, id?: string): Map<string, number> {
+  const assistant = db
     .select({
       conversationId: messages.conversationId,
       at: sql<number>`max(${messages.at})`,
     })
     .from(messages)
-    .where(eq(messages.role, "assistant"))
+    .where(
+      id === undefined
+        ? eq(messages.role, "assistant")
+        : and(eq(messages.role, "assistant"), eq(messages.conversationId, id)),
+    )
     .groupBy(messages.conversationId)
     .all();
-  return new Map(rows.map((r) => [r.conversationId, r.at]));
+  const settled = db
+    .select({ id: machineRuns.id, at: machineRuns.settledAt })
+    .from(machineRuns)
+    .where(id === undefined ? isNotNull(machineRuns.settledAt) : and(isNotNull(machineRuns.settledAt), eq(machineRuns.id, id)))
+    .all();
+  return new Map([
+    ...assistant.map((r): [string, number] => [r.conversationId, r.at]),
+    ...settled.map((r): [string, number] => [r.id, r.at!]),
+  ]);
 }
 
 export interface AttentionState {
   /** Live (not archived/trashed) conversations with unread assistant output. */
   unread: Set<string>;
   /** Conversations with ≥1 pending request (archived ones included —
-   *  an approval blocks work whether or not the thread is filed away). */
+   *  an approval blocks work whether or not the thread is filed away),
+   *  plus 0012 run conversations waiting at a human gate. */
   needsYou: Set<string>;
   /** Machine runs waiting at a human stage (0009). */
   machineGates: number;
@@ -267,7 +287,7 @@ export interface AttentionState {
 }
 
 export function loadAttention(db: Conn): AttentionState {
-  const latest = latestAssistantAt(db);
+  const latest = latestActivityAt(db);
   const rows = db
     .select({
       id: conversations.id,
@@ -276,6 +296,7 @@ export function loadAttention(db: Conn): AttentionState {
       trashedAt: conversations.trashedAt,
     })
     .from(conversations)
+    .where(ne(conversations.kind, "stage"))
     .all();
   const live = new Map(rows.filter((r) => !r.trashedAt).map((r) => [r.id, r]));
   const pending = loadPendingRequests(db);
@@ -286,8 +307,11 @@ export function loadAttention(db: Conn): AttentionState {
     const at = latest.get(r.id);
     if (at !== undefined && at > r.lastSeenAt) unread.add(r.id);
   }
-  const needsYou = new Set([...pending.keys()].filter((id) => live.has(id)));
-  const machineGateIds = waitingMachineGates(db).map((g) => g.token);
+  const gates = waitingMachineGates(db);
+  const needsYou = new Set(
+    [...pending.keys(), ...gates.map((g) => g.runId)].filter((id) => live.has(id)),
+  );
+  const machineGateIds = gates.map((g) => g.token);
   const requestIds = [...pending.entries()]
     .filter(([id]) => live.has(id))
     .flatMap(([, list]) => list.map((r) => r.requestId));
@@ -314,7 +338,7 @@ export function markSeen(db: Conn, id: string, at: number = Date.now()): boolean
     .where(eq(conversations.id, id))
     .get();
   if (!row) throw new OrganizeError("not-found", `conversation ${id} not found`);
-  const latest = latestAssistantAt(db).get(id);
+  const latest = latestActivityAt(db, id).get(id);
   const wasUnread = latest !== undefined && latest > row.lastSeenAt;
   db.update(conversations)
     .set({ lastSeenAt: sql`max(${conversations.lastSeenAt}, ${at})` })
@@ -335,7 +359,7 @@ export function markUnread(db: Conn, id: string): boolean {
     .where(eq(conversations.id, id))
     .get();
   if (!exists) throw new OrganizeError("not-found", `conversation ${id} not found`);
-  const latest = latestAssistantAt(db).get(id);
+  const latest = latestActivityAt(db, id).get(id);
   if (latest === undefined) return false;
   db.update(conversations)
     .set({ lastSeenAt: latest - 1 })
@@ -392,6 +416,8 @@ export interface NeedsYouMachineGate {
 
 export interface UnreadThread extends Where {
   id: string;
+  /** 0012: "run" threads open /r/<id>. */
+  kind: "chat" | "run";
   title: string | null;
   /** Newest assistant message, clipped. */
   snippet: string;
@@ -427,6 +453,7 @@ export function loadInbox(db: Conn): InboxData {
       title: conversations.title,
       projectId: conversations.projectId,
       folderId: conversations.folderId,
+      kind: conversations.kind,
     })
     .from(conversations)
     .all();
@@ -439,8 +466,11 @@ export function loadInbox(db: Conn): InboxData {
     };
   };
 
+  // Runs waiting at a gate are in needsYou too (sidebar dots); their
+  // Inbox card is the machine-gate card below, not a thread card.
   const pending = loadPendingRequests(db, [...attention.needsYou]);
-  const threads: NeedsYouThread[] = [...attention.needsYou].map((id) => {
+  const threadIds = [...attention.needsYou].filter((id) => pending.has(id));
+  const threads: NeedsYouThread[] = threadIds.map((id) => {
     const requests = pending.get(id) ?? [];
     return {
       kind: "thread",
@@ -481,7 +511,11 @@ export function loadInbox(db: Conn): InboxData {
 
   // A thread that needs an answer is shown once, above; Unread is the rest.
   const unreadIds = [...attention.unread].filter((id) => !attention.needsYou.has(id));
-  const unread: UnreadThread[] = unreadIds.flatMap((id) => {
+  const unread: UnreadThread[] = unreadIds.flatMap((id): UnreadThread[] => {
+    if (meta.get(id)?.kind === "run") {
+      const run = runUnread(db, id);
+      return run ? [{ id, kind: "run", title: meta.get(id)?.title ?? null, ...run, ...where(id) }] : [];
+    }
     const last = db
       .select({ text: messages.text, at: messages.at })
       .from(messages)
@@ -493,6 +527,7 @@ export function loadInbox(db: Conn): InboxData {
     return [
       {
         id,
+        kind: "chat",
         title: meta.get(id)?.title ?? null,
         snippet: clip(last.text),
         at: last.at,
@@ -503,6 +538,25 @@ export function loadInbox(db: Conn): InboxData {
   unread.sort((a, b) => b.at - a.at);
 
   return { needsYou, unread };
+}
+
+/** An unread run's card body: its status plus the newest visit outcome. */
+function runUnread(db: Conn, runId: string): { snippet: string; at: number } | null {
+  const run = db
+    .select({ status: machineRuns.status, error: machineRuns.error, settledAt: machineRuns.settledAt })
+    .from(machineRuns)
+    .where(eq(machineRuns.id, runId))
+    .get();
+  if (!run?.settledAt) return null;
+  const last = db
+    .select({ outcome: machineStageRuns.outcome })
+    .from(machineStageRuns)
+    .where(and(eq(machineStageRuns.runId, runId), isNotNull(machineStageRuns.outcome)))
+    .orderBy(desc(machineStageRuns.seq))
+    .limit(1)
+    .get();
+  const detail = run.error ?? last?.outcome ?? "";
+  return { snippet: clip(detail ? `${run.status} — ${detail}` : run.status), at: run.settledAt };
 }
 
 /** Human stage visits whose run is waiting on Chad (0009). */

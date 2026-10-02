@@ -36,7 +36,7 @@ export default async function RootLayout({
                 inbox={{
                   signature: attention.signature,
                   unread: attention.unread.size,
-                  needsYou: attention.needsYou.size + attention.machineGates,
+                  needsYou: attention.needsYou.size,
                 }}
               />
               {/* max-md gutter reserves the strip the floating sidebar

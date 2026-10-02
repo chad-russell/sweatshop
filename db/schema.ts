@@ -62,6 +62,10 @@ export const conversations = sqliteTable(
      *  runtime), null when idle. Route-set, cleared by the turn's
      *  persist step (or cancel). */
     activeRunId: text("active_run_id"),
+    /** 0012: "chat" | "run" (a machine run — the id IS the machine_runs
+     *  id) | "stage" (a run's per-visit agent conversation, hidden from
+     *  the sidebar, unread, and search results). */
+    kind: text("kind").notNull().default("chat"),
   },
   (table) => [
     index("conversations_updated_at_idx").on(table.updatedAt),
@@ -489,6 +493,11 @@ export const machineRuns = sqliteTable(
     containerName: text("container_name"),
     /** Bounded failure / parking reason. */
     error: text("error"),
+    /** 0012: Unix ms the run last entered a settled status (waiting,
+     *  needs-attention, completed, failed) — its "unread" moment. */
+    settledAt: integer("settled_at"),
+    /** 0012: the Workflow SDK run executing this machine run (cancel). */
+    workflowRunId: text("workflow_run_id"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

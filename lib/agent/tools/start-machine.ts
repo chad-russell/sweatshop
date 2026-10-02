@@ -1,5 +1,6 @@
 import { db } from "@/db";
-import { createRun, listMachines } from "@/db/machines";
+import { listMachines } from "@/db/machines";
+import { startRun } from "@/lib/machines/runs";
 import { getConversation } from "@/db/chat";
 
 /**
@@ -9,8 +10,8 @@ import { getConversation } from "@/db/chat";
  * offered. The run is independent of this conversation (its own
  * workflow, its own sandbox) — the tool returns the run's URL.
  *
- * Plain function: the workflow step wraps it; `start(runMachine, …)` is
- * called directly, in-process — no SWEATSHOP_APP_ORIGIN round trip
+ * Plain function: the workflow step wraps it; the run starts in-process
+ * through lib/machines/runs (0012) — no SWEATSHOP_APP_ORIGIN round trip
  * (0010 deletes that class of HTTP hop).
  */
 
@@ -51,15 +52,10 @@ export async function startMachineRun(input: {
     );
   }
   const projectId = getConversation(db(), input.conversationId)?.projectId ?? null;
-  const run = createRun(db(), {
+  const run = await startRun({
     machineId: input.machineId,
     prompt: input.prompt,
     projectId,
   });
-  const { runMachine } = await import("@/workflows/machines/run-machine");
-  const { start } = await import("workflow/api");
-  await start(runMachine, [
-    { runId: run.id, definition: run.definition, prompt: run.prompt, projectId: run.projectId },
-  ]);
   return { runId: run.id, url: `/r/${run.id}` };
 }

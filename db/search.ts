@@ -5,6 +5,8 @@ import { conversations, folders, projects } from "./schema";
 
 export interface SearchHit {
   conversationId: string;
+  /** 0012: "chat" | "run" — where the hit opens. */
+  kind: string;
   title: string | null;
   snippet: string;
   /** Matching message rows (body hits); 0 for a title/summary-only match. */
@@ -37,7 +39,8 @@ export function toFtsPhrase(query: string): string {
   return `"${query.replaceAll('"', '""')}"`;
 }
 
-/** SQL filter fragment over the `c` (conversations) alias. */
+/** SQL filter fragment over the `c` (conversations) alias. Applied to
+ *  the conversation a hit is reported as (a stage hit's parent run). */
 function filterClause(db: Db, options: SearchOptions): SQL {
   const parts: SQL[] = [sql`c.trashed_at is null`];
   if (options.includeArchived === false) parts.push(sql`c.archived_at is null`);
@@ -67,6 +70,10 @@ function filterClause(db: Db, options: SearchOptions): SQL {
  *
  * Trashed conversations are excluded; archived ones are included unless
  * `includeArchived` is false.
+ *
+ * 0012: a hit in a run's `stage` conversation (`<runId>_<seq>`) is
+ * reported as the parent run — searching for something an agent stage
+ * said finds the run. Stage rows themselves never surface.
  */
 export function searchConversations(
   db: Db,
@@ -87,18 +94,23 @@ export function searchConversations(
            ) as snippet
     from conversations_fts
     join conversations c on c.rowid = conversations_fts.rowid
-    where conversations_fts match ${phrase} and ${where}
+    where conversations_fts match ${phrase} and c.kind != 'stage' and ${where}
     order by bm25(conversations_fts, 4.0, 1.0)
     limit ${limit}
   `);
 
+  // `own` is the conversation holding the message; `c` the one reported
+  // (itself, or a stage's parent run — the id before the final `_<seq>`).
   const bodyRows = db.all<{ conversationId: string; snippet: string }>(sql`
-    select m.conversation_id as conversationId,
+    select c.id as conversationId,
            snippet(messages_fts, 0, '[', ']', '…', 12) as snippet
     from messages_fts
     join messages m on m.rowid = messages_fts.rowid
-    join conversations c on c.id = m.conversation_id
-    where messages_fts match ${phrase} and ${where}
+    join conversations own on own.id = m.conversation_id
+    join conversations c on c.id = case
+      when own.kind = 'stage' then rtrim(rtrim(own.id, '0123456789'), '_')
+      else own.id end
+    where messages_fts match ${phrase} and c.kind != 'stage' and ${where}
     order by bm25(messages_fts), m.at desc
     limit 100
   `);
@@ -153,6 +165,7 @@ export function searchConversations(
       .select({
         id: conversations.id,
         title: conversations.title,
+        kind: conversations.kind,
         projectId: conversations.projectId,
         folderId: conversations.folderId,
         archivedAt: conversations.archivedAt,
@@ -170,6 +183,7 @@ export function searchConversations(
     return [
       {
         conversationId: id,
+        kind: c.kind,
         title: c.title,
         snippet: f.snippet,
         hits: f.hits,

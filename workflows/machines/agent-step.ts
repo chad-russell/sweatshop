@@ -67,7 +67,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
 
   // The conversation the sidebar/inbox see (one per visit, like the old
   // eve stage sessions) — also the /r view's "open conversation" link.
-  ensureConversation(db(), sessionId);
+  ensureConversation(db(), sessionId, null, "stage");
   const { updateStageRun } = await import("../../db/machines");
   updateStageRun(db(), runId, seq, { sessionId, status: "running" });
 

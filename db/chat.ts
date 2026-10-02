@@ -28,15 +28,17 @@ export interface NewMessageRow {
   modelMessage: ModelMessage;
 }
 
-/** Create the conversation row if absent (new-runtime ids: `c_…`). */
+/** Create the conversation row if absent (new-runtime ids: `c_…`).
+ *  0012: machine agent-stage visits pass kind "stage" (hidden rows). */
 export function ensureConversation(
   db: Db,
   id: string,
   projectId: string | null = null,
+  kind: "chat" | "stage" = "chat",
 ): void {
   const now = Date.now();
   db.insert(conversations)
-    .values({ id, projectId, createdAt: now, updatedAt: now })
+    .values({ id, projectId, kind, createdAt: now, updatedAt: now })
     .onConflictDoNothing()
     .run();
 }
