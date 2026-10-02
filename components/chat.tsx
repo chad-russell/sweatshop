@@ -6,6 +6,7 @@ import { useChat } from "@ai-sdk/react";
 import { nanoid } from "nanoid";
 import {
   Bot,
+  Box,
   Check,
   ChevronDown,
   ChevronsUpDown,
@@ -14,6 +15,7 @@ import {
   MessageSquarePlus,
   RotateCcw,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   memo,
@@ -45,6 +47,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { AppHeader } from "@/components/app-header";
+import { LocalTime } from "@/components/local-time";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import {
   SANDBOXED_TOOLS,
@@ -77,9 +80,15 @@ const DRAFT_PREFIX = "sweatshop.draft.";
 /** A running sandbox the composer can attach to. */
 interface SandboxOption {
   id: string;
+  status: string;
   ownerKind: string;
   ownerId: string;
+  /** Chat title or machine run name. */
+  ownerLabel: string;
   projectId: string | null;
+  projectName: string | null;
+  lastUsedAt: number;
+  calls: number;
   ref: string;
 }
 
@@ -523,7 +532,7 @@ function sandboxLabel(
   if (pref === "none" || state?.kind === "none") return "no sandbox";
   if (pref.startsWith("attached:")) {
     const id = pref.slice("attached:".length);
-    const label = view?.sandboxes[id]?.ownerLabel ?? sandboxes.find((s) => s.id === id)?.ownerId;
+    const label = view?.sandboxes[id]?.ownerLabel ?? sandboxes.find((s) => s.id === id)?.ownerLabel;
     return `attached: ${label ?? id.slice(4, 12)}`;
   }
   if (state?.kind === "unavailable") return "no sandbox (no project)";
@@ -547,64 +556,107 @@ function SandboxPicker({
   sandboxes: SandboxOption[];
 }) {
   const label = sandboxLabel(pref, view, sandboxes);
+  const state = view?.state;
+  // Joining your own sandbox is just "Auto"; don't offer it as a target.
+  const attachable = sandboxes.filter(
+    (sandbox) => !(state?.kind === "own" && sandbox.id === state.sandboxId),
+  );
+  const autoNote =
+    state?.kind === "own"
+      ? `Your own sandbox, ${shortSandboxId(state.sandboxId)}`
+      : state?.kind === "unavailable"
+        ? "Needs a project — start from a project page"
+        : "Your own sandbox, created on first use";
+
   return (
     <DropdownMenu onOpenChange={(open) => open && onOpen()}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
           aria-label="Sandbox"
-          title="Sandbox for this conversation — auto (own, created on first use), none, or attach to a running sandbox"
+          title="Where this conversation's bash / pi / claude calls run"
           className="inline-flex h-8 max-w-40 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <span className="truncate">{label}</span>
           <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-80">
-        <DropdownMenuItem onSelect={() => onSelect("auto")}>
-          <Check className={cn(pref === "auto" ? "opacity-100" : "opacity-0")} aria-hidden />
+      <DropdownMenuContent align="end" className="w-96">
+        <DropdownMenuItem onSelect={() => onSelect("auto")} className="items-start py-2">
+          <Check
+            className={cn("mt-0.5", pref === "auto" ? "opacity-100" : "opacity-0")}
+            aria-hidden
+          />
           <span className="flex flex-col">
             <span>Auto</span>
-            <span className="text-xs font-normal text-muted-foreground">
-              Own sandbox, created on first use
-            </span>
+            <span className="text-xs font-normal text-muted-foreground">{autoNote}</span>
           </span>
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onSelect("none")}>
-          <Check className={cn(pref === "none" ? "opacity-100" : "opacity-0")} aria-hidden />
+        <DropdownMenuItem onSelect={() => onSelect("none")} className="items-start py-2">
+          <Check
+            className={cn("mt-0.5", pref === "none" ? "opacity-100" : "opacity-0")}
+            aria-hidden
+          />
           <span className="flex flex-col">
             <span>None</span>
-            <span className="text-xs font-normal text-muted-foreground">
-              No sandboxed tools
-            </span>
+            <span className="text-xs font-normal text-muted-foreground">No sandboxed tools</span>
           </span>
         </DropdownMenuItem>
-        {sandboxes.length > 0 && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Attach to a running sandbox</DropdownMenuLabel>
-            {sandboxes.map((sandbox) => (
-              <DropdownMenuItem
-                key={sandbox.id}
-                onSelect={() => onSelect(`attached:${sandbox.id}`)}
-              >
-                <Check
-                  className={cn(
-                    `attached:${sandbox.id}` === pref ? "opacity-100" : "opacity-0",
-                  )}
-                  aria-hidden
-                />
-                <span className="flex flex-col">
-                  <span className="font-mono text-xs">{sandbox.ownerId}</span>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    {sandbox.ownerKind}
-                    {sandbox.projectId ? ` · ${sandbox.projectId}` : ""}
-                  </span>
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
+          <span className="text-xs font-medium text-foreground">Attach to a sandbox</span>
+          <span className="text-xs text-muted-foreground">
+            You get your own /work folder inside it, but share its ports and processes with
+            everyone using it.
+          </span>
+        </DropdownMenuLabel>
+        {attachable.length === 0 && (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            No other sandboxes to join yet.
+          </div>
         )}
+        {attachable.map((sandbox) => {
+          const value = `attached:${sandbox.id}`;
+          return (
+            <DropdownMenuItem
+              key={sandbox.id}
+              onSelect={() => onSelect(value)}
+              className="items-start py-2"
+            >
+              <Check
+                className={cn("mt-0.5", value === pref ? "opacity-100" : "opacity-0")}
+                aria-hidden
+              />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate">{sandbox.ownerLabel}</span>
+                <span className="flex flex-wrap items-center gap-x-1.5 text-xs font-normal text-muted-foreground">
+                  <span className="font-mono">{shortSandboxId(sandbox.id)}</span>
+                  <span aria-hidden>·</span>
+                  <span>{sandbox.ownerKind === "machine_run" ? "machine run" : "chat"}</span>
+                  {sandbox.projectName && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{sandbox.projectName}</span>
+                    </>
+                  )}
+                  <span aria-hidden>·</span>
+                  <span className={sandbox.status === "stopped" ? "text-warning" : undefined}>
+                    {sandbox.status}
+                  </span>
+                  <span aria-hidden>·</span>
+                  <LocalTime ms={sandbox.lastUsedAt} />
+                </span>
+              </span>
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/sandboxes" className="text-xs text-muted-foreground">
+            <Box aria-hidden />
+            Manage sandboxes
+          </Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

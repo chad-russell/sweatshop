@@ -1,6 +1,8 @@
 # 0011 — Sandbox visibility: per-call attribution
 
-Status: **approved (2026-10-02)** — phase 1 in progress.
+Status: **shipped (2026-10-02)** — phases 1–4 built and verified against
+the live app. Follow-ups still open: show a machine run's sandbox on
+`/r/<runId>`, and the sandbox chip on the pi/claude session page.
 
 ## Goal
 
