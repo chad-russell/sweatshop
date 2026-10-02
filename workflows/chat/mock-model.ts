@@ -149,6 +149,17 @@ export function scriptedChatModel(): LanguageModel {
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }
 
+      // 0015: report how many "[viewing]" notes the model was shown (the
+      // current send's + injected history ones). Notes are user-role
+      // messages that START with the prefix; the instructions merely
+      // mention it mid-text, and real user text never starts with it.
+      if (script === "viewing") {
+        const notes = options.prompt.filter(
+          (m) => m.role === "user" && messageText(m).startsWith("[viewing]"),
+        ).length;
+        return result(textPart(`mock-viewing:${notes}`));
+      }
+
       // plain: reply with the user-message count — proves the turn loaded
       // the conversation's full persisted history.
       return result(textPart(`mock-reply:${userTexts(options.prompt).length}`));

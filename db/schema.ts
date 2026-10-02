@@ -151,6 +151,9 @@ export const messages = sqliteTable(
      *  runtime); null on mirror-extracted rows. The new runtime's source
      *  of truth — `text` stays the plain-text extraction for search. */
     modelMessage: text("model_message"),
+    /** 0015: JSON row metadata — the page-viewing context of a user
+     *  message (a note chip in the transcript; never search text). */
+    metadata: text("metadata"),
     at: integer("at").notNull(),
   },
   (table) => [index("messages_conversation_idx").on(table.conversationId)],

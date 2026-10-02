@@ -4,7 +4,7 @@ import { WorkflowChatTransport } from "@ai-sdk/workflow/client";
 import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { nanoid } from "nanoid";
-import { Bot, Check, ChevronDown, Copy, GitPullRequest, MessageSquarePlus, RotateCcw } from "lucide-react";
+import { Bot, Check, ChevronDown, Copy, Eye, GitPullRequest, MessageSquarePlus, RotateCcw } from "lucide-react";
 import {
   memo,
   useEffect,
@@ -40,6 +40,7 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/componen
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Spinner } from "@/components/ui/spinner";
 import { DEFAULT_CHAT_MODEL, findChatModel } from "@/lib/model";
+import type { ViewingContext } from "@/lib/page-context";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -438,6 +439,20 @@ function formatTurnTime(iso: string): string {
     : date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+/** The "Chad is viewing …" chip on a user message (0015 page context). */
+function ViewingChip({ viewing }: { viewing: ViewingContext }) {
+  return (
+    <span className="mb-1 inline-flex max-w-full items-center gap-1 self-start rounded-full border bg-muted/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+      <Eye className="size-3 shrink-0" aria-hidden />
+      <span className="truncate">
+        viewing {viewing.kind}
+        {viewing.title ? ` ${viewing.title}` : ""}
+        {viewing.selection ? ` · ${viewing.selection}` : ""}
+      </span>
+    </span>
+  );
+}
+
 /** Render one message with the AI Elements kit (memoized per message). */
 export const ChatMessageView = memo(function ChatMessageView({
   message,
@@ -462,9 +477,11 @@ export const ChatMessageView = memo(function ChatMessageView({
   // (UTC) cannot predict — render them only once mounted (see use-mounted).
   const mounted = useMounted();
   const showTime = timeText !== "" && mounted;
+  const viewing = (message.metadata as { viewing?: ViewingContext } | undefined)?.viewing;
 
   return (
     <Message from={message.role}>
+      {viewing && message.role === "user" && <ViewingChip viewing={viewing} />}
       <MessageContent>
         {message.parts.map((part, i) => {
           if (part.type === "text") {
@@ -523,6 +540,7 @@ export function ChatSession({
   header,
   freshComposer,
   onAdopted,
+  pageContext,
   className,
   ref,
 }: {
@@ -539,6 +557,9 @@ export function ChatSession({
   freshComposer?: (state: ChatSessionState) => FreshComposerMode | undefined;
   /** Fired once when a send adopts the client-generated conversation id. */
   onAdopted?: (conversationId: string) => void;
+  /** 0015: the page this chat is drawn on, read at send time — each send
+   *  carries it as the turn's viewing note ("this"). Absent = no note. */
+  pageContext?: () => ViewingContext | null;
   className?: string;
   ref?: Ref<ChatSessionController>;
 }) {
@@ -582,11 +603,13 @@ export function ChatSession({
   const modelRef = useRef(modelId);
   const choiceRef = useRef(sandboxChoice);
   const conversationRef = useRef({ conversationId, projectId: projectId ?? null });
+  const pageContextRef = useRef(pageContext);
   useEffect(() => {
     modelRef.current = modelId;
     choiceRef.current = sandboxChoice;
     conversationRef.current = { conversationId, projectId: projectId ?? null };
-  }, [modelId, sandboxChoice, conversationId, projectId]);
+    pageContextRef.current = pageContext;
+  }, [modelId, sandboxChoice, conversationId, projectId, pageContext]);
 
   // The callback runs at send time (never during render) and must see
   // the current knobs.
@@ -595,19 +618,25 @@ export function ChatSession({
     () =>
       new WorkflowChatTransport({
         api: "/api/x/chat",
-        prepareSendMessagesRequest: ({ messages, trigger, messageId }) => ({
-          body: {
-            conversationId: conversationRef.current.conversationId,
-            projectId: conversationRef.current.projectId,
-            modelId: modelRef.current,
-            // Only the creating send's choice counts (server-enforced);
-            // "auto" = the chat's own sandbox, the default.
-            ...(choiceRef.current !== "auto" ? { sandbox: choiceRef.current } : {}),
-            messages,
-            trigger,
-            messageId,
-          },
-        }),
+        prepareSendMessagesRequest: ({ messages, trigger, messageId }) => {
+          // 0015: read the page context at send time; each send's note
+          // is what the page showed when Chad hit send.
+          const viewing = pageContextRef.current?.() ?? null;
+          return {
+            body: {
+              conversationId: conversationRef.current.conversationId,
+              projectId: conversationRef.current.projectId,
+              modelId: modelRef.current,
+              // Only the creating send's choice counts (server-enforced);
+              // "auto" = the chat's own sandbox, the default.
+              ...(choiceRef.current !== "auto" ? { sandbox: choiceRef.current } : {}),
+              ...(viewing ? { context: viewing } : {}),
+              messages,
+              trigger,
+              messageId,
+            },
+          };
+        },
       }),
   );
 
@@ -747,7 +776,13 @@ export function ChatSession({
       });
       return;
     }
-    void chat.sendMessage({ text });
+    // The optimistic user message carries the viewing context as
+    // metadata, so the chip shows live (a reload reads the row's).
+    const viewing = pageContextRef.current?.() ?? null;
+    void chat.sendMessage({
+      text,
+      ...(viewing ? { metadata: { viewing } } : {}),
+    });
   };
 
   const handleStop = async () => {

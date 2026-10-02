@@ -2,6 +2,7 @@ import { WorkflowAgent, type ModelCallStreamPart } from "@ai-sdk/workflow";
 import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
+import { viewingNote, type ViewingContext } from "../../lib/page-context";
 import { buildTurnModel } from "./model";
 import { buildChatTools } from "./tools";
 import { drainSteerStep, loadTurnHistory, maybeTitleStep, persistTurn, recordUserMessage } from "./steps";
@@ -34,17 +35,20 @@ export interface ChatTurnInput {
   hasSandbox?: boolean;
   /** Whether the conversation is bound to a project (pi/claude). */
   hasProject?: boolean;
+  /** 0015: the page the send came from — "this" for the agent. */
+  viewing?: ViewingContext;
 }
 
 const INSTRUCTIONS = `You are sweatshop's agent (new chat runtime spike). Be concise.
-Use the ask_chad tool when a decision or approval is genuinely Chad's to make.`;
+Use the ask_chad tool when a decision or approval is genuinely Chad's to make.
+When a message carries a "[viewing]" note, "this"/"it" refers to what it names; use its ids with your tools (get_machine, inspect) instead of asking.`;
 
 export async function chatTurn(input: ChatTurnInput) {
   "use workflow";
   const { conversationId, userText, modelId } = input;
 
   const history = await loadTurnHistory(conversationId);
-  await recordUserMessage(conversationId, userText, history.length);
+  await recordUserMessage(conversationId, userText, history.length, input.viewing);
 
   const model = await buildTurnModel(modelId);
   const writable = getWritable<ModelCallStreamPart>();
@@ -57,7 +61,15 @@ export async function chatTurn(input: ChatTurnInput) {
     }),
   });
 
-  let messages: ModelMessage[] = [...history, { role: "user", content: userText }];
+  // The current send's viewing note: a user-role message right before
+  // the send (the agent forbids system messages in `messages`), model
+  // input only — it is persisted as metadata on the user row above and
+  // rebuilt by listTurnMessages; persistTurn's skip keeps it out.
+  let messages: ModelMessage[] = [
+    ...history,
+    ...(input.viewing ? [{ role: "user" as const, content: viewingNote(input.viewing) }] : []),
+    { role: "user", content: userText },
+  ];
   let finishReason: string = "stop";
   for (let step = 0; step < MAX_STEPS; step += 1) {
     if (step > 0) {
@@ -88,7 +100,8 @@ export async function chatTurn(input: ChatTurnInput) {
   }
 
   // skip = everything already persisted (loaded history + this turn's
-  // user message); persistTurn stores only the new tail.
+  // user message); persistTurn stores only the new tail. The injected
+  // viewing note sits before the user message, inside the skipped head.
   const skip = history.length + 1;
   const stored = await persistTurn(conversationId, messages, skip);
   // Generated titles (0007) — skipped under the scripted mock so tests
@@ -99,12 +112,10 @@ export async function chatTurn(input: ChatTurnInput) {
   return { finishReason, persisted: stored };
 }
 
-/** The agent prepends its instructions as a system message; drop the
- *  prefix so re-feeding and persisting see only conversation messages. */
+/** The agent prepends its instructions as a system message on every
+ *  stream call; drop exactly that one so re-feeding and persisting see
+ *  only conversation messages. (Injected viewing notes are mid-list —
+ *  they must survive the loop — and persistTurn skips system rows.) */
 function stripLeadingSystem(messages: ModelMessage[]): ModelMessage[] {
-  let prefix = 0;
-  while (prefix < messages.length && messages[prefix].role === "system") {
-    prefix += 1;
-  }
-  return messages.slice(prefix);
+  return messages[0]?.role === "system" ? messages.slice(1) : messages;
 }

@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/app-header";
 import { LocalTime } from "@/components/local-time";
 import { SandboxActions } from "@/components/sandbox-actions";
 import { SandboxStatus } from "@/components/sandbox-status";
+import { PageContextRegistration } from "@/components/page-context";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { db } from "@/db";
 import { getSandboxDetail } from "@/db/sandbox-view";
@@ -19,6 +20,8 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
+      {/* 0015: the panel's "this" on a sandbox page. */}
+      <PageContextRegistration value={{ kind: "sandbox", id: sandbox.id, title: sandbox.ownerLabel }} />
       <AppHeader
         crumbs={[
           { label: "Sandboxes", href: "/sandboxes" },

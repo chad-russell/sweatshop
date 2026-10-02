@@ -13,7 +13,8 @@ import type { ModelMessage } from "ai";
 /**
  * Load the conversation's model history. Steer rows queued while no turn
  * was running are folded in as user messages first (and persisted), so a
- * message that arrived "between turns" is never lost.
+ * message that arrived "between turns" is never lost. 0015: user rows'
+ * viewing notes are injected as system messages (listTurnMessages).
  */
 export async function loadTurnHistory(
   conversationId: string,
@@ -36,18 +37,20 @@ export async function loadTurnHistory(
       })),
     );
   }
-  return chat.listModelMessages(db(), conversationId);
+  return chat.listTurnMessages(db(), conversationId);
 }
 
 /**
  * Persist the turn's user message. Id is keyed on the conversation's
  * persisted-history length — stable for a given run (replay-safe), never
- * colliding across turns (history only grows).
+ * colliding across turns (history only grows). 0015: the send's viewing
+ * context rides as row metadata (the note is rebuilt from it each turn).
  */
 export async function recordUserMessage(
   conversationId: string,
   text: string,
   seq: number,
+  viewing?: import("../../lib/page-context").ViewingContext,
 ): Promise<void> {
   "use step";
   const [{ db }, chat] = await Promise.all([
@@ -60,6 +63,7 @@ export async function recordUserMessage(
       role: "user",
       text,
       modelMessage: { role: "user", content: text },
+      ...(viewing ? { metadata: { viewing } } : {}),
     },
   ]);
 }
@@ -257,6 +261,9 @@ export async function persistTurn(
     modelMessage: ModelMessage;
   }[] = [];
   messages.slice(skip).forEach((message, i) => {
+    // System messages are injected viewing notes (and the agent's
+    // instructions) — model input only, never persisted as rows.
+    if (message.role === "system") return;
     tail.push({
       id: `m_${conversationId}_${skip + i}_${Math.random().toString(36).slice(2, 8)}`,
       role: message.role === "assistant" ? "assistant" : message.role === "tool" ? "tool" : "user",

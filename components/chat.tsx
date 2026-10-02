@@ -13,6 +13,7 @@ import {
   type FreshComposerMode,
   type SandboxOption,
 } from "@/components/chat-session";
+import { usePageContext } from "@/components/page-context";
 import { RunTargetPicker, startMachineRun, useScopedMachines } from "@/components/machines/run-target";
 import { LocalTime } from "@/components/local-time";
 import { shortSandboxId } from "@/lib/sandbox-id";
@@ -336,6 +337,16 @@ export function ChatSurface({
   const router = useRouter();
   const pathname = usePathname();
   const sessionRef = useRef<ChatSessionController>(null);
+
+  // 0015: this page is the chat itself (an adopted conversation) or the
+  // project composer (a fresh chat bound to a project).
+  usePageContext(
+    conversationId
+      ? { kind: "chat", id: conversationId, title: conversationTitle ?? undefined }
+      : projectId
+        ? { kind: "project", id: projectId, title: projectName }
+        : { kind: "other" },
+  );
 
   // ── 0012: a fresh composer can start a machine run instead ────────────
   // Machines load for a not-yet-adopted conversation (the target picker's

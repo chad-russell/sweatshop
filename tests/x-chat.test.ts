@@ -236,6 +236,56 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "viewing: the send's page context becomes a system note, rides as row metadata, and survives into later turns (0015)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "viewing";
+      const { listMessageTexts } = await import("../db/chat");
+      const id = conv("viewing");
+      const viewing: import("../lib/page-context").ViewingContext = {
+        kind: "machine",
+        id: "ticket",
+        title: "Ticket",
+        selection: "stage verify",
+        path: "/machines/ticket",
+      };
+
+      // The route passes the send's context; the turn injects the note.
+      const first = await start(chatTurn, [
+        { conversationId: id, userText: "what about this?", modelId: MODEL, viewing },
+      ]);
+      expect((await first.returnValue).finishReason).toBe("stop");
+
+      // The model saw exactly the current note.
+      expect(serialized(id)).toContain("mock-viewing:1");
+
+      // The note lives on the user row as metadata — never as text.
+      const rows = listMessageTexts(db(), id);
+      expect(rows.find((r) => r.role === "user")?.text).toBe("what about this?");
+      expect(rows.find((r) => r.role === "user")?.metadata?.viewing).toMatchObject({
+        kind: "machine",
+        id: "ticket",
+        selection: "stage verify",
+      });
+
+      // A later turn re-injects the persisted note (history) plus its own.
+      const second = await start(chatTurn, [
+        { conversationId: id, userText: "and this one?", modelId: MODEL, viewing: { kind: "chat", id } },
+      ]);
+      expect((await second.returnValue).finishReason).toBe("stop");
+      expect(serialized(id)).toContain("mock-viewing:2");
+
+      // A send with no context adds no note, and nothing note-shaped is
+      // ever persisted as a message row.
+      const third = await start(chatTurn, [
+        { conversationId: id, userText: "plain now", modelId: MODEL },
+      ]);
+      await third.returnValue;
+      expect(JSON.stringify(listModelMessages(db(), id))).not.toContain("[viewing]");
+    },
+  );
+
+  it(
     "cancel: a hung model call cancels the run and nothing is persisted for it",
     { timeout: 30_000 },
     async () => {

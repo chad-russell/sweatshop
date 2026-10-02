@@ -14,6 +14,7 @@ import {
 } from "@/db/chat";
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
 import { resolveChatModel } from "@/lib/model";
+import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
 import { chatTurn } from "@/workflows/chat/turn";
 
@@ -45,6 +46,8 @@ export async function POST(request: Request) {
     projectId?: string;
     /** 0013, creation only: "none" | "attached:<sandboxId>" | null (own). */
     sandbox?: string | null;
+    /** 0015: the page the send came from (the agent panel's viewing note). */
+    context?: unknown;
     messages?: { role: string; parts?: { type: string; text?: string }[] }[];
   };
   const transportText = body.messages
@@ -115,6 +118,8 @@ export async function POST(request: Request) {
       modelId: model.id,
       hasSandbox: getConversationBinding(db(), body.conversationId)?.kind !== "none",
       hasProject: !!conversation.projectId,
+      // 0015: invalid/absent context simply sends no note.
+      viewing: parseViewingContext(body.context) ?? undefined,
     },
   ]);
   // The run may complete before this write lands (fast turns); that is

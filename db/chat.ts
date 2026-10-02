@@ -1,5 +1,6 @@
 import { asc, eq, sql } from "drizzle-orm";
 import type { ModelMessage } from "ai";
+import { viewingNote, type ViewingContext } from "../lib/page-context";
 import type { Db } from "./index";
 import {
   chatHarnessState,
@@ -19,6 +20,11 @@ import {
  * content-stable per turn so step retries cannot duplicate them.
  */
 
+/** 0015: per-row metadata — the viewing context of a user message. */
+export interface MessageRowMetadata {
+  viewing?: ViewingContext;
+}
+
 export interface NewMessageRow {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -26,6 +32,9 @@ export interface NewMessageRow {
   text: string;
   /** The ModelMessage this row persists. */
   modelMessage: ModelMessage;
+  /** 0015: the send's page-viewing context (user rows; the note is
+   *  rebuilt for the model from this, never stored as text). */
+  metadata?: MessageRowMetadata;
 }
 
 /** Create the conversation row if absent (new-runtime ids: `c_…`).
@@ -184,6 +193,7 @@ export function appendMessages(
         role: row.role,
         text: row.text,
         modelMessage: JSON.stringify(row.modelMessage),
+        metadata: row.metadata ? JSON.stringify(row.metadata) : null,
         at,
       })),
     )
@@ -206,6 +216,32 @@ export function listModelMessages(db: Db, conversationId: string): ModelMessage[
   return rows.map((row) => JSON.parse(row.modelMessage!) as ModelMessage);
 }
 
+/**
+ * The turn's model input (0015): the persisted history with each user
+ * message's viewing note injected as a user-role message before it —
+ * so a later turn still knows what "this" was. (The agent forbids
+ * system messages in `messages`.) Notes live as row metadata; this is
+ * the only place they become model-visible text, and persistTurn's
+ * skip keeps the current turn's note out of the store.
+ */
+export function listTurnMessages(db: Db, conversationId: string): ModelMessage[] {
+  const rows = db
+    .select({ modelMessage: messages.modelMessage, metadata: messages.metadata })
+    .from(messages)
+    .where(sql`${messages.conversationId} = ${conversationId} and ${messages.modelMessage} is not null`)
+    .orderBy(asc(sql`rowid`))
+    .all();
+  const out: ModelMessage[] = [];
+  for (const row of rows) {
+    const viewing = row.metadata
+      ? (JSON.parse(row.metadata) as MessageRowMetadata).viewing
+      : undefined;
+    if (viewing) out.push({ role: "user", content: viewingNote(viewing) });
+    out.push(JSON.parse(row.modelMessage!) as ModelMessage);
+  }
+  return out;
+}
+
 /** Simple {role, text} view of every message row (reload/initial render). */
 export function listMessageTexts(
   db: Db,
@@ -216,6 +252,7 @@ export function listMessageTexts(
   text: string;
   at: number;
   modelMessage: ModelMessage | null;
+  metadata: MessageRowMetadata | null;
 }[] {
   const rows = db
     .select({
@@ -224,6 +261,7 @@ export function listMessageTexts(
       text: messages.text,
       at: messages.at,
       modelMessage: messages.modelMessage,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
@@ -232,6 +270,7 @@ export function listMessageTexts(
     .map((row) => ({
       ...row,
       modelMessage: row.modelMessage ? (JSON.parse(row.modelMessage) as ModelMessage) : null,
+      metadata: row.metadata ? (JSON.parse(row.metadata) as MessageRowMetadata) : null,
     }));
   // One lineage: once a conversation has model_message rows (new
   // runtime or imported), older mirror-extracted rows are superseded.

@@ -29,6 +29,7 @@ import { AppHeader } from "@/components/app-header";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ChatMessageView } from "@/components/chat-session";
 import { HarnessEventLog, type HarnessEvent } from "@/components/harness-session-view";
+import { usePageContext } from "@/components/page-context";
 import { SandboxStatus } from "@/components/sandbox-status";
 import { MoveMenu } from "@/components/sidebar/move-menu";
 import type { FolderChoice } from "@/components/sidebar/types";
@@ -99,6 +100,16 @@ export function MachineRunView({
   const [panelSeq, setPanelSeq] = useState<number | null>(null);
   const [graphOpen, setGraphOpen] = useState(true);
   const overlay = useMemo(() => overlayFromVisits(visits, run), [visits, run]);
+
+  // 0015: the panel's "this" — the run, its status and current stage
+  // (re-registered every render, so a send reads the polled state).
+  usePageContext({
+    kind: "run",
+    id: run.id,
+    title: conversation.title ?? run.machineName,
+    runStatus: run.status,
+    ...(run.currentStage ? { currentStage: run.currentStage } : {}),
+  });
 
   // A graph node opens its latest visit's transcript (or the card, for
   // human gates) and scrolls the timeline to it.

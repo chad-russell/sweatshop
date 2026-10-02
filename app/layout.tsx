@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ConversationSidebar } from "@/components/conversation-sidebar";
+import { PageContextProvider } from "@/components/page-context";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "@/db";
@@ -32,19 +33,23 @@ export default async function RootLayout({
       <body className="flex min-h-full flex-col">
         <ThemeProvider>
           <TooltipProvider>
-            <div className="flex h-dvh w-full">
-              <ConversationSidebar
-                data={data}
-                inbox={{
-                  signature: attention.signature,
-                  unread: attention.unread.size,
-                  needsYou: attention.needsYou.size,
-                }}
-              />
-              {/* max-md gutter reserves the strip the floating sidebar
-                  trigger lives in (fixed top-left), on every page. */}
-              <main className="h-dvh min-w-0 flex-1 max-md:pl-12">{children}</main>
-            </div>
+            {/* 0015: pages register what they are; the agent panel reads
+                it at send time. Covers the main column and the panel. */}
+            <PageContextProvider>
+              <div className="flex h-dvh w-full">
+                <ConversationSidebar
+                  data={data}
+                  inbox={{
+                    signature: attention.signature,
+                    unread: attention.unread.size,
+                    needsYou: attention.needsYou.size,
+                  }}
+                />
+                {/* max-md gutter reserves the strip the floating sidebar
+                    trigger lives in (fixed top-left), on every page. */}
+                <main className="h-dvh min-w-0 flex-1 max-md:pl-12">{children}</main>
+              </div>
+            </PageContextProvider>
           </TooltipProvider>
         </ThemeProvider>
       </body>

@@ -1,4 +1,5 @@
 import type { ModelMessage, UIMessage } from "ai";
+import type { MessageRowMetadata } from "@/db/chat";
 
 /**
  * Rebuild the UI transcript from persisted rows (reload / initial render).
@@ -15,6 +16,8 @@ export interface StoredRow {
   text: string;
   at: number;
   modelMessage: ModelMessage | null;
+  /** 0015: row metadata — the user message's viewing context (chip). */
+  metadata?: MessageRowMetadata | null;
 }
 
 type ToolPart = {
@@ -46,7 +49,10 @@ export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
   const toolParts = new Map<string, ToolPart>();
   let current: UIMessage | null = null; // the open assistant message
 
-  const meta = (at: number) => ({ at: new Date(at).toISOString() });
+  const meta = (row: StoredRow) => ({
+    at: new Date(row.at).toISOString(),
+    ...(row.metadata?.viewing ? { viewing: row.metadata.viewing } : {}),
+  });
 
   for (const row of rows) {
     const message = row.modelMessage;
@@ -57,7 +63,7 @@ export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
         id: row.id,
         role: row.role === "assistant" ? "assistant" : "user",
         parts: [{ type: "text", text: row.text }],
-        metadata: meta(row.at),
+        metadata: meta(row),
       });
       continue;
     }
@@ -74,14 +80,14 @@ export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
         id: row.id,
         role: "user",
         parts: [{ type: "text", text }],
-        metadata: meta(row.at),
+        metadata: meta(row),
       });
       continue;
     }
 
     if (message.role === "assistant") {
       if (!current) {
-        current = { id: row.id, role: "assistant", parts: [], metadata: meta(row.at) };
+        current = { id: row.id, role: "assistant", parts: [], metadata: meta(row) };
         out.push(current);
       }
       if (typeof message.content === "string") {

@@ -23,6 +23,7 @@ import { parseDefinition, type MachineDefinition } from "@/lib/machines/definiti
 import * as edit from "@/lib/machines/edit";
 import { edgeId } from "@/lib/machines/layout";
 import { cn } from "@/lib/utils";
+import { usePageContext } from "@/components/page-context";
 import { LazyMachineGraph } from "./machine-graph-lazy";
 import { StagePanel, TransitionPanel } from "./stage-panel";
 import { useMachineVersionSync, type MachineSnapshot } from "./use-machine-version-sync";
@@ -201,6 +202,25 @@ export function MachineEditor({
     selection?.kind === "edge" && draft.stages[selection.source]?.next.some((t) => t.to === selection.target)
       ? selection
       : null;
+
+  // 0015: what the panel's "this" resolves to on this page — the machine
+  // plus the selected stage or transition. Re-registers on every render,
+  // so the selection a send reads is the current one.
+  usePageContext(
+    isNew
+      ? { kind: "other" }
+      : {
+          kind: "machine",
+          id: initial.id,
+          title: name,
+          selection:
+            selectedStage !== null
+              ? `stage ${selectedStage}`
+              : selectedEdge
+                ? `transition ${selectedEdge.source} → ${selectedEdge.target}`
+                : undefined,
+        },
+  );
 
   return (
     <div className="flex h-dvh w-full flex-col">
