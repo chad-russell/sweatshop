@@ -1,6 +1,6 @@
 # 0015 — Agent everywhere: machine tools and an always-available agent panel
 
-Status: **proposed (2026-10-02)** — awaiting Chad's approval.
+Status: **approved (2026-10-02)** — the panel toggle floats bottom-right.
 
 ## Goal
 
@@ -118,9 +118,9 @@ changes.
    shows in the sidebar with its "viewing" chip. Then from a run, "why
    did this fail?" uses `inspect` on the run in context.
 
-## Open questions
+## Resolved questions
 
-1. Should the panel's toggle button float (bottom-right, always visible)
-   or live in the sidebar footer next to the theme toggle? Proposed:
-   floating, because it is reachable from every page, including when the
-   sidebar is collapsed on mobile.
+1. The panel's toggle button **floats bottom-right**, always visible,
+   rather than living in the sidebar footer — it is reachable from every
+   page, including when the sidebar is collapsed on mobile. (Chad,
+   2026-10-02.)
