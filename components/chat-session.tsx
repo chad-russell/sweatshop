@@ -6,6 +6,7 @@ import { useChat } from "@ai-sdk/react";
 import { nanoid } from "nanoid";
 import { Check, ChevronDown, Copy, Eye, GitPullRequest, MessageSquarePlus, RotateCcw } from "lucide-react";
 import {
+  Fragment,
   memo,
   useEffect,
   useImperativeHandle,
@@ -36,12 +37,20 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
+import {
+  EditMachineCard,
+  InspectCard,
+  MachineCard,
+  SandboxExecCard,
+  StartMachineCard,
+} from "@/components/ai-elements/agent-cards";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { HarnessCard } from "@/components/harness-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Spinner } from "@/components/ui/spinner";
 import { DEFAULT_CHAT_MODEL, findChatModel } from "@/lib/model";
+import type { ToolState } from "@/lib/machine-tool-view";
 import type { ViewingContext } from "@/lib/page-context";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { copyText } from "@/lib/clipboard";
@@ -335,6 +344,46 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
   );
 }
 
+const AGENT_TOOLS = new Set([
+  "list_machines",
+  "get_machine",
+  "create_machine",
+  "edit_machine",
+  "start_machine",
+  "inspect",
+  "sandbox_exec",
+]);
+
+/** The designed card for a machine / run / inspect tool call, if it has one. */
+function agentToolCard(part: ToolUIPart): ReactNode {
+  const name = part.type.replace(/^tool-/, "");
+  if (!AGENT_TOOLS.has(name)) return null;
+  const state: ToolState =
+    part.state === "output-available" ? "completed" : part.state === "output-error" || part.state === "output-denied" ? "error" : "running";
+  const shared = {
+    state,
+    input: part.state === "input-streaming" ? undefined : part.input,
+    output: part.state === "output-available" ? part.output : undefined,
+    errorText: part.state === "output-error" ? (part.errorText ?? "tool failed") : part.state === "output-denied" ? "denied" : undefined,
+  };
+  switch (name) {
+    case "list_machines":
+    case "get_machine":
+    case "create_machine":
+      return <MachineCard tool={name} {...shared} />;
+    case "edit_machine":
+      return <EditMachineCard {...shared} />;
+    case "start_machine":
+      return <StartMachineCard {...shared} />;
+    case "inspect":
+      return <InspectCard {...shared} />;
+    case "sandbox_exec":
+      return <SandboxExecCard {...shared} />;
+    default:
+      return null;
+  }
+}
+
 /** One tool call, collapsed by default. */
 const ToolCallView = ({ part }: { part: ToolUIPart }) => {
   const input = part.state === "input-streaming" ? undefined : part.input;
@@ -477,6 +526,8 @@ export const ChatMessageView = memo(function ChatMessageView({
             if (toolPart.type === "tool-create_pr") {
               return <PullRequestToolCard key={i} part={toolPart} />;
             }
+            const agentCard = agentToolCard(toolPart);
+            if (agentCard) return <Fragment key={i}>{agentCard}</Fragment>;
             return <ToolCallView key={i} part={toolPart} />;
           }
           return null;

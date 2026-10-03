@@ -4,6 +4,7 @@ import { Box, FileText, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { TransitionCard } from "@/components/ai-elements/agent-cards";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { FileCard } from "@/components/ai-elements/file-card";
 import { ListCard } from "@/components/ai-elements/list-card";
@@ -104,6 +105,9 @@ function HarnessToolCall({ item }: { item: Extract<TimelineItem, { type: "tool" 
     return (
       <ListCard tool={item.toolName} state={cardState} input={input} output={plainOutput} errorText={errorText} />
     );
+  }
+  if (item.toolName === "transition") {
+    return <TransitionCard state={cardState} input={input} output={plainOutput} errorText={errorText} />;
   }
   if (item.toolName === "bash") {
     return (

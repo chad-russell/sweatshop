@@ -1,0 +1,586 @@
+"use client";
+
+import {
+  ArrowRightIcon,
+  ArrowUpRightIcon,
+  ChevronDownIcon,
+  CircleCheckIcon,
+  CircleDotIcon,
+  CircleXIcon,
+  FlagIcon,
+  GitForkIcon,
+  HandIcon,
+  Loader2Icon,
+  MinusIcon,
+  PencilLineIcon,
+  PlayIcon,
+  PlusIcon,
+  SearchCodeIcon,
+  UnplugIcon,
+  WorkflowIcon,
+  type LucideIcon,
+} from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState, type ReactNode } from "react";
+import { BashTerminal } from "@/components/ai-elements/bash-terminal";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { HarnessMark } from "@/components/harness-logo";
+import { SandboxChip } from "@/components/sandbox-view";
+import {
+  describeOps,
+  execOf,
+  failureOf,
+  inspectOf,
+  machineList,
+  machineOf,
+  machineResult,
+  runStarted,
+  transitionOf,
+  type FlowStage,
+  type InspectView,
+  type MachineView,
+  type OpLine,
+  type ToolState,
+} from "@/lib/machine-tool-view";
+import { objectOf } from "@/lib/tool-fields";
+import { cn } from "@/lib/utils";
+
+// --- shell --------------------------------------------------------------------
+
+type Tone = "running" | "ok" | "fail" | "warn" | "neutral";
+
+function Pill({ tone, label }: { tone: Tone; label: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-none",
+        tone === "running" && "border-info/30 bg-info/10 text-info",
+        tone === "ok" && "border-success/30 bg-success/10 text-success",
+        tone === "fail" && "border-destructive/30 bg-destructive/10 text-destructive",
+        tone === "warn" && "border-warning/30 bg-warning/10 text-warning",
+        tone === "neutral" && "border-border bg-muted/50 text-muted-foreground",
+      )}
+    >
+      <span aria-hidden className={cn("size-1.5 rounded-full bg-current", tone === "running" && "animate-pulse")} />
+      {label}
+    </span>
+  );
+}
+
+/** The shared look: header (icon · title · subtitle · pill · extra), optional
+ *  collapsible body, optional failure strip. */
+function Card({
+  icon: Icon,
+  title,
+  subtitle,
+  tone,
+  pill,
+  extra,
+  link,
+  failed,
+  errorLines,
+  defaultOpen = false,
+  children,
+  className,
+}: {
+  icon: LucideIcon;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  tone: Tone;
+  pill: string;
+  extra?: ReactNode;
+  link?: { href: string; label: string };
+  failed?: boolean;
+  errorLines?: string[];
+  defaultOpen?: boolean;
+  children?: ReactNode;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const hasBody = Boolean(children);
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className={cn(
+        "group not-prose my-1 w-full overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm",
+        failed ? "border-destructive/40" : "border-border",
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2.5 px-3 py-2">
+        <Icon className={cn("size-4 shrink-0", failed ? "text-destructive" : "text-muted-foreground")} aria-hidden />
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <span className="shrink-0 text-xs text-muted-foreground">{title}</span>
+          {subtitle && <span className="min-w-0 truncate font-mono text-[12.5px] font-medium">{subtitle}</span>}
+        </div>
+        {extra}
+        <Pill tone={tone} label={pill} />
+        {link && (
+          <Link
+            href={link.href}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-ring hover:text-foreground"
+          >
+            {link.label}
+            <ArrowUpRightIcon className="size-3" aria-hidden />
+          </Link>
+        )}
+        {hasBody && (
+          <CollapsibleTrigger
+            aria-label={open ? "Hide details" : "Show details"}
+            className="-mr-1 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+        )}
+      </div>
+      {hasBody && (
+        <CollapsibleContent>
+          <div className="border-t border-border bg-muted/30">{children}</div>
+        </CollapsibleContent>
+      )}
+      {errorLines && errorLines.length > 0 && (
+        <ul className="space-y-0.5 border-t border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-[11px] text-destructive">
+          {errorLines.map((line, i) => (
+            <li key={i} className="break-words">
+              {line}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Collapsible>
+  );
+}
+
+const statePill = (state: ToolState, failed: boolean): { tone: Tone; pill: string } =>
+  failed ? { tone: "fail", pill: "failed" } : state === "running" ? { tone: "running", pill: "running" } : { tone: "ok", pill: "done" };
+
+/** Failure lines for a card: the tool's own `ok:false` (with its issues) or a thrown error. */
+function failureLines(output: unknown, errorText?: string): string[] | undefined {
+  const f = failureOf(output);
+  if (f) return [f.message, ...f.issues];
+  return errorText ? [errorText] : undefined;
+}
+
+// --- machine flow --------------------------------------------------------------
+
+const KIND_ICON: Record<string, LucideIcon> = { human: HandIcon, agent: WorkflowIcon, harness: PlayIcon };
+
+function StageChip({ stage }: { stage: FlowStage }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs">
+      {stage.kind === "harness" && stage.harness ? (
+        <HarnessMark kind={stage.harness} className="size-3.5" />
+      ) : (
+        (() => {
+          const I = KIND_ICON[stage.kind] ?? CircleDotIcon;
+          return <I className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />;
+        })()
+      )}
+      <span className="font-medium">{stage.title}</span>
+    </span>
+  );
+}
+
+/** The machine as a walk: stage chips joined by arrows; branches listed under their stage. */
+function FlowView({ flow }: { flow: FlowStage[] }) {
+  const titles = new Map(flow.map((s) => [s.id, s.title]));
+  return (
+    <div className="space-y-2 px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+        {flow.map((stage, i) => (
+          <span key={stage.id} className="inline-flex items-center gap-1.5">
+            <StageChip stage={stage} />
+            {i < flow.length - 1 && <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground/60" aria-hidden />}
+          </span>
+        ))}
+        <FlagIcon className="size-3.5 shrink-0 text-muted-foreground/60" aria-label="end" />
+      </div>
+      {flow.some((s) => s.next.length > 1) && (
+        <ul className="space-y-0.5 font-mono text-[11px] text-muted-foreground">
+          {flow
+            .filter((s) => s.next.length > 1)
+            .map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center gap-1.5">
+                <GitForkIcon className="size-3 shrink-0" aria-hidden />
+                <span className="text-foreground">{s.title}</span>
+                <ArrowRightIcon className="size-3" aria-hidden />
+                {s.next.map((to, i) => (
+                  <span key={to}>
+                    {titles.get(to) ?? to}
+                    {i < s.next.length - 1 ? "," : ""}
+                  </span>
+                ))}
+              </li>
+            ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function machineMeta(m: MachineView): string {
+  return [
+    m.stageCount !== undefined ? `${m.stageCount} ${m.stageCount === 1 ? "stage" : "stages"}` : null,
+    m.version !== undefined ? `v${m.version}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function MetaChip({ children }: { children: ReactNode }) {
+  return <span className="hidden shrink-0 font-mono text-[11px] text-muted-foreground sm:inline">{children}</span>;
+}
+
+// --- cards ---------------------------------------------------------------------
+
+export function MachineCard({
+  tool,
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  tool: "get_machine" | "create_machine" | "list_machines";
+  state: ToolState;
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const errors = failureLines(output, errorText);
+  const failed = state === "error" || Boolean(failureOf(output));
+  const sp = statePill(state, failed);
+
+  if (tool === "list_machines") {
+    const machines = machineList(output);
+    return (
+      <Card
+        icon={WorkflowIcon}
+        title="Machines"
+        subtitle={state === "completed" && !failed ? `${machines.length} available` : undefined}
+        {...sp}
+        failed={failed}
+        errorLines={errors}
+        defaultOpen={machines.length > 0 && machines.length <= 6}
+      >
+        {machines.length > 0 && (
+          <ul className="divide-y divide-border">
+            {machines.map((m) => (
+              <li key={m.id} className="flex items-baseline gap-3 px-3 py-2">
+                <Link href={`/machines/${m.id}`} className="shrink-0 text-sm font-medium underline-offset-2 hover:underline">
+                  {m.name}
+                </Link>
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{m.description}</span>
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{machineMeta(m)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    );
+  }
+
+  const machine = machineResult(output);
+  const idFromInput = objectOf(input)?.id;
+  const name = machine?.name ?? (typeof objectOf(input)?.name === "string" ? (objectOf(input)!.name as string) : typeof idFromInput === "string" ? idFromInput : "…");
+  return (
+    <Card
+      icon={WorkflowIcon}
+      title={tool === "create_machine" ? (state === "running" ? "Creating machine" : "Created machine") : "Machine"}
+      subtitle={name}
+      extra={machine && <MetaChip>{machineMeta(machine)}</MetaChip>}
+      link={machine ? { href: `/machines/${machine.id}`, label: "Open" } : undefined}
+      {...sp}
+      failed={failed}
+      errorLines={errors}
+      defaultOpen={Boolean(machine?.flow.length)}
+    >
+      {machine && (machine.flow.length > 0 || machine.description) ? (
+        <>
+          {machine.description && <p className="px-3 pt-2.5 text-xs text-muted-foreground">{machine.description}</p>}
+          {machine.flow.length > 0 && <FlowView flow={machine.flow} />}
+        </>
+      ) : undefined}
+    </Card>
+  );
+}
+
+const OP_STYLE: Record<OpLine["tone"], { icon: LucideIcon; className: string }> = {
+  add: { icon: PlusIcon, className: "text-success" },
+  remove: { icon: MinusIcon, className: "text-destructive" },
+  change: { icon: PencilLineIcon, className: "text-info" },
+  link: { icon: ArrowRightIcon, className: "text-muted-foreground" },
+  unlink: { icon: UnplugIcon, className: "text-muted-foreground" },
+};
+
+export function EditMachineCard({
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  state: ToolState;
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const ops = useMemo(() => describeOps(objectOf(input)?.ops), [input]);
+  const failure = failureOf(output);
+  const failed = state === "error" || Boolean(failure);
+  const machine = machineResult(output);
+  const id = objectOf(input)?.id;
+  const base = objectOf(input)?.baseVersion;
+  const sp = statePill(state, failed);
+  const conflict = failure?.code === "conflict";
+
+  return (
+    <Card
+      icon={PencilLineIcon}
+      title={state === "running" ? "Editing machine" : failed ? "Couldn't edit machine" : "Edited machine"}
+      subtitle={machine?.name ?? (typeof id === "string" ? id : "…")}
+      extra={
+        <>
+          {ops.length > 0 && <MetaChip>{ops.length} {ops.length === 1 ? "change" : "changes"}</MetaChip>}
+          {machine?.version !== undefined && typeof base === "number" && (
+            <MetaChip>
+              v{base} → v{machine.version}
+            </MetaChip>
+          )}
+        </>
+      }
+      link={machine ? { href: `/machines/${machine.id}`, label: "Open" } : undefined}
+      {...(conflict ? { tone: "warn" as const, pill: "conflict" } : sp)}
+      failed={failed && !conflict}
+      errorLines={failureLines(output, errorText)}
+      defaultOpen={ops.length > 0 && ops.length <= 8}
+    >
+      {ops.length > 0 ? (
+        <ul className="divide-y divide-border/60">
+          {ops.map((op, i) => {
+            const s = OP_STYLE[op.tone];
+            return (
+              <li key={i} className="flex items-baseline gap-2 px-3 py-1.5 text-[12.5px]">
+                <s.icon className={cn("size-3.5 shrink-0 translate-y-0.5", s.className)} aria-hidden />
+                <span className="font-medium">{op.text}</span>
+                {op.detail && <span className="min-w-0 truncate text-muted-foreground">{op.detail}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      ) : undefined}
+    </Card>
+  );
+}
+
+export function StartMachineCard({
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  state: ToolState;
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const run = runStarted(output);
+  const i = objectOf(input);
+  const prompt = typeof i?.prompt === "string" ? i.prompt : undefined;
+  const failed = state === "error" || Boolean(failureOf(output));
+  const sp = statePill(state, failed);
+  return (
+    <Card
+      icon={PlayIcon}
+      title={state === "running" ? "Starting run" : "Started run"}
+      subtitle={typeof i?.machineId === "string" ? i.machineId : "…"}
+      extra={run?.sandbox ? <MetaChip>{run.sandbox === "inherited" ? "this sandbox" : run.sandbox === "own" ? "own sandbox" : "no sandbox"}</MetaChip> : undefined}
+      link={run ? { href: run.url, label: "Open run" } : undefined}
+      {...sp}
+      failed={failed}
+      errorLines={failureLines(output, errorText)}
+      defaultOpen={Boolean(prompt)}
+    >
+      {prompt ? (
+        <p className="whitespace-pre-wrap break-words border-l-2 border-border py-2 pl-3 pr-3 text-[13px] leading-relaxed text-muted-foreground">
+          {prompt}
+        </p>
+      ) : undefined}
+    </Card>
+  );
+}
+
+const VISIT_TONE: Record<string, { Icon: LucideIcon; className: string }> = {
+  completed: { Icon: CircleCheckIcon, className: "text-success" },
+  failed: { Icon: CircleXIcon, className: "text-destructive" },
+  running: { Icon: Loader2Icon, className: "animate-spin text-info" },
+  waiting: { Icon: CircleDotIcon, className: "text-warning" },
+  parked: { Icon: CircleDotIcon, className: "text-warning" },
+};
+
+function InspectBody({ view }: { view: InspectView }) {
+  return (
+    <div className="space-y-2.5 px-3 py-2.5 text-[12.5px]">
+      {view.prompt && <p className="whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-muted-foreground">{view.prompt}</p>}
+      {view.error && <p className="font-mono text-[11px] text-destructive">{view.error}</p>}
+      {view.visits.length > 0 && (
+        <ol className="space-y-1">
+          {view.visits.map((v) => {
+            const t = VISIT_TONE[v.status] ?? { Icon: CircleDotIcon, className: "text-muted-foreground" };
+            return (
+              <li key={v.seq} className="flex items-center gap-2">
+                <t.Icon className={cn("size-3.5 shrink-0", t.className)} aria-hidden />
+                {v.harness && <HarnessMark kind={v.harness} className="size-3.5" />}
+                <span className="font-medium">{v.stage}</span>
+                <span className="text-muted-foreground">{v.status}</span>
+                {v.to && (
+                  <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+                    <ArrowRightIcon className="size-3" aria-hidden />
+                    {v.to}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {view.harnessRuns.length > 0 && (
+        <ul className="space-y-1">
+          {view.harnessRuns.map((h) => (
+            <li key={h.harness} className="flex items-center gap-2">
+              <HarnessMark kind={h.harness} className="size-3.5" />
+              <span className="font-medium">{h.harness}</span>
+              <span className="text-muted-foreground">
+                {h.status} · {h.toolCalls} tool {h.toolCalls === 1 ? "call" : "calls"}
+              </span>
+              {h.error && <span className="truncate font-mono text-[11px] text-destructive">{h.error}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {(view.messages !== undefined || view.sandbox?.startsWith("sbx_")) && (
+        <p className="flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-muted-foreground">
+          {view.messages !== undefined && <span>{view.messages} messages</span>}
+          {view.sandbox?.startsWith("sbx_") && (
+            <Link href={`/sandboxes/${view.sandbox}`} className="underline-offset-2 hover:text-foreground hover:underline">
+              {view.sandbox}
+            </Link>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function InspectCard({
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  state: ToolState;
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const view = useMemo(() => inspectOf(output), [output]);
+  const id = objectOf(input)?.id;
+  const failed = state === "error";
+  const sp = statePill(state, failed);
+  const status = view?.status;
+  const tone: Tone = failed ? "fail" : state === "running" ? "running" : status === "failed" ? "fail" : status === "running" ? "running" : status === "waiting" || status === "parked" ? "warn" : "ok";
+  const href = view ? (view.kind === "run" ? `/r/${view.id}` : view.kind === "chat" ? `/c/${view.id}` : undefined) : undefined;
+  const hasBody = view && (view.prompt || view.error || view.visits.length || view.harnessRuns.length || view.messages !== undefined || view.sandbox?.startsWith("sbx_"));
+  return (
+    <Card
+      icon={SearchCodeIcon}
+      title="Inspected"
+      subtitle={view ? `${view.kind === "run" ? (view.machine ?? "run") : (view.title ?? view.kind)}` : typeof id === "string" ? id : "…"}
+      link={href ? { href, label: "Open" } : undefined}
+      tone={tone}
+      pill={failed ? "failed" : state === "running" ? "running" : (status ?? (view?.busy ? "busy" : "done"))}
+      failed={failed}
+      errorLines={failureLines(output, errorText)}
+      defaultOpen={Boolean(view && view.visits.length > 0 && view.visits.length <= 8)}
+    >
+      {hasBody ? <InspectBody view={view} /> : undefined}
+    </Card>
+  );
+}
+
+/** sandbox_exec is a bash call in disguise: the terminal card, labelled with where it ran. */
+export function SandboxExecCard({
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  state: ToolState;
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const exec = execOf(output);
+  const target = objectOf(input)?.target;
+  return (
+    <BashTerminal
+      className="my-1"
+      state={state === "running" ? "input-available" : state === "error" ? "output-error" : "output-available"}
+      input={objectOf(input)}
+      output={exec ? { exitCode: exec.exitCode, stdout: exec.stdout, stderr: exec.stderr } : undefined}
+      errorText={errorText ?? failureLines(output)?.join("\n")}
+      extra={
+        exec?.sandboxId || typeof target === "string" ? (
+          <Link
+            href={exec?.sandboxId ? `/sandboxes/${exec.sandboxId}` : "#"}
+            title={exec?.workDir ? `${exec.sandboxId} · ${exec.workDir}` : undefined}
+            className="max-w-40 truncate rounded-full border border-terminal-border px-2 py-0.5 font-mono text-[10px] text-terminal-muted transition-colors hover:text-terminal-foreground"
+          >
+            {exec?.sandboxId ?? String(target)}
+          </Link>
+        ) : undefined
+      }
+    />
+  );
+}
+
+/** A stage's hand-off: one quiet line — where the run goes next, and why. */
+export function TransitionCard({
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  state: ToolState;
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const t = transitionOf(input, output);
+  const failed = state === "error" || !t.ok;
+  const ending = t.to === "end";
+  return (
+    <div
+      className={cn(
+        "not-prose my-1 flex items-start gap-2.5 rounded-lg border px-3 py-2 text-card-foreground",
+        failed ? "border-destructive/40 bg-destructive/5" : "border-border bg-card",
+      )}
+    >
+      {ending ? (
+        <FlagIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+      ) : (
+        <ArrowRightIcon className={cn("mt-0.5 size-4 shrink-0", failed ? "text-destructive" : "text-muted-foreground")} aria-hidden />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-[12.5px]">
+          <span className="text-muted-foreground">{failed ? "Couldn't hand off to" : ending ? "Finished the run" : "Handed off to"}</span>{" "}
+          {!ending && <span className="font-mono font-medium">{t.to}</span>}
+        </p>
+        {t.reason && <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{t.reason}</p>}
+        {failed && (errorText || t.note) && <p className="mt-0.5 font-mono text-[11px] text-destructive">{errorText ?? t.note}</p>}
+      </div>
+      {state === "running" && <Pill tone="running" label="running" />}
+    </div>
+  );
+}
+
+export { SandboxChip };
