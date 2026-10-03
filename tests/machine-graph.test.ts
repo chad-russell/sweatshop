@@ -19,7 +19,7 @@ import {
   updateStage,
   updateTransition,
 } from "../lib/machines/edit";
-import { layoutMachine, NODE_HEIGHT, NODE_WIDTH } from "../lib/machines/layout";
+import { layoutMachine, NODE_HEIGHT, NODE_WIDTH, pickDirection } from "../lib/machines/layout";
 
 /** 0014: the pure graph core — layout and edit operations. */
 
@@ -76,6 +76,32 @@ describe("layoutMachine", () => {
     expect(one).toEqual(layoutMachine(draft));
     expect(one.edges.some((e) => e.target === "ghost")).toBe(false);
     expect(one.nodes.find((n) => n.id === "orphan")).toBeDefined();
+  });
+});
+
+describe("top-to-bottom layout", () => {
+  it.each(SEEDS)("lays out %s with no overlaps and ranks running down", (name) => {
+    const def = seed(name);
+    const { nodes, edges, direction, width, height } = layoutMachine(def, "TB");
+    expect(direction).toBe("TB");
+    for (let i = 0; i < nodes.length; i += 1) {
+      for (let j = i + 1; j < nodes.length; j += 1) expect(overlaps(nodes[i]!, nodes[j]!)).toBe(false);
+    }
+    const y = new Map(nodes.map((n) => [n.id, n.y]));
+    for (const e of edges.filter((x) => !x.back)) expect(y.get(e.target)!).toBeGreaterThan(y.get(e.source)!);
+    expect(Math.min(...nodes.map((n) => n.x))).toBeGreaterThanOrEqual(0);
+    expect(width).toBeGreaterThanOrEqual(NODE_WIDTH);
+    expect(height).toBeGreaterThan(0);
+    // same graph, same ranks, whichever way it flows
+    const lr = layoutMachine(def, "LR");
+    expect(nodes.map((n) => [n.id, n.rank])).toEqual(lr.nodes.map((n) => [n.id, n.rank]));
+  });
+
+  it("picks vertical for a narrow container, horizontal for a wide one", () => {
+    const def = seed("think");
+    expect(pickDirection(def, { width: 360, height: 700 })).toBe("TB");
+    expect(pickDirection(def, { width: 1200, height: 600 })).toBe("LR");
+    expect(pickDirection(def, { width: 0, height: 0 })).toBe("LR");
   });
 });
 

@@ -11,13 +11,23 @@ import {
   type EdgeProps,
   type Node as FlowNode,
   type NodeProps,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import { AlertTriangle, Bot, Flag, Hand, Play, Terminal } from "lucide-react";
-import { memo, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { Canvas } from "@/components/ai-elements/canvas";
 import { Controls } from "@/components/ai-elements/controls";
 import { END, type MachineDefinition, type Stage } from "@/lib/machines/definition";
-import { END_WIDTH, layoutMachine, NODE_HEIGHT, NODE_WIDTH, type LayoutEdge } from "@/lib/machines/layout";
+import {
+  END_WIDTH,
+  layoutMachine,
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  pickDirection,
+  type LayoutDirection,
+  type LayoutEdge,
+} from "@/lib/machines/layout";
+import { useElementSize } from "@/lib/use-element-size";
 import { HarnessMark } from "@/components/harness-logo";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +73,7 @@ interface StageData extends Record<string, unknown> {
   waiting: boolean;
   issues?: readonly string[];
   connectable: boolean;
+  vertical: boolean;
 }
 
 interface TransitionData extends Record<string, unknown> {
@@ -70,6 +81,7 @@ interface TransitionData extends Record<string, unknown> {
   taken: boolean;
   animated: boolean;
   muted: boolean;
+  vertical: boolean;
   issues?: readonly string[];
 }
 
@@ -83,9 +95,9 @@ const StageNode = memo(function StageNode({ data, selected }: NodeProps<FlowNode
   const { stage, id } = data;
   const handles = (
     <>
-      <Handle type="target" position={Position.Left} isConnectable={data.connectable} className="size-2! border-border! bg-muted-foreground!" />
+      <Handle type="target" position={data.vertical ? Position.Top : Position.Left} isConnectable={data.connectable} className="size-2! border-border! bg-muted-foreground!" />
       {stage && (
-        <Handle type="source" position={Position.Right} isConnectable={data.connectable} className="size-2! border-border! bg-muted-foreground!" />
+        <Handle type="source" position={data.vertical ? Position.Bottom : Position.Right} isConnectable={data.connectable} className="size-2! border-border! bg-muted-foreground!" />
       )}
     </>
   );
@@ -151,10 +163,11 @@ const StageNode = memo(function StageNode({ data, selected }: NodeProps<FlowNode
 });
 
 /**
- * Forward edges: a bezier left→right. Back edges (loops) leave the
- * source's right side, dip under both nodes, and enter the target's
- * left side — so a loop reads as "goes back" instead of crossing the
- * graph.
+ * Forward edges: a bezier along the flow (left→right, or top→bottom in
+ * the vertical layout). Back edges (loops) leave the source, swing round
+ * the outside of both nodes, and re-enter the target — under them when
+ * horizontal, down the right-hand side when vertical — so a loop reads
+ * as "goes back" instead of crossing the graph.
  */
 const TransitionEdge = memo(function TransitionEdge(props: EdgeProps<FlowEdge<TransitionData>>) {
   const { data, sourceX, sourceY, targetX, targetY, markerEnd, selected } = props;
@@ -162,7 +175,19 @@ const TransitionEdge = memo(function TransitionEdge(props: EdgeProps<FlowEdge<Tr
   let path: string;
   let labelX: number;
   let labelY: number;
-  if (data.edge.back) {
+  const vertical = data.vertical;
+  if (data.edge.back && vertical) {
+    const side = Math.max(sourceX, targetX) + NODE_WIDTH / 2 + 28;
+    const r = 28;
+    path = [
+      `M ${sourceX} ${sourceY}`,
+      `C ${sourceX} ${sourceY + r}, ${side} ${sourceY + r}, ${side} ${sourceY}`,
+      `L ${side} ${targetY}`,
+      `C ${side} ${targetY - r}, ${targetX} ${targetY - r}, ${targetX} ${targetY}`,
+    ].join(" ");
+    labelX = side;
+    labelY = (sourceY + targetY) / 2;
+  } else if (data.edge.back) {
     const dip = Math.max(sourceY, targetY) + NODE_HEIGHT / 2 + 28;
     const out = 28;
     path = [
@@ -177,10 +202,10 @@ const TransitionEdge = memo(function TransitionEdge(props: EdgeProps<FlowEdge<Tr
     [path, labelX, labelY] = getBezierPath({
       sourceX,
       sourceY,
-      sourcePosition: Position.Right,
+      sourcePosition: vertical ? Position.Bottom : Position.Right,
       targetX,
       targetY,
-      targetPosition: Position.Left,
+      targetPosition: vertical ? Position.Top : Position.Left,
     });
   }
   const broken = Boolean(data.issues?.length);
@@ -229,6 +254,9 @@ const TransitionEdge = memo(function TransitionEdge(props: EdgeProps<FlowEdge<Tr
   );
 });
 
+/** Lowest zoom a fit may choose; past it the layout flips orientation instead. */
+const FIT_MIN_ZOOM = 0.45;
+
 const nodeTypes = { stage: StageNode };
 const edgeTypes = { transition: TransitionEdge };
 
@@ -246,6 +274,8 @@ export interface MachineGraphProps {
   onDelete?: (target: { node?: string; edge?: { source: string; target: string } }) => void;
   /** Hide the zoom controls (short strips, e.g. the run view). */
   compact?: boolean;
+  /** Flow direction; "auto" (default) picks whichever fits the container better. */
+  direction?: LayoutDirection | "auto";
   className?: string;
 }
 
@@ -260,9 +290,50 @@ export function MachineGraph({
   onConnect,
   onDelete,
   compact = false,
+  direction = "auto",
   className,
 }: MachineGraphProps) {
-  const layout = useMemo(() => layoutMachine(definition), [definition]);
+  const [sizeRef, size] = useElementSize<HTMLDivElement>();
+  const dir: LayoutDirection = direction === "auto" ? (size ? pickDirection(definition, size) : "LR") : direction;
+  const vertical = dir === "TB";
+  const layout = useMemo(() => layoutMachine(definition, dir), [definition, dir]);
+  const fitOptions = useMemo(() => ({ padding: 0.1, maxZoom: 1, minZoom: FIT_MIN_ZOOM }), []);
+
+  // The viewport follows the container (sidebar / agent panel / inspector
+  // opening) until the person pans or zooms themselves.
+  const flow = useRef<ReactFlowInstance | null>(null);
+  const touched = useRef(false);
+  const frame = useCallback(() => {
+    const f = flow.current;
+    if (!f) return;
+    void f.fitView(fitOptions).then(() => {
+      // fitView may stop at its minimum zoom with the graph still larger
+      // than the canvas, centring it and pushing `start` off-screen. Graphs
+      // read from the start, so anchor that edge instead.
+      const { x, y, zoom } = f.getViewport();
+      if (x < 0 || y < 0) f.setViewport({ x: x < 0 ? 24 : x, y: y < 0 ? 24 : y, zoom });
+    });
+  }, [fitOptions]);
+  const width = size?.width;
+  const height = size?.height;
+  useEffect(() => {
+    if (width === undefined || touched.current) return;
+    frame();
+  }, [width, height, frame]);
+
+  // Selecting a stage keeps it in view: pan (never zoom) if it is off-screen.
+  const selectedNode = selection?.node;
+  useEffect(() => {
+    const f = flow.current;
+    if (!f || !selectedNode || width === undefined || height === undefined) return;
+    const n = layout.nodes.find((x) => x.id === selectedNode);
+    if (!n) return;
+    const { x, y, zoom } = f.getViewport();
+    const left = n.x * zoom + x;
+    const top = n.y * zoom + y;
+    if (left >= 0 && top >= 0 && left + NODE_WIDTH * zoom <= width && top + NODE_HEIGHT * zoom <= height) return;
+    void f.setCenter(n.x + NODE_WIDTH / 2, n.y + NODE_HEIGHT / 2, { zoom, duration: 200 });
+  }, [selectedNode, width, height, layout]);
 
   const nodes = useMemo<FlowNode<StageData>[]>(
     () =>
@@ -282,9 +353,10 @@ export function MachineGraph({
           waiting: Boolean(overlay?.waiting && overlay.current === n.id),
           issues: issues?.nodes.get(n.id),
           connectable: editable,
+          vertical,
         },
       })),
-    [layout, definition, overlay, issues, selection?.node, editable, onSelectNode],
+    [layout, definition, overlay, issues, selection?.node, editable, onSelectNode, vertical],
   );
 
   const edges = useMemo<FlowEdge<TransitionData>[]>(
@@ -309,25 +381,26 @@ export function MachineGraph({
             taken,
             animated: Boolean(overlay?.live && taken),
             muted: Boolean(overlay && !taken),
+            vertical,
             issues: issues?.edges.get(e.id),
           },
         };
       }),
-    [layout, overlay, issues, selection?.edge, onSelectEdge],
+    [layout, overlay, issues, selection?.edge, onSelectEdge, vertical],
   );
 
   return (
-    <div className={cn("relative h-full w-full", className)}>
+    <div ref={sizeRef} className={cn("relative h-full w-full", className)}>
       <Canvas
         // Remount when the shape changes so fitView re-frames it.
-        key={layout.nodes.map((n) => n.id).join("|")}
+        key={`${dir}:${layout.nodes.map((n) => n.id).join("|")}`}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        // Readability over seeing everything: a long chain stays legible
-        // (pan to see the rest) instead of shrinking to fit.
-        fitViewOptions={{ padding: 0.1, maxZoom: 1, minZoom: compact ? 0.45 : 0.6 }}
+        // Fit the whole graph down to a legible floor; below it, the
+        // automatic direction flips to vertical rather than shrinking more.
+        fitViewOptions={fitOptions}
         minZoom={0.3}
         nodesDraggable={false}
         nodesConnectable={editable}
@@ -336,12 +409,14 @@ export function MachineGraph({
         panOnDrag
         deleteKeyCode={editable ? ["Backspace", "Delete"] : null}
         proOptions={{ hideAttribution: true }}
-        onInit={(flow) => {
-          // fitView may stop at its minimum zoom with the graph still wider
-          // than the canvas, centring it and pushing `start` off-screen.
-          // Graphs read left to right, so anchor the left edge instead.
-          const { x, y, zoom } = flow.getViewport();
-          if (x < 0) flow.setViewport({ x: 24, y, zoom });
+        onInit={(instance) => {
+          flow.current = instance;
+          touched.current = false;
+          frame();
+        }}
+        onMoveStart={(event) => {
+          // programmatic moves (fitView, setCenter) carry no event
+          if (event) touched.current = true;
         }}
         onNodeClick={(_, node) => onSelectNode?.(node.id === END ? null : node.id)}
         onEdgeClick={(_, edge) => onSelectEdge?.({ id: edge.id, source: edge.source, target: edge.target })}
@@ -361,7 +436,16 @@ export function MachineGraph({
           return false;
         }}
       >
-        {!compact && <Controls showInteractive={false} position="bottom-left" />}
+        {!compact && (
+          <Controls
+            showInteractive={false}
+            position="bottom-left"
+            fitViewOptions={fitOptions}
+            onFitView={() => {
+              touched.current = false;
+            }}
+          />
+        )}
       </Canvas>
     </div>
   );

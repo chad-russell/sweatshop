@@ -12,7 +12,10 @@ import { END, type MachineDefinition } from "./definition";
  *     rank; unreachable stages still get a rank from their own sources;
  *  3. order within a rank: a few barycenter sweeps to reduce crossings,
  *     seeded by definition order so the result is deterministic;
- *  4. coordinates: rank → x, slot → y, each rank centred vertically.
+ *  4. coordinates: rank → x, slot → y, each rank centred vertically
+ *     ("LR"); or rank → y, slot → x, each rank centred horizontally
+ *     ("TB" — for narrow containers and phones, where a long chain reads
+ *     by scrolling down instead of panning sideways).
  *
  * Pure (no Node, no React) — used by the graph views and unit tests.
  */
@@ -39,7 +42,11 @@ export interface LayoutEdge {
   when?: string;
 }
 
+/** Flow direction: left→right or top→bottom. */
+export type LayoutDirection = "LR" | "TB";
+
 export interface Layout {
+  direction: LayoutDirection;
   nodes: LayoutNode[];
   edges: LayoutEdge[];
   width: number;
@@ -52,6 +59,9 @@ export const NODE_HEIGHT = 84;
 export const END_WIDTH = 96;
 const RANK_GAP = 120;
 const SLOT_GAP = 36;
+/** Top→bottom: room between ranks for edge labels, and between siblings. */
+const RANK_GAP_TB = 72;
+const SLOT_GAP_TB = 32;
 const SWEEPS = 4;
 
 /** Stable edge id: `<source>-><target>` (targets are unique per source). */
@@ -59,7 +69,7 @@ export function edgeId(source: string, target: string): string {
   return `${source}->${target}`;
 }
 
-export function layoutMachine(def: MachineDefinition): Layout {
+export function layoutMachine(def: MachineDefinition, direction: LayoutDirection = "LR"): Layout {
   const ids = Object.keys(def.stages);
   const known = new Set(ids);
   const hasEnd = ids.some((id) => {
@@ -151,10 +161,28 @@ export function layoutMachine(def: MachineDefinition): Layout {
     }
   }
 
-  // 4. Coordinates, each rank centred on the tallest.
+  // 4. Coordinates, each rank centred on the widest/tallest.
   const tallest = Math.max(1, ...ranks.map((r) => r.length));
-  const height = tallest * NODE_HEIGHT + (tallest - 1) * SLOT_GAP;
   const nodes: LayoutNode[] = [];
+  if (direction === "TB") {
+    const width = tallest * NODE_WIDTH + (tallest - 1) * SLOT_GAP_TB;
+    ranks.forEach((r, ri) => {
+      const span = r.length * NODE_WIDTH + (r.length - 1) * SLOT_GAP_TB;
+      const left = (width - span) / 2;
+      r.forEach((id, si) => {
+        nodes.push({
+          id,
+          rank: ri,
+          // the narrow `end` pill centres in its slot
+          x: left + si * (NODE_WIDTH + SLOT_GAP_TB) + (id === END ? (NODE_WIDTH - END_WIDTH) / 2 : 0),
+          y: ri * (NODE_HEIGHT + RANK_GAP_TB),
+        });
+      });
+    });
+    const height = ranks.length * NODE_HEIGHT + (ranks.length - 1) * RANK_GAP_TB;
+    return { direction, nodes, edges, width, height };
+  }
+  const height = tallest * NODE_HEIGHT + (tallest - 1) * SLOT_GAP;
   ranks.forEach((r, ri) => {
     const span = r.length * NODE_HEIGHT + (r.length - 1) * SLOT_GAP;
     const top = (height - span) / 2;
@@ -168,5 +196,21 @@ export function layoutMachine(def: MachineDefinition): Layout {
     });
   });
   const width = ranks.length * NODE_WIDTH + (ranks.length - 1) * RANK_GAP;
-  return { nodes, edges, width, height };
+  return { direction, nodes, edges, width, height };
 }
+
+/**
+ * Pick the orientation that shows the graph larger in a container: the
+ * scale each layout would fit at (capped at 1 — never zoom in), with a
+ * bias to left→right, which is the default reading. Vertical wins only
+ * when it is clearly more legible (narrow canvases, phones).
+ */
+export function pickDirection(def: MachineDefinition, box: { width: number; height: number }): LayoutDirection {
+  if (box.width <= 0 || box.height <= 0) return "LR";
+  const fit = (l: Layout) =>
+    Math.min(1, box.width / (l.width * FIT_PAD), box.height / (l.height * FIT_PAD));
+  return fit(layoutMachine(def, "TB")) > fit(layoutMachine(def, "LR")) * 1.25 ? "TB" : "LR";
+}
+
+/** fitView's padding (10% a side) as a size multiplier. */
+const FIT_PAD = 1.25;

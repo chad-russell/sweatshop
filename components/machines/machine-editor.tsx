@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Braces, Hand, Loader2, Network, Plus, Terminal, Trash2 } from "lucide-react";
+import { Bot, Braces, CircleHelp, Hand, Loader2, Network, Plus, Terminal, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { useElementSize } from "@/lib/use-element-size";
 import { parseDefinition, type MachineDefinition } from "@/lib/machines/definition";
 import * as edit from "@/lib/machines/edit";
 import { edgeId } from "@/lib/machines/layout";
@@ -63,6 +65,9 @@ export function MachineEditor({
   const [draft, setDraft] = useState<MachineDefinition>(initial.definition as MachineDefinition);
   const [selection, setSelection] = useState<Selection>(null);
   const [view, setView] = useState<"graph" | "json">("graph");
+  // The graph + inspector area's own width decides the dock (not the
+  // viewport): the sidebar and agent panel eat width the viewport can't see.
+  const [bodyRef, bodySize] = useElementSize<HTMLDivElement>();
   // The JSON tab's text while it doesn't parse (otherwise derived from the draft).
   const [jsonText, setJsonText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -203,6 +208,9 @@ export function MachineEditor({
       ? selection
       : null;
 
+  // Below this width the inspector is a bottom sheet instead of a right dock.
+  const sheet = bodySize !== null && bodySize.width < 760;
+
   // 0015: what the panel's "this" resolves to on this page — the machine
   // plus the selected stage or transition. Re-registers on every render,
   // so the selection a send reads is the current one.
@@ -311,6 +319,22 @@ export function MachineEditor({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+        {view === "graph" && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="ghost" aria-label="Editor help">
+                <CircleHelp />
+                <span className="text-xs font-normal text-muted-foreground">
+                  {Object.keys(draft.stages).length} stages ·{" "}
+                  <span className={check.ok ? "text-success" : "text-destructive"}>{check.ok ? "valid" : "has issues"}</span>
+                </span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-80">
+              <EditorHelp />
+            </PopoverContent>
+          </Popover>
+        )}
         <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           Workspace
           <Select value={draft.workspace} onValueChange={(v) => apply((d) => edit.setWorkspace(d, v as MachineDefinition["workspace"]))}>
@@ -350,10 +374,10 @@ export function MachineEditor({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
+      <div ref={bodyRef} className={cn("flex min-h-0 flex-1", sheet && view === "graph" ? "flex-col" : "flex-row")}>
         {view === "graph" ? (
           <>
-            <div className="min-w-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1">
               <LazyMachineGraph
                 definition={draft}
                 issues={issues ?? undefined}
@@ -372,44 +396,61 @@ export function MachineEditor({
                 }
               />
             </div>
-            <aside className="w-[min(24rem,40vw)] shrink-0 overflow-y-auto border-l border-border p-4">
-              {selectedStage ? (
-                <StagePanel
-                  key={selectedStage}
-                  definition={draft}
-                  id={selectedStage}
-                  issues={issues?.nodes.get(selectedStage) ?? []}
-                  onPatch={(patch) => apply((d) => edit.updateStage(d, selectedStage, patch))}
-                  onKind={(kind) => apply((d) => edit.setKind(d, selectedStage, kind))}
-                  onRename={(to) => {
-                    try {
-                      setDraft(edit.renameStage(draft, selectedStage, to));
-                      setJsonText(null);
-                      setSelection({ kind: "stage", id: to });
-                      return null;
-                    } catch (err) {
-                      return err instanceof Error ? err.message : String(err);
-                    }
-                  }}
-                  onStart={() => apply((d) => edit.setStart(d, selectedStage))}
-                  onRemove={() => removeSelected({ kind: "stage", id: selectedStage })}
-                  onSelectEdge={(target) => setSelection({ kind: "edge", source: selectedStage, target })}
-                />
-              ) : selectedEdge ? (
-                <TransitionPanel
-                  key={edgeId(selectedEdge.source, selectedEdge.target)}
-                  definition={draft}
-                  source={selectedEdge.source}
-                  target={selectedEdge.target}
-                  issues={issues?.edges.get(edgeId(selectedEdge.source, selectedEdge.target)) ?? []}
-                  onWhen={(when) => apply((d) => edit.updateTransition(d, selectedEdge.source, selectedEdge.target, when))}
-                  onRemove={() => removeSelected(selectedEdge)}
-                  onSelectStage={(sid) => setSelection({ kind: "stage", id: sid })}
-                />
-              ) : (
-                <EditorHelp valid={check.ok} stageCount={Object.keys(draft.stages).length} />
-              )}
-            </aside>
+            {/* The inspector only exists while something is selected, so the
+                graph gets the whole width otherwise. Wide: a right dock;
+                narrow: a bottom sheet under the graph. */}
+            {(selectedStage || selectedEdge) && (
+              <aside
+                className={cn(
+                  "relative shrink-0 overflow-y-auto border-border p-4",
+                  sheet ? "max-h-[45%] min-h-40 border-t" : "w-[min(24rem,40vw)] border-l",
+                )}
+              >
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Close inspector"
+                  className="absolute top-2 right-2 z-10"
+                  onClick={() => setSelection(null)}
+                >
+                  <X />
+                </Button>
+                {selectedStage ? (
+                  <StagePanel
+                    key={selectedStage}
+                    definition={draft}
+                    id={selectedStage}
+                    issues={issues?.nodes.get(selectedStage) ?? []}
+                    onPatch={(patch) => apply((d) => edit.updateStage(d, selectedStage, patch))}
+                    onKind={(kind) => apply((d) => edit.setKind(d, selectedStage, kind))}
+                    onRename={(to) => {
+                      try {
+                        setDraft(edit.renameStage(draft, selectedStage, to));
+                        setJsonText(null);
+                        setSelection({ kind: "stage", id: to });
+                        return null;
+                      } catch (err) {
+                        return err instanceof Error ? err.message : String(err);
+                      }
+                    }}
+                    onStart={() => apply((d) => edit.setStart(d, selectedStage))}
+                    onRemove={() => removeSelected({ kind: "stage", id: selectedStage })}
+                    onSelectEdge={(target) => setSelection({ kind: "edge", source: selectedStage, target })}
+                  />
+                ) : selectedEdge ? (
+                  <TransitionPanel
+                    key={edgeId(selectedEdge.source, selectedEdge.target)}
+                    definition={draft}
+                    source={selectedEdge.source}
+                    target={selectedEdge.target}
+                    issues={issues?.edges.get(edgeId(selectedEdge.source, selectedEdge.target)) ?? []}
+                    onWhen={(when) => apply((d) => edit.updateTransition(d, selectedEdge.source, selectedEdge.target, when))}
+                    onRemove={() => removeSelected(selectedEdge)}
+                    onSelectStage={(sid) => setSelection({ kind: "stage", id: sid })}
+                  />
+                ) : null}
+              </aside>
+            )}
           </>
         ) : (
           <div className="flex min-w-0 flex-1 flex-col gap-2 p-4">
@@ -467,20 +508,14 @@ function isGraphShaped(value: unknown): value is MachineDefinition {
   );
 }
 
-function EditorHelp({ valid, stageCount }: { valid: boolean; stageCount: number }) {
+function EditorHelp() {
   return (
-    <div className="flex flex-col gap-3 text-sm text-muted-foreground">
-      <p>
-        {stageCount} stage{stageCount === 1 ? "" : "s"} ·{" "}
-        <span className={valid ? "text-success" : "text-destructive"}>{valid ? "valid" : "has issues"}</span>
-      </p>
-      <ul className="flex list-disc flex-col gap-1.5 pl-4 text-xs">
-        <li>Select a stage or a transition to edit it here.</li>
-        <li>Drag from a stage’s right handle to another stage (or end) to add a transition.</li>
-        <li>Delete or Backspace removes the selection.</li>
-        <li>A stage with no transitions ends the run (dashed line to end).</li>
-        <li>Problems show in red on the stage or transition they belong to.</li>
-      </ul>
-    </div>
+    <ul className="flex list-disc flex-col gap-1.5 pl-4 text-xs text-muted-foreground">
+      <li>Select a stage or a transition to edit it.</li>
+      <li>Drag from a stage’s outgoing handle to another stage (or end) to add a transition.</li>
+      <li>Delete or Backspace removes the selection.</li>
+      <li>A stage with no transitions ends the run (dashed line to end).</li>
+      <li>Problems show in red on the stage or transition they belong to.</li>
+    </ul>
   );
 }

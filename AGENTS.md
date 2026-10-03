@@ -178,7 +178,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   its machine's version every 5 s while visible (0015): newer + clean
   draft reloads silently; newer + unsaved edits shows a stale banner
   (`components/machines/use-machine-version-sync.ts`). Layout is automatic and never stored
-  (`lib/machines/layout.ts`, layered, loops as back edges); the run
+  (`lib/machines/layout.ts`, layered, loops as back edges; left→right or
+  top→bottom, auto-picked from the canvas size by `pickDirection`; the editor's
+  inspector exists only while something is selected — right dock when wide,
+  bottom sheet when the editor body is under 760px); the run
   view shows the run's snapshot with a progress overlay. Graph modules
   are client-only (`machine-graph-lazy.tsx`, `ssr: false`). Everything runs in the Next
   process — no cross-runtime HTTP. Workflow-transform rule: Node-touching code only inside `"use step"`
