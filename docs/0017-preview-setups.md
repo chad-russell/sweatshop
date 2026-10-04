@@ -1,9 +1,23 @@
 # 0017 — Preview setups: explicit commands, env, and declared services
 
-Status: **approved (2026-10-04, chat) — phase 1 shipped same day**
+Status: **approved (2026-10-04, chat) — phases 1–2 shipped same day**
 
 Portability contract added and open questions resolved before
 approval.
+
+## Implementation notes (deviations and decisions)
+
+- **Phase 2.** `previewProjectId` resolves a preview's project through
+  its repo (branch) or its sandbox owner — conversation or machine run
+  (worktree) — so agent-started previews get the setup's env too. The
+  setup store rejects a definition whose `repo` is not in the project.
+  `${service:…}` references error value-shaped until phase 3 (never an
+  empty address). The debug `.env` file is written 0600 by
+  `startProcess`; the process env stays the source of truth. Live
+  acceptance: open-bible's Payload error moved from `missing secret
+  key` to `ECONNREFUSED 127.0.0.1:5432` (the app now fails only on the
+  missing service — phase 3's job), and a rotated secret reached the
+  next boot's `.env` after one restart.
 
 ## Implementation notes (phase 1 deviations and decisions)
 

@@ -277,8 +277,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   agent stages; definitions in `workflows/chat/preview-tools.ts`, cores
   in `lib/agent/tools/previews.ts`, value-shaped errors); start is
   idempotent per (sandbox, dir, port) and injects PORT / HOST /
-  PREVIEW_HOST / PREVIEW_URL; defaults come from the project's saved
-  setup (0017), else `describeDir` prefills once. Branch previews
+  PREVIEW_HOST / PREVIEW_URL; those platform vars are FINAL over the
+  layered env (0017 phase 2: project setup env → per-preview sparse
+  overrides in `previews.env` → platform; `${PREVIEW_URL}`/`${PREVIEW_HOST}`/
+  `${PORT}`/`${HOST}` interpolate at launch, `${service:…}` waits for
+  phase 3; the resolved set is also written to
+  `/work/.previews/<id>.env`, 0600); defaults come from the project's saved
+  setup (0017), else `describeDir` prefills once; agent tools also
+  include `get_preview_setup` / `save_preview_setup`. Branch previews
   (`lib/previews/branch.ts`): `/previews` → New preview is TWO-PHASE
   (0017 phase 1): provision (the row is inserted BEFORE the sandbox —
   a `provisioning` status; failures land as visible `failed` rows with
