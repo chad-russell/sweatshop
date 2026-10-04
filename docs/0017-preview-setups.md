@@ -21,14 +21,20 @@ approval.
 - Phase 1 leaves the definition's `env`/`services` schema in place but
   inert (phases 2–3); the confirm form does not edit them yet, and a
   re-save from the form preserves existing values.
-- Also surfaced during live acceptance (ops, not this doc): bee's user
-  `podman.service` is wedged (Result: resources — its cgroup holds
-  live pasta/rootlessport helpers for long-running containers, so
-  systemd cannot restart it). A transient
-  `podman-api-rescue.service` listener on
-  `/run/user/1000/podman/podman-rescue.sock` stands in; `./dev` needs
-  `PODMAN_SOCK` pointed there until the unit is properly unwedged
-  (maintenance-window container restart, or cgroup migration).
+- Also surfaced during live acceptance (ops): bee's user `podman.service`
+  was wedged — its cgroup had accumulated rootless net helpers
+  (passt/rootlessport) from API-created containers, a stop attempt
+  could never complete (helpers in nested user namespaces can't be
+  signaled by the user manager), and start was blocked. Unwedged the
+  same day with zero downtime: the nine live helpers were MOVED (no
+  signals, cgroup membership rewrite as root) into a holding
+  `podman-net-hold.service`, the emptied unit restarted normally, and
+  `./dev` is back on the default socket. The holders live in the
+  holding unit until their containers restart naturally. Structural
+  note for cn: any container created through the API socket parks its
+  net helpers in `podman.service`'s cgroup forever, so the unit cannot
+  restart cleanly while any such container runs — worth a deliberate
+  fix (e.g. a per-connection service template) if it bites again.
 
 Direction agreed in chat 2026-10-04, from the open-bible guinea-pig
 test of 0016: the preview machinery works, but a real app needs an env
