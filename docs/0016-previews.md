@@ -1,9 +1,32 @@
 # 0016 — Previews: long-running servers in sandboxes, and branch previews
 
-Status: **approved (2026-10-03)** — direction agreed in chat with Chad
+Status: **shipped (2026-10-04)** — direction agreed in chat with Chad
 (plain follower loop that escalates to an agent only on failure; host
-subdomains, not paths; flat `pv-` names; hand-rolled node:http proxy). Text
-approved by Chad 2026-10-03; implementation in progress.
+subdomains, not paths; flat `pv-` names; hand-rolled node:http proxy).
+Text approved by Chad 2026-10-03; phases 1–4 implemented 2026-10-03/04.
+The bees Caddy route is cn PR #65 (needs Chad's review + a bees deploy
+before `pv-*.internal.crussell.io` resolves end to end).
+
+## Implementation notes (deviations and decisions made while building)
+
+- Open questions resolved: flat `pv-<slug>.internal.crussell.io`;
+  hand-rolled `node:http` proxy (no dependency); resuming a stopped
+  sandbox does not restart its previews.
+- The proxy listens on container port 3001, published by `./dev` on
+  bee's Nebula IP only (`10.10.0.12:3301`).
+- Node-only startup moved to `instrumentation-node.ts`:
+  `instrumentation.ts` importing sqlite at top level broke Next's edge
+  instrumentation bundle.
+- Failure → Inbox is a direct fold in `db/attention.ts` over `previews`
+  (`failed_sha` / `dismissed_sha` columns), not a `pending_inputs` row:
+  the item has no hook to resolve and is keyed by sha.
+- A `failed` branch preview keeps proxying its last good commit (the
+  follower never kills a working server to report a bad push).
+- The follower does not run its own install when the preview command
+  installs for itself (`cd app && npm install && …`): the restart
+  reinstalls in the right directory.
+- "Fix it" chats start their first turn server-side through
+  `lib/chat/start-turn.ts`, factored out of the chat route.
 
 ## Goal
 

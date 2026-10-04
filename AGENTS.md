@@ -257,6 +257,44 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (+ `CLAUDE_SPIKE_LIVE=1` with `CLAUDE_CODE_OAUTH_TOKEN` set for a
   bounded turn).
 
+- Previews (0016): a preview is a long-running HTTP server in a
+  sandbox, owned by the SANDBOX (outlives the turn/run/stage that
+  started it). Registry `previews` (+ `preview_events` follow history),
+  store `db/previews.ts`, lifecycle `lib/previews/service.ts` (the one
+  start/stop/reconcile path, through `SandboxHandle.run` and the
+  `PreviewNetwork` seam). Processes run DETACHED in the sandbox
+  (`setsid nohup`, pid/log under `/work/.previews/`), so Next/`./dev`
+  restarts never kill them. Reached at `https://pv-<slug>.internal.crussell.io`:
+  bees' Caddy (`hosts/bees/caddy/routes/internal/previews.caddy` in cn)
+  → bee `10.10.0.12:3301` (published by `./dev`) → the hand-rolled
+  node:http Host-routing proxy (`lib/previews/proxy.ts`, WebSocket
+  upgrades spliced at TCP — HMR works; not a Next route) → the sandbox
+  container by name on `sweatshop-harness`. Node-only background work
+  (reaper, proxy, 30 s tick) starts from `instrumentation-node.ts`
+  (`instrumentation.ts` only imports it under NEXT_RUNTIME=nodejs — keeps
+  sqlite out of the edge bundle). Tools `start_preview` /
+  `preview_status` / `stop_preview` come with any sandbox (chats and
+  agent stages; definitions in `workflows/chat/preview-tools.ts`, cores
+  in `lib/agent/tools/previews.ts`, value-shaped errors); start is
+  idempotent per (sandbox, dir, port) and injects PORT / HOST /
+  PREVIEW_HOST / PREVIEW_URL; command+port infer from package.json or
+  `sandbox_configs.preview_command/preview_port`. Branch previews
+  (`lib/previews/branch.ts`): `/previews` → New preview makes a
+  dedicated sandbox (owner kind `preview`, owner id = preview id) and a
+  deterministic FOLLOWER (in the tick): fetch → ff (hard reset on
+  force-push) → reinstall+restart only on dependency changes (unless the
+  command installs for itself) → else trust HMR; a failure parks the
+  preview `failed` at that sha (it keeps serving the last good commit)
+  and raises a needs-you Inbox card (Fix it = a chat ATTACHED to the
+  preview's sandbox, seeded with the failure, started via
+  `lib/chat/start-turn.ts`; Retry; Dismiss per sha). Surfaces: header
+  pill on chat/run/panel, transcript card, sandbox-page Previews
+  section, `/previews`, ⌘K "Open preview". Reaper: a starting/healthy
+  preview makes its sandbox busy; previews idle past
+  `GC_PREVIEW_STOP_HOURS` (12) are stopped; preview-owned sandboxes use
+  `GC_PREVIEW_DESTROY_DAYS` (7). LAN/Nebula only — no auth, never route
+  publicly.
+
 - Inbox & attention (0008, no design doc — approved in chat): `/inbox`
   is a dashboard of what is waiting on Chad. **Needs you** = pending
   human-input requests (tool approval / question / session-limit) plus
@@ -296,7 +334,8 @@ Nothing is installed on the host; all development happens in podman:
   bind-mounted at `/workspace`, node_modules in a named volume so the
   host tree stays clean, run as container root (rootless podman maps it
   to the host user), `.env.local` via `--env-file`, host port 3300 →
-  container 3000. When the host rootless podman socket exists it is
+  container 3000, plus the 0016 preview proxy on 10.10.0.12:3301 →
+  container 3001 (`PREVIEW_PUBLISH` overrides). When the host rootless podman socket exists it is
   mounted at `/var/run/docker.sock`, so the sandbox provider creates
   lease containers as siblings on host podman. `./dev` also ensures a
   private `sweatshop-harness` podman network and puts every invocation
