@@ -20,7 +20,7 @@ import { sandboxProvider, type SandboxHandle } from "@/lib/sandboxes/provider";
 import { harnessPreviewNetwork } from "@/lib/previews/network";
 import { processAlive, shellQuote } from "@/lib/previews/process";
 import { discoverPreviewCandidates, type PreviewCandidate } from "@/lib/previews/discover";
-import type { PreviewSetupDefinition } from "@/lib/previews/setup";
+import type { PreviewSetupDefinition, PreviewSetupService } from "@/lib/previews/setup";
 import {
   launchPreview,
   deletePreview,
@@ -52,8 +52,11 @@ export interface CreateBranchPreviewInput {
   label?: string;
   /** Sparse per-preview env overrides (0017 phase 2). */
   env?: Record<string, string>;
-  /** Save the resolved values as the project's setup (Discover flow). */
-  saveSetup?: boolean;
+  /** Structural setup fields (0017 amendment) — they save to the
+   *  project's setup at confirm, always; there is no toggle. */
+  provision?: string;
+  seed?: string;
+  services?: PreviewSetupService[];
 }
 
 /** Marker failedSha for a preview that never got as far as a commit. */
@@ -270,10 +273,14 @@ export interface ConfirmInput {
   command?: string;
   port?: number;
   label?: string;
-  /** Sparse per-preview env overrides; also becomes the setup's env
-   *  when saving (the form's env block IS the setup editor). */
+  /** Sparse per-preview env overrides; with no toggle the confirm
+   *  form sends the full env block, which also becomes the setup's. */
   env?: Record<string, string>;
-  saveSetup?: boolean;
+  /** Structural fields (0017 amendment): always save to the project's
+   *  setup on confirm; unset input keeps the saved setup's values. */
+  provision?: string;
+  seed?: string;
+  services?: PreviewSetupService[];
 }
 
 export interface ConfirmResult {
@@ -316,21 +323,23 @@ export async function confirmBranchPreview(
     return { preview: viewPreview(p), error: `missing ${missing.join(", ")} — pick a candidate or save a setup` };
   }
 
-  if (input.saveSetup) {
-    const saved = savePreviewSetup(db(), ctx.projectId, {
-      repo: p.repoId,
-      workDir: workDirRel,
-      install: install!,
-      command: command!,
-      port: port!,
-      env: input.env ?? setup?.env ?? {},
-      services: setup?.services ?? [],
-      ...(setup?.provision ? { provision: setup.provision } : {}),
-      ...(setup?.seed ? { seed: setup.seed } : {}),
-    });
-    if (!saved.ok) {
-      return { preview: viewPreview(p), error: `setup invalid: ${saved.issues.join("; ")}` };
-    }
+  // 0017 amendment: the confirm form is the setup editor — structural
+  // fields (and the env block) ALWAYS save; per-preview fields
+  // (command, port, label) stay this row's. Unset structural input
+  // keeps the saved setup's values, so API confirms behave.
+  const saved = savePreviewSetup(db(), ctx.projectId, {
+    repo: p.repoId,
+    workDir: workDirRel,
+    install: install!,
+    command: command!,
+    port: port!,
+    env: input.env ?? setup?.env ?? {},
+    services: input.services ?? setup?.services ?? [],
+    ...((input.provision ?? setup?.provision) ? { provision: input.provision ?? setup!.provision! } : {}),
+    ...((input.seed ?? setup?.seed) ? { seed: input.seed ?? setup!.seed! } : {}),
+  });
+  if (!saved.ok) {
+    return { preview: viewPreview(p), error: `setup invalid: ${saved.issues.join("; ")}` };
   }
 
   updatePreview(db(), id, {
@@ -396,11 +405,7 @@ export async function createBranchPreview(
   const resolvable =
     (input.command ?? setup?.command) && (input.install ?? setup?.install) && (input.port ?? setup?.port);
   if (resolvable) {
-    const confirmed = await confirmBranchPreview(
-      provisioned.preview.id,
-      { ...input, saveSetup: input.saveSetup ?? false },
-      deps,
-    );
+    const confirmed = await confirmBranchPreview(provisioned.preview.id, input, deps);
     return { preview: confirmed.preview, ...(confirmed.log ? { log: confirmed.log } : {}) };
   }
   const discovered = await discoverForPreview(provisioned.preview.id, deps);

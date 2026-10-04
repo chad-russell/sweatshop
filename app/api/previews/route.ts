@@ -17,10 +17,11 @@ export const dynamic = "force-dynamic";
  */
 /**
  * 0017: create a branch preview — `{ projectId, repoId, branch,
- * workDir?, install?, command?, port?, label?, saveSetup? }`. With the
- * project's saved setup (or explicit values) it returns once serving or
- * parked as failed; otherwise it provisions and returns `candidates`
- * for the Discover step (the row waits in `provisioning` for a confirm).
+ * workDir?, install?, command?, port?, label?, provision?, seed?,
+ * services?, env? }`. With the project's saved setup (or explicit
+ * values) it returns once serving or parked as failed; otherwise it
+ * provisions and returns `candidates` for the Discover step (the row
+ * waits in `provisioning` for a confirm, which saves the setup).
  */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -37,6 +38,8 @@ export async function POST(request: Request) {
   }
   const env = envOf(body.env);
   if ("error" in env) return NextResponse.json({ error: env.error }, { status: 400 });
+  const services = servicesOf(body.services);
+  if ("error" in services) return NextResponse.json({ error: services.error }, { status: 400 });
   try {
     const result = await createBranchPreview({
       projectId,
@@ -48,13 +51,28 @@ export async function POST(request: Request) {
       ...(port !== undefined ? { port } : {}),
       ...(str("label") ? { label: str("label") } : {}),
       ...(env.env ? { env: env.env } : {}),
-      ...(body.saveSetup === true ? { saveSetup: true } : {}),
+      ...(str("provision") ? { provision: str("provision") } : {}),
+      ...(str("seed") ? { seed: str("seed") } : {}),
+      ...(services.services ? { services: services.services as never } : {}),
     });
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof PreviewError) return NextResponse.json({ error: err.message }, { status: 400 });
     throw err;
   }
+}
+
+/** Service rows from the body — shape-checked here, validated by the
+ *  setup's zod at save (issues return value-shaped from the store). */
+function servicesOf(value: unknown): { services: unknown[] | null } | { error: string } {
+  if (value === undefined || value === null) return { services: null };
+  if (!Array.isArray(value)) return { error: "services must be an array" };
+  for (const s of value) {
+    if (typeof s !== "object" || s === null || Array.isArray(s)) {
+      return { error: "each service must be an object" };
+    }
+  }
+  return { services: value.length ? value : null };
 }
 
 /** A sparse env map from the body — string keys and values only. */

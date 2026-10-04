@@ -63,9 +63,10 @@ seed, services (rows: name/image/port/command/env) — and on confirm:
 - **per-preview fields** (command, port, label, sparse env) stay row
   overrides, as today.
 
-An existing setup becomes editable without creating a preview: the
-project page's setup card opens the same form pre-filled; saving
-updates the setup only.
+An existing setup becomes editable without creating a preview: a
+**Setup** button on `/previews` (beside New preview) opens the same
+fields against the saved definition and saves in place — editing lives
+in one place only, and the project page stays a chat surface.
 
 ### Phases
 

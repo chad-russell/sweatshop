@@ -45,11 +45,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
 /**
  * 0017: `{ action }` — "confirm" (a provisioning preview gets its
- * chosen values, an optional setup save, install, launch), "restart"
- * (relaunch the process), "stop", "delete" (a branch preview destroys
- * its own sandbox), and for branch previews "retry" (forget the failure
- * and redeploy the remote head — a create-time failure re-provisions)
- * and "dismiss" (hide this failing sha's Inbox item).
+ * chosen values; structural fields — workDir, install, provision,
+ * seed, services, env — always save to the project's setup, then
+ * install + launch), "restart" (relaunch the process), "stop",
+ * "delete" (a branch preview destroys its own sandbox), and for branch
+ * previews "retry" (forget the failure and redeploy the remote head —
+ * a create-time failure re-provisions) and "dismiss" (hide this
+ * failing sha's Inbox item).
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -73,6 +75,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
         env = Object.fromEntries(entries as [string, string][]);
       }
+      let services: unknown[] | undefined;
+      if (body.services !== undefined) {
+        if (!Array.isArray(body.services)) {
+          return NextResponse.json({ error: "services must be an array" }, { status: 400 });
+        }
+        services = body.services;
+      }
       const result = await confirmBranchPreview(id, {
         ...(str("workDir") ? { workDir: str("workDir") } : {}),
         ...(str("install") ? { install: str("install") } : {}),
@@ -80,7 +89,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         ...(port !== undefined ? { port } : {}),
         ...(str("label") ? { label: str("label") } : {}),
         ...(env !== undefined ? { env } : {}),
-        ...(body.saveSetup === true ? { saveSetup: true } : {}),
+        ...(str("provision") ? { provision: str("provision") } : {}),
+        ...(str("seed") ? { seed: str("seed") } : {}),
+        ...(services !== undefined ? { services: services as never } : {}),
       });
       return NextResponse.json(result);
     }

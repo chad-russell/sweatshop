@@ -2,6 +2,7 @@ import { AppHeader } from "@/components/app-header";
 import { PageContextRegistration } from "@/components/page-context";
 import { NewPreviewForm } from "@/components/previews/new-preview";
 import { PreviewList } from "@/components/previews/preview-list";
+import { SetupEditorDialog } from "@/components/previews/setup-editor";
 import { db } from "@/db";
 import { projectRepos, projects } from "@/db/schema";
 
@@ -25,6 +26,7 @@ export default async function PreviewsPage({ searchParams }: { searchParams: Pro
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
       <PageContextRegistration value={{ kind: "previews" }} />
       <AppHeader crumbs={[{ label: "Previews" }]}>
+        <SetupEditorDialog projects={projectOptions} />
         <NewPreviewForm projects={projectOptions} />
       </AppHeader>
       <div className="flex flex-col gap-3 p-6">

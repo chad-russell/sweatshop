@@ -54,6 +54,7 @@ class BranchSandbox implements SandboxProvider {
         const no = (stderr: string) => ({ exitCode: 1, stdout: "", stderr });
         if (command.includes("git fetch")) return this.checkoutFails ? no("could not read Username") : ok(`${"a".repeat(40)}\n`);
         if (command.includes("__ROOT__")) return ok(this.scan);
+        if (command.includes("/dev/tcp")) return ok("ready");
         if (command.includes("set -o pipefail")) return this.installOk ? ok("done") : no("ERR_PNPM_FETCH_404");
         if (command.includes("setsid nohup")) return ok();
         if (command.includes("echo alive")) return ok(this.boots ? "alive\n" : "");
@@ -84,6 +85,28 @@ db()
 
 const fast = { healthTimeoutMs: 30, pollMs: 1 };
 
+/** Faithful-enough docker for the services path: containers exist once
+ *  run, disappear on rm, report running on inspect (else throw). */
+const dockerFake = () => {
+  const containers = new Set<string>();
+  return async (args: string[]): Promise<string> => {
+    const name = args[0] === "run" ? (args[args.indexOf("--name") + 1] ?? "") : (args[args.length - 1] ?? "");
+    if (args[0] === "run") {
+      containers.add(name);
+      return name;
+    }
+    if (args[0] === "rm") {
+      containers.delete(name);
+      return name;
+    }
+    if (args[0] === "inspect") {
+      if (!containers.has(name)) throw new Error(`no such container ${name}`);
+      return "true";
+    }
+    return "";
+  };
+};
+
 describe("0017 branch create: provision → discover → confirm", () => {
   it("a provisioning failure is a visible failed row with the lease cleaned up — not a throw", async () => {
     const g = new BranchSandbox();
@@ -111,12 +134,12 @@ describe("0017 branch create: provision → discover → confirm", () => {
     expect(result.preview).toMatchObject({ status: "provisioning", headSha: "a".repeat(40) });
   });
 
-  it("confirm installs at the repo root, launches, and can save the setup", async () => {
+  it("confirm installs at the repo root, launches, and saves the setup", async () => {
     const g = new BranchSandbox();
     const provisioned = await provisionBranchPreview({ projectId: "p_create", repoId: "p_create/web", branch: "main" }, { provider: g, ...fast });
     const confirmed = await confirmBranchPreview(
       provisioned.preview.id,
-      { workDir: "apps/web", install: "pnpm install", command: "pnpm run dev -H 0.0.0.0 -p 3000", port: 3000, saveSetup: true },
+      { workDir: "apps/web", install: "pnpm install", command: "pnpm run dev -H 0.0.0.0 -p 3000", port: 3000 },
       { provider: g, network: networkFor(g), ...fast },
     );
     expect(confirmed.error).toBeUndefined();
@@ -126,12 +149,53 @@ describe("0017 branch create: provision → discover → confirm", () => {
     const launchAt = g.ran.findIndex((c) => c.includes("setsid nohup"));
     expect(installAt).toBeGreaterThan(-1);
     expect(launchAt).toBeGreaterThan(installAt);
-    // the setup was saved with the confirmed values
+    // the setup was saved with the confirmed values — no toggle (0017 amendment)
     const setup = getPreviewSetup(db(), "p_create");
     expect(setup).toMatchObject({ ok: true });
     if (setup.ok && setup.setup) {
       expect(setup.setup.definition).toMatchObject({ workDir: "apps/web", install: "pnpm install", port: 3000 });
     }
+  });
+
+  it("confirm always saves the full definition — structural fields and env; the row keeps command/port", async () => {
+    const g = new BranchSandbox();
+    const provisioned = await provisionBranchPreview({ projectId: "p_create", repoId: "p_create/web", branch: "main" }, { provider: g, ...fast });
+    const confirmed = await confirmBranchPreview(
+      provisioned.preview.id,
+      {
+        workDir: ".", install: "pnpm install", command: "pnpm run dev", port: 4321, label: "kept-per-preview",
+        provision: "pnpm -w run migrate", seed: "cd apps/web && pnpm run seed",
+        services: [{ name: "db", image: "docker.io/library/postgres:18-alpine", env: { POSTGRES_PASSWORD: "postgres" }, port: 5432 }],
+        env: { TOKEN: "t9" },
+      },
+      { provider: g, network: networkFor(g), ...fast, services: { docker: dockerFake() } },
+    );
+    expect(confirmed.error).toBeUndefined();
+    expect(confirmed.preview).toMatchObject({ status: "healthy", command: "pnpm run dev", port: 4321, label: "kept-per-preview" });
+    const setup = getPreviewSetup(db(), "p_create");
+    if (!setup.ok || !setup.setup) throw new Error("no setup saved");
+    expect(setup.setup.definition).toMatchObject({
+      repo: "p_create/web",
+      provision: "pnpm -w run migrate",
+      seed: "cd apps/web && pnpm run seed",
+      env: { TOKEN: "t9" },
+      services: [{ name: "db", image: "docker.io/library/postgres:18-alpine", port: 5432 }],
+    });
+  });
+
+  it("confirm keeps a saved setup's structural values when the input omits them", async () => {
+    savePreviewSetup(db(), "p_create", {
+      repo: "p_create/web", workDir: ".", install: "pnpm install",
+      provision: "pnpm -w run migrate", seed: "pnpm run seed",
+      command: "pnpm run dev", port: 3000, env: { A: "1" }, services: [],
+    });
+    const g = new BranchSandbox();
+    const provisioned = await provisionBranchPreview({ projectId: "p_create", repoId: "p_create/web", branch: "main" }, { provider: g, ...fast });
+    const confirmed = await confirmBranchPreview(provisioned.preview.id, {}, { provider: g, network: networkFor(g), ...fast });
+    expect(confirmed.error).toBeUndefined();
+    const setup = getPreviewSetup(db(), "p_create");
+    if (!setup.ok || !setup.setup) throw new Error("no setup saved");
+    expect(setup.setup.definition).toMatchObject({ provision: "pnpm -w run migrate", seed: "pnpm run seed", env: { A: "1" } });
   });
 
   it("an explicit-values create is one shot: provision → install → healthy", async () => {
@@ -187,7 +251,6 @@ describe("0017 phase 2: env through confirm", () => {
       {
         workDir: ".", install: "pnpm install", command: "pnpm run dev", port: 3000,
         env: { TOKEN: "t0", SITE: "${PREVIEW_URL}/api" },
-        saveSetup: true,
       },
       { provider: g, network: networkFor(g), ...fast },
     );
