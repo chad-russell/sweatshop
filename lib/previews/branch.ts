@@ -1,42 +1,42 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
+import { getPreviewSetupDefinition, savePreviewSetup } from "@/db/preview-setups";
 import {
   getPreview,
   insertPreview,
   listBranchPreviews,
+  markPreviewDeleted,
   newPreviewId,
   recordPreviewEvent,
   updatePreview,
   type Preview,
 } from "@/db/previews";
-import { getLease } from "@/db/sandboxes";
+import { getLease, markDestroyed } from "@/db/sandboxes";
 import { projectRepos } from "@/db/schema";
-import { acquireSandbox, destroySandbox } from "@/lib/sandboxes/lease";
+import { activateDedicatedLease, destroySandbox, mintDedicatedLease } from "@/lib/sandboxes/lease";
 import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
 import { sandboxProvider, type SandboxHandle } from "@/lib/sandboxes/provider";
 import { harnessPreviewNetwork } from "@/lib/previews/network";
 import { processAlive, shellQuote } from "@/lib/previews/process";
+import { discoverPreviewCandidates, type PreviewCandidate } from "@/lib/previews/discover";
+import type { PreviewSetupDefinition } from "@/lib/previews/setup";
 import {
-  deletePreview,
-  inferPreviewCommand,
   launchPreview,
+  deletePreview,
   PreviewError,
-  projectPreviewDefaults,
   viewPreview,
   type PreviewDeps,
   type PreviewView,
 } from "@/lib/previews/service";
 
 /**
- * 0016 phase 3: branch previews. A branch preview owns a dedicated
- * sandbox (owner kind "preview", owner id = the preview id) with the
- * project's repos cloned and the followed repo checked out at the
- * branch. The FOLLOWER keeps it current: a deterministic loop, not an
- * agent — fetch; if the remote moved, fast-forward (hard reset on a
- * force-push: the preview owns no local work), reinstall + restart only
- * when dependencies changed, otherwise trust the dev server's reload.
- * Failures park the preview as `failed` with the log and raise an Inbox
- * item keyed by the failing sha; nothing escalates to a model on its own.
+ * 0017 phase 1: branch previews, reworked around the preview setup.
+ * Creation splits into PROVISION (row first, so failures are visible
+ * failed previews — never invisible 500s; sandbox + clone + checkout)
+ * → DISCOVER (scan the checkout for candidates — no saved setup yet) →
+ * CONFIRM (values + optional setup save, install at the repo root,
+ * launch — install is not part of the server command). The follower
+ * reinstalls from the setup's `install`, not a lockfile guess.
  */
 
 export interface CreateBranchPreviewInput {
@@ -45,7 +45,11 @@ export interface CreateBranchPreviewInput {
   branch: string;
   command?: string;
   port?: number;
+  install?: string;
+  workDir?: string;
   label?: string;
+  /** Save the resolved values as the project's setup (Discover flow). */
+  saveSetup?: boolean;
 }
 
 /** Marker failedSha for a preview that never got as far as a commit. */
@@ -60,14 +64,38 @@ function lastLine(text: string): string {
   return text.split("\n").pop()?.trim() ?? "";
 }
 
+/** Repo + project context derived from a preview row (confirm/follow). */
+interface PreviewContext {
+  projectId: string;
+  repoRoot: string;
+}
+
+function previewContext(p: Preview): PreviewContext | null {
+  if (!p.repoId) return null;
+  const repo = db().select().from(projectRepos).where(eq(projectRepos.id, p.repoId)).get();
+  const lease = getLease(db(), p.sandboxId);
+  if (!repo || !lease) return null;
+  return { projectId: repo.projectId, repoRoot: `${sandboxWorkRoot(lease.ownerId)}/${repo.name}` };
+}
+
+/** The project's saved setup for a preview's repo, if any. */
+function setupFor(p: Preview): PreviewSetupDefinition | null {
+  const ctx = previewContext(p);
+  return ctx ? getPreviewSetupDefinition(db(), ctx.projectId) : null;
+}
+
+// ── provision / discover / confirm ──────────────────────────────────────
+
 /**
  * Branch names a remote has — for the New preview form. Asks the host
- * directly (works for public remotes and hosts this process can reach);
- * an empty list just means "type the branch name".
+ * directly; failures come back as a warning (the form falls back to a
+ * typed branch name) instead of a silent empty list.
  */
-export async function listRemoteBranches(repoId: string): Promise<string[]> {
+export async function listRemoteBranches(
+  repoId: string,
+): Promise<{ branches: string[]; warning: string | null }> {
   const repo = db().select().from(projectRepos).where(eq(projectRepos.id, repoId)).get();
-  if (!repo) throw new PreviewError("not-found", `no repo ${repoId}`);
+  if (!repo) return { branches: [], warning: `no repo ${repoId}` };
   const [{ execFile }, { promisify }, { httpsRemote }] = await Promise.all([
     import("node:child_process"),
     import("node:util"),
@@ -78,26 +106,37 @@ export async function listRemoteBranches(repoId: string): Promise<string[]> {
       timeout: 15_000,
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     });
-    return stdout
-      .split("\n")
-      .map((l) => l.split("\trefs/heads/")[1]?.trim())
-      .filter((b): b is string => Boolean(b))
-      .sort();
-  } catch {
-    return [];
+    return {
+      branches: stdout
+        .split("\n")
+        .map((l) => l.split("\trefs/heads/")[1]?.trim())
+        .filter((b): b is string => Boolean(b))
+        .sort(),
+      warning: null,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message.split("\n")[0]! : String(err);
+    return { branches: [], warning: `couldn't list branches (${message}) — type the name instead` };
   }
 }
 
+export interface ProvisionResult {
+  preview: PreviewView;
+  /** Present when provisioning succeeded (row status `provisioning`). */
+  ready?: { repoRoot: string; sha: string };
+}
+
 /**
- * Create a branch preview: a dedicated sandbox (named by the pre-minted
- * preview id), the row, checkout, launch. A failure after the row exists
- * leaves the preview `failed` with the reason — visible and retryable,
- * never a half-made invisible thing.
+ * Provision a branch preview: mint the lease, INSERT THE PREVIEW ROW
+ * (status `provisioning` — it exists before anything can fail), create
+ * the sandbox (the provider clones the project's repos), check out the
+ * branch. Any failure parks the preview `failed`, records the event,
+ * and destroys the half-made lease — never an invisible throw.
  */
-export async function createBranchPreview(
+export async function provisionBranchPreview(
   input: CreateBranchPreviewInput,
   deps: PreviewDeps = {},
-): Promise<{ preview: PreviewView; log?: string }> {
+): Promise<ProvisionResult> {
   const provider = deps.provider ?? sandboxProvider();
   const repo = db().select().from(projectRepos).where(eq(projectRepos.id, input.repoId)).get();
   if (!repo || repo.projectId !== input.projectId) {
@@ -110,64 +149,224 @@ export async function createBranchPreview(
 
   const id = newPreviewId();
   const root = sandboxWorkRoot(id);
-  const { sandboxId, handle } = await acquireSandbox(
+  const setup = getPreviewSetupDefinition(db(), input.projectId);
+  const sandboxId = mintDedicatedLease(
     { mode: "dedicated", ownerKind: "preview", ownerId: id, projectId: input.projectId, root },
     provider,
   );
-  const dir = `${root}/${repo.name}`;
   insertPreview(db(), {
     id,
     sandboxId,
-    workDir: dir,
-    command: input.command ?? "true",
-    port: input.port ?? 3000,
+    workDir: `${root}/${repo.name}`,
+    command: input.command ?? setup?.command ?? "true",
+    port: input.port ?? setup?.port ?? 3000,
     label: input.label?.trim() || branch,
     source: "branch",
     repoId: repo.id,
     branch,
     startedBy: "user",
+    status: "provisioning",
   });
 
+  const fail = (message: string): ProvisionResult => {
+    updatePreview(db(), id, { status: "failed", error: message, failedSha: CREATE_FAILED });
+    recordPreviewEvent(db(), { previewId: id, sha: CREATE_FAILED, result: "failed", detail: message });
+    // The half-made lease must not outlive the attempt: a provisioned
+    // one is destroyed outright; a never-provisioned one is marked
+    // destroyed (the preview row's FK keeps it as history).
+    const lease = getLease(db(), sandboxId);
+    if (lease && lease.status !== "destroyed") {
+      if (lease.status === "running") {
+        void destroySandbox(lease.id, provider).catch(() => undefined);
+      } else {
+        markDestroyed(db(), lease.id);
+      }
+    }
+    return { preview: viewPreview(getPreview(db(), id)!) };
+  };
+
   try {
+    const handle = await activateDedicatedLease(
+      { mode: "dedicated", ownerKind: "preview", ownerId: id, projectId: input.projectId, root, sandboxId },
+      provider,
+    );
+    const repoRoot = `${root}/${repo.name}`;
     const co = await sh(
       handle,
       `git fetch --quiet origin ${shellQuote(branch)} && git checkout --quiet -B ${shellQuote(branch)} FETCH_HEAD && git rev-parse HEAD`,
-      dir,
+      repoRoot,
     );
-    if (!co.ok) throw new Error(`checkout ${branch}: ${co.out}`);
+    if (!co.ok) return fail(`checkout ${branch}: ${co.out}`);
     const sha = lastLine(co.out);
-    const defaults = projectPreviewDefaults(input.projectId);
-    let command = input.command ?? defaults.command ?? undefined;
-    let port = input.port ?? defaults.port ?? undefined;
-    if (!command) {
-      const inferred = await inferPreviewCommand(handle, dir);
-      if ("error" in inferred) throw new Error(inferred.error);
-      command = inferred.command;
-      port ??= inferred.port;
-    }
-    updatePreview(db(), id, { command, port: port ?? 3000, headSha: sha });
-    const launched = await launchPreview(id, deps);
-    recordPreviewEvent(db(), {
-      previewId: id,
-      sha,
-      result: launched.preview.status === "healthy" ? "deployed" : "failed",
-      detail: "created",
-    });
-    if (launched.preview.status !== "healthy") {
-      updatePreview(db(), id, {
-        status: "failed",
-        failedSha: sha,
-        error: launched.preview.error ?? "the server did not come up",
-      });
-      return { preview: viewPreview(getPreview(db(), id)!), ...(launched.log ? { log: launched.log } : {}) };
-    }
-    return launched;
+    updatePreview(db(), id, { headSha: sha });
+    return { preview: viewPreview(getPreview(db(), id)!), ready: { repoRoot, sha } };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    updatePreview(db(), id, { status: "failed", error: message, failedSha: CREATE_FAILED });
-    recordPreviewEvent(db(), { previewId: id, sha: CREATE_FAILED, result: "failed", detail: message });
-    return { preview: viewPreview(getPreview(db(), id)!) };
+    return fail(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** Candidates for a provisioning preview (the Discover step). */
+export async function discoverForPreview(
+  id: string,
+  deps: PreviewDeps = {},
+): Promise<{ candidates: PreviewCandidate[] } | { error: string }> {
+  const p = getPreview(db(), id);
+  if (!p || p.deletedAt) return { error: `no preview ${id}` };
+  if (p.status !== "provisioning") return { error: `preview ${id} is ${p.status}, not provisioning` };
+  const lease = getLease(db(), p.sandboxId);
+  const ctx = previewContext(p);
+  if (!lease || lease.status !== "running" || !ctx) {
+    return { error: `sandbox is ${lease?.status ?? "missing"}` };
+  }
+  try {
+    const handle = (deps.provider ?? sandboxProvider()).attach(lease.ref, "/");
+    return { candidates: await discoverPreviewCandidates(handle, ctx.repoRoot) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export interface ConfirmInput {
+  workDir?: string;
+  install?: string;
+  command?: string;
+  port?: number;
+  label?: string;
+  saveSetup?: boolean;
+}
+
+export interface ConfirmResult {
+  preview: PreviewView;
+  log?: string;
+  /** Why nothing launched (missing values, bad setup, failed install). */
+  error?: string;
+}
+
+/**
+ * Confirm a provisioning preview: resolve values (input → saved setup),
+ * optionally SAVE the setup, run `install` at the repo root, launch.
+ * The row's workDir becomes `<repoRoot>/<workDir>`; from here the
+ * lifecycle is the ordinary 0016 one.
+ */
+export async function confirmBranchPreview(
+  id: string,
+  input: ConfirmInput,
+  deps: PreviewDeps = {},
+): Promise<ConfirmResult> {
+  const p = getPreview(db(), id);
+  if (!p || p.deletedAt) throw new PreviewError("not-found", `no preview ${id}`);
+  if (p.status !== "provisioning") {
+    throw new PreviewError("invalid", `preview ${id} is ${p.status} — only a provisioning preview can confirm`);
+  }
+  const ctx = previewContext(p);
+  if (!ctx || !p.repoId) throw new PreviewError("sandbox-gone", "no repo context for the preview");
+  const setup = getPreviewSetupDefinition(db(), ctx.projectId);
+
+  const workDirRel = (input.workDir ?? setup?.workDir ?? ".").replace(/^\.\/+/, "") || ".";
+  const command = input.command ?? setup?.command;
+  const install = input.install ?? setup?.install;
+  const port = input.port ?? setup?.port;
+  const missing = [
+    ...(command ? [] : ["command"]),
+    ...(install ? [] : ["install"]),
+    ...(port ? [] : ["port"]),
+  ];
+  if (missing.length) {
+    return { preview: viewPreview(p), error: `missing ${missing.join(", ")} — pick a candidate or save a setup` };
+  }
+
+  if (input.saveSetup) {
+    const saved = savePreviewSetup(db(), ctx.projectId, {
+      repo: p.repoId,
+      workDir: workDirRel,
+      install: install!,
+      command: command!,
+      port: port!,
+      env: setup?.env ?? {},
+      services: setup?.services ?? [],
+      ...(setup?.provision ? { provision: setup.provision } : {}),
+    });
+    if (!saved.ok) {
+      return { preview: viewPreview(p), error: `setup invalid: ${saved.issues.join("; ")}` };
+    }
+  }
+
+  updatePreview(db(), id, {
+    workDir: workDirRel === "." ? ctx.repoRoot : `${ctx.repoRoot}/${workDirRel}`,
+    command: command!,
+    port: port!,
+    ...(input.label?.trim() ? { label: input.label.trim() } : {}),
+  });
+
+  const lease = getLease(db(), p.sandboxId)!;
+  const provider = deps.provider ?? sandboxProvider();
+  const handle = provider.attach(lease.ref, ctx.repoRoot);
+  const installRun = await sh(handle, `set -o pipefail; ${install} 2>&1 | tail -60`, ctx.repoRoot);
+  if (!installRun.ok) {
+    const detail = `install failed:\n${installRun.out}`;
+    updatePreview(db(), id, { status: "failed", error: detail, failedSha: p.headSha ?? CREATE_FAILED });
+    recordPreviewEvent(db(), { previewId: id, sha: p.headSha ?? CREATE_FAILED, result: "failed", detail });
+    return { preview: viewPreview(getPreview(db(), id)!), error: "install failed" };
+  }
+
+  const launched = await launchPreview(id, deps);
+  const sha = p.headSha ?? CREATE_FAILED;
+  recordPreviewEvent(db(), {
+    previewId: id,
+    sha,
+    result: launched.preview.status === "healthy" ? "deployed" : "failed",
+    detail: "created",
+  });
+  if (launched.preview.status !== "healthy") {
+    updatePreview(db(), id, {
+      status: "failed",
+      failedSha: sha,
+      error: launched.preview.error ?? "the server did not come up",
+    });
+  }
+  return { preview: viewPreview(getPreview(db(), id)!), ...(launched.log ? { log: launched.log } : {}) };
+}
+
+export interface CreateResult {
+  preview: PreviewView;
+  /** Present when nothing could be resolved — the form's Discover step. */
+  candidates?: PreviewCandidate[];
+  log?: string;
+}
+
+/**
+ * The one-shot create: provision, then either confirm straight away
+ * (explicit values or the saved setup cover command/install/port) or
+ * return the discovered candidates and leave the row `provisioning`
+ * for a confirm.
+ */
+export async function createBranchPreview(
+  input: CreateBranchPreviewInput,
+  deps: PreviewDeps = {},
+): Promise<CreateResult> {
+  const provisioned = await provisionBranchPreview(input, deps);
+  if (!provisioned.ready) return { preview: provisioned.preview };
+  const setup = getPreviewSetupDefinition(db(), input.projectId);
+  const resolvable =
+    (input.command ?? setup?.command) && (input.install ?? setup?.install) && (input.port ?? setup?.port);
+  if (resolvable) {
+    const confirmed = await confirmBranchPreview(
+      provisioned.preview.id,
+      { ...input, saveSetup: input.saveSetup ?? false },
+      deps,
+    );
+    return { preview: confirmed.preview, ...(confirmed.log ? { log: confirmed.log } : {}) };
+  }
+  const discovered = await discoverForPreview(provisioned.preview.id, deps);
+  if ("error" in discovered) {
+    updatePreview(db(), provisioned.preview.id, {
+      status: "failed",
+      error: discovered.error,
+      failedSha: CREATE_FAILED,
+    });
+    return { preview: viewPreview(getPreview(db(), provisioned.preview.id)!) };
+  }
+  return { preview: provisioned.preview, candidates: discovered.candidates };
 }
 
 /**
@@ -196,19 +395,6 @@ export interface FollowReport {
 
 const DEP_FILE = /^(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|\.nvmrc|\.node-version)$/;
 
-/** The install command for a checkout, by lockfile. */
-export function installCommand(files: string): string {
-  if (/^pnpm-lock\.yaml$/m.test(files)) return "pnpm install";
-  if (/^yarn\.lock$/m.test(files)) return "yarn install";
-  if (/^bun\.lockb?$/m.test(files)) return "bun install";
-  return "npm install";
-}
-
-/** Does the preview command run its own install (so a restart reinstalls)? */
-export function commandInstalls(command: string): boolean {
-  return /\b(npm|pnpm|yarn|bun)\s+(install|i|ci)\b/.test(command);
-}
-
 /** Did any of these changed paths touch dependencies? */
 export function dependenciesChanged(changedPaths: string): boolean {
   return changedPaths
@@ -230,6 +416,8 @@ export async function followPreview(p: Preview, deps: PreviewDeps = {}): Promise
   // A stopped preview (idle-reaped, or stopped by hand) is not followed
   // — following would resume its sandbox for nobody.
   if (p.status === "stopped") return { ...base, action: "skipped", detail: "stopped" };
+  // A provisioning preview is driven by its create/confirm request.
+  if (p.status === "provisioning") return { ...base, action: "skipped", detail: "provisioning" };
   const lease = getLease(db(), p.sandboxId);
   if (lease?.status !== "running") return { ...base, action: "skipped", detail: `sandbox ${lease?.status ?? "missing"}` };
   const handle = provider.attach(lease.ref, p.workDir);
@@ -267,13 +455,17 @@ export async function followPreview(p: Preview, deps: PreviewDeps = {}): Promise
   const depsChanged = !diff.ok || dependenciesChanged(diff.out);
   const alive = await processAlive(handle, p.id);
   if (depsChanged || !alive || p.status === "failed") {
-    // Reinstall up front only when the command does not install for
-    // itself and the checkout root is the package (a command like
-    // `cd app && npm install && …` owns its install; the restart reruns it).
-    if (depsChanged && !commandInstalls(p.command)) {
-      const files = await sh(handle, "ls -1a", dir);
-      if (/^package\.json$/m.test(files.out)) {
-        const install = await sh(handle, `set -o pipefail; ${installCommand(files.out)} 2>&1 | tail -60`, dir);
+    // Reinstall from the setup's explicit `install` (0017); a legacy
+    // row without a setup relies on its command installing for itself.
+    if (depsChanged) {
+      const setup = setupFor(p);
+      const ctx = previewContext(p);
+      if (setup?.install && ctx) {
+        const install = await sh(
+          handle,
+          `set -o pipefail; ${setup.install} 2>&1 | tail -60`,
+          ctx.repoRoot,
+        );
         if (!install.ok) return fail(`install failed at ${remote.slice(0, 7)}:\n${install.out}`);
       }
     }
@@ -318,7 +510,8 @@ export async function followBranchPreviews(deps: PreviewDeps = {}): Promise<Foll
 
 /**
  * Retry (Inbox / previews page): forget the failure and deploy whatever
- * the remote has now. A worktree preview just relaunches.
+ * the remote has now. A worktree preview just relaunches; a branch
+ * preview that failed before it ever booted re-provisions from scratch.
  */
 export async function retryPreview(id: string, deps: PreviewDeps = {}): Promise<FollowReport> {
   const p = getPreview(db(), id);
@@ -327,10 +520,34 @@ export async function retryPreview(id: string, deps: PreviewDeps = {}): Promise<
     const { preview } = await launchPreview(id, deps);
     return { previewId: id, action: preview.status === "healthy" ? "deployed" : "failed" };
   }
+  if (p.failedSha === CREATE_FAILED) {
+    // The sandbox was destroyed at failure time — start over.
+    const ctx = previewContext(p) ?? { projectId: "", repoRoot: "" };
+    const branch = p.branch ?? "main";
+    markPreviewDeleted(db(), p.id);
+    if (!p.repoId || !ctx.projectId) {
+      return { previewId: p.id, action: "failed", detail: "no repo context to re-provision" };
+    }
+    const provisioned = await provisionBranchPreview(
+      { projectId: ctx.projectId, repoId: p.repoId, branch, label: p.label ?? undefined },
+      deps,
+    );
+    if (!provisioned.ready) {
+      return { previewId: p.id, action: "failed", detail: provisioned.preview.error ?? "provisioning failed" };
+    }
+    const setup = getPreviewSetupDefinition(db(), ctx.projectId);
+    if (!setup) {
+      return { previewId: provisioned.preview.id, action: "skipped", detail: "provisioned — confirm with values" };
+    }
+    const confirmed = await confirmBranchPreview(provisioned.preview.id, {}, deps);
+    return {
+      previewId: provisioned.preview.id,
+      action: confirmed.preview.status === "healthy" ? "deployed" : "failed",
+      ...(confirmed.error ? { detail: confirmed.error } : {}),
+    };
+  }
   // Forget the failure; headSha null makes the follower treat it as a
-  // full deploy (install + restart) of the remote head. A preview whose
-  // create failed before checkout gets its branch fetched the same way —
-  // the clone exists (the sandbox was provisioned with the project).
+  // full deploy (install + restart) of the remote head.
   updatePreview(db(), id, { failedSha: null, headSha: null, status: "failed", error: null });
   return followPreview(getPreview(db(), id)!, deps);
 }

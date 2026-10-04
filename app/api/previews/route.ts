@@ -16,8 +16,11 @@ export const dynamic = "force-dynamic";
  * no filter, every preview not deleted.
  */
 /**
- * 0016: create a branch preview — `{ projectId, repoId, branch, command?,
- * port?, label? }`. Returns once it is serving (or parked as failed).
+ * 0017: create a branch preview — `{ projectId, repoId, branch,
+ * workDir?, install?, command?, port?, label?, saveSetup? }`. With the
+ * project's saved setup (or explicit values) it returns once serving or
+ * parked as failed; otherwise it provisions and returns `candidates`
+ * for the Discover step (the row waits in `provisioning` for a confirm).
  */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -33,15 +36,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "port must be 1–65535" }, { status: 400 });
   }
   try {
-    const command = str("command");
-    const label = str("label");
     const result = await createBranchPreview({
       projectId,
       repoId,
       branch,
-      ...(command ? { command } : {}),
+      ...(str("workDir") ? { workDir: str("workDir") } : {}),
+      ...(str("install") ? { install: str("install") } : {}),
+      ...(str("command") ? { command: str("command") } : {}),
       ...(port !== undefined ? { port } : {}),
-      ...(label ? { label } : {}),
+      ...(str("label") ? { label: str("label") } : {}),
+      ...(body.saveSetup === true ? { saveSetup: true } : {}),
     });
     return NextResponse.json(result);
   } catch (err) {

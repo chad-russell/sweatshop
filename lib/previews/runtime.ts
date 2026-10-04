@@ -1,6 +1,6 @@
 import type { Server } from "node:http";
 import { db } from "@/db";
-import { getPreviewBySlug, previewSandbox, stampRequest } from "@/db/previews";
+import { expireStaleProvisioning, getPreviewBySlug, previewSandbox, stampRequest } from "@/db/previews";
 import { harnessPreviewNetwork, type PreviewNetwork } from "@/lib/previews/network";
 import { createPreviewProxy, type Resolution } from "@/lib/previews/proxy";
 import { followBranchPreviews } from "@/lib/previews/branch";
@@ -76,6 +76,10 @@ export async function previewTick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
+    // 0017: provisioning rows that never got confirmed (an abandoned
+    // create) age out visibly instead of sitting forever.
+    const expired = expireStaleProvisioning(db());
+    if (expired.length) console.log(`[previews] provisioning timed out: ${expired.join(", ")}`);
     const report = await reconcilePreviews();
     if (report.changed.length > 0 || report.errors.length > 0) {
       console.log(

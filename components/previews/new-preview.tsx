@@ -16,11 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 
 /**
- * 0016 phase 3: New preview — project → repo → branch (listed from the
- * host when it can be; typed otherwise), with optional command / port /
- * label overrides (blank = the project's config defaults, else inferred
- * from package.json). Creating waits until the preview serves or parks
- * as failed (the list shows which), then closes.
+ * 0017: New preview, two-phase. Project → repo → branch, then Create:
+ * with the project's saved setup (or explicit values) it provisions and
+ * launches in one shot; otherwise it provisions, SCANS the checkout
+ * (Discover), and you pick/edit a candidate — workDir, install,
+ * command, port — optionally saving it as the project's setup so the
+ * next create is one click. Provisioning failures are visible rows on
+ * /previews, never silent 500s.
  */
 
 interface Repo {
@@ -29,10 +31,27 @@ interface Repo {
   url: string;
 }
 
+interface Candidate {
+  dir: string;
+  pm: string;
+  script: string;
+  command: string;
+  install: string;
+  port: number;
+}
+
+interface Setup {
+  workDir: string;
+  install: string;
+  command: string;
+  port: number;
+}
+
 const FIELD = "flex flex-col gap-1.5 text-sm";
 const LABEL = "text-xs font-medium text-muted-foreground";
 const SELECT =
   "h-9 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50";
+const MONO = "font-mono text-xs";
 
 export function NewPreviewForm({ projects }: { projects: { id: string; name: string }[] }) {
   const router = useRouter();
@@ -42,14 +61,41 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
   const [repos, setRepos] = useState<Repo[]>([]);
   const [repoId, setRepoId] = useState("");
   const [branches, setBranches] = useState<string[] | null>(null);
+  const [branchWarning, setBranchWarning] = useState<string | null>(null);
   const [branch, setBranch] = useState("");
+
+  const [setup, setSetup] = useState<Setup | null>(null);
+  const [workDir, setWorkDir] = useState("");
+  const [install, setInstall] = useState("");
   const [command, setCommand] = useState("");
   const [port, setPort] = useState("");
   const [label, setLabel] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [saveSetup, setSaveSetup] = useState(true);
+
+  const [step, setStep] = useState<"form" | "discover">("form");
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [picked, setPicked] = useState(0);
+  const [busy, setBusy] = useState<null | "create" | "confirm">(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Repos for the chosen project (reset the repo + branch below it).
+  const reset = () => {
+    setStep("form");
+    setPendingId(null);
+    setCandidates([]);
+    setPicked(0);
+    setBusy(null);
+    setError(null);
+    setSetup(null);
+    setWorkDir("");
+    setInstall("");
+    setCommand("");
+    setPort("");
+    setLabel("");
+    setSaveSetup(true);
+  };
+
+  // Repos + the project's saved setup (reset the repo + branch below).
   useEffect(() => {
     if (!open || !projectId) return;
     let cancelled = false;
@@ -59,6 +105,19 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
       if (cancelled) return;
       setRepos(body.repos);
       setRepoId(body.repos[0]?.id ?? "");
+    })();
+    void (async () => {
+      const res = await fetch(`/api/previews/setup?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+      const body = (await res.json().catch(() => ({ setup: null }))) as { setup: { definition: Setup } | null };
+      if (cancelled) return;
+      const definition = body.setup?.definition ?? null;
+      setSetup(definition);
+      if (definition) {
+        setWorkDir(definition.workDir);
+        setInstall(definition.install);
+        setCommand(definition.command);
+        setPort(String(definition.port));
+      }
     })();
     return () => {
       cancelled = true;
@@ -74,9 +133,10 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
         `/api/projects/${encodeURIComponent(projectId)}/branches?repo=${encodeURIComponent(repoId)}`,
         { cache: "no-store" },
       );
-      const body = (await res.json().catch(() => ({ branches: [] }))) as { branches: string[] };
+      const body = (await res.json().catch(() => ({ branches: [] }))) as { branches: string[]; warning?: string | null };
       if (cancelled) return;
       setBranches(body.branches);
+      setBranchWarning(body.warning ?? null);
       setBranch((current) => current || (body.branches.includes("main") ? "main" : (body.branches[0] ?? "")));
     })();
     return () => {
@@ -84,28 +144,105 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
     };
   }, [open, projectId, repoId]);
 
+  // Abandoning a discovered (provisioning) preview deletes it.
+  const close = (next: boolean) => {
+    if (busy) return;
+    setOpen(next);
+    if (!next) {
+      if (pendingId) {
+        void fetch(`/api/previews/${pendingId}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "delete" }),
+        });
+      }
+      reset();
+    }
+  };
+
+  const applyCandidate = (i: number) => {
+    setPicked(i);
+    const c = candidates[i];
+    if (!c) return;
+    setWorkDir(c.dir);
+    setInstall(c.install);
+    setCommand(c.command);
+    setPort(String(c.port));
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    setBusy("create");
     setError(null);
     const res = await fetch("/api/previews", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId, repoId, branch, command, port, label }),
+      body: JSON.stringify({
+        projectId,
+        repoId,
+        branch,
+        ...(workDir ? { workDir } : {}),
+        ...(install ? { install } : {}),
+        ...(command ? { command } : {}),
+        ...(port ? { port: Number(port) } : {}),
+        ...(label ? { label } : {}),
+        ...(saveSetup && !setup ? { saveSetup: true } : {}),
+      }),
     });
-    const body = (await res.json().catch(() => ({}))) as { error?: string; preview?: { id: string } };
-    setBusy(false);
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      preview?: { id: string; status: string };
+      candidates?: Candidate[];
+    };
+    setBusy(null);
     if (!res.ok) {
       setError(body.error ?? `could not create (${res.status})`);
       return;
     }
+    if (body.candidates?.length) {
+      setPendingId(body.preview!.id);
+      setCandidates(body.candidates);
+      applyCandidate(0);
+      setStep("discover");
+      return;
+    }
     setOpen(false);
+    reset();
     router.push(body.preview ? `/previews?id=${body.preview.id}` : "/previews");
     router.refresh();
   };
 
+  const confirm = async () => {
+    if (!pendingId) return;
+    setBusy("confirm");
+    setError(null);
+    const res = await fetch(`/api/previews/${pendingId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "confirm",
+        ...(workDir ? { workDir } : {}),
+        ...(install ? { install } : {}),
+        ...(command ? { command } : {}),
+        ...(port ? { port: Number(port) } : {}),
+        ...(label ? { label } : {}),
+        ...(saveSetup ? { saveSetup: true } : {}),
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { error?: string; preview?: { id: string } };
+    setBusy(null);
+    if (!res.ok || body.error) {
+      setError(body.error ?? `could not launch (${res.status})`);
+      return;
+    }
+    setOpen(false);
+    reset();
+    router.push(`/previews?id=${pendingId}`);
+    router.refresh();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogTrigger asChild>
         <Button size="sm" disabled={projects.length === 0} title={projects.length === 0 ? "No project has a repo yet" : undefined}>
           <Plus /> New preview
@@ -114,106 +251,199 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
       <DialogContent>
         <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>New branch preview</DialogTitle>
+            <DialogTitle>{step === "discover" ? "Pick what to preview" : "New branch preview"}</DialogTitle>
             <DialogDescription>
-              A dedicated sandbox serves the branch and redeploys every time it moves. Failures land in your Inbox.
+              {step === "discover"
+                ? "Scanned the checkout — pick a package; edit, save as this project's setup, and launch."
+                : "A dedicated sandbox serves the branch and redeploys every time it moves. Failures land in your Inbox."}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className={FIELD} htmlFor={`${ids}-project`}>
-              <span className={LABEL}>Project</span>
-              <select
-                id={`${ids}-project`}
-                className={SELECT}
-                value={projectId}
-                onChange={(e) => {
-                  setProjectId(e.target.value);
-                  setBranch("");
-                  setBranches(null);
-                }}
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={FIELD} htmlFor={`${ids}-repo`}>
-              <span className={LABEL}>Repo</span>
-              <select
-                id={`${ids}-repo`}
-                className={SELECT}
-                value={repoId}
-                disabled={repos.length === 0}
-                onChange={(e) => {
-                  setRepoId(e.target.value);
-                  setBranch("");
-                  setBranches(null);
-                }}
-              >
-                {repos.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className={FIELD} htmlFor={`${ids}-branch`}>
-            <span className={LABEL}>
-              Branch{branches === null ? " (loading…)" : branches.length === 0 ? " (couldn't list — type it)" : ""}
-            </span>
-            <Input
-              id={`${ids}-branch`}
-              list={`${ids}-branches`}
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="main"
-              required
-              autoComplete="off"
-              className="font-mono"
-            />
-            <datalist id={`${ids}-branches`}>
-              {(branches ?? []).map((b) => (
-                <option key={b} value={b} />
-              ))}
-            </datalist>
-          </label>
-
-          <details className="text-sm">
-            <summary className="cursor-pointer text-xs text-muted-foreground">Command, port, label (optional)</summary>
-            <div className="mt-3 flex flex-col gap-3">
-              <label className={FIELD} htmlFor={`${ids}-command`}>
-                <span className={LABEL}>Command — blank infers from package.json</span>
-                <Input
-                  id={`${ids}-command`}
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  placeholder="pnpm install && pnpm dev --host 0.0.0.0 --port 3000"
-                  className="font-mono text-xs"
-                />
-              </label>
+          {step === "form" ? (
+            <>
               <div className="grid grid-cols-2 gap-3">
-                <label className={FIELD} htmlFor={`${ids}-port`}>
-                  <span className={LABEL}>Port</span>
-                  <Input id={`${ids}-port`} value={port} onChange={(e) => setPort(e.target.value)} placeholder="3000" inputMode="numeric" className="font-mono" />
+                <label className={FIELD} htmlFor={`${ids}-project`}>
+                  <span className={LABEL}>Project</span>
+                  <select
+                    id={`${ids}-project`}
+                    className={SELECT}
+                    value={projectId}
+                    onChange={(e) => {
+                      setProjectId(e.target.value);
+                      setBranch("");
+                      setBranches(null);
+                      setSetup(null);
+                      setWorkDir("");
+                      setInstall("");
+                      setCommand("");
+                      setPort("");
+                    }}
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
                 </label>
-                <label className={FIELD} htmlFor={`${ids}-label`}>
-                  <span className={LABEL}>Label</span>
-                  <Input id={`${ids}-label`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={branch || "branch name"} />
+                <label className={FIELD} htmlFor={`${ids}-repo`}>
+                  <span className={LABEL}>Repo</span>
+                  <select
+                    id={`${ids}-repo`}
+                    className={SELECT}
+                    value={repoId}
+                    disabled={repos.length === 0}
+                    onChange={(e) => {
+                      setRepoId(e.target.value);
+                      setBranch("");
+                      setBranches(null);
+                    }}
+                  >
+                    {repos.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
-            </div>
-          </details>
+
+              <label className={FIELD} htmlFor={`${ids}-branch`}>
+                <span className={LABEL}>
+                  Branch
+                  {branches === null
+                    ? " (loading…)"
+                    : branches.length === 0
+                      ? branchWarning
+                        ? ` — ${branchWarning}`
+                        : " (couldn't list — type it)"
+                      : ""}
+                </span>
+                <Input
+                  id={`${ids}-branch`}
+                  list={`${ids}-branches`}
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                  placeholder="main"
+                  required
+                  autoComplete="off"
+                  className="font-mono"
+                />
+                <datalist id={`${ids}-branches`}>
+                  {(branches ?? []).map((b) => (
+                    <option key={b} value={b} />
+                  ))}
+                </datalist>
+              </label>
+
+              <details className="text-sm" open={Boolean(setup) || Boolean(command)}>
+                <summary className="cursor-pointer text-xs text-muted-foreground">
+                  {setup ? "Saved setup (edit for this preview only)" : "Command, install, port (optional — or we scan and ask)"}
+                </summary>
+                <div className="mt-3 flex flex-col gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className={FIELD} htmlFor={`${ids}-workdir`}>
+                      <span className={LABEL}>Directory in repo</span>
+                      <Input id={`${ids}-workdir`} value={workDir} onChange={(e) => setWorkDir(e.target.value)} placeholder="apps/web" className={MONO} />
+                    </label>
+                    <label className={FIELD} htmlFor={`${ids}-install`}>
+                      <span className={LABEL}>Install (runs at repo root)</span>
+                      <Input id={`${ids}-install`} value={install} onChange={(e) => setInstall(e.target.value)} placeholder="pnpm install" className={MONO} />
+                    </label>
+                  </div>
+                  <label className={FIELD} htmlFor={`${ids}-command`}>
+                    <span className={LABEL}>Command</span>
+                    <Input id={`${ids}-command`} value={command} onChange={(e) => setCommand(e.target.value)} placeholder="pnpm run dev -H 0.0.0.0 -p 3000" className={MONO} />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className={FIELD} htmlFor={`${ids}-port`}>
+                      <span className={LABEL}>Port</span>
+                      <Input id={`${ids}-port`} value={port} onChange={(e) => setPort(e.target.value)} placeholder="3000" inputMode="numeric" className={MONO} />
+                    </label>
+                    <label className={FIELD} htmlFor={`${ids}-label`}>
+                      <span className={LABEL}>Label</span>
+                      <Input id={`${ids}-label`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={branch || "branch name"} />
+                    </label>
+                  </div>
+                  {!setup && (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input type="checkbox" checked={saveSetup} onChange={(e) => setSaveSetup(e.target.checked)} className="accent-foreground" />
+                      Save as this project&apos;s setup after launching
+                    </label>
+                  )}
+                </div>
+              </details>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Preview candidates">
+                {candidates.map((c, i) => (
+                  <label
+                    key={c.dir}
+                    className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+                      i === picked ? "border-ring bg-accent" : "border-input"
+                    }`}
+                  >
+                    <input type="radio" name="candidate" checked={i === picked} onChange={() => applyCandidate(i)} className="mt-1 accent-foreground" />
+                    <span className="flex flex-col gap-0.5">
+                      <span className={MONO}>{c.dir === "." ? "repo root" : c.dir}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {c.pm} run {c.script} · port {c.port}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex flex-col gap-3">
+                <label className={FIELD} htmlFor={`${ids}-d-command`}>
+                  <span className={LABEL}>Command</span>
+                  <Input id={`${ids}-d-command`} value={command} onChange={(e) => setCommand(e.target.value)} className={MONO} />
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <label className={FIELD} htmlFor={`${ids}-d-dir`}>
+                    <span className={LABEL}>Directory</span>
+                    <Input id={`${ids}-d-dir`} value={workDir} onChange={(e) => setWorkDir(e.target.value)} className={MONO} />
+                  </label>
+                  <label className={FIELD} htmlFor={`${ids}-d-port`}>
+                    <span className={LABEL}>Port</span>
+                    <Input id={`${ids}-d-port`} value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" className={MONO} />
+                  </label>
+                  <label className={FIELD} htmlFor={`${ids}-d-label`}>
+                    <span className={LABEL}>Label</span>
+                    <Input id={`${ids}-d-label`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={branch} />
+                  </label>
+                </div>
+                <label className={FIELD} htmlFor={`${ids}-d-install`}>
+                  <span className={LABEL}>Install (runs at repo root)</span>
+                  <Input id={`${ids}-d-install`} value={install} onChange={(e) => setInstall(e.target.value)} className={MONO} />
+                </label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={saveSetup} onChange={(e) => setSaveSetup(e.target.checked)} className="accent-foreground" />
+                  Save as this project&apos;s setup (next time is one click)
+                </label>
+              </div>
+            </>
+          )}
 
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
-            <Button type="submit" disabled={busy || !projectId || !repoId || !branch.trim()}>
-              {busy ? "Starting — cloning, installing, booting…" : "Create preview"}
-            </Button>
+            {step === "form" ? (
+              <Button type="submit" disabled={Boolean(busy) || !projectId || !repoId || !branch.trim()}>
+                {busy === "create"
+                  ? setup || command
+                    ? "Provisioning, installing, launching…"
+                    : "Provisioning & scanning…"
+                  : setup
+                    ? "Create preview"
+                    : command
+                      ? "Create preview"
+                      : "Create & discover"}
+              </Button>
+            ) : (
+              <Button type="button" disabled={busy !== null || !command.trim() || !install.trim() || !port.trim()} onClick={() => void confirm()}>
+                {busy === "confirm" ? "Installing & launching…" : "Launch preview"}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

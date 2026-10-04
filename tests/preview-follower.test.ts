@@ -3,13 +3,12 @@ import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import { loadAttention, loadInbox } from "../db/attention";
 import { getPreview, insertPreview, listPreviewEvents, updatePreview } from "../db/previews";
+import { deletePreviewSetup, savePreviewSetup } from "../db/preview-setups";
 import { projectRepos, projects } from "../db/schema";
 import {
-  commandInstalls,
   dependenciesChanged,
   dismissPreviewFailure,
   followPreview,
-  installCommand,
   retryPreview,
 } from "../lib/previews/branch";
 import type { PreviewNetwork } from "../lib/previews/network";
@@ -90,8 +89,10 @@ db()
   .run();
 
 let n = 0;
-/** A healthy branch preview at sha `a…`, in a running preview-owned sandbox. */
-function branchPreview(head = "a".repeat(40)) {
+/** A healthy branch preview at sha `a…`, in a running preview-owned
+ *  sandbox, with the project's setup saved (0017: the follower
+ *  reinstalls from setup.install). */
+function branchPreview(head = "a".repeat(40), withSetup = true) {
   n += 1;
   const sandboxId = `sbx_follow${n}`;
   const id = `pv_follow${n}`;
@@ -106,6 +107,14 @@ function branchPreview(head = "a".repeat(40)) {
     source: "branch", repoId: "p_follow/web", branch: "feat/x", startedBy: "user",
   });
   updatePreview(db(), id, { status: "healthy", headSha: head });
+  if (withSetup) {
+    savePreviewSetup(db(), "p_follow", {
+      repo: "p_follow/web", workDir: ".", install: "pnpm install",
+      command: "pnpm dev", port: 3000, env: {}, services: [],
+    });
+  } else {
+    deletePreviewSetup(db(), "p_follow");
+  }
   return id;
 }
 
@@ -143,15 +152,14 @@ describe("0016 follower", () => {
     expect(g.ran.some((c) => c.includes("setsid nohup"))).toBe(true);
   });
 
-  it("lets a command that installs for itself own the reinstall", async () => {
+  it("a legacy preview without a setup restarts without reinstalling", async () => {
     const g = new GitSandbox();
-    const id = branchPreview();
-    updatePreview(db(), id, { command: "cd app && npm install && npx vite" });
+    const id = branchPreview("a".repeat(40), false);
     g.remote = sha("9");
     g.changed = "app/package.json";
     const r = await followPreview(getPreview(db(), id)!, { provider: g, network: networkFor(g), ...fast });
     expect(r.action).toBe("deployed");
-    expect(g.ran.some((c) => c.includes("pnpm install") || c.includes("set -o pipefail"))).toBe(false);
+    expect(g.ran.some((c) => c.includes("set -o pipefail"))).toBe(false);
     expect(g.ran.some((c) => c.includes("setsid nohup"))).toBe(true);
   });
 
@@ -210,11 +218,15 @@ describe("0016 follower", () => {
     expect(getPreview(db(), id)?.status).toBe("healthy");
   });
 
-  it("skips stopped previews and stopped sandboxes", async () => {
+  it("skips stopped and provisioning previews and stopped sandboxes", async () => {
     const g = new GitSandbox();
     const id = branchPreview();
     g.remote = sha("2");
     updatePreview(db(), id, { status: "stopped" });
+    expect((await followPreview(getPreview(db(), id)!, { provider: g, network: networkFor(g) })).action).toBe("skipped");
+    expect(g.ran).toHaveLength(0);
+    // 0017: a provisioning preview is driven by its create request
+    updatePreview(db(), id, { status: "provisioning" });
     expect((await followPreview(getPreview(db(), id)!, { provider: g, network: networkFor(g) })).action).toBe("skipped");
     expect(g.ran).toHaveLength(0);
   });
@@ -258,18 +270,5 @@ describe("0016 follower helpers", () => {
     expect(dependenciesChanged("apps/web/package.json")).toBe(true);
     expect(dependenciesChanged("pnpm-lock.yaml")).toBe(true);
     expect(dependenciesChanged("docs/package.json.md")).toBe(false);
-  });
-
-  it("picks the install command from the lockfile", () => {
-    expect(installCommand("package.json\npnpm-lock.yaml")).toBe("pnpm install");
-    expect(installCommand("yarn.lock")).toBe("yarn install");
-    expect(installCommand("package.json\npackage-lock.json")).toBe("npm install");
-  });
-
-  it("recognizes commands that install for themselves", () => {
-    expect(commandInstalls("cd app && npm install && npm run dev")).toBe(true);
-    expect(commandInstalls("[ -d node_modules ] || pnpm install && pnpm run dev")).toBe(true);
-    expect(commandInstalls("npm ci && npm start")).toBe(true);
-    expect(commandInstalls("npm run dev")).toBe(false);
   });
 });

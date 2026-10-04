@@ -7,9 +7,9 @@ import { listRemoteBranches } from "@/lib/previews/branch";
 export const dynamic = "force-dynamic";
 
 /**
- * 0016: a project's repos and, with `?repo=<id>`, that repo's remote
- * branches (empty when the host can't be listed — the form then takes a
- * typed branch name).
+ * 0017: a project's repos and, with `?repo=<id>`, that repo's remote
+ * branches. Listing failures surface as a `warning` (the form falls
+ * back to a typed branch name) instead of a silently empty list.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -19,6 +19,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ proj
     .where(eq(projectRepos.projectId, projectId))
     .all();
   const repo = new URL(request.url).searchParams.get("repo");
-  const branches = repo && repos.some((r) => r.id === repo) ? await listRemoteBranches(repo) : [];
-  return NextResponse.json({ repos, branches });
+  const listed = repo && repos.some((r) => r.id === repo) ? await listRemoteBranches(repo) : { branches: [], warning: null };
+  return NextResponse.json({ repos, ...listed });
 }

@@ -10,6 +10,7 @@ import {
   markDestroyed,
   touchLease,
   updateLease,
+  type SandboxLease,
   type SandboxOwnerKind,
 } from "@/db/sandboxes";
 import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
@@ -45,52 +46,93 @@ export async function acquireSandbox(
   request: AcquireRequest,
   provider: SandboxProvider = sandboxProvider(),
 ): Promise<AcquiredSandbox> {
-  return acquireDedicated(request, provider);
+  const existing = getLeaseByOwner(db(), request.ownerKind, request.ownerId);
+  if (!existing) {
+    const sandboxId = mintDedicatedLease(request, provider);
+    try {
+      return { sandboxId, handle: await activateDedicatedLease({ ...request, sandboxId }, provider) };
+    } catch (err) {
+      // Nothing references an acquire-path lease yet (branch previews
+      // mint their own), so remove it and a retry starts clean; if
+      // something does reference it, keep the row as destroyed history.
+      try {
+        deleteLease(db(), sandboxId);
+      } catch {
+        markDestroyed(db(), sandboxId);
+      }
+      throw err;
+    }
+  }
+  return { sandboxId: existing.id, handle: await resumeDedicatedLease(existing, request, provider) };
 }
 
-async function acquireDedicated(
+/**
+ * 0017: mint a "creating" lease row without provisioning it yet.
+ * Branch previews insert their preview row between mint and activate
+ * (the FK needs the row) so a provisioning failure is a visible failed
+ * preview, never an invisible 500. Throws if the owner already holds a
+ * lease or the provider changed.
+ */
+export function mintDedicatedLease(
+  request: AcquireRequest,
+  provider: SandboxProvider = sandboxProvider(),
+): string {
+  const existing = getLeaseByOwner(db(), request.ownerKind, request.ownerId);
+  if (existing) {
+    if (existing.provider !== provider.kind) {
+      throw new Error(
+        `sandbox for ${request.ownerKind} ${request.ownerId} belongs to provider "${existing.provider}", not "${provider.kind}"`,
+      );
+    }
+    throw new Error(`sandbox for ${request.ownerKind} ${request.ownerId} already exists`);
+  }
+  return insertLease(db(), {
+    provider: provider.kind,
+    ownerKind: request.ownerKind,
+    ownerId: request.ownerId,
+    projectId: request.projectId,
+  }).id;
+}
+
+/**
+ * 0017: activate a minted lease — create the container and its project
+ * workspace. Cleanup on failure belongs to the CALLER (a branch
+ * preview's row references the lease, so it marks it destroyed rather
+ * than deleting; the acquire path deletes); a hard crash mid-create
+ * leaves the "creating" row for the reaper, as before.
+ */
+export async function activateDedicatedLease(
+  request: AcquireRequest & { sandboxId: string },
+  provider: SandboxProvider = sandboxProvider(),
+): Promise<SandboxHandle> {
+  const image = request.projectId ? projectSandboxImage(request.projectId) : null;
+  const handle = await provider.create({
+    projectId: request.projectId,
+    root: request.root ?? sandboxWorkRoot(request.ownerId),
+    namePrefix: request.ownerId,
+    ...(image ? { image } : {}),
+  });
+  updateLease(db(), request.sandboxId, { ref: handle.ref, status: "running" });
+  return handle;
+}
+
+async function resumeDedicatedLease(
+  existing: SandboxLease,
   request: AcquireRequest,
   provider: SandboxProvider,
-): Promise<AcquiredSandbox> {
-  const existing = getLeaseByOwner(db(), request.ownerKind, request.ownerId);
-  if (existing && existing.provider !== provider.kind) {
+): Promise<SandboxHandle> {
+  if (existing.provider !== provider.kind) {
     throw new Error(
       `sandbox for ${request.ownerKind} ${request.ownerId} belongs to provider "${existing.provider}", not "${provider.kind}"`,
     );
   }
-
-  if (!existing) {
-    // creating → running around the provider call; a crash between the
-    // two leaves a "creating" row the reaper sweeps (never acquired).
-    const lease = insertLease(db(), {
-      provider: provider.kind,
-      ownerKind: request.ownerKind,
-      ownerId: request.ownerId,
-      projectId: request.projectId,
-    });
-    try {
-      const image = request.projectId ? projectSandboxImage(request.projectId) : null;
-      const handle = await provider.create({
-        projectId: request.projectId,
-        root: request.root ?? sandboxWorkRoot(request.ownerId),
-        namePrefix: request.ownerId,
-        ...(image ? { image } : {}),
-      });
-      updateLease(db(), lease.id, { ref: handle.ref, status: "running" });
-      return { sandboxId: lease.id, handle };
-    } catch (err) {
-      deleteLease(db(), lease.id);
-      throw err;
-    }
-  }
-
   const root = request.root ?? sandboxWorkRoot(request.ownerId);
   if (existing.status === "stopped") {
     await provider.resume(existing.ref);
     updateLease(db(), existing.id, { status: "running" });
   }
   touchLease(db(), existing.id);
-  return { sandboxId: existing.id, handle: provider.attach(existing.ref, root) };
+  return provider.attach(existing.ref, root);
 }
 
 /**

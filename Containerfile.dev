@@ -5,9 +5,11 @@
 # containers on host podman.
 FROM docker.io/library/node:24-trixie-slim
 
-# docker-cli only — the CLI the eve Docker sandbox provider shells out
-# through; no daemon (trixie's docker.io only *recommends* docker-cli,
-# so name it explicitly).
+# docker-cli (the CLI the sandbox provider shells out through; no
+# daemon — trixie's docker.io only *recommends* docker-cli, so name it
+# explicitly) + git: 0017 — the New-preview branch picker runs
+# `git ls-remote` from the Next process (0016 shipped without it and
+# the picker was silently empty).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends docker-cli \
+  && apt-get install -y --no-install-recommends docker-cli git ca-certificates \
   && rm -rf /var/lib/apt/lists/*

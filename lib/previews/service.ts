@@ -1,4 +1,3 @@
-import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   findPreview,
@@ -13,8 +12,7 @@ import {
   type PreviewStatus,
 } from "@/db/previews";
 import { getLease, touchLease, updateLease } from "@/db/sandboxes";
-import { projects, sandboxConfigs } from "@/db/schema";
-import { harnessPreviewNetwork, previewHost, previewUrl, type PreviewNetwork } from "@/lib/previews/network";
+import { previewHost, previewUrl, harnessPreviewNetwork, type PreviewNetwork } from "@/lib/previews/network";
 import { logTail, processAlive, shellQuote, startProcess, stopProcess } from "@/lib/previews/process";
 import { sandboxProvider, type SandboxHandle, type SandboxProvider } from "@/lib/sandboxes/provider";
 
@@ -283,60 +281,10 @@ async function observe(
 }
 
 // ── command inference ───────────────────────────────────────────────────
-
-/** The project's sandbox config preview defaults (null = infer). */
-export function projectPreviewDefaults(projectId: string | null): { command: string | null; port: number | null } {
-  if (!projectId) return { command: null, port: null };
-  const row = db()
-    .select({ command: sandboxConfigs.previewCommand, port: sandboxConfigs.previewPort })
-    .from(projects)
-    .leftJoin(sandboxConfigs, eq(sandboxConfigs.id, sql`coalesce(${projects.sandboxConfigId}, 'default')`))
-    .where(eq(projects.id, projectId))
-    .get();
-  return { command: row?.command?.trim() || null, port: row?.port ?? null };
-}
-
-/**
- * Infer a dev command + port from the repo at `dir`: the package
- * manager from its lockfile, `dev` (else `start`) from package.json, and
- * host/port flags for the frameworks that ignore $PORT/$HOST.
- */
-export async function inferPreviewCommand(
-  handle: SandboxHandle,
-  dir: string,
-): Promise<{ command: string; port: number } | { error: string }> {
-  const read = await handle.run(
-    `cat package.json 2>/dev/null; echo; echo '---'; ls -1 pnpm-lock.yaml yarn.lock bun.lockb bun.lock package-lock.json 2>/dev/null || true`,
-    undefined,
-    dir,
-  );
-  const [pkgText, lockText = ""] = read.stdout.split("\n---\n");
-  let scripts: Record<string, string> = {};
-  try {
-    scripts = (JSON.parse(pkgText ?? "") as { scripts?: Record<string, string> }).scripts ?? {};
-  } catch {
-    return { error: `no readable package.json in ${dir} — pass command and port explicitly` };
-  }
-  const script = scripts.dev ? "dev" : scripts.start ? "start" : null;
-  if (!script) return { error: `package.json in ${dir} has no dev or start script — pass command explicitly` };
-  const pm = lockText.includes("pnpm-lock")
-    ? "pnpm"
-    : lockText.includes("yarn.lock")
-      ? "yarn"
-      : lockText.includes("bun.lock")
-        ? "bun"
-        : "npm";
-  const body = scripts[script]!;
-  const port = 3000;
-  // Vite and Astro bind localhost and their own port unless told.
-  const flags = /\bvite\b|\bastro\b/.test(body) ? ` --host 0.0.0.0 --port ${port}` : /\bnext\b/.test(body) ? ` -H 0.0.0.0 -p ${port}` : "";
-  const run = pm === "npm" ? `npm run ${script}` : `${pm} run ${script}`;
-  // Only npm needs `--` to forward flags (pnpm/yarn/bun pass them through,
-  // and pnpm would forward a literal `--` that ends vite's options).
-  const sep = flags && pm === "npm" ? " --" : "";
-  const install = `[ -d node_modules ] || ${pm} install`;
-  return { command: `${install} && ${run}${sep}${flags}`, port };
-}
+// 0017: inference is gone — discovery (lib/previews/discover.ts) fills
+// the New-preview form once, the result is saved as the project's setup
+// (db/preview-setups.ts), and launches read the setup. Nothing guesses
+// per launch any more.
 
 /** Quote helper re-exported for callers composing commands. */
 export { shellQuote };

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, notInArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Db } from "./index";
 import { previewEvents, previews, sandboxes, type PreviewRow } from "./schema";
@@ -11,7 +11,13 @@ import { previewEvents, previews, sandboxes, type PreviewRow } from "./schema";
  * while history stays.
  */
 
-export type PreviewStatus = "starting" | "healthy" | "crashed" | "stopped" | "failed";
+export type PreviewStatus =
+  | "provisioning"
+  | "starting"
+  | "healthy"
+  | "crashed"
+  | "stopped"
+  | "failed";
 export type PreviewSource = "worktree" | "branch";
 
 export type Preview = Omit<PreviewRow, "status" | "source"> & {
@@ -20,7 +26,15 @@ export type Preview = Omit<PreviewRow, "status" | "source"> & {
 };
 
 /** Statuses with a process that should be up (the tick watches these). */
-export const RUNNING_PREVIEW_STATUSES: readonly PreviewStatus[] = ["starting", "healthy"];
+export const RUNNING_PREVIEW_STATUSES: readonly PreviewStatus[] = [
+  "provisioning",
+  "starting",
+  "healthy",
+];
+
+/** 0017: a provisioning row older than this never got confirmed — the
+ *  tick parks it failed so an abandoned create is visible, not stuck. */
+export const PROVISIONING_STALE_MS = 30 * 60_000;
 
 const ERROR_LIMIT = 2_000;
 
@@ -63,6 +77,8 @@ export interface NewPreview {
   slug?: string;
   /** Pre-minted id (a branch preview names its sandbox owner by it). */
   id?: string;
+  /** 0017: branch previews insert as `provisioning` (default starting). */
+  status?: PreviewStatus;
 }
 
 export function newPreviewId(): string {
@@ -85,7 +101,7 @@ export function insertPreview(db: Db, input: NewPreview): Preview {
     headSha: null,
     failedSha: null,
     dismissedSha: null,
-    status: "starting",
+    status: input.status ?? "starting",
     startedBy: input.startedBy,
     lastRequestAt: null,
     error: null,
@@ -155,21 +171,49 @@ export function listPreviews(db: Db): Preview[] {
     .map(hydrate);
 }
 
-/** Previews the tick reconciles: not deleted, and not settled as stopped. */
+/** Previews the tick reconciles: not deleted, not settled as stopped,
+ *  and not still provisioning (the driving request owns those). */
 export function listWatchedPreviews(db: Db): Preview[] {
   return db
     .select()
     .from(previews)
-    .where(and(isNull(previews.deletedAt), notInArray(previews.status, ["stopped"])))
+    .where(and(isNull(previews.deletedAt), notInArray(previews.status, ["stopped", "provisioning"])))
     .all()
     .map(hydrate);
+}
+
+/** 0017: park provisioning rows that never got confirmed (abandoned
+ *  creates). Returns the ids that aged out. */
+export function expireStaleProvisioning(db: Db, now: number = Date.now()): string[] {
+  const stale = db
+    .select({ id: previews.id })
+    .from(previews)
+    .where(
+      and(
+        eq(previews.status, "provisioning"),
+        isNull(previews.deletedAt),
+        lt(previews.updatedAt, now - PROVISIONING_STALE_MS),
+      ),
+    )
+    .all();
+  for (const row of stale) {
+    updatePreview(db, row.id, {
+      status: "failed",
+      error: "provisioning never completed (no confirm within 30 min)",
+      failedSha: "create",
+    });
+  }
+  return stale.map((r) => r.id);
 }
 
 export function updatePreview(
   db: Db,
   id: string,
   set: Partial<
-    Pick<Preview, "status" | "error" | "headSha" | "failedSha" | "dismissedSha" | "command" | "port" | "label">
+    Pick<
+      Preview,
+      "status" | "error" | "headSha" | "failedSha" | "dismissedSha" | "command" | "port" | "label" | "workDir"
+    >
   >,
 ): void {
   const next = { ...set, updatedAt: Date.now() };

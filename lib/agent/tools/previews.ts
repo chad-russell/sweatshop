@@ -1,6 +1,9 @@
 import { db } from "@/db";
 import { getConversation } from "@/db/chat";
 import { getPreview, listPreviewsForSandboxes } from "@/db/previews";
+import { getPreviewSetupDefinition } from "@/db/preview-setups";
+import { projectRepos } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { getConversationBinding } from "@/db/sandboxes";
 import {
   openConversationSandbox,
@@ -9,11 +12,10 @@ import {
   type OpenedSandbox,
 } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
+import { describeDir } from "@/lib/previews/discover";
 import {
-  inferPreviewCommand,
   previewLogs,
   PreviewError,
-  projectPreviewDefaults,
   startPreview,
   stopPreview,
   viewPreview,
@@ -63,10 +65,19 @@ async function open(caller: PreviewCaller, provider?: SandboxProvider): Promise<
   return { ...opened, projectId: caller.projectId, startedBy: caller.sessionId };
 }
 
-/** Resolve `dir` against the work root; default = the root's only repo, else the root. */
-async function resolveDir(opened: OpenedSandbox, dir?: string): Promise<string> {
+/** Resolve `dir` against the work root; the setup's repo+workDir first,
+ *  else the root's only repo, else the root. */
+async function resolveDir(opened: OpenedSandbox, projectId: string | null, dir?: string): Promise<string> {
   const root = opened.workDir.replace(/\/+$/, "");
   if (dir) return dir.startsWith("/") ? dir : `${root}/${dir.replace(/^\.\/?/, "")}`;
+  const setup = getPreviewSetupDefinition(db(), projectId);
+  if (setup) {
+    const repo = db().select().from(projectRepos).where(eq(projectRepos.id, setup.repo)).get();
+    if (repo) {
+      const repoDir = `${root}/${repo.name}`;
+      return setup.workDir === "." ? repoDir : `${repoDir}/${setup.workDir}`;
+    }
+  }
   const listing = await opened.handle.run(
     `for d in */; do [ -d "$d/.git" ] && echo "\${d%/}"; done 2>/dev/null || true`,
     undefined,
@@ -83,15 +94,18 @@ export async function startPreviewTool(
 ): Promise<ToolResult<{ preview: PreviewView; log?: string; note: string }>> {
   try {
     const opened = await open(caller, deps.provider);
-    const workDir = await resolveDir(opened, input.dir);
-    const defaults = projectPreviewDefaults(opened.projectId);
-    let command = input.command ?? defaults.command ?? undefined;
-    let port = input.port ?? defaults.port ?? undefined;
+    // 0017: the project's saved setup is the default (no per-launch
+    // inference); explicit input wins; a setup-less project falls back
+    // to one directory's discovery prefill.
+    const setup = getPreviewSetupDefinition(db(), opened.projectId);
+    const workDir = await resolveDir(opened, opened.projectId, input.dir);
+    let command = input.command ?? setup?.command;
+    let port = input.port ?? setup?.port;
     if (!command) {
-      const inferred = await inferPreviewCommand(opened.handle, workDir);
-      if ("error" in inferred) return { ok: false, code: "no-command", message: inferred.error };
-      command = inferred.command;
-      port ??= inferred.port;
+      const described = await describeDir(opened.handle, workDir);
+      if ("error" in described) return { ok: false, code: "no-command", message: described.error };
+      command = described.command;
+      port ??= described.port;
     }
     port ??= 3000;
     const { preview, log } = await startPreview(

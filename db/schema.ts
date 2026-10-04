@@ -344,10 +344,6 @@ export const sandboxConfigs = sqliteTable("sandbox_configs", {
   imageRef: text("image_ref"),
   /** Coarse egress policy for live sandbox containers. */
   networkPolicy: text("network_policy").notNull().default("allow-all"),
-  /** 0016: default preview command / port for this config's projects
-   *  (null = infer from the repo). */
-  previewCommand: text("preview_command"),
-  previewPort: integer("preview_port"),
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),
 });
@@ -624,6 +620,30 @@ export const previews = sqliteTable(
 );
 
 export type PreviewRow = typeof previews.$inferSelect;
+
+/**
+ * 0017 preview setups: one explicit run profile per project — where the
+ * server lives in the repo, how deps install, what env and services a
+ * preview needs. The definition is zod-validated JSON
+ * (lib/previews/setup.ts), stored whole and upserted whole; one row per
+ * project. Supersedes sandbox_configs.preview_command/preview_port.
+ */
+export const previewSetups = sqliteTable(
+  "preview_setups",
+  {
+    /** psu_… */
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id),
+    definition: text("definition").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [uniqueIndex("preview_setups_project_idx").on(table.projectId)],
+);
+
+export type PreviewSetupRow = typeof previewSetups.$inferSelect;
 
 /**
  * 0016 phase 3: a branch preview's follow history — one row per remote

@@ -11,11 +11,13 @@ import {
 import { getLease } from "../db/sandboxes";
 import { ensureConversation } from "../db/chat";
 import { bindConversation } from "../db/sandboxes";
+import { projectRepos, projects } from "../db/schema";
 import { previewStatusTool, startPreviewTool, stopPreviewTool } from "../lib/agent/tools/previews";
 import { slugFromHost } from "../lib/previews/network";
 import type { PreviewNetwork } from "../lib/previews/network";
+import { describeDir, discoverPreviewCandidates } from "../lib/previews/discover";
+import { savePreviewSetup } from "../db/preview-setups";
 import {
-  inferPreviewCommand,
   reconcilePreviews,
   startPreview,
   stopPreview,
@@ -68,7 +70,10 @@ class FakeSandbox implements SandboxProvider {
           return { exitCode: 0, stdout: this.alive.get(id) ? "alive\n" : "", stderr: "" };
         }
         if (command.startsWith("tail -n")) return { exitCode: 0, stdout: "boom: missing module\n", stderr: "" };
-        if (command.startsWith("cat package.json")) {
+        if (command.includes("__ROOT__")) {
+          return { exitCode: 0, stdout: this.files.get("scan") ?? "", stderr: "" };
+        }
+        if (command.includes("cat package.json")) {
           return { exitCode: 0, stdout: this.files.get("listing") ?? "", stderr: "" };
         }
         return { exitCode: 0, stdout: "", stderr: "" };
@@ -320,26 +325,60 @@ describe("0016 proxy resolution", () => {
   });
 });
 
-describe("0016 command inference", () => {
-  const handleWith = (listing: string) => {
+describe("0017 discovery", () => {
+  const scanHandle = (scan: string) => {
     const sbx = new FakeSandbox();
-    sbx.files.set("listing", listing);
-    return sbx.attach("ref-infer");
+    sbx.files.set("scan", scan);
+    return sbx.attach("ref-discover");
   };
 
-  it("uses the lockfile's package manager and framework host flags", async () => {
-    const vite = await inferPreviewCommand(
-      handleWith(`{"scripts":{"dev":"vite"}}\n---\npnpm-lock.yaml\n`),
-      "/work/x",
-    );
-    expect(vite).toEqual({ command: "[ -d node_modules ] || pnpm install && pnpm run dev --host 0.0.0.0 --port 3000", port: 3000 });
-    const next = await inferPreviewCommand(handleWith(`{"scripts":{"dev":"next dev"}}\n---\npackage-lock.json\n`), "/w");
-    expect(next).toEqual({ command: "[ -d node_modules ] || npm install && npm run dev -- -H 0.0.0.0 -p 3000", port: 3000 });
+  const scan = [
+    "__ROOT__",
+    '{"scripts":{"dev":"turbo dev"}}',
+    "__LOCKS__",
+    "pnpm-lock.yaml",
+    "__PKGS__",
+    "__PKG__apps/web",
+    '{"scripts":{"dev":"next dev"}}',
+    "__PKG__apps/api",
+    '{"scripts":{"start":"tsx src/index.ts"}}',
+    "__PKG__apps/docs",
+    '{"scripts":{"build":"x"}}',
+    "__END__",
+    "",
+  ].join("\n");
+
+  it("lists the root and every subpackage with a dev/start script, prefilled", async () => {
+    const candidates = await discoverPreviewCandidates(scanHandle(scan), "/work/x");
+    expect(candidates.map((c) => c.dir)).toEqual([".", "apps/web", "apps/api"]);
+    expect(candidates[0]).toMatchObject({ pm: "pnpm", script: "dev", install: "pnpm install", port: 3000 });
+    // plain body (turbo): no framework flags
+    expect(candidates[0]!.command).toBe("pnpm run dev");
+    // next gets host/port flags, pnpm needs no `--`
+    expect(candidates[1]!.command).toBe("pnpm run dev -H 0.0.0.0 -p 3000");
+    // a start-only package still qualifies
+    expect(candidates[2]).toMatchObject({ script: "start" });
+  });
+
+  it("describes one directory for the agent tool, npm `--` and all", async () => {
+    const sbx = new FakeSandbox();
+    sbx.files.set("listing", `{"scripts":{"dev":"next dev"}}\n__\npackage-lock.json\n`);
+    const described = await describeDir(sbx.attach("r"), "/w");
+    expect(described).toEqual({
+      command: "npm run dev -- -H 0.0.0.0 -p 3000",
+      port: 3000,
+      install: "npm install",
+    });
   });
 
   it("explains what is missing instead of guessing", async () => {
-    expect(await inferPreviewCommand(handleWith(`\n---\n`), "/w")).toMatchObject({ error: expect.stringMatching(/package.json/) });
-    expect(await inferPreviewCommand(handleWith(`{"scripts":{"build":"x"}}\n---\n`), "/w")).toMatchObject({
+    const sbx = new FakeSandbox();
+    sbx.files.set("listing", `\n__\n`);
+    expect(await describeDir(sbx.attach("r"), "/w")).toMatchObject({
+      error: expect.stringMatching(/package.json/),
+    });
+    sbx.files.set("listing", `{"scripts":{"build":"x"}}\n__\n`);
+    expect(await describeDir(sbx.attach("r"), "/w")).toMatchObject({
       error: expect.stringMatching(/no dev or start/),
     });
   });
@@ -353,9 +392,9 @@ describe("0016 preview tools", () => {
     return sandboxId;
   }
 
-  it("start_preview infers the command in the binding's only repo and reports the url", async () => {
+  it("start_preview discovers the command in the binding's only repo and reports the url", async () => {
     const sbx = new FakeSandbox();
-    sbx.files.set("listing", `{"scripts":{"dev":"vite"}}\n---\npnpm-lock.yaml\n`);
+    sbx.files.set("listing", `{"scripts":{"dev":"vite"}}\n__\npnpm-lock.yaml\n`);
     const sandboxId = boundChat("c_pvtool");
     const realAttach = sbx.attach.bind(sbx);
     sbx.attach = (ref: string) => {
@@ -375,6 +414,31 @@ describe("0016 preview tools", () => {
     if (!result.ok) throw new Error("unreachable");
     expect(result.preview.command).toContain("pnpm run dev --host 0.0.0.0 --port 3000");
     expect(result.preview.startedBy).toBe("c_pvtool");
+  });
+
+  it("a saved setup is the default: its repo+workDir and command/port, no discovery", async () => {
+    db().insert(projects).values({ id: "p_tools", name: "Tools", createdAt: 0 }).onConflictDoNothing().run();
+    db()
+      .insert(projectRepos)
+      .values({ id: "p_tools/web", projectId: "p_tools", url: "https://git.example/web.git", name: "web", createdAt: 0 })
+      .onConflictDoNothing()
+      .run();
+    savePreviewSetup(db(), "p_tools", {
+      repo: "p_tools/web", workDir: "apps/web", install: "pnpm install",
+      command: "pnpm run dev -H 0.0.0.0 -p $PORT", port: 4321, env: {}, services: [],
+    });
+    const sbx = new FakeSandbox();
+    ensureConversation(db(), "c_pvsetup", "p_tools");
+    bindConversation(db(), "c_pvsetup", { kind: "bound", sandboxId: lease(), workDir: "/work/c_pvsetup", owner: true });
+    const result = await startPreviewTool(
+      { kind: "conversation", conversationId: "c_pvsetup" },
+      { label: "setup" },
+      { provider: sbx, network: networkFor(sbx), ...fast },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      preview: { workDir: "/work/c_pvsetup/web/apps/web", port: 4321, command: "pnpm run dev -H 0.0.0.0 -p $PORT" },
+    });
   });
 
   it("status lists the sandbox's previews without binding; stop refuses other sandboxes'", async () => {
@@ -398,7 +462,7 @@ describe("0016 preview tools", () => {
 
   it("errors are values the model can act on", async () => {
     const sbx = new FakeSandbox();
-    sbx.files.set("listing", `\n---\n`);
+    sbx.files.set("listing", `\n__\n`);
     boundChat("c_pvnopkg");
     const result = await startPreviewTool(
       { kind: "conversation", conversationId: "c_pvnopkg" },
