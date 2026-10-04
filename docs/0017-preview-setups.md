@@ -1,6 +1,9 @@
 # 0017 — Preview setups: explicit commands, env, and declared services
 
-Status: **draft (awaiting Chad's approval)**
+Status: **approved (2026-10-04, chat) — phase 1 in progress**
+
+Portability contract added and open questions resolved before
+approval; no implementation deviations yet.
 
 Direction agreed in chat 2026-10-04, from the open-bible guinea-pig
 test of 0016: the preview machinery works, but a real app needs an env
