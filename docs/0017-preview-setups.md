@@ -28,7 +28,16 @@ in that conversation, recorded here:
   committed `.sweatshop/preview.json` in v1). Per-preview sparse
   overrides at creation time, unsaved.
 - The harness-network boundary model (any container on the network can
-  reach preview services) is accepted for now.
+  reach preview services) is accepted for the v1 podman backend — it
+  is a property of that backend, not of the design (see Portability
+  contract).
+- **Provider portability is a requirement, not a hope**: the same
+  setup definitions must run unchanged under a future VM tier or an
+  external sandbox provider (Railway sandboxes, Daytona, exe.dev —
+  all remote substrates with exec and port exposure). See Portability
+  contract.
+- Both open leans resolved in chat 2026-10-04: `provision` runs once
+  per sandbox; `save_preview_setup` needs no ask_chad gate.
 
 ## Goal
 
@@ -85,7 +94,8 @@ At launch, the process env is built in strict layers, later wins:
    (0016) — always final, so a preview can never misroute itself.
 
 Interpolation happens at resolution time, against the live sandbox:
-`${service:<name>:<port>}` → the service's container name (below),
+`${service:<name>:<port>}` → the address the provider says that
+service is reachable at from inside this sandbox (below), and
 `${PREVIEW_HOST}` / `${PREVIEW_URL}` → this preview's values. An
 unknown service name is a value-shaped error naming the setup and the
 key. Delivery is **process env through `startProcess`'s existing `env`
@@ -100,43 +110,96 @@ inside this trust boundary.
 
 ### Services
 
-A service is a declared container the sandbox owns:
+A service is a declared dependency of the sandbox, expressed as an OCI
+image + env + port — never as a container name, network, or placement:
 
 - **Registry**: `sandbox_services` rows (`id`, `sandbox_id`, `name`,
-  `container_ref`, `status` running/stopped/destroyed, `provisioned_at`
-  — whether `provision` already ran, per sandbox). The same
-  registry-vs-reality split as `sandboxes` and `previews`: the
-  container is the truth, the row is the bookkeeping.
-- **Identity**: containers are named `<sandbox-ref>-svc-<name>` on the
-  `sweatshop-harness` network — unique, DNS-resolvable by the preview
-  container and the proxy. No network aliases: podman DNS aliases are
+  `ref` — an opaque provider reference, like `sandboxes.ref`,
+  `status` running/stopped/destroyed, `provisioned_at` — whether
+  `provision` already ran, per sandbox). The same registry-vs-reality
+  split as `sandboxes` and `previews`: the substrate is the truth, the
+  row is the bookkeeping.
+- **Contract vs v1 backend**: the contract a service backend must
+  satisfy is only (a) the image is running, (b) the sandbox can dial
+  `<address returned by the provider>:<port>`, (c) it stops when the
+  sandbox is destroyed. The v1 podman backend satisfies it with
+  sibling containers named `<sandbox-ref>-svc-<name>` on
+  `sweatshop-harness` (unique, DNS-resolvable by the preview container
+  and the proxy). No network aliases: podman DNS aliases are
   network-global, and two sandboxes each aliasing `db` would
-  round-robin into each other's postgres.
+  round-robin into each other's postgres. A VM backend would run the
+  same images in-VM and answer `localhost`; an external provider
+  answers with whatever it exposes (forwarded port, proxy host).
 - **Lifecycle**: owned by the SANDBOX, like previews. `ensureServices`
   is idempotent (create-if-missing, start-if-stopped), called from
   branch-preview provisioning and from `launchPreview`, so a chat
   sandbox created before its project had services gets them on the
   next preview start. `destroySandbox` destroys service containers
-  with the sandbox; the reaper marks rows. No publishing — same
-  network, direct dial.
-- **Readiness**: after start, a TCP probe per service's `port`
-  (10 s budget, retried on ensure). Only then does `provision` (once
-  per sandbox) and the preview process start. A service that never
-  becomes ready parks the preview `failed` with the service name.
+  with the sandbox; the reaper marks rows. No publishing — the
+  provider decides reachability.
+- **Readiness**: probed **from inside the sandbox** (a TCP check via
+  `handle.run` against the provider-resolved address, 10 s budget,
+  retried on ensure) — portable, and it tests exactly what the app
+  will experience, where the Next process may not be able to dial the
+  service at all on a remote substrate. Only then does `provision`
+  (once per sandbox) and the preview process start. A service that
+  never becomes ready parks the preview `failed` with the service
+  name.
 - **Isolation granularity**: one set per sandbox, not per preview.
   Branch previews are 1:1 with their sandbox, so "isolated per
   preview" holds where it matters; previews sharing a chat sandbox
   share services (same repo, same worktree — sharing is correct and
   cheaper). Recorded deliberately.
-- **Substrate seam**: the definition is substrate-free. v1's
-  `lib/sandboxes/services.ts` implements it with sibling containers
-  through the podman socket; a future VM provider (see Follow-ups)
-  runs the same declarations inside the VM. No consumer of the
-  definition knows which happened.
+- **Substrate seam**: the definition is substrate-free (see
+  Portability contract). v1's `lib/sandboxes/services.ts` implements
+  the backend interface with sibling containers through the podman
+  socket; a VM provider runs the same declarations inside the VM; an
+  external provider adapter runs them however it runs containers. No
+  consumer of the definition knows which happened.
 
 Explicitly rejected: mounting the podman socket into sandboxes so
 agents can self-serve docker. That socket is root-equivalent for every
 sandbox on the host; it would delete the isolation story entirely.
+
+## Portability contract
+
+What a sandbox substrate must provide for setups to run on it —
+written down so review can hold the line, because substrate leakage
+is how this design would quietly die:
+
+1. **Exec with env**: run a command in a working directory with an env
+   map (`SandboxHandle.run` — exists).
+2. **A POSIX-ish filesystem with detached processes**: pid/log files
+   under `/work/.previews/`, `setsid` supervision (exists; any Linux
+   substrate has this).
+3. **Service running, capability-flagged**: the provider declares
+   whether it can run declared service images. A setup with services
+   against a provider that cannot fails at creation with a
+   value-shaped error naming the capability — never a half-started
+   preview.
+4. **A reachable preview endpoint**: the provider tells sweatshop
+   where to dial the preview's port (`PreviewNetwork` — exists). Today
+   the Next process dials container names on the harness network; a
+   remote substrate answers with a forwarded address or tunnel, and
+   the proxy uses that. The user-facing `pv-<slug>.internal.crussell.io`
+   URL always comes from OUR proxy regardless of substrate — the
+   stable-URL property is ours, not the provider's.
+5. **Lifecycle events**: start/stop/destroy the sweatshop store can
+   reconcile against (the reaper's registry-vs-reality loop — exists).
+
+The audit rule: **no identifier of THIS substrate may appear in a
+setup definition or an env value** — no sandbox/container names, no
+sweatshop network names, no podman/docker specifics. (Pointing an env
+value at a fixed, pre-existing service by address — a LAN minio, a
+shared CI database — is legitimate configuration, not substrate
+leakage; the rule bans wiring that would break when the sandbox moves,
+not every address.) `${service:<name>:<port>}` and `${PREVIEW_URL}`
+are the only wiring syntax, and both resolve per-substrate at launch.
+A reviewer rejects a definition that names a sandbox or its network.
+Under this rule the same setup runs on podman siblings, in-VM
+compose, or a Railway/Daytona/exe.dev adapter, and adopting any of
+them is a provider adapter + PreviewNetwork implementation — never a
+migration of setup data.
 
 ## Setup lifecycle: discover once, explicit forever
 
@@ -210,7 +273,7 @@ command, port }[]`. It fills forms; it never launches anything.
 - Preview ownership (0016): previews still belong to sandboxes;
   services now do too.
 - Network policy: still recorded, not enforced; the harness-network
-  boundary model stands (accepted in chat).
+  boundary model stands for the v1 podman backend (accepted in chat).
 - The VM tier: a separate initiative (Follow-ups), not this doc.
 - No auth, no exposure beyond LAN/Nebula. sqlite only.
 
@@ -231,9 +294,10 @@ command, port }[]`. It fills forms; it never launches anything.
 3. **Services.** `sandbox_services` + `lib/sandboxes/services.ts` +
    ensure/readiness/provision-once + `${service:…}` interpolation +
    destroy/reaper integration + sandbox-page block. Unit tests fake
-   the docker calls; one integration test behind an opt-in flag (the
+   the provider calls; one integration test behind an opt-in flag (the
    claude-spike pattern). Done when a declared postgres is dialable
-   from the preview container by name and dies with the sandbox.
+   from the preview process by its provider-resolved address and dies
+   with the sandbox.
 4. **Prove it on open-bible.** Re-create the guinea pig with a real
    setup: db + s3 services, `PAYLOAD_SECRET` et al., migrations via
    `provision`, homepage rendering through
@@ -247,12 +311,9 @@ integration flags.
 
 ## Open questions
 
-- `provision` once per sandbox — is once right, or rerun after
-  force-push resets (schema drift across rewrites)? Lean: once;
-  `provision` is written to be idempotent anyway.
-- Should `save_preview_setup` require an ask_chad confirmation before
-  first write (secrets entering the DB via a model)? Lean: no — the
-  editor is the same trust boundary — but cheap to add later.
+(none — the two former questions, `provision`-once semantics and the
+ask_chad gate on `save_preview_setup`, were resolved in chat
+2026-10-04, both taking the lean.)
 
 ## Follow-ups (not now)
 
@@ -260,6 +321,12 @@ integration flags.
   cloud-hypervisor on bees' KVM (0004's tiers), exec semantics,
   proxy/bridge reachability. Services ride along unchanged; sibling
   backend stays for docker-tier projects.
+- External sandbox providers (Railway sandboxes, Daytona, exe.dev):
+  legitimate under the portability contract — each is a
+  `SandboxProvider` adapter + `PreviewNetwork` implementation +
+  capability flag, with setup definitions unchanged. Requires the auth
+  rule to grow up first (secrets and employer code on someone else's
+  substrate), plus whatever egress rules the substrate imposes.
 - Repo-committed `.sweatshop/preview.json` for the non-secret parts
   (Cursor's pattern) — reviewable, portable; a second source of truth
   to earn its place first.
