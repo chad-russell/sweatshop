@@ -26,13 +26,15 @@ import type { PreviewSetupService } from "@/lib/previews/setup";
 
 export type ServiceSpec = PreviewSetupService;
 
-/** One docker invocation — injectable so unit tests script the substrate. */
-export type DockerRunner = (args: string[]) => Promise<void>;
+/** One docker invocation, returning stdout — injectable so unit tests
+ *  script the substrate. */
+export type DockerRunner = (args: string[]) => Promise<string>;
 
 const exec = promisify(execFile);
 
 export const realDockerRunner: DockerRunner = async (args) => {
-  await exec("docker", args, { maxBuffer: 16 * 1024 * 1024 });
+  const { stdout } = await exec("docker", args, { maxBuffer: 16 * 1024 * 1024 });
+  return stdout;
 };
 
 export interface ServiceDeps {
@@ -54,10 +56,9 @@ export function serviceContainerName(sandboxRef: string, name: string): string {
 
 async function isRunning(docker: DockerRunner, ref: string): Promise<boolean> {
   try {
-    await docker(["start", ref]); // no-op when already running
-    return true;
+    return (await docker(["inspect", "-f", "{{.State.Running}}", ref])).trim() === "true";
   } catch {
-    return false;
+    return false; // no such container (or inspect failed) — recreate
   }
 }
 
@@ -153,7 +154,9 @@ export async function ensureSandboxServices(
       updateService(db(), row.id, { ref, status: "creating" });
       row = { ...row, ref, status: "creating" as const };
     }
-    if (row.status !== "running" || !(await isRunning(docker, row.ref))) {
+    // Actual liveness, not "did start succeed" — a crash-looped
+    // container starts fine and dies; recreate it with current args.
+    if (!(await isRunning(docker, row.ref))) {
       try {
         await runService(docker, row.ref, spec);
       } catch (err) {

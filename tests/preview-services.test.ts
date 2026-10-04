@@ -34,13 +34,33 @@ const SERVICES = [
   { name: "db", image: "docker.io/library/postgres:18-alpine", env: { POSTGRES_PASSWORD: "postgres" }, port: 5432 },
 ];
 
-/** Records every docker invocation; fails the named ones on demand. */
+/** Faithful-enough docker: containers exist after `run`, disappear on
+ *  `rm`, report a chosen running state on `inspect`. */
 class FakeDocker {
   calls: string[][] = [];
+  exists = new Set<string>();
+  running = new Set<string>();
   failRun = false;
   runner: DockerRunner = async (args) => {
     this.calls.push(args);
-    if (this.failRun && args[0] === "run") throw new Error("pull policy denied");
+    const name =
+      args[0] === "run" ? (args[args.indexOf("--name") + 1] ?? "") : (args[args.length - 1] ?? "");
+    if (args[0] === "run") {
+      if (this.failRun) throw new Error("pull policy denied");
+      this.exists.add(name);
+      this.running.add(name);
+      return name;
+    }
+    if (args[0] === "rm") {
+      this.exists.delete(name);
+      this.running.delete(name);
+      return name;
+    }
+    if (args[0] === "inspect") {
+      if (!this.exists.has(name)) throw new Error(`no such container ${name}`);
+      return this.running.has(name) ? "true" : "false";
+    }
+    return "";
   };
   ran(sub: string): boolean {
     return this.calls.some((a) => a.join(" ").includes(sub));
