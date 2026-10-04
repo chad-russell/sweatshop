@@ -294,7 +294,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   probed FROM INSIDE the sandbox, `${service:<name>:<port>}` resolving
   to the container name; the setup's `provision` (migrations) runs
   once per sandbox (`sandboxes.services_provisioned_at`) after
-  services are healthy and before the server, with the resolved env;
+  services are healthy and before the server, with the resolved env,
+  then `seed` (data, 0017 amendment — one command, idempotent by
+  convention, same three archetypes: bundled / fetch / dump-restore)
+  once per sandbox (`sandboxes.seeded_at`, an independent marker);
   they die with the sandbox; the sandbox page shows them; providers
   declare `canRunServices` (portability contract). Branch previews
   (`lib/previews/branch.ts`): `/previews` → New preview is TWO-PHASE

@@ -11,6 +11,40 @@ Direction agreed right after phase 4 shipped: the open-bible preview
 boots schema-only (an empty site — no bibles), and the confirm form
 still cannot edit `provision`/`services`. Two changes, one seam.
 
+### Implementation notes (phases 5–7, shipped same day)
+
+- **Phase 5–6 deviations.** The env block saves WITH the structural
+  fields on confirm (the form prefills the full map, so per-preview env
+  edits would silently rot the setup — sparse per-preview env remains
+  an API/agent concept via `CreateBranchPreviewInput.env`). The setup
+  editor lives as a **Setup** button on `/previews` (the project page
+  is a chat surface; there is no card to host it). The shared field
+  set is one component (`components/previews/setup-editor.tsx`) used
+  by both hosts.
+- **Phase 7 verification rode the worktree path, not a fresh create**:
+  the bible-data contribution lives on a LOCAL branch
+  (`chad/preview-seed` in the preview sandbox's clone — commit
+  `feat(api): preview seed — offline fixture translations…`) because
+  branch previews fetch from the project remote (biblica's GitHub) and
+  nothing local can be followed until it lands upstream. From-scratch
+  acceptance (teardown → create → serving a non-empty site) therefore
+  still pends that landing; what IS verified end-to-end through the
+  app: markers reset → restart → provision (payload + api migrations)
+  → seed (fixtures + pages) → healthy → `/`, `/bibles`, and bible
+  detail pages all 200 with content.
+- **open-bible findings riding along** (setup fixes, not code): the
+  web app renders bibles from the `api` postgres schema directly
+  (`apps/web/src/lib/api-db.ts`), which only the ETL writes — with DBL
+  credentials — so a preview needs (a) `apps/api`'s migrations in
+  `provision` (payload's alone never create it), and (b) the seed
+  writes fixtures there (`apps/api seed:preview`, bundled and offline).
+  `payload migrate` PROMPTS interactively when the DB has been dev-mode
+  pushed and hangs a launch for minutes — provision pipes the answer
+  (`echo y | pnpm run payload:migrate`). The workspace `@open-bible/shared`
+  package must be built or bible detail pages 500 on a missing
+  `book-names` export — `install` is now `pnpm install && pnpm
+  --filter @open-bible/shared run build`.
+
 ### Seed
 
 The definition gains one field:
