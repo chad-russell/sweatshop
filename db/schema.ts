@@ -209,6 +209,9 @@ export const sandboxes = sqliteTable(
     status: text("status").notNull(),
     /** 0011: Unix ms when the sandbox was destroyed; null while live. */
     destroyedAt: integer("destroyed_at"),
+    /** 0017: when the project setup's `provision` ran against this
+     *  sandbox's services (once per sandbox); null = not yet. */
+    servicesProvisionedAt: integer("services_provisioned_at"),
     /** Unix ms; bumped on every acquire (idle reaping's signal). */
     lastUsedAt: integer("last_used_at").notNull(),
     createdAt: integer("created_at").notNull(),
@@ -561,6 +564,38 @@ export const machineStageRuns = sqliteTable(
 );
 
 export type MachineStageRun = typeof machineStageRuns.$inferSelect;
+
+/**
+ * 0017 declared services: the sibling containers a sandbox owns per
+ * its project setup (postgres, minio…). The substrate is the truth;
+ * this row is the bookkeeping — same split as `sandboxes`. `ref` is
+ * provider-opaque (container name on the podman backend).
+ */
+export const sandboxServices = sqliteTable(
+  "sandbox_services",
+  {
+    /** ssvc_… */
+    id: text("id").primaryKey(),
+    sandboxId: text("sandbox_id")
+      .notNull()
+      .references(() => sandboxes.id),
+    /** The declared name (`${service:<name>:…}` references it). */
+    name: text("name").notNull(),
+    /** Declared image (snapshot for display). */
+    image: text("image").notNull(),
+    /** Provider-opaque reference; "" until created. */
+    ref: text("ref").notNull().default(""),
+    /** "creating" | "running" | "stopped" | "destroyed". */
+    status: text("status").notNull().default("creating"),
+    /** The declared port (readiness + display). */
+    port: integer("port").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [uniqueIndex("sandbox_services_sandbox_name_idx").on(table.sandboxId, table.name)],
+);
+
+export type SandboxServiceRow = typeof sandboxServices.$inferSelect;
 
 /**
  * 0016 previews: a long-running HTTP-serving process in a sandbox,

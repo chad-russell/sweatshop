@@ -14,7 +14,16 @@ import {
 } from "@/db/previews";
 import { getPreviewSetupDefinition } from "@/db/preview-setups";
 import { conversations, machineRuns, projectRepos } from "@/db/schema";
-import { getLease, touchLease, updateLease } from "@/db/sandboxes";
+import { getLease, markServicesProvisioned, touchLease, updateLease } from "@/db/sandboxes";
+import {
+  ensureSandboxServices,
+  probeServiceReady,
+  serviceAddress,
+  ServiceDeps,
+} from "@/lib/sandboxes/services";
+import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
+import type { ServiceResolver } from "@/lib/previews/env";
+import type { PreviewSetupDefinition } from "@/lib/previews/setup";
 import { envFileContent, maskEnv, resolvePreviewEnv } from "@/lib/previews/env";
 import { previewHost, previewUrl, harnessPreviewNetwork, type PreviewNetwork } from "@/lib/previews/network";
 import { logTail, processAlive, shellQuote, startProcess, stopProcess } from "@/lib/previews/process";
@@ -34,6 +43,10 @@ export interface PreviewDeps {
   healthTimeoutMs?: number;
   /** Poll interval while waiting (ms). */
   pollMs?: number;
+  /** 0017: the services substrate seam (unit tests script docker). */
+  services?: ServiceDeps;
+  /** 0017: per-service readiness budget (default 10 s). */
+  serviceProbeMs?: number;
 }
 
 function deps(d: PreviewDeps = {}) {
@@ -42,6 +55,8 @@ function deps(d: PreviewDeps = {}) {
     network: d.network ?? harnessPreviewNetwork,
     healthTimeoutMs: d.healthTimeoutMs ?? 90_000,
     pollMs: d.pollMs ?? 1_000,
+    services: d.services,
+    serviceProbeMs: d.serviceProbeMs ?? 10_000,
   };
 }
 
@@ -198,16 +213,46 @@ export function previewProjectId(p: Preview): string | null {
   return null;
 }
 
+/** The repo root a preview's setup runs against: branch previews
+ *  through their repo; worktree previews through the setup's repo
+ *  under the binding's work root. */
+function repoRootFor(p: Preview, setup: PreviewSetupDefinition | null): string | null {
+  if (p.repoId) {
+    const repo = db()
+      .select({ name: projectRepos.name })
+      .from(projectRepos)
+      .where(eq(projectRepos.id, p.repoId))
+      .get();
+    const lease = getLease(db(), p.sandboxId);
+    if (repo && lease) return `${sandboxWorkRoot(lease.ownerId)}/${repo.name}`;
+    return null;
+  }
+  if (!setup) return null;
+  const lease = getLease(db(), p.sandboxId);
+  const repo = db()
+    .select({ name: projectRepos.name })
+    .from(projectRepos)
+    .where(eq(projectRepos.id, setup.repo))
+    .get();
+  if (!lease || !repo) return null;
+  return `${sandboxWorkRoot(lease.ownerId)}/${repo.name}`;
+}
+
 /**
  * 0017: the env a preview boots with — the project setup's env, the
  *  row's sparse overrides, then the platform vars ALWAYS last. Bad
- *  references are a value-shaped error (the caller parks the preview
- *  failed with the reason instead of launching a misconfigured server).
+ *  references (including a declared service that is not running) are a
+ *  value-shaped error; the caller parks the preview failed with the
+ *  reason instead of launching a misconfigured server.
  */
-export function resolvedEnvFor(p: Preview): { env: Record<string, string> } | { error: string } {
+export function resolvedEnvFor(
+  p: Preview,
+  opts: { resolveService?: ServiceResolver } = {},
+): { env: Record<string, string> } | { error: string } {
   const platform = previewEnv(p);
   const base = getPreviewSetupDefinition(db(), previewProjectId(p))?.env ?? {};
-  const resolved = resolvePreviewEnv(base, p.env, platform);
+  const resolveService = opts.resolveService ?? ((name: string) => serviceAddress(p.sandboxId, name));
+  const resolved = resolvePreviewEnv(base, p.env, platform, resolveService);
   if ("error" in resolved) return resolved;
   // Platform values are final — a preview can never misroute itself.
   return { env: { ...resolved.env, ...platform } };
@@ -224,9 +269,30 @@ export function previewEnvView(id: string): { env: Record<string, string> } | { 
 
 /** Launch (or relaunch) a preview row's process and wait for health. */
 export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<StartResult> {
-  const { provider, network, healthTimeoutMs, pollMs } = deps(d);
+  const { provider, network, healthTimeoutMs, pollMs, services, serviceProbeMs } = deps(d);
   const p = getPreview(db(), id);
   if (!p || p.deletedAt) throw new PreviewError("not-found", `no preview ${id}`);
+  const setup = getPreviewSetupDefinition(db(), previewProjectId(p));
+
+  // 0017: declared services first — idempotent, so every launch path
+  // (confirm, follower, restart, agent start) gets them.
+  if (setup?.services.length) {
+    if (provider.canRunServices === false) {
+      updatePreview(db(), p.id, {
+        status: "failed",
+        error: `provider "${provider.kind}" cannot run declared services (portability contract)`,
+      });
+      return { preview: viewPreview(getPreview(db(), p.id)!) };
+    }
+    try {
+      await ensureSandboxServices(p.sandboxId, setup.services, services);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      updatePreview(db(), p.id, { status: "failed", error: message });
+      return { preview: viewPreview(getPreview(db(), p.id)!) };
+    }
+  }
+
   const resolved = resolvedEnvFor(p);
   if ("error" in resolved) {
     updatePreview(db(), p.id, { status: "failed", error: resolved.error });
@@ -234,6 +300,37 @@ export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<St
   }
   const { handle, ref } = await openPreviewSandbox(p.sandboxId, provider, network);
   updatePreview(db(), p.id, { status: "starting", error: null });
+
+  // Readiness from INSIDE the sandbox — what the app will experience.
+  for (const spec of setup?.services ?? []) {
+    const address = serviceAddress(p.sandboxId, spec.name);
+    if ("error" in address) {
+      updatePreview(db(), p.id, { status: "failed", error: `service ${spec.name}: ${address.error}` });
+      return { preview: viewPreview(getPreview(db(), p.id)!) };
+    }
+    const ready = await probeServiceReady(handle, address.address, spec.port, serviceProbeMs).catch(
+      () => false,
+    );
+    if (!ready) {
+      const message = `service ${spec.name} never answered on ${spec.port} (from inside the sandbox)`;
+      updatePreview(db(), p.id, { status: "failed", error: message });
+      return { preview: viewPreview(getPreview(db(), p.id)!) };
+    }
+  }
+
+  // `provision` runs once per sandbox, after services are healthy.
+  const lease = getLease(db(), p.sandboxId);
+  const repoRoot = repoRootFor(p, setup);
+  if (setup?.provision && lease && !lease.servicesProvisionedAt && repoRoot) {
+    const run = await handle.run(`set -o pipefail; ${setup.provision} 2>&1 | tail -60`, { GIT_TERMINAL_PROMPT: "0" }, repoRoot);
+    if (run.exitCode !== 0) {
+      const message = `provision failed:\n${(`${run.stdout}${run.stderr}`).trim().slice(-2_000)}`;
+      updatePreview(db(), p.id, { status: "failed", error: message });
+      return { preview: viewPreview(getPreview(db(), p.id)!) };
+    }
+    markServicesProvisioned(db(), lease.id);
+  }
+
   try {
     await startProcess(handle, {
       id: p.id,

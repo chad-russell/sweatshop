@@ -27,6 +27,8 @@ export interface SandboxLease {
   createdAt: number;
   /** 0011: set when destroyed; the row stays as history. */
   destroyedAt: number | null;
+  /** 0017: when the setup's `provision` ran against this sandbox. */
+  servicesProvisionedAt: number | null;
 }
 
 type SandboxRow = typeof sandboxes.$inferSelect;
@@ -43,7 +45,16 @@ function hydrate(row: SandboxRow): SandboxLease {
     lastUsedAt: row.lastUsedAt,
     createdAt: row.createdAt,
     destroyedAt: row.destroyedAt,
+    servicesProvisionedAt: row.servicesProvisionedAt ?? null,
   };
+}
+
+/** 0017: stamp the once-per-sandbox `provision` as done. */
+export function markServicesProvisioned(db: Db, sandboxId: string): void {
+  db.update(sandboxes)
+    .set({ servicesProvisionedAt: Date.now() })
+    .where(eq(sandboxes.id, sandboxId))
+    .run();
 }
 
 /** Insert a "creating" lease; throws on owner conflicts (unique index). */
@@ -70,6 +81,7 @@ export function insertLease(
     lastUsedAt: now,
     createdAt: now,
     destroyedAt: null,
+    servicesProvisionedAt: null,
   };
   db.insert(sandboxes).values(row).run();
   return hydrate(row);

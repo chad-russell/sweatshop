@@ -9,6 +9,7 @@ import { PageContextRegistration } from "@/components/page-context";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { db } from "@/db";
 import { getSandboxDetail } from "@/db/sandbox-view";
+import { listSandboxServices } from "@/db/sandbox-services";
 import { boundToSandbox } from "@/lib/sandboxes/reaper";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const sandbox = getSandboxDetail(db(), id);
   if (!sandbox) notFound();
+  const services = listSandboxServices(db(), id);
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
@@ -85,6 +87,34 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
             empty="Nothing serving here. An agent bound to this sandbox can start one with start_preview."
           />
         </section>
+
+        {services.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Services</h2>
+            <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+              {services.map((svc) => (
+                <li key={svc.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <span className="font-mono text-xs">
+                    {svc.name}
+                    <span className="text-muted-foreground"> · :{svc.port}</span>
+                  </span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-mono text-xs text-muted-foreground">{svc.image}</span>
+                    <span
+                      className={
+                        svc.status === "running"
+                          ? "rounded-sm bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-600 dark:text-emerald-400"
+                          : "rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      }
+                    >
+                      {svc.status}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="flex flex-col gap-2">
           <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">

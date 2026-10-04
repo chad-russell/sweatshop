@@ -44,6 +44,10 @@ export interface SandboxHandle {
 
 export interface SandboxProvider {
   readonly kind: string;
+  /** 0017 portability contract: can this substrate run declared
+   *  service containers? (undefined = yes; false makes setups with
+   *  services fail at creation with a value-shaped error.) */
+  readonly canRunServices?: boolean;
   create(spec: SandboxSpec): Promise<SandboxHandle>;
   attach(ref: string, root?: string): SandboxHandle;
   /** Stop, preserving state (idle reaping). */

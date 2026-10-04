@@ -14,6 +14,7 @@ import {
   type SandboxOwnerKind,
 } from "@/db/sandboxes";
 import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
+import { destroySandboxServices } from "@/lib/sandboxes/services";
 import {
   sandboxProvider,
   type SandboxHandle,
@@ -165,6 +166,8 @@ export async function destroySandbox(
 ): Promise<void> {
   const lease = getLease(db(), sandboxId);
   if (!lease || lease.status === "destroyed") return;
+  // 0017: the sandbox's declared services die with it.
+  await destroySandboxServices(sandboxId).catch(() => undefined);
   await provider.destroy(lease.ref);
   markDestroyed(db(), lease.id);
   markSandboxPreviewsStopped(db(), lease.id);

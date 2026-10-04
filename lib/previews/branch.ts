@@ -14,6 +14,7 @@ import {
 import { getLease, markDestroyed } from "@/db/sandboxes";
 import { gitCredentials, projectRepos } from "@/db/schema";
 import { activateDedicatedLease, destroySandbox, mintDedicatedLease } from "@/lib/sandboxes/lease";
+import { ensureSandboxServices } from "@/lib/sandboxes/services";
 import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
 import { sandboxProvider, type SandboxHandle } from "@/lib/sandboxes/provider";
 import { harnessPreviewNetwork } from "@/lib/previews/network";
@@ -221,6 +222,15 @@ export async function provisionBranchPreview(
     if (!co.ok) return fail(`checkout ${branch}: ${co.out}`);
     const sha = lastLine(co.out);
     updatePreview(db(), id, { headSha: sha });
+    // 0017: declared services start while you pick candidates (ensure
+    // is idempotent; launch re-ensures and probes readiness).
+    if (setup?.services.length) {
+      try {
+        await ensureSandboxServices(sandboxId, setup.services, deps.services);
+      } catch (err) {
+        return fail(err instanceof Error ? err.message : String(err));
+      }
+    }
     return { preview: viewPreview(getPreview(db(), id)!), ready: { repoRoot, sha } };
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));

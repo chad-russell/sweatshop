@@ -21,18 +21,23 @@ export interface EnvResolution {
   env: Record<string, string>;
 }
 
+/** Resolves `${service:<name>…}` to the address the sandbox can dial. */
+export type ServiceResolver = (name: string) => { address: string } | { error: string };
+
 /** Build the resolution for one preview's launch. */
 export function resolvePreviewEnv(
   base: Record<string, string>,
   overrides: Record<string, string> | null | undefined,
   /** Platform values (PORT/HOST/PREVIEW_HOST/PREVIEW_URL) — the only
-   *  things `${…}` references may name. */
+   *  things plain `${…}` references may name. */
   platform: Record<string, string>,
+  /** Substrate hook for `${service:<name>:<port>}` refs (phase 3). */
+  resolveService?: ServiceResolver,
 ): EnvResolution | { error: string } {
   const merged: Record<string, string> = { ...base, ...(overrides ?? {}) };
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(merged)) {
-    const resolved = interpolate(value, platform, key);
+    const resolved = interpolate(value, platform, key, resolveService);
     if ("error" in resolved) return resolved;
     out[key] = resolved.value;
   }
@@ -45,14 +50,26 @@ function interpolate(
   value: string,
   platform: Record<string, string>,
   key: string,
+  resolveService?: ServiceResolver,
 ): { value: string } | { error: string } {
   const refs = [...value.matchAll(REF)].map((m) => m[1]!);
   let out = value;
   for (const ref of refs) {
     if (ref.startsWith("service:")) {
-      return {
-        error: `env ${key}: \${${ref}} references a declared service, but services start in 0017 phase 3 — remove the reference or wait for services`,
-      };
+      const match = /^service:([a-z0-9-]+)(?::(\d+))?$/.exec(ref);
+      if (!match || !match[1]) {
+        return { error: `env ${key}: \${${ref}} is not a service reference (service:<name>[:<port>])` };
+      }
+      if (!resolveService) {
+        return { error: `env ${key}: \${${ref}} cannot resolve here (no services on this substrate)` };
+      }
+      const resolved = resolveService(match[1]);
+      if ("error" in resolved) {
+        return { error: `env ${key}: \${${ref}} — ${resolved.error}` };
+      }
+      const address = match[2] ? `${resolved.address}:${match[2]}` : resolved.address;
+      out = out.replaceAll(`\${${ref}}`, address);
+      continue;
     }
     const replacement = platform[ref];
     if (replacement === undefined) {
