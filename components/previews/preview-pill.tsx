@@ -64,7 +64,7 @@ export function usePreviews(query: string | null): {
 } {
   const [previews, setPreviews] = useState<PreviewView[]>([]);
   const refresh = useCallback(async () => {
-    if (!query) return;
+    if (query === null) return; // "" IS a query — every preview (the /previews page)
     try {
       const res = await fetch(`/api/previews?${query}`, { cache: "no-store" });
       if (!res.ok) return;
@@ -74,7 +74,7 @@ export function usePreviews(query: string | null): {
     }
   }, [query]);
   useEffect(() => {
-    if (!query) return;
+    if (query === null) return;
     const tick = () => {
       if (document.visibilityState === "visible") void refresh();
     };
