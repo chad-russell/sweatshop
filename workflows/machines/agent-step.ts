@@ -171,18 +171,23 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
   }
 }
 
-/** 0013: bash / pi / claude for an agent stage, in the run's binding. */
+/** 0013: bash / pi / claude (+ 0016 previews) for an agent stage, in the run's binding. */
 async function stageSandboxTools(
   sessionId: string,
   binding: BoundSandbox,
   projectId: string,
 ): Promise<ToolSet> {
-  const [{ tool }, { z }, { runBashIn }, { harnessToolStep }] = await Promise.all([
+  const [{ tool }, { z }, { runBashIn }, { harnessToolStep }, { previewTools }, previews] = await Promise.all([
     import("ai"),
     import("zod"),
     import("../../lib/agent/tools/bash"),
     import("../chat/harness-step"),
+    import("../chat/preview-tools"),
+    import("../../lib/agent/tools/previews"),
   ]);
+  // 0016: previews in the run's sandbox. This whole function runs inside
+  // the stage's one step, so the cores are called directly.
+  const caller = { kind: "inherited" as const, sessionId, binding, projectId };
   const harness = (kind: "pi" | "claude") =>
     tool({
       description:
@@ -212,6 +217,13 @@ async function stageSandboxTools(
       execute: ({ command }, { toolCallId }) =>
         runBashIn(sessionId, binding, command, undefined, toolCallId),
     }),
+    ...previewTools((action, input) =>
+      action === "start"
+        ? previews.startPreviewTool(caller, input)
+        : action === "status"
+          ? previews.previewStatusTool(caller, input)
+          : previews.stopPreviewTool(caller, input as { id: string }),
+    ),
     pi: harness("pi"),
     ...(process.env.CLAUDE_CODE_OAUTH_TOKEN ? { claude: harness("claude") } : {}),
   };

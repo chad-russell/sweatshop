@@ -16,6 +16,7 @@ import {
 import { usePageContext } from "@/components/page-context";
 import { RunTargetPicker, startMachineRun, useScopedMachines } from "@/components/machines/run-target";
 import { LocalTime } from "@/components/local-time";
+import { PreviewPill } from "@/components/previews/preview-pill";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { type ConversationSandboxViewData } from "@/components/sandbox-view";
 import {
@@ -478,6 +479,8 @@ export function ChatSurface({
               />
             </>
           )}
+          {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
+          <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}
         </AppHeader>
       )}

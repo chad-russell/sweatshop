@@ -14,10 +14,12 @@ import {
   machineDeletePreviewStep,
   machinesCatalogStep,
   pendingStep,
+  previewToolStep,
   sandboxExecStep,
   startMachineStep,
 } from "./steps";
 import { editOpSchema } from "../../lib/machines/edit";
+import { previewTools } from "./preview-tools";
 
 /**
  * 0010 tool set for the new chat runtime. Built per conversation by
@@ -228,6 +230,8 @@ export function buildChatTools(
         }),
         execute: ({ command }, { toolCallId }) => bashStep(conversationId, command, toolCallId),
       }),
+      // 0016: previews live in the sandbox, so they need one too.
+      ...previewTools((action, input) => previewToolStep(conversationId, action, input)),
     }),
     ...(hasSandbox && hasProject && {
       pi: tool({

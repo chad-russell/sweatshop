@@ -44,6 +44,7 @@ import {
   SandboxExecCard,
   StartMachineCard,
 } from "@/components/ai-elements/agent-cards";
+import { PreviewToolCard } from "@/components/previews/preview-card";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { HarnessCard } from "@/components/harness-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
@@ -352,6 +353,9 @@ const AGENT_TOOLS = new Set([
   "start_machine",
   "inspect",
   "sandbox_exec",
+  "start_preview",
+  "preview_status",
+  "stop_preview",
 ]);
 
 /** The designed card for a machine / run / inspect tool call, if it has one. */
@@ -379,6 +383,10 @@ function agentToolCard(part: ToolUIPart): ReactNode {
       return <InspectCard {...shared} />;
     case "sandbox_exec":
       return <SandboxExecCard {...shared} />;
+    case "start_preview":
+    case "preview_status":
+    case "stop_preview":
+      return <PreviewToolCard tool={name} {...shared} />;
     default:
       return null;
   }

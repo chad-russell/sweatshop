@@ -32,6 +32,7 @@ import { HarnessLiveLine, HarnessSummary, TaskQuote } from "@/components/harness
 import { HarnessMark } from "@/components/harness-logo";
 import { HarnessEventLog, type HarnessEvent } from "@/components/harness-session-view";
 import { usePageContext } from "@/components/page-context";
+import { PreviewPill } from "@/components/previews/preview-pill";
 import { SandboxStatus } from "@/components/sandbox-status";
 import { MoveMenu } from "@/components/sidebar/move-menu";
 import type { FolderChoice } from "@/components/sidebar/types";
@@ -218,6 +219,8 @@ export function MachineRunView({
             {run.status === "running" && <Loader2 className="size-3.5 animate-spin" />}
             {run.status}
           </span>
+          {/* 0016: previews in the run's sandbox (any stage may start one). */}
+          <PreviewPill owner={sandbox ? run.id : null} />
           {LIVE.has(run.status) && (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => void cancel()}>
               <Square /> Cancel

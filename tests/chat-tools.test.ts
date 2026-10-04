@@ -383,6 +383,11 @@ describe("0010 chat tool cores", () => {
     it("project chats get bash/pi/claude", () => {
       expect(names(true, true)).toEqual(expect.arrayContaining(["bash", "pi", "claude"]));
     });
+    it("0016: preview tools come with the sandbox", () => {
+      const previews = ["start_preview", "preview_status", "stop_preview"];
+      expect(names(true, false)).toEqual(expect.arrayContaining(previews));
+      for (const t of previews) expect(names(false, true)).not.toContain(t);
+    });
     it("chats with no sandbox get none of them", () => {
       for (const hasProject of [true, false]) {
         const tools = names(false, hasProject);

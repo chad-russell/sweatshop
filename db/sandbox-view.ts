@@ -4,6 +4,7 @@ import { getConversationBinding, listCallsForConversation } from "./sandboxes";
 import {
   conversations,
   machineRuns,
+  previews,
   projects,
   sandboxAttachments,
   sandboxCalls,
@@ -54,6 +55,11 @@ export interface ConversationSandboxView {
 }
 
 function ownerLabel(db: Db, ownerKind: string, ownerId: string): string {
+  // 0016: a branch preview's sandbox is owned by the preview (id = owner).
+  if (ownerKind === "preview") {
+    const p = db.select({ label: previews.label, branch: previews.branch }).from(previews).where(eq(previews.id, ownerId)).get();
+    return p ? `${p.label ?? p.branch ?? ownerId} preview` : ownerId;
+  }
   if (ownerKind === "machine_run") {
     const run = db
       .select({ name: machineRuns.machineName })
@@ -175,6 +181,7 @@ export interface SandboxDetail extends SandboxSummary {
 const RECENT_CALLS = 50;
 
 function ownerHref(ownerKind: string, ownerId: string): string {
+  if (ownerKind === "preview") return `/previews?id=${ownerId}`;
   return ownerKind === "machine_run" ? `/r/${ownerId}` : `/c/${ownerId}`;
 }
 

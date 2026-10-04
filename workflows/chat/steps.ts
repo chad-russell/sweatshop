@@ -141,6 +141,20 @@ export async function startMachineStep(
   return startMachineRun({ conversationId, ...input });
 }
 
+/** 0016: preview tools in this conversation's sandbox binding. */
+export async function previewToolStep(
+  conversationId: string,
+  action: "start" | "status" | "stop",
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  "use step";
+  const tools = await import("../../lib/agent/tools/previews");
+  const caller = { kind: "conversation" as const, conversationId };
+  if (action === "start") return tools.startPreviewTool(caller, input);
+  if (action === "status") return tools.previewStatusTool(caller, input);
+  return tools.stopPreviewTool(caller, input as { id: string });
+}
+
 /** 0013 Phase 6: read-only look at another chat, run, or stage visit. */
 export async function inspectStep(id: string): Promise<unknown> {
   "use step";

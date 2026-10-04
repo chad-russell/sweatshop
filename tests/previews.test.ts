@@ -9,6 +9,9 @@ import {
   markPreviewDeleted,
 } from "../db/previews";
 import { getLease } from "../db/sandboxes";
+import { ensureConversation } from "../db/chat";
+import { bindConversation } from "../db/sandboxes";
+import { previewStatusTool, startPreviewTool, stopPreviewTool } from "../lib/agent/tools/previews";
 import { slugFromHost } from "../lib/previews/network";
 import type { PreviewNetwork } from "../lib/previews/network";
 import {
@@ -335,5 +338,69 @@ describe("0016 command inference", () => {
     expect(await inferPreviewCommand(handleWith(`{"scripts":{"build":"x"}}\n---\n`), "/w")).toMatchObject({
       error: expect.stringMatching(/no dev or start/),
     });
+  });
+});
+
+describe("0016 preview tools", () => {
+  function boundChat(id: string) {
+    const sandboxId = lease();
+    ensureConversation(db(), id);
+    bindConversation(db(), id, { kind: "bound", sandboxId, workDir: `/work/${id}`, owner: true });
+    return sandboxId;
+  }
+
+  it("start_preview infers the command in the binding's only repo and reports the url", async () => {
+    const sbx = new FakeSandbox();
+    sbx.files.set("listing", `{"scripts":{"dev":"vite"}}\n---\npnpm-lock.yaml\n`);
+    const sandboxId = boundChat("c_pvtool");
+    const realAttach = sbx.attach.bind(sbx);
+    sbx.attach = (ref: string) => {
+      const h = realAttach(ref);
+      return {
+        ...h,
+        run: async (command, env, cwd) =>
+          command.includes(".git") ? { exitCode: 0, stdout: "web\n", stderr: "" } : h.run(command, env, cwd),
+      };
+    };
+    const result = await startPreviewTool(
+      { kind: "conversation", conversationId: "c_pvtool" },
+      { label: "web" },
+      { provider: sbx, network: networkFor(sbx), ...fast },
+    );
+    expect(result).toMatchObject({ ok: true, preview: { status: "healthy", workDir: "/work/c_pvtool/web", port: 3000, sandboxId } });
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.preview.command).toContain("pnpm run dev --host 0.0.0.0 --port 3000");
+    expect(result.preview.startedBy).toBe("c_pvtool");
+  });
+
+  it("status lists the sandbox's previews without binding; stop refuses other sandboxes'", async () => {
+    const sbx = new FakeSandbox();
+    const deps = { provider: sbx, network: networkFor(sbx), ...fast };
+    boundChat("c_pvmine");
+    const started = await startPreviewTool({ kind: "conversation", conversationId: "c_pvmine" }, { command: "x", port: 8080 }, deps);
+    if (!started.ok) throw new Error(started.message);
+    const listed = await previewStatusTool({ kind: "conversation", conversationId: "c_pvmine" }, {}, deps);
+    expect(listed).toMatchObject({ ok: true, previews: [{ id: started.preview.id }] });
+
+    ensureConversation(db(), "c_pvunbound");
+    expect(await previewStatusTool({ kind: "conversation", conversationId: "c_pvunbound" }, {}, deps)).toEqual({ ok: true, previews: [] });
+
+    boundChat("c_pvother");
+    const denied = await stopPreviewTool({ kind: "conversation", conversationId: "c_pvother" }, { id: started.preview.id }, deps);
+    expect(denied).toMatchObject({ ok: false, code: "not-yours" });
+    const stopped = await stopPreviewTool({ kind: "conversation", conversationId: "c_pvmine" }, { id: started.preview.id }, deps);
+    expect(stopped).toMatchObject({ ok: true, preview: { status: "stopped" } });
+  });
+
+  it("errors are values the model can act on", async () => {
+    const sbx = new FakeSandbox();
+    sbx.files.set("listing", `\n---\n`);
+    boundChat("c_pvnopkg");
+    const result = await startPreviewTool(
+      { kind: "conversation", conversationId: "c_pvnopkg" },
+      { dir: "/work/c_pvnopkg" },
+      { provider: sbx, network: networkFor(sbx), ...fast },
+    );
+    expect(result).toMatchObject({ ok: false, code: "no-command", message: expect.stringContaining("package.json") });
   });
 });

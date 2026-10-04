@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/app-header";
 import { LocalTime } from "@/components/local-time";
 import { SandboxActions } from "@/components/sandbox-actions";
 import { SandboxStatus } from "@/components/sandbox-status";
+import { PreviewList } from "@/components/previews/preview-list";
 import { PageContextRegistration } from "@/components/page-context";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { db } from "@/db";
@@ -41,7 +42,7 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
             </Link>
             <span className="text-muted-foreground">
               {" "}
-              · {sandbox.ownerKind === "machine_run" ? "machine run" : "chat"}
+              · {sandbox.ownerKind === "machine_run" ? "machine run" : sandbox.ownerKind === "preview" ? "branch preview" : "chat"}
             </span>
           </dd>
           {sandbox.projectName && (
@@ -75,6 +76,15 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
             <LocalTime ms={sandbox.destroyedAt ?? sandbox.lastUsedAt} />
           </dd>
         </dl>
+
+        {/* 0016: long-running servers in this sandbox. */}
+        <section className="flex flex-col gap-2">
+          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Previews</h2>
+          <PreviewList
+            query={`sandbox=${encodeURIComponent(sandbox.id)}`}
+            empty="Nothing serving here. An agent bound to this sandbox can start one with start_preview."
+          />
+        </section>
 
         <section className="flex flex-col gap-2">
           <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
