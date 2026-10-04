@@ -318,11 +318,13 @@ export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<St
     }
   }
 
-  // `provision` runs once per sandbox, after services are healthy.
+  // `provision` runs once per sandbox, after services are healthy —
+  // with the resolved env (migrations need the same secrets/DB URIs
+  // the app does).
   const lease = getLease(db(), p.sandboxId);
   const repoRoot = repoRootFor(p, setup);
   if (setup?.provision && lease && !lease.servicesProvisionedAt && repoRoot) {
-    const run = await handle.run(`set -o pipefail; ${setup.provision} 2>&1 | tail -60`, { GIT_TERMINAL_PROMPT: "0" }, repoRoot);
+    const run = await handle.run(`set -o pipefail; ${setup.provision} 2>&1 | tail -60`, resolved.env, repoRoot);
     if (run.exitCode !== 0) {
       const message = `provision failed:\n${(`${run.stdout}${run.stderr}`).trim().slice(-2_000)}`;
       updatePreview(db(), p.id, { status: "failed", error: message });

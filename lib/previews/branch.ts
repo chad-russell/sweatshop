@@ -25,6 +25,7 @@ import {
   launchPreview,
   deletePreview,
   PreviewError,
+  resolvedEnvFor,
   viewPreview,
   type PreviewDeps,
   type PreviewView,
@@ -58,8 +59,13 @@ export interface CreateBranchPreviewInput {
 /** Marker failedSha for a preview that never got as far as a commit. */
 export const CREATE_FAILED = "create";
 
-async function sh(handle: SandboxHandle, command: string, cwd: string): Promise<{ ok: boolean; out: string }> {
-  const r = await handle.run(command, { GIT_TERMINAL_PROMPT: "0" }, cwd);
+async function sh(
+  handle: SandboxHandle,
+  command: string,
+  cwd: string,
+  env?: Record<string, string>,
+): Promise<{ ok: boolean; out: string }> {
+  const r = await handle.run(command, env ?? { GIT_TERMINAL_PROMPT: "0" }, cwd);
   return { ok: r.exitCode === 0, out: `${r.stdout}${r.stderr}`.trim() };
 }
 
@@ -337,7 +343,10 @@ export async function confirmBranchPreview(
   const lease = getLease(db(), p.sandboxId)!;
   const provider = deps.provider ?? sandboxProvider();
   const handle = provider.attach(lease.ref, ctx.repoRoot);
-  const installRun = await sh(handle, `set -o pipefail; ${install} 2>&1 | tail -60`, ctx.repoRoot);
+  // Install runs with the resolved env (private registries, tokens).
+  const bootEnv = resolvedEnvFor(p);
+  const installEnv = "env" in bootEnv ? { GIT_TERMINAL_PROMPT: "0", ...bootEnv.env } : { GIT_TERMINAL_PROMPT: "0" };
+  const installRun = await sh(handle, `set -o pipefail; ${install} 2>&1 | tail -60`, ctx.repoRoot, installEnv);
   if (!installRun.ok) {
     const detail = `install failed:\n${installRun.out}`;
     updatePreview(db(), id, { status: "failed", error: detail, failedSha: p.headSha ?? CREATE_FAILED });
