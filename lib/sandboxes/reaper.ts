@@ -1,6 +1,12 @@
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { LIVE_STATUSES } from "@/db/machines";
+import {
+  listPreviewsForSandboxes,
+  markSandboxPreviewsStopped,
+  previewActivityAt,
+  RUNNING_PREVIEW_STATUSES,
+} from "@/db/previews";
 import { deleteLease, getLease, markDestroyed, updateLease } from "@/db/sandboxes";
 import { conversations, harnessRuns, machineRuns, sandboxes } from "@/db/schema";
 import { sandboxProvider, type SandboxProvider } from "@/lib/sandboxes/provider";
@@ -31,7 +37,7 @@ function envNumber(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-export function reapWindows(): Record<"conversation" | "machine_run", ReapWindows> {
+export function reapWindows(): Record<"conversation" | "machine_run" | "preview", ReapWindows> {
   return {
     conversation: {
       stopMs: envNumber("GC_STOP_MINUTES", 30) * MINUTE,
@@ -41,7 +47,18 @@ export function reapWindows(): Record<"conversation" | "machine_run", ReapWindow
       stopMs: envNumber("GC_RUN_STOP_MINUTES", 10) * MINUTE,
       destroyMs: envNumber("GC_RUN_DESTROY_DAYS", 3) * DAY,
     },
+    // 0016: a branch preview's dedicated sandbox. Its idle clock starts
+    // when its last preview stops (a serving preview keeps it busy).
+    preview: {
+      stopMs: envNumber("GC_STOP_MINUTES", 30) * MINUTE,
+      destroyMs: envNumber("GC_PREVIEW_DESTROY_DAYS", 7) * DAY,
+    },
   };
+}
+
+/** 0016: a serving preview with no proxied traffic for this long is stopped. */
+export function previewIdleMs(): number {
+  return envNumber("GC_PREVIEW_STOP_HOURS", 12) * 60 * MINUTE;
 }
 
 /** A "creating" row older than this never finished (crash mid-create). */
@@ -49,7 +66,7 @@ const STALE_CREATING_MS = 10 * MINUTE;
 
 export interface ReapAction {
   sandboxId: string;
-  action: "stop" | "destroy" | "drop-stale" | "skip-busy";
+  action: "stop" | "destroy" | "drop-stale" | "skip-busy" | "stop-preview";
   ownerKind: string;
   idleMs: number;
 }
@@ -62,8 +79,9 @@ export interface ReapReport {
 
 /**
  * Sandboxes with live work in them: an active chat turn or harness run
- * in a conversation bound to it (owner or attached), or a live run
- * (running / waiting at a gate) bound to it.
+ * in a conversation bound to it (owner or attached), a live run
+ * (running / waiting at a gate) bound to it, or (0016) a preview
+ * starting or serving in it.
  */
 export function busySandboxIds(ids: string[]): Set<string> {
   if (ids.length === 0) return new Set();
@@ -94,6 +112,9 @@ export function busySandboxIds(ids: string[]): Set<string> {
     .all()) {
     if (r.sandboxId && LIVE_STATUSES.has(r.status)) busy.add(r.sandboxId);
   }
+  for (const p of listPreviewsForSandboxes(db(), ids)) {
+    if (RUNNING_PREVIEW_STATUSES.includes(p.status)) busy.add(p.sandboxId);
+  }
   return busy;
 }
 
@@ -109,6 +130,10 @@ export async function reap(
   const provider = options.provider ?? sandboxProvider();
   const windows = reapWindows();
   const report: ReapReport = { apply: options.apply, actions: [], errors: [] };
+
+  // 0016: idle previews first — stopping one can free its sandbox for
+  // the windows below in this same pass.
+  await reapIdlePreviews(now, options.apply, report, provider);
 
   const rows = db()
     .select()
@@ -155,6 +180,7 @@ export async function reap(
         await provider.stop(row.ref);
         updateLease(db(), row.id, { status: "stopped" });
       }
+      markSandboxPreviewsStopped(db(), row.id);
     } catch (err) {
       report.errors.push({ sandboxId: row.id, error: err instanceof Error ? err.message : String(err) });
     }
@@ -182,6 +208,7 @@ export async function stopSandboxNow(id: string, provider: SandboxProvider = san
   }
   await provider.stop(lease.ref);
   updateLease(db(), id, { status: "stopped" });
+  markSandboxPreviewsStopped(db(), id);
 }
 
 /**
@@ -197,6 +224,40 @@ export async function destroySandboxNow(id: string, provider: SandboxProvider = 
   }
   await provider.destroy(lease.ref);
   markDestroyed(db(), id);
+  markSandboxPreviewsStopped(db(), id);
+}
+
+/**
+ * 0016: stop previews nobody has opened for `GC_PREVIEW_STOP_HOURS`.
+ * The process is killed through the preview service (the row goes
+ * `stopped`); the sandbox is left to the ordinary windows.
+ */
+async function reapIdlePreviews(
+  now: number,
+  apply: boolean,
+  report: ReapReport,
+  provider: SandboxProvider,
+): Promise<void> {
+  const live = db()
+    .select({ id: sandboxes.id, ownerKind: sandboxes.ownerKind })
+    .from(sandboxes)
+    .where(eq(sandboxes.status, "running"))
+    .all();
+  const kinds = new Map(live.map((s) => [s.id, s.ownerKind]));
+  const idleAfter = previewIdleMs();
+  for (const p of listPreviewsForSandboxes(db(), [...kinds.keys()])) {
+    if (!RUNNING_PREVIEW_STATUSES.includes(p.status)) continue;
+    const idleMs = now - previewActivityAt(p);
+    if (idleMs <= idleAfter) continue;
+    report.actions.push({ sandboxId: p.sandboxId, action: "stop-preview", ownerKind: kinds.get(p.sandboxId) ?? "?", idleMs });
+    if (!apply) continue;
+    try {
+      const { stopPreview } = await import("@/lib/previews/service");
+      await stopPreview(p.id, { provider });
+    } catch (err) {
+      report.errors.push({ sandboxId: p.sandboxId, error: `preview ${p.id}: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  }
 }
 
 /** Chats and runs bound to a sandbox (what Destroy strands). */

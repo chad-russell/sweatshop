@@ -22,6 +22,10 @@ PODMAN_SOCK="${PODMAN_SOCK:-/run/user/1000/podman/podman.sock}"
 # Host port for the dev server (3000 is taken by an unrelated host
 # next-server on bee). Override with SWEATSHOP_PORT.
 PORT="${SWEATSHOP_PORT:-3300}"
+# 0016 preview proxy: container port 3001, published on bee's Nebula IP
+# only (bees' Caddy forwards pv-*.internal.crussell.io here). Override
+# with PREVIEW_PUBLISH (any `podman -p` host part, e.g. 127.0.0.1:3301).
+PREVIEW_PUBLISH="${PREVIEW_PUBLISH:-10.10.0.12:3301}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The dev image bakes the docker CLI (see Containerfile.dev); build it on
@@ -67,7 +71,7 @@ fi
 case "${1:-run}" in
   run)
     exec podman run --rm --init --replace --name "$CONTAINER" \
-      -p "$PORT":3000 "${common_args[@]}" "$IMAGE" \
+      -p "$PORT":3000 -p "$PREVIEW_PUBLISH":3001 "${common_args[@]}" "$IMAGE" \
       sh -lc 'npm install --no-audit --no-fund && exec npm run dev'
     ;;
   install)

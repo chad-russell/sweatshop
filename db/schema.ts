@@ -200,7 +200,7 @@ export const sandboxes = sqliteTable(
     provider: text("provider").notNull(),
     /** Provider-opaque reference (container name today). */
     ref: text("ref").notNull(),
-    /** "conversation" | "machine_run". */
+    /** "conversation" | "machine_run" | "preview" (0016). */
     ownerKind: text("owner_kind").notNull(),
     ownerId: text("owner_id").notNull(),
     projectId: text("project_id").references(() => projects.id),
@@ -344,6 +344,10 @@ export const sandboxConfigs = sqliteTable("sandbox_configs", {
   imageRef: text("image_ref"),
   /** Coarse egress policy for live sandbox containers. */
   networkPolicy: text("network_policy").notNull().default("allow-all"),
+  /** 0016: default preview command / port for this config's projects
+   *  (null = infer from the repo). */
+  previewCommand: text("preview_command"),
+  previewPort: integer("preview_port"),
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),
 });
@@ -561,3 +565,56 @@ export const machineStageRuns = sqliteTable(
 );
 
 export type MachineStageRun = typeof machineStageRuns.$inferSelect;
+
+/**
+ * 0016 previews: a long-running HTTP-serving process in a sandbox,
+ * reachable at `pv-<slug>.<PREVIEW_BASE_DOMAIN>` through the preview
+ * proxy. Owned by its SANDBOX, not by whatever started it — it outlives
+ * the turn, run, or stage that called start_preview. The sandbox is the
+ * source of truth for the process (pid/log files under
+ * /work/.previews/); this row is the registry, reconciled by the tick.
+ */
+export const previews = sqliteTable(
+  "previews",
+  {
+    /** pv_… */
+    id: text("id").primaryKey(),
+    /** DNS label suffix: the URL host is `pv-<slug>.<base>`. */
+    slug: text("slug").notNull(),
+    sandboxId: text("sandbox_id")
+      .notNull()
+      .references(() => sandboxes.id),
+    /** Absolute directory inside the sandbox the command runs in. */
+    workDir: text("work_dir").notNull(),
+    command: text("command").notNull(),
+    port: integer("port").notNull(),
+    /** Human label (branch name, app name). */
+    label: text("label"),
+    /** "worktree" | "branch". */
+    source: text("source").notNull(),
+    /** branch sources: the project repo and branch followed. */
+    repoId: text("repo_id").references(() => projectRepos.id),
+    branch: text("branch"),
+    /** branch sources: the commit currently served. */
+    headSha: text("head_sha"),
+    /** "starting" | "healthy" | "crashed" | "stopped" | "failed". */
+    status: text("status").notNull(),
+    /** Conversation / run / stage id that started it, or "user".
+     *  Attribution only — never ownership. */
+    startedBy: text("started_by").notNull(),
+    /** Unix ms; stamped by the proxy (at most once a minute). */
+    lastRequestAt: integer("last_request_at"),
+    /** Bounded failure reason. */
+    error: text("error"),
+    /** Unix ms; null until deleted (the row stays as history). */
+    deletedAt: integer("deleted_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("previews_slug_idx").on(table.slug).where(sql`${table.deletedAt} is null`),
+    index("previews_sandbox_idx").on(table.sandboxId),
+  ],
+);
+
+export type PreviewRow = typeof previews.$inferSelect;

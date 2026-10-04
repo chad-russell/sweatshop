@@ -11,7 +11,8 @@ import { conversations, sandboxAttachments, sandboxCalls, sandboxes } from "./sc
  * conversation's sandbox binding (columns on `conversations`).
  */
 
-export type SandboxOwnerKind = "conversation" | "machine_run";
+/** 0016 adds "preview": a branch preview's dedicated sandbox. */
+export type SandboxOwnerKind = "conversation" | "machine_run" | "preview";
 export type SandboxLeaseStatus = "creating" | "running" | "stopped" | "destroyed";
 
 export interface SandboxLease {

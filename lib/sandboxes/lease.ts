@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { markSandboxPreviewsStopped } from "@/db/previews";
 import { projects, sandboxConfigs } from "@/db/schema";
 import {
   deleteLease,
@@ -124,4 +125,5 @@ export async function destroySandbox(
   if (!lease || lease.status === "destroyed") return;
   await provider.destroy(lease.ref);
   markDestroyed(db(), lease.id);
+  markSandboxPreviewsStopped(db(), lease.id);
 }
