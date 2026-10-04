@@ -17,10 +17,11 @@ still cannot edit `provision`/`services`. Two changes, one seam.
   fields on confirm (the form prefills the full map, so per-preview env
   edits would silently rot the setup — sparse per-preview env remains
   an API/agent concept via `CreateBranchPreviewInput.env`). The setup
-  editor lives as a **Setup** button on `/previews` (the project page
-  is a chat surface; there is no card to host it). The shared field
-  set is one component (`components/previews/setup-editor.tsx`) used
-  by both hosts.
+  editor is the New-preview dialog itself (plus its "Save setup only"
+  footer action) — the shared field set is one component
+  (`components/previews/setup-editor.tsx`). A confirm whose preview's
+  repo differs from the saved setup's repo skips the save (one setup
+  per project, bound to one repo).
 - **Phase 7 verification rode the worktree path, not a fresh create**:
   the bible-data contribution lives on a LOCAL branch
   (`chad/preview-seed` in the preview sandbox's clone — commit
@@ -97,10 +98,16 @@ seed, services (rows: name/image/port/command/env) — and on confirm:
 - **per-preview fields** (command, port, label, sparse env) stay row
   overrides, as today.
 
-An existing setup becomes editable without creating a preview: a
-**Setup** button on `/previews` (beside New preview) opens the same
-fields against the saved definition and saves in place — editing lives
-in one place only, and the project page stays a chat surface.
+An existing setup is edited without creating a preview through the
+SAME dialog: New preview's footer has a **Save setup only** action that
+PUTs the definition and launches nothing. (An earlier cut of this
+phase shipped a second global "Setup" button + dialog; deleted the
+same day — with the form a full editor it was the same fields twice,
+and one dialog with two actions is the simpler surface.)
+
+One guard rides along: a setup is bound to ONE repo (one setup per
+project, v1), so a confirm for a DIFFERENT repo never rewrites it —
+those edits apply to that preview's row only.
 
 ### Phases
 

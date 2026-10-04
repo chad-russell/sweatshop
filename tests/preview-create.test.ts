@@ -198,6 +198,31 @@ describe("0017 branch create: provision → discover → confirm", () => {
     expect(setup.setup.definition).toMatchObject({ provision: "pnpm -w run migrate", seed: "pnpm run seed", env: { A: "1" } });
   });
 
+  it("a preview of a different repo never rewrites a setup bound to another repo", async () => {
+    db()
+      .insert(projectRepos)
+      .values({ id: "p_create/api", projectId: "p_create", url: "https://git.example/api.git", name: "api", createdAt: 0 })
+      .onConflictDoNothing()
+      .run();
+    savePreviewSetup(db(), "p_create", {
+      repo: "p_create/web", workDir: "apps/web", install: "pnpm install",
+      command: "pnpm run dev", port: 3000, env: { WHO: "web" }, services: [],
+    });
+    const g = new BranchSandbox();
+    const provisioned = await provisionBranchPreview({ projectId: "p_create", repoId: "p_create/api", branch: "main" }, { provider: g, ...fast });
+    const confirmed = await confirmBranchPreview(
+      provisioned.preview.id,
+      { workDir: ".", install: "pnpm install", command: "pnpm run api", port: 8787, env: { WHO: "api" } },
+      { provider: g, network: networkFor(g), ...fast },
+    );
+    expect(confirmed.error).toBeUndefined();
+    // the setup is untouched — still the web repo's — while the row kept its own values
+    const setup = getPreviewSetup(db(), "p_create");
+    if (!setup.ok || !setup.setup) throw new Error("no setup saved");
+    expect(setup.setup.definition).toMatchObject({ repo: "p_create/web", env: { WHO: "web" } });
+    expect(getPreview(db(), provisioned.preview.id)).toMatchObject({ command: "pnpm run api", port: 8787, env: { WHO: "api" } });
+  });
+
   it("an explicit-values create is one shot: provision → install → healthy", async () => {
     const g = new BranchSandbox();
     const result = await createBranchPreview(

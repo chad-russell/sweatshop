@@ -1,27 +1,16 @@
 "use client";
 
-import { Pencil } from "lucide-react";
-import { useEffect, useId, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { parseEnvBlock } from "@/lib/previews/env";
 import type { PreviewSetupDefinition } from "@/lib/previews/setup";
 
 /**
- * 0017 amendment: ONE editor for the full setup definition, two hosts —
- * the New-preview flow (new-preview.tsx) and this setup-only dialog.
- * The definition's shape lives in lib/previews/setup.ts; this file is
- * the form shape plus the two conversions.
+ * 0017 amendment: the setup definition's ONE editor — the fields and
+ * the two form↔definition conversions, hosted by the New-preview flow
+ * (new-preview.tsx): creating a preview saves the setup as part of the
+ * launch, and its "Save setup only" footer action persists without
+ * launching. The definition's shape lives in lib/previews/setup.ts.
  */
 
 export interface ServiceRow {
@@ -250,136 +239,5 @@ export function SetupFields({
         </Button>
       </div>
     </div>
-  );
-}
-
-interface Repo {
-  id: string;
-  name: string;
-  url: string;
-}
-
-/** Edit a project's saved setup in place — no preview created. */
-export function SetupEditorDialog({ projects }: { projects: { id: string; name: string }[] }) {
-  const router = useRouter();
-  const ids = useId();
-  const [open, setOpen] = useState(false);
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [repoId, setRepoId] = useState("");
-  const [values, setValues] = useState<SetupFormValues>(emptySetupForm);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    if (!open || !projectId) return;
-    let cancelled = false;
-    void (async () => {
-      const [reposRes, setupRes] = await Promise.all([
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/branches`, { cache: "no-store" }),
-        fetch(`/api/previews/setup?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" }),
-      ]);
-      const reposBody = (await reposRes.json().catch(() => ({ repos: [] }))) as { repos: Repo[] };
-      const setupBody = (await setupRes.json().catch(() => ({ setup: null }))) as {
-        setup: { definition: PreviewSetupDefinition } | null;
-      };
-      if (cancelled) return;
-      setSaved(false);
-      setRepos(reposBody.repos);
-      const definition = setupBody.setup?.definition ?? null;
-      setRepoId(definition?.repo ?? reposBody.repos[0]?.id ?? "");
-      setValues(definition ? setupFormFromDefinition(definition) : emptySetupForm);
-      setError(setupBody.setup === null && reposBody.repos.length === 0 ? "This project has no repos." : null);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, projectId]);
-
-  const save = async () => {
-    if (!projectId || !repoId) return;
-    setBusy(true);
-    setError(null);
-    const built = definitionFromSetupForm(values, repoId);
-    if ("error" in built) {
-      setBusy(false);
-      setError(built.error);
-      return;
-    }
-    const res = await fetch("/api/previews/setup", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId, definition: built.definition }),
-    });
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    setBusy(false);
-    if (!res.ok) {
-      setError(body.error ?? `could not save (${res.status})`);
-      return;
-    }
-    setSaved(true);
-    router.refresh();
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline" disabled={projects.length === 0} title="Edit a project's saved preview setup">
-          <Pencil /> Setup
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Preview setup</DialogTitle>
-          <DialogDescription>
-            The saved answer to “how does this project run” — every later preview and start_preview uses it.
-            Structural fields save here and apply to every preview.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
-          <label className={FIELD} htmlFor={`${ids}-project`}>
-            <span className={LABEL}>Project</span>
-            <select
-              id={`${ids}-project`}
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              className="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={FIELD} htmlFor={`${ids}-repo`}>
-            <span className={LABEL}>Repo</span>
-            <select
-              id={`${ids}-repo`}
-              value={repoId}
-              onChange={(e) => setRepoId(e.target.value)}
-              className="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            >
-              {repos.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="max-h-[60vh] overflow-y-auto pr-1">
-          <SetupFields ids={ids} values={values} onChange={setValues} />
-        </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        {saved && <p className="text-sm text-muted-foreground">Saved — applies to the next preview launch.</p>}
-        <DialogFooter>
-          <Button type="button" disabled={busy || !projectId || !repoId || !values.command.trim() || !values.install.trim() || !values.port.trim()} onClick={() => void save()}>
-            {busy ? "Saving…" : "Save setup"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

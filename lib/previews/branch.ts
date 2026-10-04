@@ -326,20 +326,25 @@ export async function confirmBranchPreview(
   // 0017 amendment: the confirm form is the setup editor — structural
   // fields (and the env block) ALWAYS save; per-preview fields
   // (command, port, label) stay this row's. Unset structural input
-  // keeps the saved setup's values, so API confirms behave.
-  const saved = savePreviewSetup(db(), ctx.projectId, {
-    repo: p.repoId,
-    workDir: workDirRel,
-    install: install!,
-    command: command!,
-    port: port!,
-    env: input.env ?? setup?.env ?? {},
-    services: input.services ?? setup?.services ?? [],
-    ...((input.provision ?? setup?.provision) ? { provision: input.provision ?? setup!.provision! } : {}),
-    ...((input.seed ?? setup?.seed) ? { seed: input.seed ?? setup!.seed! } : {}),
-  });
-  if (!saved.ok) {
-    return { preview: viewPreview(p), error: `setup invalid: ${saved.issues.join("; ")}` };
+  // keeps the saved setup's values, so API confirms behave. ONE
+  // exception: a setup bound to a different repo (one setup per
+  // project, v1) is never rewritten by previewing that other repo —
+  // the edits apply to this row only.
+  if (!setup || setup.repo === p.repoId) {
+    const saved = savePreviewSetup(db(), ctx.projectId, {
+      repo: p.repoId,
+      workDir: workDirRel,
+      install: install!,
+      command: command!,
+      port: port!,
+      env: input.env ?? setup?.env ?? {},
+      services: input.services ?? setup?.services ?? [],
+      ...((input.provision ?? setup?.provision) ? { provision: input.provision ?? setup!.provision! } : {}),
+      ...((input.seed ?? setup?.seed) ? { seed: input.seed ?? setup!.seed! } : {}),
+    });
+    if (!saved.ok) {
+      return { preview: viewPreview(p), error: `setup invalid: ${saved.issues.join("; ")}` };
+    }
   }
 
   updatePreview(db(), id, {

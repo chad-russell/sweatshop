@@ -251,6 +251,32 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
     router.refresh();
   };
 
+  const saveSetupOnly = async () => {
+    if (!projectId || !repoId) return;
+    setBusy("create");
+    setError(null);
+    const built = definitionFromSetupForm(values, repoId);
+    if ("error" in built) {
+      setBusy(null);
+      setError(built.error);
+      return;
+    }
+    const res = await fetch("/api/previews/setup", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId, definition: built.definition }),
+    });
+    const parsed = (await res.json().catch(() => ({}))) as { error?: string };
+    setBusy(null);
+    if (!res.ok) {
+      setError(parsed.error ?? `could not save (${res.status})`);
+      return;
+    }
+    setOpen(false);
+    reset();
+    router.refresh();
+  };
+
   const resolvable = Boolean(values.command.trim() && values.install.trim() && values.port.trim());
 
   return (
@@ -394,15 +420,26 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             {step === "form" ? (
-              <Button type="submit" disabled={Boolean(busy) || !projectId || !repoId || !branch.trim()}>
-                {busy === "create"
-                  ? resolvable
-                    ? "Provisioning, installing, launching…"
-                    : "Provisioning & scanning…"
-                  : hasSetup || resolvable
-                    ? "Create preview"
-                    : "Create & discover"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={Boolean(busy) || !resolvable}
+                  title="Save these values as the project's setup — no preview launched"
+                  onClick={() => void saveSetupOnly()}
+                >
+                  Save setup only
+                </Button>
+                <Button type="submit" disabled={Boolean(busy) || !projectId || !repoId || !branch.trim()}>
+                  {busy === "create"
+                    ? resolvable
+                      ? "Provisioning, installing, launching…"
+                      : "Provisioning & scanning…"
+                    : hasSetup || resolvable
+                      ? "Create preview"
+                      : "Create & discover"}
+                </Button>
+              </div>
             ) : (
               <Button type="button" disabled={busy !== null || !resolvable} onClick={() => void confirm()}>
                 {busy === "confirm" ? "Installing & launching…" : "Launch preview"}
