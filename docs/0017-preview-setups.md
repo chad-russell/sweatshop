@@ -5,6 +5,85 @@ Status: **approved (2026-10-04, chat) — phases 1–4 shipped same day**
 Portability contract added and open questions resolved before
 approval.
 
+## Amendment — `seed` + the full setup editor (2026-10-04, later chat)
+
+Direction agreed right after phase 4 shipped: the open-bible preview
+boots schema-only (an empty site — no bibles), and the confirm form
+still cannot edit `provision`/`services`. Two changes, one seam.
+
+### Seed
+
+The definition gains one field:
+
+- `seed?: string` — one shell command at the repo root (the command
+  carries its own `cd apps/web && …`, the `provision` convention).
+  It runs **once per sandbox**, in the launch sequence's existing
+  slot order: services healthy → `provision` → `seed` → server. The
+  marker is a new `sandboxes.seeded_at` (`markSeeded`), deliberately
+  independent of `services_provisioned_at` — an already-provisioned
+  sandbox still seeds, and a failed seed never regresses provision
+  state.
+- Failure is provision's shape: non-zero exit parks the preview
+  `failed` with a `tail -60`, the marker stays unset, Retry re-runs.
+  Seed commands are idempotent **by convention** (open-bible's
+  bundled seed already is — find-or-create), exactly like migrations.
+- No per-preview override, no follower changes: seed writes
+  sandbox-owned service state, like the services themselves. A
+  branch preview runs its own checkout's seed implementation for
+  free — same command, the branch's code.
+- One command string covers every data archetype we have today:
+  bundled (`pnpm run seed`), fetch-from-source (`seed:production` —
+  sandboxes already have egress), restore-from-dump
+  (`curl … | psql "$DATABASE_URL"`). Service data snapshots stay the
+  follow-up below; this field is the seam they plug into. The
+  trigger for building snapshots is cost — every branch preview is a
+  fresh sandbox, so a slow or rate-limited fetch re-runs per preview.
+- **Learning**: `discoverPreviewCandidates` prefills a candidate's
+  `seed?` from script names `seed` / `db:seed` (a form fill, no
+  guarantees). The agent path needs **no new tools**:
+  `get/save_preview_setup` already carry the whole definition, and
+  the learning flow is explore → boot → run the seed by hand
+  (`sandbox_exec` / a harness shell) → verify the site renders WITH
+  data → save. For open-bible the learning is the point: the bundled
+  seed covers pages only, and `seed:production` still targets Mongo
+  (pre-Payload legacy), so what "booted with data" means is exactly
+  what the session is meant to sort out — possibly by contributing a
+  translations seed back to the repo.
+
+### The form becomes the setup editor
+
+The `saveSetup` toggle is superseded. The confirm form edits the
+FULL definition — workDir, install, command, port, env, provision,
+seed, services (rows: name/image/port/command/env) — and on confirm:
+
+- **structural fields** (workDir, install, provision, seed,
+  services) save to the project's setup, always — they shape the
+  sandbox and the launch path reads them from the setup, so silent
+  one-offs of them are how a working setup rots;
+- **per-preview fields** (command, port, label, sparse env) stay row
+  overrides, as today.
+
+An existing setup becomes editable without creating a preview: the
+project page's setup card opens the same form pre-filled; saving
+updates the setup only.
+
+### Phases
+
+5. **Seed.** Schema field + `seeded_at` + launch-slot ordering +
+   failure/retry + the discovery prefill; `confirmBranchPreview`
+   passes `seed` through with `provision`. Unit tests (fake
+   handle/provider, the launchPreview shape): slot ordering,
+   once-markers, failure parks + Retry re-runs, a sandbox provisioned
+   before seed existed still seeds.
+6. **Setup editor.** The form edits the full definition; the toggle
+   is removed; structural-save-on-confirm; the project-page edit
+   entry.
+7. **Prove it on open-bible.** The agent learns a seed that makes
+   the preview render bibles (bundled pages seed + a real
+   translations path — likely a repo contribution or the etl sync),
+   saves the setup, and a from-scratch create serves a non-empty
+   site.
+
 ## Implementation notes (deviations and decisions)
 
 - **Phase 3/4.** A service `command` is ENTRYPOINT argv with compose
@@ -131,6 +210,7 @@ The definition:
   "workDir": "apps/web",               // relative to the repo root
   "install": "pnpm install",           // run at provision + on dep change
   "provision": "pnpm -w run migrate",  // optional; once per sandbox, after services are healthy
+  "seed": "cd apps/web && pnpm run seed",  // optional; once per sandbox, after provision — data, idempotent by convention
   "command": "pnpm run dev -H 0.0.0.0 -p $PORT",
   "port": 3000,
   "env": {
@@ -394,6 +474,8 @@ ask_chad gate on `save_preview_setup`, were resolved in chat
 - Repo-committed `.sweatshop/preview.json` for the non-secret parts
   (Cursor's pattern) — reviewable, portable; a second source of truth
   to earn its place first.
-- Service data snapshots / seed images (a preview starting from a
-  meaningful dataset, not empty postgres).
+- Service data snapshots (captured service state restored instead of
+  a re-fetch per fresh sandbox — the amendment's `seed` field is the
+  seam they plug into; build when a slow or rate-limited fetch re-runs
+  too often across branch previews).
 - Push webhooks → immediate follows (unchanged from 0016).
