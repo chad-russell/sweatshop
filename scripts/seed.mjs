@@ -73,6 +73,26 @@ upsert("project_repos", {
   created_at: now(),
 });
 
+// 0016 preview guinea pig: Biblica's open-bible monorepo (public GitHub
+// repo — clones anonymously). pnpm/turbo workspace; the previewable app
+// is apps/web (Next 15 + Payload), so preview commands target it
+// explicitly rather than the root `turbo dev` (which starts every app).
+upsert("projects", {
+  id: "open-bible",
+  name: "open-bible",
+  description: "Biblica open-bible monorepo. Preview app: apps/web (pnpm/turbo workspace).",
+  sandbox_config_id: "default",
+  created_at: now(),
+});
+
+upsert("project_repos", {
+  id: "open-bible/open-bible",
+  project_id: "open-bible",
+  url: "https://github.com/biblica/open-bible.git",
+  name: "open-bible",
+  created_at: now(),
+});
+
 // --- git credentials (env-gated) --------------------------------------
 if (process.env.GITHUB_TOKEN && process.env.GITHUB_USERNAME) {
   upsert("git_credentials", {
