@@ -1,11 +1,27 @@
 # 0017 — Preview setups: explicit commands, env, and declared services
 
-Status: **approved (2026-10-04, chat) — phases 1–2 shipped same day**
+Status: **approved (2026-10-04, chat) — phases 1–4 shipped same day**
 
 Portability contract added and open questions resolved before
 approval.
 
 ## Implementation notes (deviations and decisions)
+
+- **Phase 3/4.** A service `command` is ENTRYPOINT argv with compose
+  semantics (quote-aware `splitArgs`), never a wrapped shell line —
+  minio's ENTRYPOINT made `bash -lc` a subcommand. Liveness reads
+  `docker inspect {{.State.Running}}`, not "did start succeed"
+  (crash-looped containers start fine), which also makes a stale
+  container self-heal into current args. `provision` and `install` run
+  with the RESOLVED env (migrations need the same secrets and service
+  URIs the app does). The once-per-sandbox `provisioned_at` marker
+  lives on `sandboxes` rather than a service row (deviation from the
+  table sketch — a services-less setup still needs the marker).
+  Live acceptance (open-bible, main): services db (postgres 18) + s3
+  (minio) as siblings, `${service:…}` addresses in DATABASE_URL/
+  DATABASE_URI/S3_ENDPOINT, `payload migrate` via `provision`, and the
+  homepage RENDERING at its pv- URL; a full teardown → one-shot
+  create → serving cycle, with the services dying with the sandbox.
 
 - **Phase 2.** `previewProjectId` resolves a preview's project through
   its repo (branch) or its sandbox owner — conversation or machine run

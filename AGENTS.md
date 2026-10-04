@@ -284,7 +284,19 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   phase 3; the resolved set is also written to
   `/work/.previews/<id>.env`, 0600); defaults come from the project's saved
   setup (0017), else `describeDir` prefills once; agent tools also
-  include `get_preview_setup` / `save_preview_setup`. Branch previews
+  include `get_preview_setup` / `save_preview_setup`. Declared
+  SERVICES (0017 phase 3, `sandbox_services` rows +
+  `lib/sandboxes/services.ts` behind a DockerRunner seam): sibling
+  containers on `sweatshop-harness` named `<ref>-svc-<name>` (compose
+  semantics — `command` is entrypoint argv; liveness by
+  `inspect {{.State.Running}}`, recreate-if-gone), owned by the
+  sandbox, ensured at branch provisioning and every launch, readiness
+  probed FROM INSIDE the sandbox, `${service:<name>:<port>}` resolving
+  to the container name; the setup's `provision` (migrations) runs
+  once per sandbox (`sandboxes.services_provisioned_at`) after
+  services are healthy and before the server, with the resolved env;
+  they die with the sandbox; the sandbox page shows them; providers
+  declare `canRunServices` (portability contract). Branch previews
   (`lib/previews/branch.ts`): `/previews` → New preview is TWO-PHASE
   (0017 phase 1): provision (the row is inserted BEFORE the sandbox —
   a `provisioning` status; failures land as visible `failed` rows with
