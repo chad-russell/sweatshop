@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
-import { projects } from "../db/schema";
+import { projectRepos, projects } from "../db/schema";
 import {
   deletePreviewSetup,
   getPreviewSetup,
@@ -28,6 +28,11 @@ const valid = {
 };
 
 db().insert(projects).values({ id: "p_setup", name: "Setup", createdAt: 0 }).onConflictDoNothing().run();
+db()
+  .insert(projectRepos)
+  .values({ id: "p_setup/web", projectId: "p_setup", url: "https://git.example/web.git", name: "web", createdAt: 0 })
+  .onConflictDoNothing()
+  .run();
 
 describe("0017 preview setups", () => {
   it("round-trips a definition and defaults the optionals", () => {

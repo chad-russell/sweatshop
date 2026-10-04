@@ -107,7 +107,7 @@ function networkFor(sbx: FakeSandbox): PreviewNetwork & { connected: string[] } 
 }
 
 let n = 0;
-function lease(status = "running", ownerKind = "conversation", idleMs = 0) {
+function lease(status = "running", ownerKind = "conversation", idleMs = 0, ownerId?: string) {
   n += 1;
   const id = `sbx_pv${n}`;
   db().$client
@@ -115,7 +115,7 @@ function lease(status = "running", ownerKind = "conversation", idleMs = 0) {
       "insert into sandboxes (id, provider, ref, owner_kind, owner_id, status, last_used_at, created_at) " +
         "values (?, 'podman', ?, ?, ?, ?, ?, 0)",
     )
-    .run(id, `ref-${id}`, ownerKind, `owner-${id}`, status, Date.now() - idleMs);
+    .run(id, `ref-${id}`, ownerKind, ownerId ?? `owner-${id}`, status, Date.now() - idleMs);
   return id;
 }
 
@@ -385,9 +385,9 @@ describe("0017 discovery", () => {
 });
 
 describe("0016 preview tools", () => {
-  function boundChat(id: string) {
-    const sandboxId = lease();
-    ensureConversation(db(), id);
+  function boundChat(id: string, projectId: string | null = null) {
+    const sandboxId = lease("running", "conversation", 0, id);
+    ensureConversation(db(), id, projectId);
     bindConversation(db(), id, { kind: "bound", sandboxId, workDir: `/work/${id}`, owner: true });
     return sandboxId;
   }
@@ -439,6 +439,69 @@ describe("0016 preview tools", () => {
       ok: true,
       preview: { workDir: "/work/c_pvsetup/web/apps/web", port: 4321, command: "pnpm run dev -H 0.0.0.0 -p $PORT" },
     });
+  });
+
+  it("start_preview delivers setup env + overrides + platform, platform final", async () => {
+    db().insert(projects).values({ id: "p_envd", name: "EnvD", createdAt: 0 }).onConflictDoNothing().run();
+    db()
+      .insert(projectRepos)
+      .values({ id: "p_envd/web", projectId: "p_envd", url: "https://git.example/web.git", name: "web", createdAt: 0 })
+      .onConflictDoNothing()
+      .run();
+    savePreviewSetup(db(), "p_envd", {
+      repo: "p_envd/web", workDir: ".", install: "npm install", command: "npm run dev",
+      port: 3000,
+      env: { SHARED: "setup", OVERRIDDEN: "setup", SITE: "${PREVIEW_URL}/x" },
+      services: [],
+    });
+    const sbx = new FakeSandbox();
+    boundChat("c_pvenv", "p_envd");
+    const result = await startPreviewTool(
+      { kind: "conversation", conversationId: "c_pvenv" },
+      { env: { OVERRIDDEN: "per-preview", EXTRA: "yes" } },
+      { provider: sbx, network: networkFor(sbx), ...fast },
+    );
+    expect(result).toMatchObject({ ok: true });
+    // the launch script's env: merged layers, platform last
+    const launched = sbx.scripts.find((s) => s.command.includes("setsid nohup"));
+    expect(launched?.env).toMatchObject({
+      SHARED: "setup",
+      OVERRIDDEN: "per-preview",
+      EXTRA: "yes",
+      SITE: expect.stringContaining("https://pv-"),
+      PORT: "3000",
+      HOST: "0.0.0.0",
+    });
+    // the debug .env file is written (quoted KEY=VALUE lines, 0600)
+    expect(launched?.command).toContain(".env");
+    expect(launched?.command).toContain("chmod 600");
+  });
+
+  it("a bad env reference parks the preview failed instead of launching", async () => {
+    db().insert(projects).values({ id: "p_envb", name: "EnvB", createdAt: 0 }).onConflictDoNothing().run();
+    db()
+      .insert(projectRepos)
+      .values({ id: "p_envb/web", projectId: "p_envb", url: "https://git.example/web.git", name: "web", createdAt: 0 })
+      .onConflictDoNothing()
+      .run();
+    savePreviewSetup(db(), "p_envb", {
+      repo: "p_envb/web", workDir: ".", install: "npm install", command: "npm run dev",
+      port: 3000, env: { BAD: "${service:db:5432}" }, services: [],
+    });
+    const sbx = new FakeSandbox();
+    boundChat("c_pvbad", "p_envb");
+    const result = await startPreviewTool(
+      { kind: "conversation", conversationId: "c_pvbad" },
+      {},
+      { provider: sbx, network: networkFor(sbx), ...fast },
+    );
+    // the launch itself did not happen — the row parks failed with the reason
+    expect(sbx.scripts.some((s) => s.command.includes("setsid nohup"))).toBe(false);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview.status).toBe("failed");
+      expect(result.preview.error).toContain("service");
+    }
   });
 
   it("status lists the sandbox's previews without binding; stop refuses other sandboxes'", async () => {

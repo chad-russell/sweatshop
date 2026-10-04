@@ -586,6 +586,10 @@ export const previews = sqliteTable(
     port: integer("port").notNull(),
     /** Human label (branch name, app name). */
     label: text("label"),
+    /** 0017: per-preview sparse env overrides (JSON map), merged over
+     *  the project setup's env at launch; the platform's PORT/HOST/
+     *  PREVIEW_* always win. Persisted so restarts reproduce the boot. */
+    env: text("env"),
     /** "worktree" | "branch". */
     source: text("source").notNull(),
     /** branch sources: the project repo and branch followed. */

@@ -222,7 +222,11 @@ async function stageSandboxTools(
         ? previews.startPreviewTool(caller, input)
         : action === "status"
           ? previews.previewStatusTool(caller, input)
-          : previews.stopPreviewTool(caller, input as { id: string }),
+          : action === "get-setup"
+            ? previews.getPreviewSetupTool(caller)
+            : action === "save-setup"
+              ? previews.savePreviewSetupTool(caller, input as { definition: unknown })
+              : previews.stopPreviewTool(caller, input as { id: string }),
     ),
     pi: harness("pi"),
     ...(process.env.CLAUDE_CODE_OAUTH_TOKEN ? { claude: harness("claude") } : {}),

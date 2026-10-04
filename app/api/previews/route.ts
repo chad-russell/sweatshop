@@ -35,6 +35,8 @@ export async function POST(request: Request) {
   if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65_535)) {
     return NextResponse.json({ error: "port must be 1–65535" }, { status: 400 });
   }
+  const env = envOf(body.env);
+  if ("error" in env) return NextResponse.json({ error: env.error }, { status: 400 });
   try {
     const result = await createBranchPreview({
       projectId,
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
       ...(str("command") ? { command: str("command") } : {}),
       ...(port !== undefined ? { port } : {}),
       ...(str("label") ? { label: str("label") } : {}),
+      ...(env.env ? { env: env.env } : {}),
       ...(body.saveSetup === true ? { saveSetup: true } : {}),
     });
     return NextResponse.json(result);
@@ -52,6 +55,20 @@ export async function POST(request: Request) {
     if (err instanceof PreviewError) return NextResponse.json({ error: err.message }, { status: 400 });
     throw err;
   }
+}
+
+/** A sparse env map from the body — string keys and values only. */
+function envOf(value: unknown): { env: Record<string, string> | null } | { error: string } {
+  if (value === undefined || value === null) return { env: null };
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return { error: "env must be an object of KEY → string" };
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v !== "string") return { error: `env ${k}: values must be strings` };
+    out[k] = v;
+  }
+  return { env: Object.keys(out).length ? out : null };
 }
 
 export function GET(request: Request) {

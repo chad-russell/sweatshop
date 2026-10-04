@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   findPreview,
@@ -11,7 +12,10 @@ import {
   type Preview,
   type PreviewStatus,
 } from "@/db/previews";
+import { getPreviewSetupDefinition } from "@/db/preview-setups";
+import { conversations, machineRuns, projectRepos } from "@/db/schema";
 import { getLease, touchLease, updateLease } from "@/db/sandboxes";
+import { envFileContent, maskEnv, resolvePreviewEnv } from "@/lib/previews/env";
 import { previewHost, previewUrl, harnessPreviewNetwork, type PreviewNetwork } from "@/lib/previews/network";
 import { logTail, processAlive, shellQuote, startProcess, stopProcess } from "@/lib/previews/process";
 import { sandboxProvider, type SandboxHandle, type SandboxProvider } from "@/lib/sandboxes/provider";
@@ -163,15 +167,81 @@ export interface StartResult {
   log?: string;
 }
 
+/** The project a preview belongs to (whose setup's env applies):
+ *  branch previews through their repo, worktree previews through their
+ *  sandbox owner (conversation or machine run). */
+export function previewProjectId(p: Preview): string | null {
+  if (p.repoId) {
+    const repo = db().select({ projectId: projectRepos.projectId }).from(projectRepos).where(eq(projectRepos.id, p.repoId)).get();
+    if (repo) return repo.projectId;
+  }
+  const lease = getLease(db(), p.sandboxId);
+  if (!lease) return null;
+  if (lease.ownerKind === "conversation") {
+    return (
+      db()
+        .select({ projectId: conversations.projectId })
+        .from(conversations)
+        .where(eq(conversations.id, lease.ownerId))
+        .get()?.projectId ?? null
+    );
+  }
+  if (lease.ownerKind === "machine_run") {
+    return (
+      db()
+        .select({ projectId: machineRuns.projectId })
+        .from(machineRuns)
+        .where(eq(machineRuns.id, lease.ownerId))
+        .get()?.projectId ?? null
+    );
+  }
+  return null;
+}
+
+/**
+ * 0017: the env a preview boots with — the project setup's env, the
+ *  row's sparse overrides, then the platform vars ALWAYS last. Bad
+ *  references are a value-shaped error (the caller parks the preview
+ *  failed with the reason instead of launching a misconfigured server).
+ */
+export function resolvedEnvFor(p: Preview): { env: Record<string, string> } | { error: string } {
+  const platform = previewEnv(p);
+  const base = getPreviewSetupDefinition(db(), previewProjectId(p))?.env ?? {};
+  const resolved = resolvePreviewEnv(base, p.env, platform);
+  if ("error" in resolved) return resolved;
+  // Platform values are final — a preview can never misroute itself.
+  return { env: { ...resolved.env, ...platform } };
+}
+
+/** Masked env (keys visible) for cards/sheets — the editor sees plain. */
+export function previewEnvView(id: string): { env: Record<string, string> } | { error: string } {
+  const p = getPreview(db(), id);
+  if (!p) return { error: `no preview ${id}` };
+  const resolved = resolvedEnvFor(p);
+  if ("error" in resolved) return resolved;
+  return { env: maskEnv(resolved.env) };
+}
+
 /** Launch (or relaunch) a preview row's process and wait for health. */
 export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<StartResult> {
   const { provider, network, healthTimeoutMs, pollMs } = deps(d);
   const p = getPreview(db(), id);
   if (!p || p.deletedAt) throw new PreviewError("not-found", `no preview ${id}`);
+  const resolved = resolvedEnvFor(p);
+  if ("error" in resolved) {
+    updatePreview(db(), p.id, { status: "failed", error: resolved.error });
+    return { preview: viewPreview(getPreview(db(), p.id)!) };
+  }
   const { handle, ref } = await openPreviewSandbox(p.sandboxId, provider, network);
   updatePreview(db(), p.id, { status: "starting", error: null });
   try {
-    await startProcess(handle, { id: p.id, workDir: p.workDir, command: p.command, env: previewEnv(p) });
+    await startProcess(handle, {
+      id: p.id,
+      workDir: p.workDir,
+      command: p.command,
+      env: resolved.env,
+      envFileContent: envFileContent(resolved.env),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     updatePreview(db(), p.id, { status: "crashed", error: message });
@@ -200,6 +270,7 @@ export async function startPreview(input: NewPreview, d: PreviewDeps = {}): Prom
   if (existing) {
     updatePreview(db(), existing.id, {
       command: input.command,
+      ...(input.env !== undefined ? { env: input.env } : {}),
       ...(input.label !== undefined ? { label: input.label } : {}),
     });
     id = existing.id;

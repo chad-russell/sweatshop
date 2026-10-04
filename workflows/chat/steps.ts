@@ -141,10 +141,10 @@ export async function startMachineStep(
   return startMachineRun({ conversationId, ...input });
 }
 
-/** 0016: preview tools in this conversation's sandbox binding. */
+/** 0016/0017: preview tools in this conversation's sandbox binding. */
 export async function previewToolStep(
   conversationId: string,
-  action: "start" | "status" | "stop",
+  action: "start" | "status" | "stop" | "get-setup" | "save-setup",
   input: Record<string, unknown>,
 ): Promise<unknown> {
   "use step";
@@ -152,6 +152,8 @@ export async function previewToolStep(
   const caller = { kind: "conversation" as const, conversationId };
   if (action === "start") return tools.startPreviewTool(caller, input);
   if (action === "status") return tools.previewStatusTool(caller, input);
+  if (action === "get-setup") return tools.getPreviewSetupTool(caller);
+  if (action === "save-setup") return tools.savePreviewSetupTool(caller, input as { definition: unknown });
   return tools.stopPreviewTool(caller, input as { id: string });
 }
 

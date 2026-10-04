@@ -15,6 +15,11 @@ export function previewLogPath(id: string): string {
   return `${PREVIEW_STATE_DIR}/${id}.log`;
 }
 
+/** 0017: the resolved env a preview booted with (debug copy, 0600). */
+export function previewEnvPath(id: string): string {
+  return `${PREVIEW_STATE_DIR}/${id}.env`;
+}
+
 export function previewPidPath(id: string): string {
   return `${PREVIEW_STATE_DIR}/${id}.pid`;
 }
@@ -45,6 +50,10 @@ export interface StartProcessInput {
   workDir: string;
   command: string;
   env: Record<string, string>;
+  /** 0017: when set, also written to /work/.previews/<id>.env (0600)
+   *  for debugging inside the sandbox — the process env stays the
+   *  source of truth. */
+  envFileContent?: string;
 }
 
 /**
@@ -59,6 +68,11 @@ export async function startProcess(handle: SandboxHandle, input: StartProcessInp
   const script = [
     `mkdir -p ${dir}`,
     killSnippet(input.id),
+    ...(input.envFileContent !== undefined
+      ? [
+          `umask 077 && printf %s ${shellQuote(input.envFileContent)} > ${shellQuote(previewEnvPath(input.id))} && chmod 600 ${shellQuote(previewEnvPath(input.id))}`,
+        ]
+      : []),
     `cd ${shellQuote(input.workDir)} || { echo "no such directory: ${input.workDir.replace(/"/g, "")}" >&2; exit 3; }`,
     `setsid nohup bash -lc ${shellQuote(input.command)} > ${log} 2>&1 < /dev/null &`,
     `echo $! > ${pidFile}`,

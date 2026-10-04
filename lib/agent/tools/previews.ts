@@ -1,7 +1,8 @@
 import { db } from "@/db";
 import { getConversation } from "@/db/chat";
 import { getPreview, listPreviewsForSandboxes } from "@/db/previews";
-import { getPreviewSetupDefinition } from "@/db/preview-setups";
+import { getPreviewSetup, getPreviewSetupDefinition, savePreviewSetup } from "@/db/preview-setups";
+import type { PreviewSetupDefinition } from "@/lib/previews/setup";
 import { projectRepos } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getConversationBinding } from "@/db/sandboxes";
@@ -45,6 +46,9 @@ export interface StartPreviewInput {
   command?: string;
   port?: number;
   label?: string;
+  /** Sparse env overrides, merged over the project setup's env
+   *  (PORT/HOST/PREVIEW_* are platform-owned and always win). */
+  env?: Record<string, string>;
 }
 
 function fail(err: unknown): { ok: false; code: string; message: string } {
@@ -115,6 +119,7 @@ export async function startPreviewTool(
         command,
         port,
         label: input.label ?? null,
+        env: input.env ?? null,
         source: "worktree",
         startedBy: opened.startedBy,
       },
@@ -175,6 +180,61 @@ export async function stopPreviewTool(
       return { ok: false, code: "not-yours", message: `preview ${input.id} runs in another sandbox — stop it from its page` };
     }
     return { ok: true, preview: await stopPreview(p.id, deps) };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ── 0017 phase 2: preview setup tools ───────────────────────────────────
+
+/** The caller's project (whose setup the tools read/write). */
+function callerProjectId(caller: PreviewCaller): string | null {
+  if (caller.kind === "inherited") return caller.projectId;
+  return getConversation(db(), caller.conversationId)?.projectId ?? null;
+}
+
+/**
+ * The project's saved preview setup (plaintext — the agent already
+ * lives inside this trust boundary) or null when none exists yet.
+ */
+export async function getPreviewSetupTool(
+  caller: PreviewCaller,
+): Promise<ToolResult<{ setup: PreviewSetupDefinition | null }>> {
+  try {
+    const projectId = callerProjectId(caller);
+    if (!projectId) {
+      return { ok: false, code: "no-project", message: "this chat has no project — a preview setup needs one" };
+    }
+    const result = getPreviewSetup(db(), projectId);
+    if (!result.ok) {
+      return { ok: false, code: "invalid", message: `stored setup is invalid: ${result.issues.join("; ")}` };
+    }
+    return { ok: true, setup: result.setup?.definition ?? null };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/**
+ * Save the project's setup (full definition, zod-validated; the repo
+ * must belong to the project). This is the agent-driven first-time
+ * setup path: explore, boot, verify, then save — after this, starts
+ * never infer.
+ */
+export async function savePreviewSetupTool(
+  caller: PreviewCaller,
+  input: { definition: unknown },
+): Promise<ToolResult<{ setup: PreviewSetupDefinition }>> {
+  try {
+    const projectId = callerProjectId(caller);
+    if (!projectId) {
+      return { ok: false, code: "no-project", message: "this chat has no project — a preview setup needs one" };
+    }
+    const saved = savePreviewSetup(db(), projectId, input.definition);
+    if (!saved.ok) {
+      return { ok: false, code: "invalid", message: `setup invalid: ${saved.issues.join("; ")}` };
+    }
+    return { ok: true, setup: saved.setup.definition };
   } catch (err) {
     return fail(err);
   }

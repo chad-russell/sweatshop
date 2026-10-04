@@ -48,6 +48,8 @@ export interface CreateBranchPreviewInput {
   install?: string;
   workDir?: string;
   label?: string;
+  /** Sparse per-preview env overrides (0017 phase 2). */
+  env?: Record<string, string>;
   /** Save the resolved values as the project's setup (Discover flow). */
   saveSetup?: boolean;
 }
@@ -252,6 +254,9 @@ export interface ConfirmInput {
   command?: string;
   port?: number;
   label?: string;
+  /** Sparse per-preview env overrides; also becomes the setup's env
+   *  when saving (the form's env block IS the setup editor). */
+  env?: Record<string, string>;
   saveSetup?: boolean;
 }
 
@@ -302,7 +307,7 @@ export async function confirmBranchPreview(
       install: install!,
       command: command!,
       port: port!,
-      env: setup?.env ?? {},
+      env: input.env ?? setup?.env ?? {},
       services: setup?.services ?? [],
       ...(setup?.provision ? { provision: setup.provision } : {}),
     });
@@ -316,6 +321,7 @@ export async function confirmBranchPreview(
     command: command!,
     port: port!,
     ...(input.label?.trim() ? { label: input.label.trim() } : {}),
+    ...(input.env !== undefined ? { env: input.env } : {}),
   });
 
   const lease = getLease(db(), p.sandboxId)!;

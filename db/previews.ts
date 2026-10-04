@@ -20,9 +20,11 @@ export type PreviewStatus =
   | "failed";
 export type PreviewSource = "worktree" | "branch";
 
-export type Preview = Omit<PreviewRow, "status" | "source"> & {
+export type Preview = Omit<PreviewRow, "status" | "source" | "env"> & {
   status: PreviewStatus;
   source: PreviewSource;
+  /** 0017: parsed sparse env overrides (null = none). */
+  env: Record<string, string> | null;
 };
 
 /** Statuses with a process that should be up (the tick watches these). */
@@ -39,7 +41,17 @@ export const PROVISIONING_STALE_MS = 30 * 60_000;
 const ERROR_LIMIT = 2_000;
 
 function hydrate(row: PreviewRow): Preview {
-  return row as Preview;
+  const { env, ...rest } = row;
+  let parsed: Record<string, string> | null = null;
+  if (env) {
+    try {
+      const value = JSON.parse(env) as Record<string, string>;
+      parsed = typeof value === "object" && value !== null ? value : null;
+    } catch {
+      parsed = null;
+    }
+  }
+  return { ...rest, env: parsed } as Preview;
 }
 
 /** Clip a failure reason to what a row (and a card) can carry. */
@@ -73,6 +85,8 @@ export interface NewPreview {
   repoId?: string | null;
   branch?: string | null;
   startedBy: string;
+  /** 0017: sparse env overrides over the project setup's env. */
+  env?: Record<string, string> | null;
   /** Override the generated slug (tests). */
   slug?: string;
   /** Pre-minted id (a branch preview names its sandbox owner by it). */
@@ -98,6 +112,7 @@ export function insertPreview(db: Db, input: NewPreview): Preview {
     source: input.source,
     repoId: input.repoId ?? null,
     branch: input.branch ?? null,
+    env: input.env && Object.keys(input.env).length > 0 ? JSON.stringify(input.env) : null,
     headSha: null,
     failedSha: null,
     dismissedSha: null,
@@ -212,12 +227,16 @@ export function updatePreview(
   set: Partial<
     Pick<
       Preview,
-      "status" | "error" | "headSha" | "failedSha" | "dismissedSha" | "command" | "port" | "label" | "workDir"
+      "status" | "error" | "headSha" | "failedSha" | "dismissedSha" | "command" | "port" | "label" | "workDir" | "env"
     >
   >,
 ): void {
-  const next = { ...set, updatedAt: Date.now() };
-  if (next.error) next.error = clipError(next.error);
+  const next: Record<string, unknown> = { ...set, updatedAt: Date.now() };
+  if (next.env !== undefined) {
+    const env = next.env as Record<string, string> | null;
+    next.env = env && Object.keys(env).length > 0 ? JSON.stringify(env) : null;
+  }
+  if (next.error) next.error = clipError(next.error as string);
   db.update(previews).set(next).where(eq(previews.id, id)).run();
 }
 

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { previewSetups } from "./schema";
+import { previewSetups, projectRepos } from "./schema";
 import type { Db } from "./index";
 import {
   parsePreviewSetup,
@@ -45,7 +45,8 @@ export function getPreviewSetupDefinition(
   return result.ok ? result.setup?.definition ?? null : null;
 }
 
-/** Upsert the project's setup; `definition` is raw input, validated here. */
+/** Upsert the project's setup; `definition` is raw input, validated
+ *  here — including that its `repo` belongs to the project. */
 export function savePreviewSetup(
   db: Db,
   projectId: string,
@@ -53,6 +54,23 @@ export function savePreviewSetup(
 ): SetupResult<PreviewSetup> {
   const parsed = parsePreviewSetup(definition);
   if (!parsed.ok) return { ok: false, issues: parsed.issues };
+  const repo = db
+    .select({ id: projectRepos.id })
+    .from(projectRepos)
+    .where(eq(projectRepos.id, parsed.definition.repo))
+    .get();
+  if (!repo) {
+    return { ok: false, issues: [`repo: ${parsed.definition.repo} does not exist — add it to the project first`] };
+  }
+  const belongs = db
+    .select({ id: projectRepos.id })
+    .from(projectRepos)
+    .where(eq(projectRepos.projectId, projectId))
+    .all()
+    .some((r) => r.id === parsed.definition.repo);
+  if (!belongs) {
+    return { ok: false, issues: [`repo: ${parsed.definition.repo} is not in project ${projectId}`] };
+  }
   const now = Date.now();
   const existing = db
     .select({ id: previewSetups.id })

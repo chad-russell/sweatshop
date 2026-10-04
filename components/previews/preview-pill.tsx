@@ -121,13 +121,17 @@ export function PreviewLogDialog({
 
 function PreviewLogBody({ preview }: { preview: PreviewView }) {
   const [log, setLog] = useState<string | null>(null);
+  const [env, setEnv] = useState<Record<string, string> | null>(null);
   const [nonce, setNonce] = useState(0);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const res = await fetch(`/api/previews/${preview.id}?logs=300`, { cache: "no-store" });
-      const body = (await res.json().catch(() => ({}))) as { log?: string };
-      if (!cancelled) setLog(body.log ?? "");
+      const res = await fetch(`/api/previews/${preview.id}?logs=300&env=1`, { cache: "no-store" });
+      const body = (await res.json().catch(() => ({}))) as { log?: string; env?: Record<string, string> };
+      if (!cancelled) {
+        setLog(body.log ?? "");
+        setEnv(body.env ?? null);
+      }
     })();
     return () => {
       cancelled = true;
@@ -142,6 +146,18 @@ function PreviewLogBody({ preview }: { preview: PreviewView }) {
         </DialogTitle>
         <DialogDescription className="font-mono text-xs">{preview.command}</DialogDescription>
       </DialogHeader>
+      {env && Object.keys(env).length > 0 && (
+        <div className="rounded-md border border-input p-3">
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Env at launch (values hidden)</p>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(env).map(([key, value]) => (
+              <span key={key} className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[11px]">
+                {key}=<span className="text-muted-foreground">{value}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <pre className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
         {log === null ? "loading…" : log.trim() || "(empty — the sandbox may be stopped)"}
       </pre>

@@ -10,6 +10,7 @@ import {
 } from "@/lib/previews/branch";
 import {
   launchPreview,
+  previewEnvView,
   previewLogs,
   PreviewError,
   stopPreview,
@@ -19,7 +20,8 @@ import {
 export const dynamic = "force-dynamic";
 
 /** 0016: one preview, with `?logs=<n>` for its server log tail.
- * 0017: `?candidates=1` runs the Discover scan on a provisioning row. */
+ * 0017: `?candidates=1` runs the Discover scan on a provisioning row;
+ * `?env=1` adds the resolved env with values masked. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const url = new URL(request.url);
@@ -32,10 +34,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!p) return NextResponse.json({ error: `no preview ${id}` }, { status: 404 });
   const lines = Number(url.searchParams.get("logs") ?? 0);
   const log = lines > 0 ? await previewLogs(id, lines).catch(() => "") : undefined;
+  const env = url.searchParams.get("env") === "1" ? previewEnvView(id) : undefined;
   return NextResponse.json({
     preview: viewPreview(p),
     events: listPreviewEvents(db(), id),
     ...(log !== undefined ? { log } : {}),
+    ...(env !== undefined ? env : {}),
   });
 }
 
@@ -58,12 +62,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65_535)) {
         return NextResponse.json({ error: "port must be 1–65535" }, { status: 400 });
       }
+      let env: Record<string, string> | undefined;
+      if (body.env !== undefined) {
+        if (typeof body.env !== "object" || body.env === null || Array.isArray(body.env)) {
+          return NextResponse.json({ error: "env must be an object of KEY → string" }, { status: 400 });
+        }
+        const entries = Object.entries(body.env as Record<string, unknown>);
+        if (entries.some(([, v]) => typeof v !== "string")) {
+          return NextResponse.json({ error: "env values must be strings" }, { status: 400 });
+        }
+        env = Object.fromEntries(entries as [string, string][]);
+      }
       const result = await confirmBranchPreview(id, {
         ...(str("workDir") ? { workDir: str("workDir") } : {}),
         ...(str("install") ? { install: str("install") } : {}),
         ...(str("command") ? { command: str("command") } : {}),
         ...(port !== undefined ? { port } : {}),
         ...(str("label") ? { label: str("label") } : {}),
+        ...(env !== undefined ? { env } : {}),
         ...(body.saveSetup === true ? { saveSetup: true } : {}),
       });
       return NextResponse.json(result);

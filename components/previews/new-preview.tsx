@@ -14,15 +14,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { parseEnvBlock } from "@/lib/previews/env";
 
 /**
  * 0017: New preview, two-phase. Project → repo → branch, then Create:
  * with the project's saved setup (or explicit values) it provisions and
  * launches in one shot; otherwise it provisions, SCANS the checkout
  * (Discover), and you pick/edit a candidate — workDir, install,
- * command, port — optionally saving it as the project's setup so the
- * next create is one click. Provisioning failures are visible rows on
- * /previews, never silent 500s.
+ * command, port, env — optionally saving it as the project's setup so
+ * the next create is one click. Provisioning failures are visible rows
+ * on /previews, never silent 500s.
  */
 
 interface Repo {
@@ -45,6 +46,7 @@ interface Setup {
   install: string;
   command: string;
   port: number;
+  env?: Record<string, string>;
 }
 
 const FIELD = "flex flex-col gap-1.5 text-sm";
@@ -70,6 +72,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
   const [command, setCommand] = useState("");
   const [port, setPort] = useState("");
   const [label, setLabel] = useState("");
+  const [envText, setEnvText] = useState("");
   const [saveSetup, setSaveSetup] = useState(true);
 
   const [step, setStep] = useState<"form" | "discover">("form");
@@ -92,6 +95,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
     setCommand("");
     setPort("");
     setLabel("");
+    setEnvText("");
     setSaveSetup(true);
   };
 
@@ -112,11 +116,17 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
       if (cancelled) return;
       const definition = body.setup?.definition ?? null;
       setSetup(definition);
+      setSaveSetup(!definition);
       if (definition) {
         setWorkDir(definition.workDir);
         setInstall(definition.install);
         setCommand(definition.command);
         setPort(String(definition.port));
+        setEnvText(
+          Object.entries(definition.env ?? {})
+            .map(([k, v]) => `${k}=${v.includes(" ") ? JSON.stringify(v) : v}`)
+            .join("\n"),
+        );
       }
     })();
     return () => {
@@ -170,10 +180,18 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
     setPort(String(c.port));
   };
 
+  const parsedEnv = () => parseEnvBlock(envText);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy("create");
     setError(null);
+    const env = parsedEnv();
+    if ("error" in env) {
+      setBusy(null);
+      setError(env.error);
+      return;
+    }
     const res = await fetch("/api/previews", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -186,7 +204,8 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
         ...(command ? { command } : {}),
         ...(port ? { port: Number(port) } : {}),
         ...(label ? { label } : {}),
-        ...(saveSetup && !setup ? { saveSetup: true } : {}),
+        ...(env.env && Object.keys(env.env).length ? { env: env.env } : {}),
+        ...(saveSetup ? { saveSetup: true } : {}),
       }),
     });
     const body = (await res.json().catch(() => ({}))) as {
@@ -216,6 +235,12 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
     if (!pendingId) return;
     setBusy("confirm");
     setError(null);
+    const env = parsedEnv();
+    if ("error" in env) {
+      setBusy(null);
+      setError(env.error);
+      return;
+    }
     const res = await fetch(`/api/previews/${pendingId}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -226,6 +251,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
         ...(command ? { command } : {}),
         ...(port ? { port: Number(port) } : {}),
         ...(label ? { label } : {}),
+        env: env.env ?? {},
         ...(saveSetup ? { saveSetup: true } : {}),
       }),
     });
@@ -365,12 +391,23 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
                       <Input id={`${ids}-label`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={branch || "branch name"} />
                     </label>
                   </div>
-                  {!setup && (
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <input type="checkbox" checked={saveSetup} onChange={(e) => setSaveSetup(e.target.checked)} className="accent-foreground" />
-                      Save as this project&apos;s setup after launching
-                    </label>
-                  )}
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input type="checkbox" checked={saveSetup} onChange={(e) => setSaveSetup(e.target.checked)} className="accent-foreground" />
+                    {setup ? "Save changes to the project's setup" : "Save as this project's setup after launching"}
+                  </label>
+                  <label className={FIELD} htmlFor={`${ids}-env`}>
+                    <span className={LABEL}>Env — KEY=VALUE lines ({setup ? "saved with the setup when checked below" : "values may use $&#123;PREVIEW_URL&#125; etc."})</span>
+                    <textarea
+                      id={`${ids}-env`}
+                      value={envText}
+                      onChange={(e) => setEnvText(e.target.value)}
+                      rows={Math.min(8, Math.max(2, envText.split("\n").length))}
+                      placeholder={"PAYLOAD_SECRET=…\nNEXT_PUBLIC_SERVER_URL=${PREVIEW_URL}"}
+                      className={`${MONO} w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50`}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </label>
                 </div>
               </details>
             </>
@@ -416,6 +453,19 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
                 <label className={FIELD} htmlFor={`${ids}-d-install`}>
                   <span className={LABEL}>Install (runs at repo root)</span>
                   <Input id={`${ids}-d-install`} value={install} onChange={(e) => setInstall(e.target.value)} className={MONO} />
+                </label>
+                <label className={FIELD} htmlFor={`${ids}-d-env`}>
+                  <span className={LABEL}>Env — KEY=VALUE lines{saveSetup ? " (saved into the setup)" : ""}</span>
+                  <textarea
+                    id={`${ids}-d-env`}
+                    value={envText}
+                    onChange={(e) => setEnvText(e.target.value)}
+                    rows={Math.min(8, Math.max(2, envText.split("\n").length))}
+                    placeholder={"PAYLOAD_SECRET=…\nNEXT_PUBLIC_SERVER_URL=${PREVIEW_URL}"}
+                    className={`${MONO} w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50`}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
                 </label>
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <input type="checkbox" checked={saveSetup} onChange={(e) => setSaveSetup(e.target.checked)} className="accent-foreground" />
