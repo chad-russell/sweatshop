@@ -47,8 +47,12 @@ export async function ensureHarnessNetwork(): Promise<void> {
  * not on the harness network (takes effect on the next `./dev` start).
  */
 export async function assertRuntimeOnHarnessNetwork(): Promise<void> {
-  const hostname = process.env.HOSTNAME;
-  if (!hostname) {
+  // `podman exec` shells don't inherit HOSTNAME; /etc/hostname is the
+  // container id in every podman/docker container.
+  const hostname =
+    process.env.HOSTNAME ||
+    (await import("node:fs/promises")).readFile("/etc/hostname", "utf8").then((h) => h.trim(), () => "");
+  if (!(await hostname)) {
     throw new Error(
       "cannot determine this container's id (HOSTNAME) — is this the dev runtime?",
     );
@@ -59,7 +63,7 @@ export async function assertRuntimeOnHarnessNetwork(): Promise<void> {
       "inspect",
       "-f",
       `{{(index .NetworkSettings.Networks "${HARNESS_NETWORK}").IPAddress}}`,
-      hostname,
+      await hostname,
     ],
     EXEC_OPTS,
   );
