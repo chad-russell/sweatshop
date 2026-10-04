@@ -266,3 +266,31 @@ describe("0017 resolvedEnvFor wiring", () => {
     });
   });
 });
+
+describe("0017 service command args", () => {
+  it("splits compose-style commands into argv, quotes respected", async () => {
+    const { splitArgs } = await import("../lib/sandboxes/services");
+    expect(splitArgs("server /data --console-address :9001")).toEqual([
+      "server",
+      "/data",
+      "--console-address",
+      ":9001",
+    ]);
+    expect(splitArgs(`run --flag "two words" 'x y'`)).toEqual(["run", "--flag", "two words", "x y"]);
+    expect(splitArgs("")).toEqual([]);
+  });
+
+  it("passes the command as entrypoint argv, not a shell line", async () => {
+    const { sandboxId } = servicePreviewFixture();
+    const docker = new FakeDocker();
+    await ensureSandboxServices(
+      sandboxId,
+      [{ name: "s3", image: "docker.io/minio/minio", command: "server /data", env: {}, port: 9000 }],
+      { docker: docker.runner },
+    );
+    const run = docker.calls.find((a) => a[0] === "run")!;
+    const imageAt = run.indexOf("docker.io/minio/minio");
+    expect(run.slice(imageAt + 1)).toEqual(["server", "/data"]);
+    expect(run).not.toContain("bash");
+  });
+});

@@ -61,11 +61,52 @@ async function isRunning(docker: DockerRunner, ref: string): Promise<boolean> {
   }
 }
 
+/** Split a command string into argv the way a shell would (quote- and
+ *  escape-aware, no expansion) — compose-style `command:` semantics:
+ *  the pieces are ARGS to the image's entrypoint, not a shell line. */
+export function splitArgs(command: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let has = false;
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]!;
+    if (quote) {
+      if (ch === quote) quote = null;
+      else current += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      has = true;
+      continue;
+    }
+    if (ch === "\\" && i + 1 < command.length) {
+      current += command[++i]!;
+      has = true;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (has || current) out.push(current);
+      current = "";
+      has = false;
+      continue;
+    }
+    current += ch;
+    has = true;
+  }
+  if (has || current) out.push(current);
+  return out;
+}
+
 async function runService(docker: DockerRunner, ref: string, spec: ServiceSpec): Promise<void> {
   // A leftover container with our name (a crash between rm and run)
   // would collide — clear it first; a missing one is fine.
   await docker(["rm", "-f", ref]).catch(() => undefined);
   const envArgs = Object.entries(spec.env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+  // `command` is argv for the image's ENTRYPOINT (compose semantics) —
+  // arbitrary images may have none of our shell assumptions.
+  const commandArgs = spec.command ? splitArgs(spec.command) : [];
   await docker([
     "run",
     "-d",
@@ -75,7 +116,7 @@ async function runService(docker: DockerRunner, ref: string, spec: ServiceSpec):
     HARNESS_NETWORK,
     ...envArgs,
     spec.image,
-    ...(spec.command ? ["bash", "-lc", spec.command] : []),
+    ...commandArgs,
   ]);
 }
 
