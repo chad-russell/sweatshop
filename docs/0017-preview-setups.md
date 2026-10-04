@@ -1,9 +1,34 @@
 # 0017 — Preview setups: explicit commands, env, and declared services
 
-Status: **approved (2026-10-04, chat) — phase 1 in progress**
+Status: **approved (2026-10-04, chat) — phase 1 shipped same day**
 
 Portability contract added and open questions resolved before
-approval; no implementation deviations yet.
+approval.
+
+## Implementation notes (phase 1 deviations and decisions)
+
+- `listRemoteBranches` resolves the repo's GitHost credential and
+  passes it as a one-shot `http.extraheader` (git is now in
+  Containerfile.dev, but private repos also fail anonymous ls-remote —
+  the credential seam only installed into sandboxes before). The token
+  never touches disk.
+- A provisioning failure keeps its half-made lease as `destroyed`
+  history instead of deleting the row: the preview row's FK references
+  it, and "never a half-made invisible thing" cuts both ways. The
+  acquire path (`acquireSandbox`) still deletes its failed leases.
+- Discovery scans `apps/* packages/* services/*` one level deep plus
+  the repo root, in one shell round trip.
+- Phase 1 leaves the definition's `env`/`services` schema in place but
+  inert (phases 2–3); the confirm form does not edit them yet, and a
+  re-save from the form preserves existing values.
+- Also surfaced during live acceptance (ops, not this doc): bee's user
+  `podman.service` is wedged (Result: resources — its cgroup holds
+  live pasta/rootlessport helpers for long-running containers, so
+  systemd cannot restart it). A transient
+  `podman-api-rescue.service` listener on
+  `/run/user/1000/podman/podman-rescue.sock` stands in; `./dev` needs
+  `PODMAN_SOCK` pointed there until the unit is properly unwedged
+  (maintenance-window container restart, or cgroup migration).
 
 Direction agreed in chat 2026-10-04, from the open-bible guinea-pig
 test of 0016: the preview machinery works, but a real app needs an env

@@ -277,19 +277,30 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   agent stages; definitions in `workflows/chat/preview-tools.ts`, cores
   in `lib/agent/tools/previews.ts`, value-shaped errors); start is
   idempotent per (sandbox, dir, port) and injects PORT / HOST /
-  PREVIEW_HOST / PREVIEW_URL; command+port infer from package.json or
-  `sandbox_configs.preview_command/preview_port`. Branch previews
-  (`lib/previews/branch.ts`): `/previews` → New preview makes a
-  dedicated sandbox (owner kind `preview`, owner id = preview id) and a
-  deterministic FOLLOWER (in the tick): fetch → ff (hard reset on
-  force-push) → reinstall+restart only on dependency changes (unless the
-  command installs for itself) → else trust HMR; a failure parks the
+  PREVIEW_HOST / PREVIEW_URL; defaults come from the project's saved
+  setup (0017), else `describeDir` prefills once. Branch previews
+  (`lib/previews/branch.ts`): `/previews` → New preview is TWO-PHASE
+  (0017 phase 1): provision (the row is inserted BEFORE the sandbox —
+  a `provisioning` status; failures land as visible `failed` rows with
+  the reason, never invisible 500s) → discover (scan the checkout for
+  packages with dev/start scripts — `lib/previews/discover.ts`; no
+  per-launch inference anywhere) → confirm (values + optional setup
+  save, `install` at the repo root SEPARATE from the server command,
+  launch). A project with a saved `preview_setups` row (zod definition,
+  `db/preview-setups.ts`) skips discovery — create is one shot. The
+  dedicated sandbox (owner kind `preview`, owner id = preview id) then
+  runs a deterministic FOLLOWER (in the tick): fetch → ff (hard reset
+  on force-push) → reinstall from the setup's `install` + restart only
+  on dependency changes → else trust HMR; a failure parks the
   preview `failed` at that sha (it keeps serving the last good commit)
   and raises a needs-you Inbox card (Fix it = a chat ATTACHED to the
   preview's sandbox, seeded with the failure, started via
-  `lib/chat/start-turn.ts`; Retry; Dismiss per sha). Surfaces: header
+  `lib/chat/start-turn.ts`; Retry — a create-time failure re-provisions
+  from scratch; Dismiss per sha). Abandoned `provisioning` rows age to
+  `failed` after 30 min (the tick). Surfaces: header
   pill on chat/run/panel, transcript card, sandbox-page Previews
-  section, `/previews`, ⌘K "Open preview". Reaper: a starting/healthy
+  section, `/previews`, ⌘K "Open preview". Reaper: a
+  provisioning/starting/healthy
   preview makes its sandbox busy; previews idle past
   `GC_PREVIEW_STOP_HOURS` (12) are stopped; preview-owned sandboxes use
   `GC_PREVIEW_DESTROY_DAYS` (7). LAN/Nebula only — no auth, never route
