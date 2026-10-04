@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { getPreview } from "@/db/previews";
+import { getPreview, listPreviewEvents } from "@/db/previews";
+import { dismissPreviewFailure, removePreview, retryPreview } from "@/lib/previews/branch";
 import {
   launchPreview,
   previewLogs,
@@ -18,10 +19,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!p) return NextResponse.json({ error: `no preview ${id}` }, { status: 404 });
   const lines = Number(new URL(request.url).searchParams.get("logs") ?? 0);
   const log = lines > 0 ? await previewLogs(id, lines).catch(() => "") : undefined;
-  return NextResponse.json({ preview: viewPreview(p), ...(log !== undefined ? { log } : {}) });
+  return NextResponse.json({
+    preview: viewPreview(p),
+    events: listPreviewEvents(db(), id),
+    ...(log !== undefined ? { log } : {}),
+  });
 }
 
-/** 0016: `{ action: "restart" | "stop" | "delete" }`. */
+/**
+ * 0016: `{ action }` — "restart" (relaunch the process), "stop",
+ * "delete" (a branch preview destroys its own sandbox), and for branch
+ * previews "retry" (forget the failure and redeploy the remote head) and
+ * "dismiss" (hide this failing sha's Inbox item).
+ */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = (await request.json().catch(() => ({}))) as { action?: unknown };
@@ -32,11 +42,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
     if (body.action === "stop") return NextResponse.json({ preview: await stopPreview(id) });
     if (body.action === "delete") {
-      const { removePreview } = await import("@/lib/previews/branch");
       await removePreview(id);
       return NextResponse.json({ ok: true });
     }
-    return NextResponse.json({ error: 'action must be "restart", "stop" or "delete"' }, { status: 400 });
+    if (body.action === "retry") return NextResponse.json({ report: await retryPreview(id) });
+    if (body.action === "dismiss") {
+      dismissPreviewFailure(id);
+      return NextResponse.json({ ok: true });
+    }
+    return NextResponse.json({ error: 'action must be "restart", "stop", "delete", "retry" or "dismiss"' }, { status: 400 });
   } catch (err) {
     if (err instanceof PreviewError) {
       const status = err.code === "not-found" ? 404 : err.code === "invalid" ? 400 : 409;

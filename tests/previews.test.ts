@@ -312,6 +312,10 @@ describe("0016 proxy resolution", () => {
     const resolve = makeResolver(networkFor(sbx));
     expect(resolve("res-live")).toMatchObject({ kind: "ok", host: `ref-${sandboxId}`, port: 4321 });
     expect(resolve("res-down")).toMatchObject({ kind: "down", status: "crashed" });
+    // a failed branch preview still serves its last good commit
+    const kept = insertPreview(db(), { sandboxId, workDir: "/w3", command: "x", port: 4323, source: "branch", startedBy: "u", slug: "res-kept" });
+    db().$client.prepare("update previews set status = 'failed' where id = ?").run(kept.id);
+    expect(makeResolver(networkFor(sbx))("res-kept")).toMatchObject({ kind: "ok", port: 4323 });
     expect(resolve("nope")).toEqual({ kind: "missing" });
   });
 });

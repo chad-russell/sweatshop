@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, notInArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Db } from "./index";
-import { previews, sandboxes, type PreviewRow } from "./schema";
+import { previewEvents, previews, sandboxes, type PreviewRow } from "./schema";
 
 /**
  * 0016 preview registry. Every invariant about a preview row — slug
@@ -61,12 +61,18 @@ export interface NewPreview {
   startedBy: string;
   /** Override the generated slug (tests). */
   slug?: string;
+  /** Pre-minted id (a branch preview names its sandbox owner by it). */
+  id?: string;
+}
+
+export function newPreviewId(): string {
+  return `pv_${nanoid()}`;
 }
 
 export function insertPreview(db: Db, input: NewPreview): Preview {
   const now = Date.now();
   const row: PreviewRow = {
-    id: `pv_${nanoid()}`,
+    id: input.id ?? newPreviewId(),
     slug: input.slug ?? makeSlug(input.label ?? input.branch),
     sandboxId: input.sandboxId,
     workDir: input.workDir,
@@ -77,6 +83,8 @@ export function insertPreview(db: Db, input: NewPreview): Preview {
     repoId: input.repoId ?? null,
     branch: input.branch ?? null,
     headSha: null,
+    failedSha: null,
+    dismissedSha: null,
     status: "starting",
     startedBy: input.startedBy,
     lastRequestAt: null,
@@ -160,7 +168,9 @@ export function listWatchedPreviews(db: Db): Preview[] {
 export function updatePreview(
   db: Db,
   id: string,
-  set: Partial<Pick<Preview, "status" | "error" | "headSha" | "command" | "port" | "label">>,
+  set: Partial<
+    Pick<Preview, "status" | "error" | "headSha" | "failedSha" | "dismissedSha" | "command" | "port" | "label">
+  >,
 ): void {
   const next = { ...set, updatedAt: Date.now() };
   if (next.error) next.error = clipError(next.error);
@@ -212,4 +222,74 @@ export function previewSandbox(
       .where(eq(sandboxes.id, sandboxId))
       .get() ?? null
   );
+}
+
+// ── 0016 phase 3: branch previews ───────────────────────────────────────
+
+/** Not-deleted branch previews (the follower's input). */
+export function listBranchPreviews(db: Db): Preview[] {
+  return db
+    .select()
+    .from(previews)
+    .where(and(isNull(previews.deletedAt), eq(previews.source, "branch")))
+    .all()
+    .map(hydrate);
+}
+
+/** Failed branch previews Chad has not dismissed at this sha (Inbox items). */
+export function listFailedPreviews(db: Db): Preview[] {
+  return listBranchPreviews(db).filter(
+    (p) => p.status === "failed" && p.failedSha !== null && p.failedSha !== p.dismissedSha,
+  );
+}
+
+export type PreviewEventResult = "deployed" | "reloaded" | "failed" | "reset";
+
+export interface PreviewEvent {
+  id: number;
+  previewId: string;
+  sha: string;
+  result: PreviewEventResult;
+  detail: string | null;
+  at: number;
+}
+
+const EVENTS_KEPT = 20;
+
+/** Record one follow outcome; keeps the last EVENTS_KEPT per preview. */
+export function recordPreviewEvent(
+  db: Db,
+  input: { previewId: string; sha: string; result: PreviewEventResult; detail?: string | null },
+): void {
+  db.insert(previewEvents)
+    .values({
+      previewId: input.previewId,
+      sha: input.sha,
+      result: input.result,
+      detail: input.detail ? clipError(input.detail) : null,
+      at: Date.now(),
+    })
+    .run();
+  const keep = db
+    .select({ id: previewEvents.id })
+    .from(previewEvents)
+    .where(eq(previewEvents.previewId, input.previewId))
+    .orderBy(desc(previewEvents.id))
+    .limit(EVENTS_KEPT)
+    .all()
+    .map((r) => r.id);
+  if (keep.length === EVENTS_KEPT) {
+    db.delete(previewEvents)
+      .where(and(eq(previewEvents.previewId, input.previewId), notInArray(previewEvents.id, keep)))
+      .run();
+  }
+}
+
+export function listPreviewEvents(db: Db, previewId: string): PreviewEvent[] {
+  return db
+    .select()
+    .from(previewEvents)
+    .where(eq(previewEvents.previewId, previewId))
+    .orderBy(desc(previewEvents.id))
+    .all() as PreviewEvent[];
 }

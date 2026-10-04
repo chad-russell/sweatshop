@@ -597,6 +597,12 @@ export const previews = sqliteTable(
     branch: text("branch"),
     /** branch sources: the commit currently served. */
     headSha: text("head_sha"),
+    /** branch sources: the remote commit the follower last failed on;
+     *  the Inbox item is keyed by it (a new failing sha is a new item). */
+    failedSha: text("failed_sha"),
+    /** branch sources: Chad dismissed the failure at this sha — hidden
+     *  from the Inbox until a different sha fails. */
+    dismissedSha: text("dismissed_sha"),
     /** "starting" | "healthy" | "crashed" | "stopped" | "failed". */
     status: text("status").notNull(),
     /** Conversation / run / stage id that started it, or "user".
@@ -618,3 +624,24 @@ export const previews = sqliteTable(
 );
 
 export type PreviewRow = typeof previews.$inferSelect;
+
+/**
+ * 0016 phase 3: a branch preview's follow history — one row per remote
+ * commit the follower acted on (kept to the last few per preview).
+ */
+export const previewEvents = sqliteTable(
+  "preview_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    previewId: text("preview_id")
+      .notNull()
+      .references(() => previews.id),
+    sha: text("sha").notNull(),
+    /** "deployed" | "reloaded" | "failed" | "reset". */
+    result: text("result").notNull(),
+    /** Bounded detail (failure reason, what ran). */
+    detail: text("detail"),
+    at: integer("at").notNull(),
+  },
+  (table) => [index("preview_events_preview_idx").on(table.previewId, table.at)],
+);

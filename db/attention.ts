@@ -9,6 +9,8 @@ import {
   machineStageRuns,
   messages,
   pendingInputs,
+  previews,
+  projectRepos,
   projects,
 } from "./schema";
 import type { MachineDefinition } from "../lib/machines/definition";
@@ -34,6 +36,20 @@ import type { MachineDefinition } from "../lib/machines/definition";
  */
 
 type Conn = Pick<Db, "select" | "insert" | "update" | "delete">;
+
+/**
+ * 0016: branch previews the follower parked as failed and Chad has not
+ * dismissed at that sha. (db/previews.listFailedPreviews needs a full Db;
+ * this is the same rule on the Conn attention uses.)
+ */
+function failedPreviews(db: Conn) {
+  return db
+    .select()
+    .from(previews)
+    .where(and(isNull(previews.deletedAt), eq(previews.source, "branch"), eq(previews.status, "failed"), isNotNull(previews.failedSha)))
+    .all()
+    .filter((p) => p.failedSha !== p.dismissedSha);
+}
 
 export interface RequestOption {
   id: string;
@@ -315,10 +331,12 @@ export function loadAttention(db: Conn): AttentionState {
   const requestIds = [...pending.entries()]
     .filter(([id]) => live.has(id))
     .flatMap(([, list]) => list.map((r) => r.requestId));
+  const previewFailures = failedPreviews(db).map((p) => `${p.id}:${p.failedSha}`);
   const signature = [
     [...unread].sort().join(","),
     requestIds.sort().join(","),
     machineGateIds.sort().join(","),
+    previewFailures.sort().join(","),
   ].join("|");
   return { unread, needsYou, machineGates: machineGateIds.length, signature };
 }
@@ -414,6 +432,21 @@ export interface NeedsYouMachineGate {
   since: number;
 }
 
+/** 0016: a branch preview the follower parked as failed (one per failing sha). */
+export interface NeedsYouPreview {
+  kind: "preview";
+  /** `<previewId>:<failedSha>` — stable card key. */
+  id: string;
+  previewId: string;
+  label: string;
+  branch: string;
+  sha: string;
+  error: string;
+  sandboxId: string;
+  projectName: string | null;
+  since: number;
+}
+
 export interface UnreadThread extends Where {
   id: string;
   /** 0012: "run" threads open /r/<id>. */
@@ -426,7 +459,7 @@ export interface UnreadThread extends Where {
 }
 
 export interface InboxData {
-  needsYou: (NeedsYouThread | NeedsYouMachineGate)[];
+  needsYou: (NeedsYouThread | NeedsYouMachineGate | NeedsYouPreview)[];
   unread: UnreadThread[];
 }
 
@@ -507,7 +540,25 @@ export function loadInbox(db: Conn): InboxData {
     };
   });
 
-  const needsYou = [...threads, ...machineGates].sort((a, b) => a.since - b.since);
+  const previewItems: NeedsYouPreview[] = failedPreviews(db).map((p) => {
+    const repo = p.repoId
+      ? db.select({ projectId: projectRepos.projectId }).from(projectRepos).where(eq(projectRepos.id, p.repoId)).get()
+      : undefined;
+    return {
+      kind: "preview",
+      id: `${p.id}:${p.failedSha}`,
+      previewId: p.id,
+      label: p.label ?? p.branch ?? p.slug,
+      branch: p.branch ?? "",
+      sha: p.failedSha ?? "",
+      error: p.error ?? "",
+      sandboxId: p.sandboxId,
+      projectName: repo?.projectId ? (projectName.get(repo.projectId) ?? repo.projectId) : null,
+      since: p.updatedAt,
+    };
+  });
+
+  const needsYou = [...threads, ...machineGates, ...previewItems].sort((a, b) => a.since - b.since);
 
   // A thread that needs an answer is shown once, above; Unread is the rest.
   const unreadIds = [...attention.unread].filter((id) => !attention.needsYou.has(id));

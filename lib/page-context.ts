@@ -19,6 +19,7 @@ export const PAGE_CONTEXT_KINDS = [
   "project",
   "sandbox",
   "inbox",
+  "previews",
   "other",
 ] as const;
 

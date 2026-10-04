@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { getPreviewBySlug, previewSandbox, stampRequest } from "@/db/previews";
 import { harnessPreviewNetwork, type PreviewNetwork } from "@/lib/previews/network";
 import { createPreviewProxy, type Resolution } from "@/lib/previews/proxy";
+import { followBranchPreviews } from "@/lib/previews/branch";
 import { reconcilePreviews } from "@/lib/previews/service";
 
 /**
@@ -32,8 +33,10 @@ function resolveSlug(slug: string, network: PreviewNetwork): Resolution {
   if (!p) return { kind: "missing" };
   const sbx = previewSandbox(db(), p.sandboxId);
   // A preview still booting is proxied anyway: the dev server may answer
-  // before the tick marks it healthy, and an upstream error is honest.
-  if (sbx?.status !== "running" || !["starting", "healthy"].includes(p.status)) {
+  // before the tick marks it healthy, and an upstream error is honest. A
+  // `failed` branch preview keeps serving its last good commit (the
+  // follower never killed it), so it is proxied too.
+  if (sbx?.status !== "running" || !["starting", "healthy", "failed"].includes(p.status)) {
     return { kind: "down", previewId: p.id, status: p.status, label: p.label ?? p.branch };
   }
   const target = network.target(sbx.ref, p.port);
@@ -67,7 +70,8 @@ export function startPreviewProxy(port: number, appOrigin?: string): Server {
 
 let ticking = false;
 
-/** One tick: reconcile (and, phase 3, follow). Never overlaps itself. */
+/** One tick: reconcile every preview, then follow branch previews.
+ *  Never overlaps itself (a slow install just delays the next tick). */
 export async function previewTick(): Promise<void> {
   if (ticking) return;
   ticking = true;
@@ -78,6 +82,10 @@ export async function previewTick(): Promise<void> {
         `[previews] ${report.changed.join(", ") || "no changes"}` +
           (report.errors.length ? `; errors: ${report.errors.join("; ")}` : ""),
       );
+    }
+    for (const r of await followBranchPreviews()) {
+      if (r.action === "unchanged" || (r.action === "skipped" && !r.detail?.startsWith("fetch"))) continue;
+      console.log(`[previews] follow ${r.previewId}: ${r.action}${r.sha ? ` ${r.sha.slice(0, 7)}` : ""}${r.detail ? ` — ${r.detail.split("\n")[0]}` : ""}`);
     }
   } catch (err) {
     console.error("[previews] tick failed", err);

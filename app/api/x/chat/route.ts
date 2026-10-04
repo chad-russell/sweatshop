@@ -1,7 +1,7 @@
 import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
 import { createUIMessageStreamResponse } from "ai";
 import { NextResponse } from "next/server";
-import { getRun, start } from "workflow/api";
+import { getRun } from "workflow/api";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { conversations } from "@/db/schema";
@@ -18,12 +18,9 @@ import { disableConversationSandbox, getConversationBinding } from "@/db/sandbox
 import { resolveChatModel } from "@/lib/model";
 import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
-import { chatTurn } from "@/workflows/chat/turn";
+import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
 
 export const dynamic = "force-dynamic";
-
-/** Statuses a queued steer message can still land inside. */
-const ACTIVE = new Set(["pending", "running"]);
 
 /**
  * 0010 turn starter (Phase 4 cutover: the chat surface's transport).
@@ -100,8 +97,6 @@ export async function POST(request: Request) {
   updateConversationSettings(db(), body.conversationId, {
     ...(body.modelId ? { modelId: resolveChatModel(body.modelId).id } : {}),
   });
-  const conversation = getConversation(db(), body.conversationId)!;
-  const model = resolveChatModel(conversation.modelId);
 
   let active = getActiveRun(db(), body.conversationId);
   if (active) {
@@ -113,22 +108,12 @@ export async function POST(request: Request) {
     active = null;
   }
 
-  const run = await start(chatTurn, [
-    {
-      conversationId: body.conversationId,
-      userText: text,
-      modelId: model.id,
-      hasSandbox: getConversationBinding(db(), body.conversationId)?.kind !== "none",
-      hasProject: !!conversation.projectId,
-      // 0015: invalid/absent context simply sends no note.
-      viewing: parseViewingContext(body.context) ?? undefined,
-    },
-  ]);
-  // The run may complete before this write lands (fast turns); that is
-  // fine — the next POST sweeps a stale row via the status check above.
-  if (ACTIVE.has(await run.status)) {
-    setActiveRun(db(), body.conversationId, run.runId);
-  }
+  const run = await startChatTurn(
+    body.conversationId,
+    text,
+    // 0015: invalid/absent context simply sends no note.
+    parseViewingContext(body.context) ?? undefined,
+  );
   return respond(run.runId, false);
 }
 

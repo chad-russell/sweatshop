@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Workflow } from "lucide-react";
+import { Archive, MonitorPlay, Workflow } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -18,6 +18,16 @@ import { conversationHref } from "@/lib/conversation-href";
 
 const ALL = { includeArchived: true } as const;
 
+interface PalettePreview {
+  id: string;
+  url: string;
+  host: string;
+  label: string | null;
+  branch: string | null;
+  slug: string;
+  status: string;
+}
+
 interface PaletteMachine {
   id: string;
   name: string;
@@ -30,7 +40,8 @@ interface PaletteMachine {
  * message text — with the folder breadcrumb on each result. cmdk's own
  * filtering is off: ranking comes from the server. 0012: "Run <machine>"
  * commands open a fresh composer with that machine preselected (in the
- * current project for project machines).
+ * current project for project machines). 0016: "Open preview …" for
+ * every preview that is serving (opens its URL in a new tab).
  */
 export function CommandPalette() {
   const router = useRouter();
@@ -48,7 +59,18 @@ export function CommandPalette() {
       .then(({ machines: all }) => setMachines(all))
       .catch(() => setMachines([]));
   }, [open]);
+  const [previews, setPreviews] = useState<PalettePreview[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    void fetch("/api/previews", { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ previews: PalettePreview[] }>) : { previews: [] }))
+      .then(({ previews: all }) => setPreviews(all.filter((p) => p.status === "healthy" || p.status === "starting")))
+      .catch(() => setPreviews([]));
+  }, [open]);
   const needle = query.trim().toLowerCase();
+  const openable = previews.filter(
+    (p) => !needle || `open preview ${p.label ?? ""} ${p.branch ?? ""} ${p.slug}`.toLowerCase().includes(needle),
+  );
   // Project machines need a project: offered only on a project page.
   const runnable = machines.filter(
     (m) =>
@@ -89,13 +111,31 @@ export function CommandPalette() {
           placeholder="Search conversations…"
         />
         <CommandList>
-          {query.trim() && hits.length === 0 && runnable.length === 0 && (
+          {query.trim() && hits.length === 0 && runnable.length === 0 && openable.length === 0 && (
             <CommandEmpty>No matches.</CommandEmpty>
           )}
           {!query.trim() && (
             <p className="px-3 pt-4 pb-2 text-center text-sm text-muted-foreground">
               Type to search every conversation.
             </p>
+          )}
+          {openable.length > 0 && (
+            <CommandGroup heading="Open preview">
+              {openable.map((p) => (
+                <CommandItem
+                  key={`preview:${p.id}`}
+                  value={`preview:${p.id}`}
+                  onSelect={() => {
+                    close();
+                    window.open(p.url, "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  <MonitorPlay className="text-muted-foreground" />
+                  <span className="truncate">Open preview {p.label ?? p.branch ?? p.slug}</span>
+                  <span className="ml-auto truncate font-mono text-xs text-muted-foreground">{p.host}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
           )}
           {runnable.length > 0 && (
             <CommandGroup heading="Run machine">

@@ -4,7 +4,8 @@ import { listPreviews, listPreviewsForSandboxes } from "@/db/previews";
 import { getConversationBinding } from "@/db/sandboxes";
 import { machineRuns } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { viewPreview } from "@/lib/previews/service";
+import { createBranchPreview } from "@/lib/previews/branch";
+import { PreviewError, viewPreview } from "@/lib/previews/service";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,41 @@ export const dynamic = "force-dynamic";
  * whole tree shares the binding, 0013); `?sandbox=<sbx_…>` one sandbox's;
  * no filter, every preview not deleted.
  */
+/**
+ * 0016: create a branch preview — `{ projectId, repoId, branch, command?,
+ * port?, label? }`. Returns once it is serving (or parked as failed).
+ */
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const str = (k: string) => (typeof body[k] === "string" && (body[k] as string).trim() ? (body[k] as string).trim() : undefined);
+  const projectId = str("projectId");
+  const repoId = str("repoId");
+  const branch = str("branch");
+  if (!projectId || !repoId || !branch) {
+    return NextResponse.json({ error: "projectId, repoId and branch are required" }, { status: 400 });
+  }
+  const port = body.port === undefined || body.port === "" ? undefined : Number(body.port);
+  if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65_535)) {
+    return NextResponse.json({ error: "port must be 1–65535" }, { status: 400 });
+  }
+  try {
+    const command = str("command");
+    const label = str("label");
+    const result = await createBranchPreview({
+      projectId,
+      repoId,
+      branch,
+      ...(command ? { command } : {}),
+      ...(port !== undefined ? { port } : {}),
+      ...(label ? { label } : {}),
+    });
+    return NextResponse.json(result);
+  } catch (err) {
+    if (err instanceof PreviewError) return NextResponse.json({ error: err.message }, { status: 400 });
+    throw err;
+  }
+}
+
 export function GET(request: Request) {
   const url = new URL(request.url);
   const owner = url.searchParams.get("owner");
