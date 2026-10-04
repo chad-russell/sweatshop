@@ -22,6 +22,10 @@ export interface PreviewCandidate {
   /** Prefilled install command, run at the repo root. */
   install: string;
   port: number;
+  /** Prefilled seed command (0017 amendment) when this package has a
+   *  `seed` or `db:seed` script — repo-root convention, so it carries
+   *  its own `cd`. A form fill, not a guarantee. */
+  seed?: string;
 }
 
 interface Pkg {
@@ -56,7 +60,19 @@ export function buildCommand(pm: PreviewCandidate["pm"], script: string, body: s
 function candidate(pm: PreviewCandidate["pm"], pkg: Pkg): PreviewCandidate {
   const script = pkg.scripts.dev ? "dev" : "start";
   const { command, port } = buildCommand(pm, script, pkg.scripts[script] ?? "");
-  return { dir: pkg.dir, pm, script, command, install: `${pm} install`, port };
+  const run = (name: string) => (pm === "npm" ? `npm run ${name}` : `${pm} run ${name}`);
+  const seedScript = pkg.scripts.seed ? "seed" : pkg.scripts["db:seed"] ? "db:seed" : undefined;
+  return {
+    dir: pkg.dir,
+    pm,
+    script,
+    command,
+    install: `${pm} install`,
+    port,
+    ...(seedScript
+      ? { seed: pkg.dir === "." ? run(seedScript) : `cd ${pkg.dir} && ${run(seedScript)}` }
+      : {}),
+  };
 }
 
 function parseScripts(text: string | undefined): Record<string, string> | null {

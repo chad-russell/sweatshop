@@ -39,6 +39,10 @@ export const previewSetupSchema = z.object({
   install: z.string().min(1),
   /** One-shot post-services step (migrations); once per sandbox. */
   provision: z.string().min(1).optional(),
+  /** One-shot data step, after provision (0017 amendment); once per
+   *  sandbox, idempotent by convention — bundled, fetched from a
+   *  source, or a dump restore; all just a command + env. */
+  seed: z.string().min(1).optional(),
   /** The server command. `$PORT` is the preview's port. */
   command: z.string().min(1),
   port: z.number().int().min(1).max(65_535),

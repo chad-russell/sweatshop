@@ -14,7 +14,7 @@ import {
 } from "@/db/previews";
 import { getPreviewSetupDefinition } from "@/db/preview-setups";
 import { conversations, machineRuns, projectRepos } from "@/db/schema";
-import { getLease, markServicesProvisioned, touchLease, updateLease } from "@/db/sandboxes";
+import { getLease, markSeeded, markServicesProvisioned, touchLease, updateLease } from "@/db/sandboxes";
 import {
   ensureSandboxServices,
   probeServiceReady,
@@ -267,6 +267,23 @@ export function previewEnvView(id: string): { env: Record<string, string> } | { 
   return { env: maskEnv(resolved.env) };
 }
 
+/**
+ * Run one once-per-sandbox setup step (`provision`, `seed`) with the
+ * resolved env; a non-zero exit becomes the failure message with the
+ * command's tail. Null = success.
+ */
+async function runSetupStep(
+  handle: SandboxHandle,
+  label: string,
+  command: string,
+  env: Record<string, string>,
+  cwd: string,
+): Promise<string | null> {
+  const run = await handle.run(`set -o pipefail; ${command} 2>&1 | tail -60`, env, cwd);
+  if (run.exitCode === 0) return null;
+  return `${label} failed:\n${(`${run.stdout}${run.stderr}`).trim().slice(-2_000)}`;
+}
+
 /** Launch (or relaunch) a preview row's process and wait for health. */
 export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<StartResult> {
   const { provider, network, healthTimeoutMs, pollMs, services, serviceProbeMs } = deps(d);
@@ -318,19 +335,30 @@ export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<St
     }
   }
 
-  // `provision` runs once per sandbox, after services are healthy —
-  // with the resolved env (migrations need the same secrets/DB URIs
-  // the app does).
+  // `provision` (schema) then `seed` (data) run once per sandbox,
+  // after services are healthy — with the resolved env (migrations and
+  // seeds need the same secrets/DB URIs the app does). The markers are
+  // independent (0017 amendment): a sandbox provisioned before `seed`
+  // existed still seeds, and a failed seed never regresses provision.
   const lease = getLease(db(), p.sandboxId);
   const repoRoot = repoRootFor(p, setup);
-  if (setup?.provision && lease && !lease.servicesProvisionedAt && repoRoot) {
-    const run = await handle.run(`set -o pipefail; ${setup.provision} 2>&1 | tail -60`, resolved.env, repoRoot);
-    if (run.exitCode !== 0) {
-      const message = `provision failed:\n${(`${run.stdout}${run.stderr}`).trim().slice(-2_000)}`;
-      updatePreview(db(), p.id, { status: "failed", error: message });
-      return { preview: viewPreview(getPreview(db(), p.id)!) };
+  if (lease && repoRoot) {
+    if (setup?.provision && !lease.servicesProvisionedAt) {
+      const message = await runSetupStep(handle, "provision", setup.provision, resolved.env, repoRoot);
+      if (message) {
+        updatePreview(db(), p.id, { status: "failed", error: message });
+        return { preview: viewPreview(getPreview(db(), p.id)!) };
+      }
+      markServicesProvisioned(db(), lease.id);
     }
-    markServicesProvisioned(db(), lease.id);
+    if (setup?.seed && !lease.seededAt) {
+      const message = await runSetupStep(handle, "seed", setup.seed, resolved.env, repoRoot);
+      if (message) {
+        updatePreview(db(), p.id, { status: "failed", error: message });
+        return { preview: viewPreview(getPreview(db(), p.id)!) };
+      }
+      markSeeded(db(), lease.id);
+    }
   }
 
   try {

@@ -212,6 +212,10 @@ export const sandboxes = sqliteTable(
     /** 0017: when the project setup's `provision` ran against this
      *  sandbox's services (once per sandbox); null = not yet. */
     servicesProvisionedAt: integer("services_provisioned_at"),
+    /** 0017 amendment: when the setup's `seed` ran (once per sandbox,
+     *  after provision); independent marker — a sandbox provisioned
+     *  before `seed` existed still seeds. */
+    seededAt: integer("seeded_at"),
     /** Unix ms; bumped on every acquire (idle reaping's signal). */
     lastUsedAt: integer("last_used_at").notNull(),
     createdAt: integer("created_at").notNull(),

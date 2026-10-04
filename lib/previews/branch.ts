@@ -326,6 +326,7 @@ export async function confirmBranchPreview(
       env: input.env ?? setup?.env ?? {},
       services: setup?.services ?? [],
       ...(setup?.provision ? { provision: setup.provision } : {}),
+      ...(setup?.seed ? { seed: setup.seed } : {}),
     });
     if (!saved.ok) {
       return { preview: viewPreview(p), error: `setup invalid: ${saved.issues.join("; ")}` };

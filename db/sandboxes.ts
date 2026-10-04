@@ -25,10 +25,13 @@ export interface SandboxLease {
   status: SandboxLeaseStatus;
   lastUsedAt: number;
   createdAt: number;
-  /** 0011: set when destroyed; the row stays as history. */
+  /** 0017: set when destroyed; the row stays as history. */
   destroyedAt: number | null;
   /** 0017: when the setup's `provision` ran against this sandbox. */
   servicesProvisionedAt: number | null;
+  /** 0017 amendment: when the setup's `seed` ran (independent of
+   *  provision — an already-provisioned sandbox still seeds). */
+  seededAt: number | null;
 }
 
 type SandboxRow = typeof sandboxes.$inferSelect;
@@ -46,6 +49,7 @@ function hydrate(row: SandboxRow): SandboxLease {
     createdAt: row.createdAt,
     destroyedAt: row.destroyedAt,
     servicesProvisionedAt: row.servicesProvisionedAt ?? null,
+    seededAt: row.seededAt ?? null,
   };
 }
 
@@ -53,6 +57,14 @@ function hydrate(row: SandboxRow): SandboxLease {
 export function markServicesProvisioned(db: Db, sandboxId: string): void {
   db.update(sandboxes)
     .set({ servicesProvisionedAt: Date.now() })
+    .where(eq(sandboxes.id, sandboxId))
+    .run();
+}
+
+/** 0017 amendment: stamp the once-per-sandbox `seed` as done. */
+export function markSeeded(db: Db, sandboxId: string): void {
+  db.update(sandboxes)
+    .set({ seededAt: Date.now() })
     .where(eq(sandboxes.id, sandboxId))
     .run();
 }
@@ -82,6 +94,7 @@ export function insertLease(
     createdAt: now,
     destroyedAt: null,
     servicesProvisionedAt: null,
+    seededAt: null,
   };
   db.insert(sandboxes).values(row).run();
   return hydrate(row);
