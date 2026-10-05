@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
 import { Button } from "@/components/ui/button";
 import { PageContextRegistration } from "@/components/page-context";
+import { ProjectSetupEditor } from "@/components/previews/project-setup-editor";
 import { db } from "@/db";
 import { getPreviewSetup } from "@/db/preview-setups";
 import { gitCredentials, projectRepos, projects, sandboxConfigs } from "@/db/schema";
@@ -84,25 +85,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
 
         <section className="flex flex-col gap-2">
           <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Preview setup</h2>
-          <p className="text-sm">
-            {setup.ok && setup.setup ? (
-              <>
-                Configured — {setup.setup.definition.workDir === "." ? "repo root" : setup.setup.definition.workDir}
-                {setup.setup.definition.seed ? " · provision + seed" : setup.setup.definition.provision ? " · provision" : ""}
-                {" · "}
-                {setup.setup.definition.services.length || "no"} service
-                {setup.setup.definition.services.length === 1 ? "" : "s"}.{" "}
-              </>
-            ) : (
-              <>Not configured — the first New preview scans the checkout and saves one.{" "}</>
-            )}
-            <Link
-              href={`/previews?project=${encodeURIComponent(project.id)}`}
-              className="underline-offset-2 hover:underline"
-            >
-              Previews for {project.name} →
-            </Link>
-          </p>
+          {/* 0018 phase 2: the definition's permanent editor. */}
+          <ProjectSetupEditor
+            projectId={project.id}
+            repos={repos.map((r) => ({ id: r.id, name: r.name }))}
+            initialDefinition={setup.ok ? (setup.setup?.definition ?? null) : null}
+            {...(!setup.ok ? { storedIssues: setup.issues } : {})}
+          />
         </section>
 
         <section className="flex flex-col gap-2">

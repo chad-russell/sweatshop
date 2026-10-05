@@ -1,7 +1,17 @@
 # 0018 — The project page: a project's home; new chat split out
 
 Status: **approved in chat 2026-10-05 (shape + both forks — `/?project=`
-for new chat, read-only first); not yet implemented**
+for new chat, read-only first); phases 1–2 shipped same day**
+
+## Implementation notes (phases 1–2)
+
+- Phase 2 deviation: the project page hosts the editor for setups
+  that do not exist yet too ("Create setup"), so the save-without-
+  launching capability is fully replaced there and the New-preview
+  dialog is pure create ("Save setup only" deleted). A stored row
+  that fails validation surfaces its issues above an empty editor.
+- Phase 1 rider: ⌘K's run-machine action stopped building
+  `/p/undefined` when invoked off a project page.
 
 ## Why
 
