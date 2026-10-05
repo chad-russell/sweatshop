@@ -108,8 +108,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   workDir, without binding the caller; resumes a stopped one, never
   stops or destroys) — `lib/agent/tools/inspect.ts`.
   Entities
-  are managed db-first via `npm run db:seed` (secrets from env only);
-  `/p/[projectId]` starts a project conversation; `create_pr` is the
+  are managed db-first via `npm run db:seed` (secrets from env only;
+  project-page editing is 0018 phase 3); `/p/[projectId]` is the
+  PROJECT PAGE (0018: repos + resolved git hosts, sandbox config,
+  preview-setup summary, work-surface links) and project conversations
+  start on `/` with `?project=<id>`; `create_pr` is the
   agent's PR tool.
 - Machines (0009): user-editable stage machines — sqlite `machines`
   rows holding a zod-validated JSON definition (`lib/machines/
@@ -164,7 +167,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the run cancelled — final, later status writes are ignored; the
   sandbox stays); trashing a live run cancels it, purge removes the run
   and its visit sessions (and destroys its own sandbox). Triggers: the fresh composer's
-  target picker (`?machine=<id>` preselects; `/` and `/p/<id>`), Run
+  target picker (`?machine=<id>` and `?project=<id>` preselect; `/`,
+  0018), Run
   on `/machines/<id>`, ⌘K "Run …", `POST /api/machine-runs`, the
   `start_machine` chat tool; `/r/<runId>` is the run view (visit
   transcripts open in a side panel; `/c/<runId>` redirects there).

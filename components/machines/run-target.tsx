@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronsUpDown, MessageSquare, Workflow } from "lucide-react";
+import { Check, ChevronsUpDown, FolderGit2, MessageSquare, Workflow } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
@@ -23,6 +23,12 @@ export interface MachineOption {
   id: string;
   name: string;
   description: string | null;
+}
+
+/** 0018: a pickable chat-in-project target. */
+export interface ProjectOption {
+  id: string;
+  name: string;
 }
 
 interface MachineListing extends MachineOption {
@@ -79,39 +85,95 @@ export function RunTargetPicker({
   selectedId,
   onSelect,
   projectScoped,
+  projects,
+  selectedProjectId,
+  onSelectProject,
 }: {
   machines: readonly MachineOption[] | null;
   /** null = chat. */
   selectedId: string | null;
   onSelect: (machineId: string | null) => void;
   projectScoped: boolean;
+  /** 0018: chat-in-project targets; omit to hide the project axis
+   *  (the plain "Chat" item stands in for no scope). */
+  projects?: readonly ProjectOption[] | null;
+  selectedProjectId?: string | null;
+  onSelectProject?: (projectId: string | null) => void;
 }) {
   const selected = machines?.find((m) => m.id === selectedId) ?? null;
+  const selectedProject =
+    projects?.find((p) => p.id === (selectedProjectId ?? null)) ?? null;
+  const label = selected ? selected.name : (selectedProject?.name ?? "Chat");
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
           aria-label="Send to"
-          title="Start a chat or a machine run"
+          title="Start a chat (optionally in a project) or a machine run"
           className={cn(
             "inline-flex h-8 max-w-48 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-            selected && "text-foreground",
+            (selected || selectedProject) && "text-foreground",
           )}
         >
-          {selected ? <Workflow className="size-3.5 shrink-0" aria-hidden /> : <MessageSquare className="size-3.5 shrink-0" aria-hidden />}
-          <span className="truncate">{selected ? selected.name : "Chat"}</span>
+          {selected ? (
+            <Workflow className="size-3.5 shrink-0" aria-hidden />
+          ) : selectedProject ? (
+            <FolderGit2 className="size-3.5 shrink-0" aria-hidden />
+          ) : (
+            <MessageSquare className="size-3.5 shrink-0" aria-hidden />
+          )}
+          <span className="truncate">{label}</span>
           <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
-        <DropdownMenuItem onSelect={() => onSelect(null)} className="items-start py-2">
-          <Check className={cn("mt-0.5", selected ? "opacity-0" : "opacity-100")} aria-hidden />
-          <span className="flex flex-col">
-            <span>Chat</span>
-            <span className="text-xs font-normal text-muted-foreground">A conversation with your agent</span>
-          </span>
-        </DropdownMenuItem>
+        {projects && onSelectProject ? (
+          <>
+            <DropdownMenuItem
+              onSelect={() => {
+                onSelectProject(null);
+                onSelect(null);
+              }}
+              className="items-start py-2"
+            >
+              <Check className={cn("mt-0.5", !selected && !selectedProject ? "opacity-100" : "opacity-0")} aria-hidden />
+              <span className="flex flex-col">
+                <span>Chat</span>
+                <span className="text-xs font-normal text-muted-foreground">A plain conversation, no project</span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Chat in a project
+            </DropdownMenuLabel>
+            {projects.map((p) => (
+              <DropdownMenuItem
+                key={p.id}
+                onSelect={() => {
+                  onSelectProject(p.id);
+                  onSelect(null);
+                }}
+                className="items-start py-2"
+              >
+                <Check className={cn("mt-0.5", p.id === (selectedProjectId ?? null) ? "opacity-100" : "opacity-0")} aria-hidden />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{p.name}</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    Binds the conversation — and its sandbox — to {p.name}
+                  </span>
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </>
+        ) : (
+          <DropdownMenuItem onSelect={() => onSelect(null)} className="items-start py-2">
+            <Check className={cn("mt-0.5", selected ? "opacity-0" : "opacity-100")} aria-hidden />
+            <span className="flex flex-col">
+              <span>Chat</span>
+              <span className="text-xs font-normal text-muted-foreground">A conversation with your agent</span>
+            </span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {projectScoped ? "Run a project machine" : "Run a machine"}

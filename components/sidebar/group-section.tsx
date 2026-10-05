@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, FolderGit2, FolderPlus, Layers } from "lucide-react";
+import { ChevronRight, FolderGit2, FolderPlus, Layers, MessageSquarePlus } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { cn } from "cn";
@@ -95,7 +95,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
           {group.project ? (
             <Link
               href={`/p/${group.project.id}`}
-              title={`New conversation in ${group.project.name}`}
+              title={`Open ${group.project.name} — repos, setup, and surfaces`}
               className={cn(
                 HEADING,
                 "flex min-w-0 items-center gap-1.5 transition-colors hover:text-sidebar-foreground",
@@ -118,6 +118,16 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
             <AttentionDot unread={group.attention.unread} needsYou={group.attention.needsYou} />
           )}
         </div>
+        {group.project && (
+          <Link
+            href={`/?project=${group.project.id}`}
+            aria-label={`New chat in ${group.project.name}`}
+            title="New chat"
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
+          >
+            <MessageSquarePlus className="size-3.5" />
+          </Link>
+        )}
         <button
           type="button"
           aria-label={`New folder in ${group.project?.name ?? "Chats"}`}

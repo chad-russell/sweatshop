@@ -5,7 +5,7 @@ import { getConversationBinding } from "@/db/sandboxes";
 import { machineRuns } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createBranchPreview } from "@/lib/previews/branch";
-import { PreviewError, viewPreview } from "@/lib/previews/service";
+import { PreviewError, previewProjectId, viewPreview } from "@/lib/previews/service";
 
 export const dynamic = "force-dynamic";
 
@@ -93,12 +93,17 @@ export function GET(request: Request) {
   const url = new URL(request.url);
   const owner = url.searchParams.get("owner");
   const sandbox = url.searchParams.get("sandbox");
+  const project = url.searchParams.get("project");
   let previews;
   if (owner) {
     const sandboxId = boundSandbox(owner);
     previews = sandboxId ? listPreviewsForSandboxes(db(), [sandboxId]) : [];
   } else if (sandbox) {
     previews = listPreviewsForSandboxes(db(), [sandbox]);
+  } else if (project) {
+    // 0018: a project's previews — branch rows through their repo,
+    // worktree rows through their sandbox's owner (previewProjectId).
+    previews = listPreviews(db()).filter((p) => previewProjectId(p) === project);
   } else {
     previews = listPreviews(db());
   }

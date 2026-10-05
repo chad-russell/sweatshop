@@ -145,7 +145,9 @@ export function CommandPalette() {
                   value={`run:${m.id}`}
                   onSelect={() => {
                     close();
-                    const scope = m.definition.workspace === "project" ? `/p/${projectId}` : "/";
+                    // 0018: a run starts on / — a project machine
+                    // carries its project's scope as a param.
+                    const scope = m.definition.workspace === "project" && projectId ? `/?project=${projectId}` : "/";
                     router.push(`${scope}?machine=${encodeURIComponent(m.id)}`);
                   }}
                 >

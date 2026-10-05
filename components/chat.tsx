@@ -323,6 +323,7 @@ export function ChatSurface({
   conversationTitle,
   headerExtra,
   initialMachineId,
+  projectOptions,
 }: {
   conversationId?: string;
   initialMessages?: import("ai").UIMessage[];
@@ -334,10 +335,21 @@ export function ChatSurface({
   headerExtra?: React.ReactNode;
   /** 0012: preselect this machine as the fresh composer's target. */
   initialMachineId?: string | null;
+  /** 0018: pickable chat-in-project targets for the fresh composer
+   *  (the ?project= param seeds the initial scope). */
+  projectOptions?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const sessionRef = useRef<ChatSessionController>(null);
+
+  // 0018: the fresh composer's project scope is PICKABLE on / (the
+  // ?project= param seeds it). The prop is the initial value only —
+  // ChatSession reads the picked id at send time, so changing it while
+  // fresh rebinds the conversation that send creates.
+  const [pickedProjectId, setPickedProjectId] = useState<string | null>(projectId ?? null);
+  const activeProjectId = pickedProjectId ?? null;
+  const activeProjectName = projectOptions?.find((p) => p.id === activeProjectId)?.name ?? projectName;
 
   // 0015: this page is the chat itself (an adopted conversation) or the
   // project composer (a fresh chat bound to a project). projectId rides
@@ -348,29 +360,61 @@ export function ChatSurface({
           kind: "chat",
           id: conversationId,
           title: conversationTitle ?? undefined,
-          ...(projectId ? { projectId } : {}),
+          ...(activeProjectId ? { projectId: activeProjectId } : {}),
         }
-      : projectId
-        ? { kind: "project", id: projectId, title: projectName, projectId }
+      : activeProjectId
+        ? { kind: "project", id: activeProjectId, title: activeProjectName, projectId: activeProjectId }
         : { kind: "other" },
   );
 
   // ── 0012: a fresh composer can start a machine run instead ────────────
   // Machines load for a not-yet-adopted conversation (the target picker's
-  // moment); an adopted one is already a chat.
-  const machines = useScopedMachines(conversationId ? undefined : projectId);
+  // moment); an adopted one is already a chat. 0018: the scope follows
+  // the picked project, so project machines list when one is chosen.
+  const machines = useScopedMachines(conversationId ? undefined : (activeProjectId ?? undefined));
   const [pickedMachineId, setPickedMachineId] = useState<string | null>(initialMachineId ?? null);
   const [runStart, setRunStart] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const machineTargeted = machines?.some((m) => m.id === pickedMachineId) ?? false;
 
+  /** 0018: pick (or clear) the composer's project scope; the URL
+   *  follows so the scope is visible and shareable while fresh. */
+  const pickProject = (id: string | null) => {
+    setPickedProjectId(id);
+    setPickedMachineId(null);
+    setRunStart({ busy: false, error: null });
+    if (!conversationId) {
+      window.history.replaceState(null, "", id ? `/?project=${id}` : "/");
+    }
+  };
+
   const freshComposer = (s: ChatSessionState): FreshComposerMode | undefined => {
+    if (conversationId) return undefined;
     const machine = machines?.find((m) => m.id === pickedMachineId) ?? null;
-    if (!machine) return undefined;
+    const footer = (
+      <RunTargetPicker
+        machines={machines}
+        selectedId={machine?.id ?? null}
+        onSelect={(id) => {
+          setPickedMachineId(id);
+          setRunStart({ busy: false, error: null });
+        }}
+        projectScoped={Boolean(activeProjectId)}
+        projects={projectOptions}
+        selectedProjectId={activeProjectId}
+        onSelectProject={pickProject}
+      />
+    );
+    if (!machine) {
+      // A plain chat still shows the picker — the project axis lives
+      // there too (0018). Without pickable targets, the default
+      // composer stands (a ?project= scope shows nothing new to pick).
+      return projectOptions?.length ? { footer } : undefined;
+    }
     const startRun = async (text: string) => {
       if (runStart.busy) return;
       setRunStart({ busy: true, error: null });
       try {
-        const runId = await startMachineRun({ machineId: machine.id, prompt: text, ...(projectId ? { projectId } : {}) });
+        const runId = await startMachineRun({ machineId: machine.id, prompt: text, ...(activeProjectId ? { projectId: activeProjectId } : {}) });
         s.clearDraft();
         router.push(`/r/${runId}`);
         router.refresh();
@@ -385,18 +429,8 @@ export function ChatSurface({
           description={machine.description ?? "Your message becomes the run's prompt."}
         />
       ),
-      placeholder: projectId ? "What should it do? (paste the ticket)" : "What should it work on?",
-      footer: (
-        <RunTargetPicker
-          machines={machines}
-          selectedId={machine.id}
-          onSelect={(id) => {
-            setPickedMachineId(id);
-            setRunStart({ busy: false, error: null });
-          }}
-          projectScoped={Boolean(projectId)}
-        />
-      ),
+      placeholder: activeProjectId ? "What should it do? (paste the ticket)" : "What should it work on?",
+      footer,
       onSubmit: (text) => {
         void startRun(text);
         return true;
@@ -413,8 +447,8 @@ export function ChatSurface({
   };
 
   const handleNewChat = () => {
-    if (projectId) {
-      window.history.replaceState(null, "", `/p/${projectId}`);
+    if (activeProjectId) {
+      window.history.replaceState(null, "", `/?project=${activeProjectId}`);
     } else if (pathname === "/" || window.location.pathname.startsWith("/c/")) {
       window.history.replaceState(null, "", "/");
     } else {
@@ -446,7 +480,7 @@ export function ChatSurface({
       conversationId={conversationId}
       initialMessages={initialMessages}
       activeRunId={activeRunId}
-      projectId={projectId}
+      projectId={activeProjectId ?? undefined}
       initialModelId={initialModelId}
       className="mx-auto h-dvh max-w-3xl"
       onAdopted={handleAdopted}
@@ -454,8 +488,8 @@ export function ChatSurface({
       header={(s) => (
         <AppHeader
           crumbs={[
-            projectId
-              ? { label: projectName ?? projectId, href: `/p/${projectId}` }
+            activeProjectId
+              ? { label: activeProjectName ?? activeProjectId, href: `/p/${activeProjectId}` }
               : { label: "Chats", href: "/" },
             { label: conversationTitle ?? "New chat" },
           ]}
@@ -475,7 +509,7 @@ export function ChatSurface({
                 onOpen={s.loadSandboxes}
                 sandboxes={s.sandboxes}
                 view={s.sandboxView}
-                hasProject={Boolean(projectId)}
+                hasProject={Boolean(activeProjectId)}
               />
             </>
           )}
