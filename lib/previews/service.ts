@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   findPreview,
@@ -12,8 +11,6 @@ import {
   type Preview,
   type PreviewStatus,
 } from "@/db/previews";
-import { getPreviewSetupDefinition } from "@/db/preview-setups";
-import { conversations, machineRuns, projectRepos } from "@/db/schema";
 import { getLease, markSeeded, markServicesProvisioned, touchLease, updateLease } from "@/db/sandboxes";
 import {
   ensureSandboxServices,
@@ -21,10 +18,9 @@ import {
   serviceAddress,
   ServiceDeps,
 } from "@/lib/sandboxes/services";
-import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
 import type { ServiceResolver } from "@/lib/previews/env";
-import type { PreviewSetupDefinition } from "@/lib/previews/setup";
 import { envFileContent, maskEnv, resolvePreviewEnv } from "@/lib/previews/env";
+import { resolvePreviewContext } from "@/lib/previews/context";
 import { previewHost, previewUrl, harnessPreviewNetwork, type PreviewNetwork } from "@/lib/previews/network";
 import { logTail, processAlive, shellQuote, startProcess, stopProcess } from "@/lib/previews/process";
 import { sandboxProvider, type SandboxHandle, type SandboxProvider } from "@/lib/sandboxes/provider";
@@ -182,62 +178,6 @@ export interface StartResult {
   log?: string;
 }
 
-/** The project a preview belongs to (whose setup's env applies):
- *  branch previews through their repo, worktree previews through their
- *  sandbox owner (conversation or machine run). */
-export function previewProjectId(p: Preview): string | null {
-  if (p.repoId) {
-    const repo = db().select({ projectId: projectRepos.projectId }).from(projectRepos).where(eq(projectRepos.id, p.repoId)).get();
-    if (repo) return repo.projectId;
-  }
-  const lease = getLease(db(), p.sandboxId);
-  if (!lease) return null;
-  if (lease.ownerKind === "conversation") {
-    return (
-      db()
-        .select({ projectId: conversations.projectId })
-        .from(conversations)
-        .where(eq(conversations.id, lease.ownerId))
-        .get()?.projectId ?? null
-    );
-  }
-  if (lease.ownerKind === "machine_run") {
-    return (
-      db()
-        .select({ projectId: machineRuns.projectId })
-        .from(machineRuns)
-        .where(eq(machineRuns.id, lease.ownerId))
-        .get()?.projectId ?? null
-    );
-  }
-  return null;
-}
-
-/** The repo root a preview's setup runs against: branch previews
- *  through their repo; worktree previews through the setup's repo
- *  under the binding's work root. */
-function repoRootFor(p: Preview, setup: PreviewSetupDefinition | null): string | null {
-  if (p.repoId) {
-    const repo = db()
-      .select({ name: projectRepos.name })
-      .from(projectRepos)
-      .where(eq(projectRepos.id, p.repoId))
-      .get();
-    const lease = getLease(db(), p.sandboxId);
-    if (repo && lease) return `${sandboxWorkRoot(lease.ownerId)}/${repo.name}`;
-    return null;
-  }
-  if (!setup) return null;
-  const lease = getLease(db(), p.sandboxId);
-  const repo = db()
-    .select({ name: projectRepos.name })
-    .from(projectRepos)
-    .where(eq(projectRepos.id, setup.repo))
-    .get();
-  if (!lease || !repo) return null;
-  return `${sandboxWorkRoot(lease.ownerId)}/${repo.name}`;
-}
-
 /**
  * 0017: the env a preview boots with — the project setup's env, the
  *  row's sparse overrides, then the platform vars ALWAYS last. Bad
@@ -250,7 +190,7 @@ export function resolvedEnvFor(
   opts: { resolveService?: ServiceResolver } = {},
 ): { env: Record<string, string> } | { error: string } {
   const platform = previewEnv(p);
-  const base = getPreviewSetupDefinition(db(), previewProjectId(p))?.env ?? {};
+  const base = resolvePreviewContext(p).setup?.env ?? {};
   const resolveService = opts.resolveService ?? ((name: string) => serviceAddress(p.sandboxId, name));
   const resolved = resolvePreviewEnv(base, p.env, platform, resolveService);
   if ("error" in resolved) return resolved;
@@ -289,7 +229,7 @@ export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<St
   const { provider, network, healthTimeoutMs, pollMs, services, serviceProbeMs } = deps(d);
   const p = getPreview(db(), id);
   if (!p || p.deletedAt) throw new PreviewError("not-found", `no preview ${id}`);
-  const setup = getPreviewSetupDefinition(db(), previewProjectId(p));
+  const { setup, repoRoot } = resolvePreviewContext(p);
 
   // 0017: declared services first — idempotent, so every launch path
   // (confirm, follower, restart, agent start) gets them.
@@ -341,7 +281,6 @@ export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<St
   // independent (0017 amendment): a sandbox provisioned before `seed`
   // existed still seeds, and a failed seed never regresses provision.
   const lease = getLease(db(), p.sandboxId);
-  const repoRoot = repoRootFor(p, setup);
   if (lease && repoRoot) {
     if (setup?.provision && !lease.servicesProvisionedAt) {
       const message = await runSetupStep(handle, "provision", setup.provision, resolved.env, repoRoot);

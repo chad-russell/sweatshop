@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Db } from "./index";
-import { conversations, sandboxAttachments, sandboxCalls, sandboxes } from "./schema";
+import { conversations, machineRuns, sandboxAttachments, sandboxCalls, sandboxes } from "./schema";
 
 /**
  * 0010 Phase 2 sandbox lease store. The `sandboxes` table is a registry
@@ -118,6 +118,30 @@ export function getLeaseByOwner(
     )
     .get();
   return row ? hydrate(row) : null;
+}
+
+/** The project a lease's owner (conversation or machine run) belongs to;
+ *  a preview-owned lease has none of its own (its preview row knows). */
+export function getLeaseProjectId(db: Db, lease: Pick<SandboxLease, "ownerKind" | "ownerId">): string | null {
+  if (lease.ownerKind === "conversation") {
+    return (
+      db
+        .select({ projectId: conversations.projectId })
+        .from(conversations)
+        .where(eq(conversations.id, lease.ownerId))
+        .get()?.projectId ?? null
+    );
+  }
+  if (lease.ownerKind === "machine_run") {
+    return (
+      db
+        .select({ projectId: machineRuns.projectId })
+        .from(machineRuns)
+        .where(eq(machineRuns.id, lease.ownerId))
+        .get()?.projectId ?? null
+    );
+  }
+  return null;
 }
 
 export function getLease(db: Db, id: string): SandboxLease | null {

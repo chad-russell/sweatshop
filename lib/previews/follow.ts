@@ -5,7 +5,7 @@ import { getLease } from "@/db/sandboxes";
 import { sandboxProvider } from "@/lib/sandboxes/provider";
 import { harnessPreviewNetwork } from "@/lib/previews/network";
 import { processAlive, shellQuote } from "@/lib/previews/process";
-import { CREATE_FAILED, lastLine, previewContext, setupFor, sh } from "@/lib/previews/context";
+import { CREATE_FAILED, lastLine, resolvePreviewContext, sh } from "@/lib/previews/context";
 import { confirmBranchPreview, provisionBranchPreview } from "@/lib/previews/branch";
 import { launchPreview, PreviewError, type PreviewDeps } from "@/lib/previews/service";
 
@@ -88,13 +88,12 @@ export async function followPreview(p: Preview, deps: PreviewDeps = {}): Promise
     // Reinstall from the setup's explicit `install` (0017); a legacy
     // row without a setup relies on its command installing for itself.
     if (depsChanged) {
-      const setup = setupFor(p);
-      const ctx = previewContext(p);
-      if (setup?.install && ctx) {
+      const { setup, repoRoot } = resolvePreviewContext(p);
+      if (setup?.install && repoRoot) {
         const install = await sh(
           handle,
           `set -o pipefail; ${setup.install} 2>&1 | tail -60`,
-          ctx.repoRoot,
+          repoRoot,
         );
         if (!install.ok) return fail(`install failed at ${remote.slice(0, 7)}:\n${install.out}`);
       }
@@ -152,21 +151,20 @@ export async function retryPreview(id: string, deps: PreviewDeps = {}): Promise<
   }
   if (p.failedSha === CREATE_FAILED) {
     // The sandbox was destroyed at failure time — start over.
-    const ctx = previewContext(p) ?? { projectId: "", repoRoot: "" };
+    const { projectId } = resolvePreviewContext(p);
     const branch = p.branch ?? "main";
     markPreviewDeleted(db(), p.id);
-    if (!p.repoId || !ctx.projectId) {
+    if (!p.repoId || !projectId) {
       return { previewId: p.id, action: "failed", detail: "no repo context to re-provision" };
     }
     const provisioned = await provisionBranchPreview(
-      { projectId: ctx.projectId, repoId: p.repoId, branch, label: p.label ?? undefined },
+      { projectId, repoId: p.repoId, branch, label: p.label ?? undefined },
       deps,
     );
     if (!provisioned.ready) {
       return { previewId: p.id, action: "failed", detail: provisioned.preview.error ?? "provisioning failed" };
     }
-    const setup = getPreviewSetupDefinition(db(), ctx.projectId);
-    if (!setup) {
+    if (!getPreviewSetupDefinition(db(), projectId)) {
       return { previewId: provisioned.preview.id, action: "skipped", detail: "provisioned — confirm with values" };
     }
     const confirmed = await confirmBranchPreview(provisioned.preview.id, {}, deps);

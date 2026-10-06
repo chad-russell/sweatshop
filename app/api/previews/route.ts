@@ -5,7 +5,8 @@ import { getConversationBinding } from "@/db/sandboxes";
 import { machineRuns } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createBranchPreview } from "@/lib/previews/branch";
-import { PreviewError, previewProjectId, viewPreview } from "@/lib/previews/service";
+import { previewProjectId } from "@/lib/previews/context";
+import { PreviewError, viewPreview } from "@/lib/previews/service";
 
 export const dynamic = "force-dynamic";
 

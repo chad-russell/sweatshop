@@ -96,6 +96,10 @@ export function removeProjectRepo(db: Db, projectId: string, repoId: string): Pr
 // ── sandbox config ───────────────────────────────────────────────────────
 
 /** How many projects reference a config (the shared-edit note). */
+export function getProjectRepo(db: Db, repoId: string) {
+  return db.select().from(projectRepos).where(eq(projectRepos.id, repoId)).get() ?? null;
+}
+
 export function countProjectsUsingConfig(db: Db, configId: string): number {
   return db.select({ id: projects.id }).from(projects).where(eq(projects.sandboxConfigId, configId)).all().length;
 }

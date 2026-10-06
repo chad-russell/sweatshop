@@ -11,7 +11,7 @@ import { sandboxProvider } from "@/lib/sandboxes/provider";
 import { shellQuote } from "@/lib/previews/process";
 import { discoverPreviewCandidates, type PreviewCandidate } from "@/lib/previews/discover";
 import type { PreviewSetupService } from "@/lib/previews/setup";
-import { CREATE_FAILED, lastLine, previewContext, sh } from "@/lib/previews/context";
+import { CREATE_FAILED, lastLine, resolvePreviewContext, sh } from "@/lib/previews/context";
 import {
   launchPreview,
   deletePreview,
@@ -155,8 +155,8 @@ export async function discoverForPreview(
   if (!p || p.deletedAt) return { error: `no preview ${id}` };
   if (p.status !== "provisioning") return { error: `preview ${id} is ${p.status}, not provisioning` };
   const lease = getLease(db(), p.sandboxId);
-  const ctx = previewContext(p);
-  if (!lease || lease.status !== "running" || !ctx) {
+  const ctx = resolvePreviewContext(p);
+  if (!lease || lease.status !== "running" || !p.repoId || !ctx.repoRoot) {
     return { error: `sandbox is ${lease?.status ?? "missing"}` };
   }
   try {
@@ -206,9 +206,10 @@ export async function confirmBranchPreview(
   if (p.status !== "provisioning") {
     throw new PreviewError("invalid", `preview ${id} is ${p.status} — only a provisioning preview can confirm`);
   }
-  const ctx = previewContext(p);
-  if (!ctx || !p.repoId) throw new PreviewError("sandbox-gone", "no repo context for the preview");
-  const setup = getPreviewSetupDefinition(db(), ctx.projectId);
+  const { projectId, repoRoot, setup } = resolvePreviewContext(p);
+  if (!p.repoId || !projectId || !repoRoot) {
+    throw new PreviewError("sandbox-gone", "no repo context for the preview");
+  }
 
   const workDirRel = (input.workDir ?? setup?.workDir ?? ".").replace(/^\.\/+/, "") || ".";
   const command = input.command ?? setup?.command;
@@ -231,7 +232,7 @@ export async function confirmBranchPreview(
   // project, v1) is never rewritten by previewing that other repo —
   // the edits apply to this row only.
   if (!setup || setup.repo === p.repoId) {
-    const saved = savePreviewSetup(db(), ctx.projectId, {
+    const saved = savePreviewSetup(db(), projectId, {
       repo: p.repoId,
       workDir: workDirRel,
       install: install!,
@@ -248,7 +249,7 @@ export async function confirmBranchPreview(
   }
 
   updatePreview(db(), id, {
-    workDir: workDirRel === "." ? ctx.repoRoot : `${ctx.repoRoot}/${workDirRel}`,
+    workDir: workDirRel === "." ? repoRoot : `${repoRoot}/${workDirRel}`,
     command: command!,
     port: port!,
     ...(input.label?.trim() ? { label: input.label.trim() } : {}),
@@ -257,11 +258,11 @@ export async function confirmBranchPreview(
 
   const lease = getLease(db(), p.sandboxId)!;
   const provider = deps.provider ?? sandboxProvider();
-  const handle = provider.attach(lease.ref, ctx.repoRoot);
+  const handle = provider.attach(lease.ref, repoRoot);
   // Install runs with the resolved env (private registries, tokens).
   const bootEnv = resolvedEnvFor(p);
   const installEnv = "env" in bootEnv ? { GIT_TERMINAL_PROMPT: "0", ...bootEnv.env } : { GIT_TERMINAL_PROMPT: "0" };
-  const installRun = await sh(handle, `set -o pipefail; ${install} 2>&1 | tail -60`, ctx.repoRoot, installEnv);
+  const installRun = await sh(handle, `set -o pipefail; ${install} 2>&1 | tail -60`, repoRoot, installEnv);
   if (!installRun.ok) {
     const detail = `install failed:\n${installRun.out}`;
     updatePreview(db(), id, { status: "failed", error: detail, failedSha: p.headSha ?? CREATE_FAILED });
