@@ -1,7 +1,6 @@
 import { MessageSquarePlus } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
 import { Button } from "@/components/ui/button";
 import { PageContextRegistration } from "@/components/page-context";
@@ -12,9 +11,7 @@ import {
   ProjectReposEditor,
 } from "@/components/project/project-editors";
 import { db } from "@/db";
-import { countProjectsUsingConfig } from "@/db/projects";
-import { getPreviewSetup } from "@/db/preview-setups";
-import { gitCredentials, projectRepos, projects, sandboxConfigs } from "@/db/schema";
+import { getProjectOverview } from "@/db/projects";
 import { resolveCredential } from "@/lib/git-hosts";
 import { GIT_HOSTS } from "@/lib/git-hosts/hosts";
 
@@ -28,17 +25,9 @@ export const dynamic = "force-dynamic";
  */
 export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
-  const project = db().query.projects.findFirst({ where: eq(projects.id, projectId) }).sync();
-  if (!project) notFound();
-
-  const repos = db().select().from(projectRepos).where(eq(projectRepos.projectId, project.id)).all();
-  const credentials = db().select().from(gitCredentials).all();
-  const configOptions = db().select().from(sandboxConfigs).all();
-  const config = project.sandboxConfigId
-    ? (configOptions.find((c) => c.id === project.sandboxConfigId) ?? null)
-    : null;
-  const sharedWith = config ? countProjectsUsingConfig(db(), config.id) : 0;
-  const setup = getPreviewSetup(db(), project.id);
+  const overview = getProjectOverview(db(), projectId);
+  if (!overview) notFound();
+  const { project, repos, credentials, configOptions, config, sharedWith, setup } = overview;
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">

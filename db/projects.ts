@@ -3,6 +3,7 @@ import type { Db } from "./index";
 import {
   conversations,
   folders,
+  gitCredentials,
   machineRuns,
   previewEvents,
   previews,
@@ -96,6 +97,47 @@ export function removeProjectRepo(db: Db, projectId: string, repoId: string): Pr
 // ── sandbox config ───────────────────────────────────────────────────────
 
 /** How many projects reference a config (the shared-edit note). */
+export function getProject(db: Db, projectId: string) {
+  return db.select().from(projects).where(eq(projects.id, projectId)).get() ?? null;
+}
+
+export function listProjectRepos(db: Db, projectId: string) {
+  return db.select().from(projectRepos).where(eq(projectRepos.projectId, projectId)).all();
+}
+
+export function listGitCredentials(db: Db) {
+  return db.select().from(gitCredentials).all();
+}
+
+/** Projects with at least one repo — the ones a preview can target. */
+export function listProjectsWithRepos(db: Db): { id: string; name: string }[] {
+  const withRepos = new Set(db.select({ p: projectRepos.projectId }).from(projectRepos).all().map((r) => r.p));
+  return db
+    .select({ id: projects.id, name: projects.name })
+    .from(projects)
+    .all()
+    .filter((p) => withRepos.has(p.id));
+}
+
+/** Everything the project page renders, in one read. */
+export function getProjectOverview(db: Db, projectId: string) {
+  const project = getProject(db, projectId);
+  if (!project) return null;
+  const configOptions = db.select().from(sandboxConfigs).all();
+  const config = project.sandboxConfigId
+    ? (configOptions.find((c) => c.id === project.sandboxConfigId) ?? null)
+    : null;
+  return {
+    project,
+    repos: listProjectRepos(db, projectId),
+    credentials: listGitCredentials(db),
+    configOptions,
+    config,
+    sharedWith: config ? countProjectsUsingConfig(db, config.id) : 0,
+    setup: getPreviewSetup(db, projectId),
+  };
+}
+
 export function getProjectRepo(db: Db, repoId: string) {
   return db.select().from(projectRepos).where(eq(projectRepos.id, repoId)).get() ?? null;
 }

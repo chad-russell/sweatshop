@@ -4,7 +4,7 @@ import { PageContextRegistration } from "@/components/page-context";
 import { NewPreviewForm } from "@/components/previews/new-preview";
 import { PreviewList } from "@/components/previews/preview-list";
 import { db } from "@/db";
-import { projectRepos, projects } from "@/db/schema";
+import { listProjectsWithRepos } from "@/db/projects";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +19,7 @@ export default async function PreviewsPage({
   searchParams: Promise<{ id?: string; project?: string }>;
 }) {
   const { id, project } = await searchParams;
-  const withRepos = new Set(db().select({ p: projectRepos.projectId }).from(projectRepos).all().map((r) => r.p));
-  const projectOptions = db()
-    .select({ id: projects.id, name: projects.name })
-    .from(projects)
-    .all()
-    .filter((p) => withRepos.has(p.id));
+  const projectOptions = listProjectsWithRepos(db());
   const scoped = project ? (projectOptions.find((p) => p.id === project) ?? null) : null;
 
   return (
