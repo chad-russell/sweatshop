@@ -6,11 +6,12 @@ import { parseEnvBlock } from "@/lib/previews/env";
 import type { PreviewSetupDefinition } from "@/lib/previews/setup";
 
 /**
- * 0017 amendment: the setup definition's ONE editor — the fields and
- * the two form↔definition conversions, hosted by the New-preview flow
- * (new-preview.tsx): creating a preview saves the setup as part of the
- * launch, and its "Save setup only" footer action persists without
- * launching. The definition's shape lives in lib/previews/setup.ts.
+ * 0017 amendment / 0018: the setup definition's ONE editor — the fields
+ * and the two form↔definition conversions. Two hosts: the project page
+ * (project-setup-editor.tsx, the definition's permanent home) and the
+ * New-preview dialog (new-preview.tsx, the first-fill moment, which
+ * saves the setup as part of the launch). The definition's shape lives
+ * in lib/previews/setup.ts.
  */
 
 export interface ServiceRow {

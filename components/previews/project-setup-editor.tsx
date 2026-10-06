@@ -74,7 +74,7 @@ export function ProjectSetupEditor({
   if (repos.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        A setup needs a repo — add one (db:seed today, phase 3 UI soon) and the editor appears here.
+        A setup needs a repo — add one under Repos above and the editor appears here.
       </p>
     );
   }

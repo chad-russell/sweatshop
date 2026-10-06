@@ -15,9 +15,9 @@ import { httpsRemote, resolveCredential } from "@/lib/git-hosts/index";
 /**
  * Shared project-workspace provisioning (0004): given anything with a
  * shell (`run`), stamp git identity, install host-scoped credentials,
- * and clone the project's repos into /workspace/<repo>. Consumed by the
- * eve sandbox selector (Path A) and by directly provisioned containers
- * (Path B) so both see identical workspaces.
+ * and clone the project's repos into <root>/<repo>. Consumed by the
+ * sandbox provider (lease provisioning), so every sandbox sees an
+ * identical workspace.
  */
 
 const GIT_USER_NAME = process.env.GIT_USER_NAME ?? "sweatshop agent";

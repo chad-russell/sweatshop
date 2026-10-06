@@ -642,7 +642,7 @@ export const previews = sqliteTable(
     /** branch sources: Chad dismissed the failure at this sha — hidden
      *  from the Inbox until a different sha fails. */
     dismissedSha: text("dismissed_sha"),
-    /** "starting" | "healthy" | "crashed" | "stopped" | "failed". */
+    /** "provisioning" | "starting" | "healthy" | "crashed" | "stopped" | "failed". */
     status: text("status").notNull(),
     /** Conversation / run / stage id that started it, or "user".
      *  Attribution only — never ownership. */
