@@ -26,7 +26,7 @@ export interface ServiceRow {
 export interface SetupFormValues {
   workDir: string;
   install: string;
-  provision: string;
+  migrate: string;
   seed: string;
   command: string;
   port: string;
@@ -41,7 +41,7 @@ const ENV_TEXTAREA =
 export const emptySetupForm: SetupFormValues = {
   workDir: "",
   install: "",
-  provision: "",
+  migrate: "",
   seed: "",
   command: "",
   port: "",
@@ -58,7 +58,7 @@ export function setupFormFromDefinition(d: PreviewSetupDefinition): SetupFormVal
   return {
     workDir: d.workDir,
     install: d.install,
-    provision: d.provision ?? "",
+    migrate: d.migrate ?? "",
     seed: d.seed ?? "",
     command: d.command,
     port: String(d.port),
@@ -107,7 +107,7 @@ export function definitionFromSetupForm(
       repo,
       workDir: v.workDir.trim() || ".",
       install: v.install,
-      ...(v.provision.trim() ? { provision: v.provision.trim() } : {}),
+      ...(v.migrate.trim() ? { migrate: v.migrate.trim() } : {}),
       ...(v.seed.trim() ? { seed: v.seed.trim() } : {}),
       command: v.command,
       port: Number(v.port),
@@ -153,9 +153,9 @@ export function SetupFields({
           <span className={LABEL}>Default port</span>
           <Input id={`${ids}-port`} value={values.port} onChange={(e) => set("port", e.target.value)} placeholder="3000" inputMode="numeric" className={MONO} />
         </label>
-        <label className={FIELD} htmlFor={`${ids}-provision`}>
-          <span className={LABEL}>Provision — migrations, once per sandbox</span>
-          <Input id={`${ids}-provision`} value={values.provision} onChange={(e) => set("provision", e.target.value)} placeholder="cd apps/web && pnpm run payload:migrate" className={MONO} />
+        <label className={FIELD} htmlFor={`${ids}-migrate`}>
+          <span className={LABEL}>Migrate — schema, once per sandbox after services are healthy</span>
+          <Input id={`${ids}-migrate`} value={values.migrate} onChange={(e) => set("migrate", e.target.value)} placeholder="cd apps/web && pnpm run payload:migrate" className={MONO} />
         </label>
       </div>
       <label className={FIELD} htmlFor={`${ids}-seed`}>

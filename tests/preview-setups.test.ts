@@ -18,7 +18,7 @@ const valid = {
   repo: "p_setup/web",
   workDir: "apps/web",
   install: "pnpm install",
-  provision: "pnpm -w run migrate",
+  migrate: "pnpm -w run migrate",
   command: "pnpm run dev -H 0.0.0.0 -p $PORT",
   port: 3000,
   env: { PAYLOAD_SECRET: "s3cret" },

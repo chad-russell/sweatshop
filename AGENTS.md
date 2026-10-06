@@ -300,8 +300,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `inspect {{.State.Running}}`, recreate-if-gone), owned by the
   sandbox, ensured at branch provisioning and every launch, readiness
   probed FROM INSIDE the sandbox, `${service:<name>:<port>}` resolving
-  to the container name; the setup's `provision` (migrations) runs
-  once per sandbox (`sandboxes.services_provisioned_at`) after
+  to the container name; the setup's `migrate` (schema/migrations; was
+  `provision`, renamed 0019) runs once per sandbox (`sandboxes.migrated_at`) after
   services are healthy and before the server, with the resolved env,
   then `seed` (data, 0017 amendment — one command, idempotent by
   convention, same three archetypes: bundled / fetch / dump-restore)

@@ -209,12 +209,12 @@ export const sandboxes = sqliteTable(
     status: text("status").notNull(),
     /** 0011: Unix ms when the sandbox was destroyed; null while live. */
     destroyedAt: integer("destroyed_at"),
-    /** 0017: when the project setup's `provision` ran against this
+    /** 0017/0019: when the project setup's `migrate` ran against this
      *  sandbox's services (once per sandbox); null = not yet. */
-    servicesProvisionedAt: integer("services_provisioned_at"),
+    migratedAt: integer("migrated_at"),
     /** 0017 amendment: when the setup's `seed` ran (once per sandbox,
-     *  after provision); independent marker — a sandbox provisioned
-     *  before `seed` existed still seeds. */
+     *  after migrate); independent marker — a sandbox migrated before
+     *  `seed` existed still seeds. */
     seededAt: integer("seeded_at"),
     /** Unix ms; bumped on every acquire (idle reaping's signal). */
     lastUsedAt: integer("last_used_at").notNull(),

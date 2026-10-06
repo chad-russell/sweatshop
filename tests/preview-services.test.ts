@@ -19,7 +19,7 @@ import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 /**
  * 0017 phase 3: declared services — the substrate seam against a
  * scripted docker runner (no podman), the launch ordering (ensure →
- * ready → provision-once → start), env interpolation through the
+ * ready → migrate-once → start), env interpolation through the
  * resolver, and the dies-with-sandbox contract.
  */
 
@@ -70,7 +70,7 @@ class FakeDocker {
 class ServiceSandbox implements SandboxProvider {
   readonly kind = "podman";
   ran: string[] = [];
-  provisionRuns = 0;
+  migrateRuns = 0;
   constructor(readonly probesReady = true) {}
   async create(): Promise<SandboxHandle> {
     throw new Error("unused");
@@ -83,7 +83,7 @@ class ServiceSandbox implements SandboxProvider {
         const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "" });
         if (command.includes("/dev/tcp")) return ok(this.probesReady ? "ready" : "");
         if (command.includes("pnpm -w run migrate")) {
-          this.provisionRuns += 1;
+          this.migrateRuns += 1;
           return ok("migrated");
         }
         if (command.includes("setsid nohup")) return ok();
@@ -135,12 +135,12 @@ function servicePreviewFixture(): { previewId: string; sandboxId: string } {
   return { previewId, sandboxId };
 }
 
-const setupWithServices = (provision?: string) =>
+const setupWithServices = (migrate?: string) =>
   savePreviewSetup(db(), "p_svc", {
     repo: "p_svc/web",
     workDir: ".",
     install: "pnpm install",
-    ...(provision ? { provision } : {}),
+    ...(migrate ? { migrate } : {}),
     command: "pnpm run dev",
     port: 3000,
     env: {},
@@ -207,7 +207,7 @@ describe("0017 ensureSandboxServices", () => {
 });
 
 describe("0017 launch with services", () => {
-  it("ensure → readiness → provision-once → start, with the service address in env", async () => {
+  it("ensure → readiness → migrate-once → start, with the service address in env", async () => {
     const { previewId, sandboxId } = servicePreviewFixture();
     setupWithServices("pnpm -w run migrate");
     const docker = new FakeDocker();
@@ -219,17 +219,17 @@ describe("0017 launch with services", () => {
       ...fast,
     });
     expect(result.preview.status).toBe("healthy");
-    // ordering: service ran before the server, provision before the server
-    const provisionAt = sbx.ran.findIndex((c) => c.includes("pnpm -w run migrate"));
+    // ordering: service ran before the server, migrate before the server
+    const migrateAt = sbx.ran.findIndex((c) => c.includes("pnpm -w run migrate"));
     const startAt = sbx.ran.findIndex((c) => c.includes("setsid nohup"));
-    expect(provisionAt).toBeGreaterThan(-1);
-    expect(startAt).toBeGreaterThan(provisionAt);
+    expect(migrateAt).toBeGreaterThan(-1);
+    expect(startAt).toBeGreaterThan(migrateAt);
     // the env handed to the launch carries the resolved service address
     // (values are shell-quoted inside the file content — assert pieces)
     const envFile = sbx.ran.find((c) => c.includes(".env") && c.includes("printf"));
     expect(envFile).toContain("DATABASE_URL=");
     expect(envFile).toContain(`@ref-${sandboxId}-svc-db:5432/app`);
-    // provision runs ONCE per sandbox
+    // migrate runs ONCE per sandbox
     const again = await launchPreview(previewId, {
       provider: sbx,
       network: networkFor(),
@@ -237,8 +237,8 @@ describe("0017 launch with services", () => {
       ...fast,
     });
     expect(again.preview.status).toBe("healthy");
-    expect(sbx.provisionRuns).toBe(1);
-    expect(getLease(db(), sandboxId)?.servicesProvisionedAt).toBeGreaterThan(0);
+    expect(sbx.migrateRuns).toBe(1);
+    expect(getLease(db(), sandboxId)?.migratedAt).toBeGreaterThan(0);
   });
 
   it("a service that never answers parks the preview failed, named", async () => {

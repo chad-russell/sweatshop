@@ -51,7 +51,7 @@ export function previewTools(run: PreviewRunner) {
 
     get_preview_setup: tool({
       description:
-        "The project's saved preview setup (workDir, install, provision, seed, command, port, env with " +
+        "The project's saved preview setup (workDir, install, migrate, seed, command, port, env with " +
         "plaintext values, declared services) — or null when none exists. start_preview uses it " +
         "automatically; read it before passing command/port/env yourself.",
       inputSchema: z.object({}),
@@ -63,7 +63,7 @@ export function previewTools(run: PreviewRunner) {
         "Save (or replace) the project's preview setup — the explicit, saved answer to 'how does this " +
         "project run', used by every later preview and start_preview call. Full definition required (the " +
         "current one comes back from get_preview_setup; edit it rather than guessing). `seed` runs once " +
-        "per sandbox after `provision` (data, not schema — bundled fixtures, a fetch from a real source, " +
+        "per sandbox after `migrate` (data, not schema — bundled fixtures, a fetch from a real source, " +
         "or a dump restore; idempotent by convention). Invalid definitions return per-field issues and " +
         "save nothing.",
       inputSchema: z.object({
@@ -71,8 +71,8 @@ export function previewTools(run: PreviewRunner) {
           repo: z.string().describe("project_repos id — must belong to this project"),
           workDir: z.string().describe("Directory the server runs in, relative to the repo root"),
           install: z.string().describe("Dependency install, run at the repo root"),
-          provision: z.string().optional().describe("One-shot post-services step (migrations)"),
-          seed: z.string().optional().describe("One-shot data step after provision — runs once per sandbox, idempotent (e.g. cd apps/web && pnpm run seed)"),
+          migrate: z.string().optional().describe("One-shot schema step (migrations), after services are healthy — runs once per sandbox"),
+          seed: z.string().optional().describe("One-shot data step after migrate — runs once per sandbox, idempotent (e.g. cd apps/web && pnpm run seed)"),
           command: z.string().describe("Server command; $PORT is the preview's port"),
           port: z.number().int().min(1).max(65_535),
           env: z.record(z.string(), z.string()).describe("Env for every preview (values may reference ${PREVIEW_URL}, ${PREVIEW_HOST}, ${PORT}, ${HOST})"),

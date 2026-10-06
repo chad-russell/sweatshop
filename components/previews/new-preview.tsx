@@ -185,7 +185,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
       ...(values.command.trim() ? { command: d.command } : {}),
       ...(values.port.trim() ? { port: d.port } : {}),
       ...(label.trim() ? { label: label.trim() } : {}),
-      ...(d.provision ? { provision: d.provision } : {}),
+      ...(d.migrate ? { migrate: d.migrate } : {}),
       ...(d.seed ? { seed: d.seed } : {}),
       ...(d.services.length ? { services: d.services } : {}),
       ...(d.env && Object.keys(d.env).length ? { env: d.env } : {}),

@@ -208,7 +208,7 @@ export async function confirmBranchPreview(
   //    project's setup — env included — and the row keeps no env copy.
   //  - A setup exists: it is never written from here. workDir / install /
   //    command / port / label are this preview's own; env is a sparse
-  //    override on the row; provision / seed / services are setup-level
+  //    override on the row; migrate / seed / services are setup-level
   //    (once per sandbox, shared) so passing them is an error, not a
   //    silent drop — edit them on the project page.
   let rowEnv: Record<string, string> | undefined;
@@ -221,7 +221,7 @@ export async function confirmBranchPreview(
       port: port!,
       env: input.env ?? {},
       services: input.services ?? [],
-      ...(input.provision ? { provision: input.provision } : {}),
+      ...(input.migrate ? { migrate: input.migrate } : {}),
       ...(input.seed ? { seed: input.seed } : {}),
     });
     if (!saved.ok) {
@@ -229,7 +229,7 @@ export async function confirmBranchPreview(
     }
   } else {
     const setupLevel = [
-      ...(input.provision ? ["provision"] : []),
+      ...(input.migrate ? ["migrate"] : []),
       ...(input.seed ? ["seed"] : []),
       ...(input.services ? ["services"] : []),
     ];

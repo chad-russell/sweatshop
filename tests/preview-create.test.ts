@@ -172,7 +172,7 @@ describe("0017 branch create: provision → discover → confirm", () => {
       provisioned.preview.id,
       {
         workDir: ".", install: "pnpm install", command: "pnpm run dev", port: 4321, label: "kept-per-preview",
-        provision: "pnpm -w run migrate", seed: "cd apps/web && pnpm run seed",
+        migrate: "pnpm -w run migrate", seed: "cd apps/web && pnpm run seed",
         services: [{ name: "db", image: "docker.io/library/postgres:18-alpine", env: { POSTGRES_PASSWORD: "postgres" }, port: 5432 }],
         env: { TOKEN: "t9" },
       },
@@ -184,7 +184,7 @@ describe("0017 branch create: provision → discover → confirm", () => {
     if (!setup.ok || !setup.setup) throw new Error("no setup saved");
     expect(setup.setup.definition).toMatchObject({
       repo: "p_create/web",
-      provision: "pnpm -w run migrate",
+      migrate: "pnpm -w run migrate",
       seed: "cd apps/web && pnpm run seed",
       env: { TOKEN: "t9" },
       services: [{ name: "db", image: "docker.io/library/postgres:18-alpine", port: 5432 }],
@@ -194,7 +194,7 @@ describe("0017 branch create: provision → discover → confirm", () => {
   it("confirm keeps a saved setup's structural values when the input omits them", async () => {
     savePreviewSetup(db(), "p_create", {
       repo: "p_create/web", workDir: ".", install: "pnpm install",
-      provision: "pnpm -w run migrate", seed: "pnpm run seed",
+      migrate: "pnpm -w run migrate", seed: "pnpm run seed",
       command: "pnpm run dev", port: 3000, env: { A: "1" }, services: [],
     });
     const g = new BranchSandbox();
@@ -203,7 +203,7 @@ describe("0017 branch create: provision → discover → confirm", () => {
     expect(confirmed.error).toBeUndefined();
     const setup = getPreviewSetup(db(), "p_create");
     if (!setup.ok || !setup.setup) throw new Error("no setup saved");
-    expect(setup.setup.definition).toMatchObject({ provision: "pnpm -w run migrate", seed: "pnpm run seed", env: { A: "1" } });
+    expect(setup.setup.definition).toMatchObject({ migrate: "pnpm -w run migrate", seed: "pnpm run seed", env: { A: "1" } });
   });
 
   it("a preview of a different repo never rewrites a setup bound to another repo", async () => {
@@ -382,10 +382,10 @@ describe("0019: a preview row stores only deviations from the setup", () => {
     );
     const confirmed = await confirmBranchPreview(
       provisioned.preview.id,
-      { provision: "pnpm migrate", seed: "pnpm seed" },
+      { migrate: "pnpm migrate", seed: "pnpm seed" },
       { provider: g, network: networkFor(g), ...fast },
     );
-    expect(confirmed.error).toMatch(/provision, seed belong to the project's setup/);
+    expect(confirmed.error).toMatch(/migrate, seed belong to the project's setup/);
     expect(confirmed.preview.status).toBe("provisioning");
   });
 

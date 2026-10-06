@@ -28,8 +28,8 @@ export const previewSetupSchema = z.object({
   /** Dependency install, run at the repo root (workspaces install there). */
   install: z.string().min(1),
   /** One-shot post-services step (migrations); once per sandbox. */
-  provision: z.string().min(1).optional(),
-  /** One-shot data step, after provision (0017 amendment); once per
+  migrate: z.string().min(1).optional(),
+  /** One-shot data step, after migrate (0017 amendment); once per
    *  sandbox, idempotent by convention — bundled, fetched from a
    *  source, or a dump restore; all just a command + env. */
   seed: z.string().min(1).optional(),

@@ -11,9 +11,9 @@ import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 
 /**
  * 0017 amendment: `seed` — the once-per-sandbox data step after
- * `provision`, before the server. Ordering, independent markers
- * (provisioned-before-seed still seeds; a failed seed never
- * regresses provision), and Retry re-running a failed seed.
+ * `migrate`, before the server. Ordering, independent markers
+ * (migrated-before-seed still seeds; a failed seed never
+ * regresses migrate), and Retry re-running a failed seed.
  */
 
 db().insert(projects).values({ id: "p_seed", name: "Seed", createdAt: 0 }).onConflictDoNothing().run();
@@ -26,7 +26,7 @@ db()
 class SeedSandbox implements SandboxProvider {
   readonly kind = "podman";
   ran: string[] = [];
-  provisionRuns = 0;
+  migrateRuns = 0;
   seedRuns = 0;
   failSeed = false;
   attach(ref: string): SandboxHandle {
@@ -35,7 +35,7 @@ class SeedSandbox implements SandboxProvider {
       run: async (command) => {
         this.ran.push(command);
         if (command.includes("pnpm -w run migrate")) {
-          this.provisionRuns += 1;
+          this.migrateRuns += 1;
           return { exitCode: 0, stdout: "migrated", stderr: "" };
         }
         if (command.includes("pnpm run seed")) {
@@ -100,7 +100,7 @@ const setupWithSeed = () =>
     repo: "p_seed/web",
     workDir: ".",
     install: "pnpm install",
-    provision: "pnpm -w run migrate",
+    migrate: "pnpm -w run migrate",
     seed: "pnpm run seed",
     command: "pnpm run dev",
     port: 3000,
@@ -111,39 +111,39 @@ const setupWithSeed = () =>
 const fast = { healthTimeoutMs: 30, pollMs: 1, serviceProbeMs: 50 };
 
 describe("0017 amendment: seed", () => {
-  it("runs provision → seed → server, once each per sandbox", async () => {
+  it("runs migrate → seed → server, once each per sandbox", async () => {
     const { previewId, sandboxId } = seedPreviewFixture();
     setupWithSeed();
     const sbx = new SeedSandbox();
     const result = await launchPreview(previewId, { provider: sbx, network: networkFor(), ...fast });
     expect(result.preview.status).toBe("healthy");
-    const provisionAt = sbx.ran.findIndex((c) => c.includes("pnpm -w run migrate"));
+    const migrateAt = sbx.ran.findIndex((c) => c.includes("pnpm -w run migrate"));
     const seedAt = sbx.ran.findIndex((c) => c.includes("pnpm run seed"));
     const startAt = sbx.ran.findIndex((c) => c.includes("setsid nohup"));
-    expect(provisionAt).toBeGreaterThan(-1);
-    expect(seedAt).toBeGreaterThan(provisionAt);
+    expect(migrateAt).toBeGreaterThan(-1);
+    expect(seedAt).toBeGreaterThan(migrateAt);
     expect(startAt).toBeGreaterThan(seedAt);
 
     // relaunch: neither step re-runs, both markers set
     const again = await launchPreview(previewId, { provider: sbx, network: networkFor(), ...fast });
     expect(again.preview.status).toBe("healthy");
-    expect(sbx.provisionRuns).toBe(1);
+    expect(sbx.migrateRuns).toBe(1);
     expect(sbx.seedRuns).toBe(1);
     const lease = getLease(db(), sandboxId)!;
-    expect(lease.servicesProvisionedAt).toBeGreaterThan(0);
+    expect(lease.migratedAt).toBeGreaterThan(0);
     expect(lease.seededAt).toBeGreaterThan(0);
   });
 
-  it("a sandbox provisioned before seed existed still seeds", async () => {
+  it("a sandbox migrated before seed existed still seeds", async () => {
     const { previewId, sandboxId } = seedPreviewFixture();
     setupWithSeed();
     db()
-      .$client.prepare("update sandboxes set services_provisioned_at = ? where id = ?")
+      .$client.prepare("update sandboxes set migrated_at = ? where id = ?")
       .run(Date.now(), sandboxId);
     const sbx = new SeedSandbox();
     const result = await launchPreview(previewId, { provider: sbx, network: networkFor(), ...fast });
     expect(result.preview.status).toBe("healthy");
-    expect(sbx.provisionRuns).toBe(0);
+    expect(sbx.migrateRuns).toBe(0);
     expect(sbx.seedRuns).toBe(1);
   });
 
@@ -156,10 +156,10 @@ describe("0017 amendment: seed", () => {
     expect(result.preview.status).toBe("failed");
     expect(result.preview.error).toContain("seed failed:");
     expect(result.preview.error).toContain("seed boom");
-    // the server never started; provision succeeded and stays marked; seed does not
+    // the server never started; migrate succeeded and stays marked; seed does not
     expect(sbx.ran.some((c) => c.includes("setsid nohup"))).toBe(false);
     const lease = getLease(db(), sandboxId)!;
-    expect(lease.servicesProvisionedAt).toBeGreaterThan(0);
+    expect(lease.migratedAt).toBeGreaterThan(0);
     expect(lease.seededAt).toBeNull();
 
     // Retry (a new launch attempt): seed re-runs, succeeds, marks

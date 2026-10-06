@@ -226,4 +226,23 @@ provisioning stays `lib/sandboxes/provision.ts`.
   fetching the running dev server's `/p/open-bible`, `/previews?project=`
   and `/api/previews?project=` (200s, expected sections, no stale
   headings) — not clicked through in a browser.
+- **Phase 4 shipped 2026-10-06.** Setup field `provision` → `migrate`
+  (schema, overrides, editor label "Migrate — schema, once per sandbox
+  after services are healthy", tool prompts, route docs, tests) and
+  `sandboxes.services_provisioned_at` → `migrated_at`
+  (`markServicesProvisioned` → `markMigrated`). Migration
+  `0032_preview_migrate.sql`: column rename, `preview_setups.definition`
+  rewritten via `json_set`/`json_remove` (rows without the key
+  untouched), and `previews.env` set NULL for every row (the frozen
+  copies from the old dialog; this is test data). Drizzle's generator
+  needs a TTY for the rename prompt, so the SQL, journal entry and
+  `0032_snapshot.json` (0031's snapshot with the one column renamed,
+  chained by `prevId`) were written by hand; `drizzle-kit check` is
+  clean and `generate` reports no schema drift. The migration was
+  exercised against a DB built at 0031 with an old-shaped setup,
+  a no-`provision` setup, a stamped sandbox and a row env: key renamed,
+  plain row untouched, `migrated_at` kept its value, env cleared. No
+  dual-key read anywhere, per decision 2. **Not yet applied to the live
+  `data/sweatshop.db`** — run `./dev exec -- npm run db:migrate`
+  (the running dev server holds the old shape until then).
 

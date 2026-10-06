@@ -11,7 +11,7 @@ import {
   type Preview,
   type PreviewStatus,
 } from "@/db/previews";
-import { getLease, markSeeded, markServicesProvisioned, touchLease, updateLease } from "@/db/sandboxes";
+import { getLease, markMigrated, markSeeded, touchLease, updateLease } from "@/db/sandboxes";
 import {
   ensureSandboxServices,
   probeServiceReady,
@@ -213,7 +213,7 @@ export function previewEnvView(id: string): { env: Record<string, string> } | { 
 }
 
 /**
- * Run one once-per-sandbox setup step (`provision`, `seed`) with the
+ * Run one once-per-sandbox setup step (`migrate`, `seed`) with the
  * resolved env; a non-zero exit becomes the failure message with the
  * command's tail. Null = success.
  */
@@ -280,20 +280,20 @@ export async function launchPreview(id: string, d: PreviewDeps = {}): Promise<St
     }
   }
 
-  // `provision` (schema) then `seed` (data) run once per sandbox,
+  // `migrate` (schema) then `seed` (data) run once per sandbox,
   // after services are healthy — with the resolved env (migrations and
   // seeds need the same secrets/DB URIs the app does). The markers are
   // independent (0017 amendment): a sandbox provisioned before `seed`
-  // existed still seeds, and a failed seed never regresses provision.
+  // existed still seeds, and a failed seed never regresses migrate.
   const lease = getLease(db(), p.sandboxId);
   if (lease && repoRoot) {
-    if (setup?.provision && !lease.servicesProvisionedAt) {
-      const message = await runSetupStep(handle, "provision", setup.provision, resolved.env, repoRoot);
+    if (setup?.migrate && !lease.migratedAt) {
+      const message = await runSetupStep(handle, "migrate", setup.migrate, resolved.env, repoRoot);
       if (message) {
         updatePreview(db(), p.id, { status: "failed", error: message });
         return { preview: viewPreview(getPreview(db(), p.id)!) };
       }
-      markServicesProvisioned(db(), lease.id);
+      markMigrated(db(), lease.id);
     }
     if (setup?.seed && !lease.seededAt) {
       const message = await runSetupStep(handle, "seed", setup.seed, resolved.env, repoRoot);

@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  */
 /**
  * 0017: create a branch preview — `{ projectId, repoId, branch,
- * workDir?, install?, command?, port?, label?, provision?, seed?,
+ * workDir?, install?, command?, port?, label?, migrate?, seed?,
  * services?, env? }`. With the project's saved setup (or explicit
  * values) it returns once serving or parked as failed; otherwise it
  * provisions and returns `candidates` for the Discover step (the row

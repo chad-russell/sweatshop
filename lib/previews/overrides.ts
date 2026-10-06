@@ -37,7 +37,7 @@ export const previewOverridesSchema = z.object({
   label: text,
   /** Sparse env overrides for this preview, merged over the setup's. */
   env: nonEmpty(z.record(z.string(), z.string("env values must be strings"))).optional(),
-  provision: text,
+  migrate: text,
   seed: text,
   services: nonEmpty(z.array(serviceSpecSchema)).optional(),
 });
@@ -49,7 +49,7 @@ export type PreviewOverrides = {
   port?: number;
   label?: string;
   env?: Record<string, string>;
-  provision?: string;
+  migrate?: string;
   seed?: string;
   services?: z.infer<typeof serviceSpecSchema>[];
 };

@@ -27,10 +27,10 @@ export interface SandboxLease {
   createdAt: number;
   /** 0017: set when destroyed; the row stays as history. */
   destroyedAt: number | null;
-  /** 0017: when the setup's `provision` ran against this sandbox. */
-  servicesProvisionedAt: number | null;
+  /** 0017/0019: when the setup's `migrate` ran against this sandbox. */
+  migratedAt: number | null;
   /** 0017 amendment: when the setup's `seed` ran (independent of
-   *  provision — an already-provisioned sandbox still seeds). */
+   *  migrate — an already-migrated sandbox still seeds). */
   seededAt: number | null;
 }
 
@@ -48,15 +48,15 @@ function hydrate(row: SandboxRow): SandboxLease {
     lastUsedAt: row.lastUsedAt,
     createdAt: row.createdAt,
     destroyedAt: row.destroyedAt,
-    servicesProvisionedAt: row.servicesProvisionedAt ?? null,
+    migratedAt: row.migratedAt ?? null,
     seededAt: row.seededAt ?? null,
   };
 }
 
-/** 0017: stamp the once-per-sandbox `provision` as done. */
-export function markServicesProvisioned(db: Db, sandboxId: string): void {
+/** 0017/0019: stamp the once-per-sandbox `migrate` as done. */
+export function markMigrated(db: Db, sandboxId: string): void {
   db.update(sandboxes)
-    .set({ servicesProvisionedAt: Date.now() })
+    .set({ migratedAt: Date.now() })
     .where(eq(sandboxes.id, sandboxId))
     .run();
 }
@@ -93,7 +93,7 @@ export function insertLease(
     lastUsedAt: now,
     createdAt: now,
     destroyedAt: null,
-    servicesProvisionedAt: null,
+    migratedAt: null,
     seededAt: null,
   };
   db.insert(sandboxes).values(row).run();
