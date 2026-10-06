@@ -10,6 +10,7 @@ import {
 import { deleteLease, getLease, markDestroyed, updateLease } from "@/db/sandboxes";
 import { conversations, harnessRuns, machineRuns, sandboxes } from "@/db/schema";
 import { sandboxProvider, type SandboxProvider } from "@/lib/sandboxes/provider";
+import { destroySandboxServices, stopSandboxServices } from "@/lib/sandboxes/services";
 
 /**
  * 0013: sandbox lifecycle beyond the run — the one reaper (the in-app
@@ -174,9 +175,11 @@ export async function reap(
     if (!options.apply) continue;
     try {
       if (due === "destroy") {
+        await destroySandboxServices(row.id).catch(() => undefined);
         await provider.destroy(row.ref);
         markDestroyed(db(), row.id);
       } else {
+        await stopSandboxServices(row.id).catch(() => undefined);
         await provider.stop(row.ref);
         updateLease(db(), row.id, { status: "stopped" });
       }
@@ -206,6 +209,7 @@ export async function stopSandboxNow(id: string, provider: SandboxProvider = san
   if (busySandboxIds([id]).has(id)) {
     throw new SandboxActionError("busy", "something is working in this sandbox right now — wait for it to finish");
   }
+  await stopSandboxServices(id).catch(() => undefined);
   await provider.stop(lease.ref);
   updateLease(db(), id, { status: "stopped" });
   markSandboxPreviewsStopped(db(), id);
@@ -222,6 +226,7 @@ export async function destroySandboxNow(id: string, provider: SandboxProvider = 
   if (busySandboxIds([id]).has(id)) {
     throw new SandboxActionError("busy", "something is working in this sandbox right now — wait for it to finish");
   }
+  await destroySandboxServices(id).catch(() => undefined);
   await provider.destroy(lease.ref);
   markDestroyed(db(), id);
   markSandboxPreviewsStopped(db(), id);

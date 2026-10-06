@@ -310,7 +310,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   then `seed` (data, 0017 amendment — one command, idempotent by
   convention, same three archetypes: bundled / fetch / dump-restore)
   once per sandbox (`sandboxes.seeded_at`, an independent marker);
-  they die with the sandbox; the sandbox page shows them; providers
+  they stop and resume with the sandbox (0019: the reaper's idle-stop
+  and manual Stop run `stopSandboxServices` — containers kept, rows
+  `stopped`; the next `ensureSandboxServices` STARTS the same container
+  so a database's data survives) and die with it (destroy); the sandbox
+  page shows them; providers
   declare `canRunServices` (portability contract). Branch previews
   (`lib/previews/branch.ts` create flow, `follow.ts` follower + retry/dismiss,
   `context.ts` shared helpers; remote branch listing is

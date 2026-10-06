@@ -274,4 +274,20 @@ provisioning stays `lib/sandboxes/provision.ts`.
   a provisioning preview deletes it and destroys its container.
   Mutation-checked: reinstating the old row-env copy fails exactly the
   env assertions. The React markup itself remains unexercised.
+- **Follow-up: services follow the sandbox's idle state (2026-10-06).**
+  Found while checking for leaked containers: a stopped preview sandbox
+  left its service containers (postgres, minio) running for days — the
+  reaper's stop path only stopped the sandbox. Now idle-stop, manual
+  Stop, idle-destroy and manual Destroy all go through
+  `stopSandboxServices` / `destroySandboxServices` (best-effort: a wedged
+  podman never blocks the sandbox's own stop). `ensureSandboxServices`
+  starts an existing-but-stopped container instead of recreating it
+  (state kept — the live test writes a marker in the container, stops,
+  re-ensures, and reads the marker back from the same container id);
+  gone or crash-looping ones are still recreated. Tests: store-level in
+  `preview-services.test.ts` / `sandbox-gc.test.ts`, live in
+  `services-spike.integration.test.ts` (which also needed the sandbox
+  joined to the harness network, as a real launch does — it had been
+  failing on its own before this change). `setServiceDockerForTests`
+  is the seam the reaper-path tests use.
 

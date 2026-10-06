@@ -42,6 +42,15 @@ export interface ServiceDeps {
   docker?: DockerRunner;
 }
 
+/** Test seam: the lifecycle hooks the reaper and the lease layer call
+ *  (`stopSandboxServices`, `destroySandboxServices` with no deps) use
+ *  this runner instead of the real socket. Null restores the default. */
+let docker_override: DockerRunner | null = null;
+export function setServiceDockerForTests(runner: DockerRunner | null): void {
+  docker_override = runner;
+}
+const dockerFor = (deps: ServiceDeps): DockerRunner => deps.docker ?? docker_override ?? realDockerRunner;
+
 export class ServiceError extends Error {}
 
 /** The sibling container's name — unique per (sandbox, service), a DNS
@@ -59,6 +68,19 @@ async function isRunning(docker: DockerRunner, ref: string): Promise<boolean> {
     return (await docker(["inspect", "-f", "{{.State.Running}}", ref])).trim() === "true";
   } catch {
     return false; // no such container (or inspect failed) — recreate
+  }
+}
+
+/** A container that exists but is not running (idle-stopped with its
+ *  sandbox) is STARTED, not recreated — a database's data lives in it.
+ *  False when it cannot be started (gone, or crash-looping): the caller
+ *  recreates it. */
+async function startExisting(docker: DockerRunner, ref: string): Promise<boolean> {
+  try {
+    await docker(["start", ref]);
+    return await isRunning(docker, ref);
+  } catch {
+    return false;
   }
 }
 
@@ -132,7 +154,7 @@ export async function ensureSandboxServices(
   specs: ServiceSpec[],
   deps: ServiceDeps = {},
 ): Promise<void> {
-  const docker = deps.docker ?? realDockerRunner;
+  const docker = dockerFor(deps);
   const lease = getLease(db(), sandboxId);
   if (!lease || lease.status === "destroyed") {
     throw new ServiceError(`sandbox ${sandboxId} is ${lease?.status ?? "missing"}`);
@@ -156,17 +178,23 @@ export async function ensureSandboxServices(
     }
     // Actual liveness, not "did start succeed" — a crash-looped
     // container starts fine and dies; recreate it with current args.
-    if (!(await isRunning(docker, row.ref))) {
-      try {
-        await runService(docker, row.ref, spec);
-      } catch (err) {
-        updateService(db(), row.id, { status: "stopped" });
-        throw new ServiceError(
-          `service ${spec.name} (${spec.image}) failed to start: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-      updateService(db(), row.id, { status: "running" });
+    if (await isRunning(docker, row.ref)) {
+      if (row.status !== "running") updateService(db(), row.id, { status: "running" });
+      continue;
     }
+    if (row.status === "stopped" && (await startExisting(docker, row.ref))) {
+      updateService(db(), row.id, { status: "running" });
+      continue;
+    }
+    try {
+      await runService(docker, row.ref, spec);
+    } catch (err) {
+      updateService(db(), row.id, { status: "stopped" });
+      throw new ServiceError(
+        `service ${spec.name} (${spec.image}) failed to start: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    updateService(db(), row.id, { status: "running" });
   }
   touchLease(db(), sandboxId);
 }
@@ -210,9 +238,24 @@ export async function probeServiceReady(
   }
 }
 
+/**
+ * The sandbox idled: stop its service containers (state kept — a stopped
+ * container still holds the database; the next launch starts it again)
+ * and park their rows `stopped`. Best-effort per container: one that is
+ * already gone or will not stop never blocks the sandbox's own stop.
+ */
+export async function stopSandboxServices(sandboxId: string, deps: ServiceDeps = {}): Promise<void> {
+  const docker = dockerFor(deps);
+  for (const row of listSandboxServices(db(), sandboxId)) {
+    if (row.status === "destroyed" || !row.ref) continue;
+    await docker(["stop", row.ref]).catch(() => undefined);
+    updateService(db(), row.id, { status: "stopped" });
+  }
+}
+
 /** Destroy the sandbox's service containers and close their rows. */
 export async function destroySandboxServices(sandboxId: string, deps: ServiceDeps = {}): Promise<void> {
-  const docker = deps.docker ?? realDockerRunner;
+  const docker = dockerFor(deps);
   for (const row of listSandboxServices(db(), sandboxId)) {
     if (row.status !== "destroyed" && row.ref) {
       await docker(["rm", "-f", row.ref]).catch(() => undefined);

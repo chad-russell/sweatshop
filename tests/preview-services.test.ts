@@ -10,7 +10,9 @@ import { launchPreview, resolvedEnvFor } from "../lib/previews/service";
 import { resolvePreviewEnv } from "../lib/previews/env";
 import {
   ensureSandboxServices,
+  serviceAddress,
   serviceContainerName,
+  stopSandboxServices,
   type DockerRunner,
 } from "../lib/sandboxes/services";
 import type { PreviewNetwork } from "../lib/previews/network";
@@ -54,6 +56,16 @@ class FakeDocker {
     if (args[0] === "rm") {
       this.exists.delete(name);
       this.running.delete(name);
+      return name;
+    }
+    if (args[0] === "stop") {
+      if (!this.exists.has(name)) throw new Error(`no such container ${name}`);
+      this.running.delete(name);
+      return name;
+    }
+    if (args[0] === "start") {
+      if (!this.exists.has(name)) throw new Error(`no such container ${name}`);
+      this.running.add(name);
       return name;
     }
     if (args[0] === "inspect") {
@@ -312,5 +324,58 @@ describe("0017 service command args", () => {
     const imageAt = run.indexOf("docker.io/minio/minio");
     expect(run.slice(imageAt + 1)).toEqual(["server", "/data"]);
     expect(run).not.toContain("bash");
+  });
+});
+
+describe("0019 services stop and resume with the sandbox", () => {
+  it("stopping keeps the containers (state) and parks the rows stopped; ensure starts them again instead of recreating", async () => {
+    const { sandboxId } = servicePreviewFixture();
+    const docker = new FakeDocker();
+    await ensureSandboxServices(sandboxId, SERVICES, { docker: docker.runner });
+    const name = `ref-${sandboxId}-svc-db`;
+    expect(docker.running.has(name)).toBe(true);
+
+    await stopSandboxServices(sandboxId, { docker: docker.runner });
+    expect(docker.exists.has(name)).toBe(true); // kept — a database's data lives in it
+    expect(docker.running.has(name)).toBe(false);
+    expect(listSandboxServices(db(), sandboxId)).toMatchObject([{ name: "db", status: "stopped" }]);
+    // a stopped service is not an address (value-shaped, like any non-running one)
+    expect(serviceAddress(sandboxId, "db")).toEqual({ error: "service db is stopped" });
+
+    await ensureSandboxServices(sandboxId, SERVICES, { docker: docker.runner });
+    expect(docker.running.has(name)).toBe(true);
+    expect(docker.calls.filter((a) => a[0] === "run")).toHaveLength(1); // never re-run: data survives
+    expect(docker.calls.some((a) => a[0] === "start")).toBe(true);
+    expect(listSandboxServices(db(), sandboxId)).toMatchObject([{ name: "db", status: "running" }]);
+  });
+
+  it("a stopped row whose container is gone is recreated; a crashed 'running' one still is too", async () => {
+    const { sandboxId } = servicePreviewFixture();
+    const docker = new FakeDocker();
+    await ensureSandboxServices(sandboxId, SERVICES, { docker: docker.runner });
+    const name = `ref-${sandboxId}-svc-db`;
+
+    await stopSandboxServices(sandboxId, { docker: docker.runner });
+    docker.exists.delete(name); // removed behind our back
+    await ensureSandboxServices(sandboxId, SERVICES, { docker: docker.runner });
+    expect(docker.calls.filter((a) => a[0] === "run")).toHaveLength(2);
+
+    docker.running.delete(name); // died while the row says running
+    await ensureSandboxServices(sandboxId, SERVICES, { docker: docker.runner });
+    expect(docker.calls.filter((a) => a[0] === "run")).toHaveLength(3);
+  });
+
+  it("stopping is best-effort: a container that is already gone does not throw, and destroyed rows are left alone", async () => {
+    const { sandboxId } = servicePreviewFixture();
+    const docker = new FakeDocker();
+    await ensureSandboxServices(sandboxId, SERVICES, { docker: docker.runner });
+    docker.exists.clear();
+    docker.running.clear();
+    await expect(stopSandboxServices(sandboxId, { docker: docker.runner })).resolves.toBeUndefined();
+    expect(listSandboxServices(db(), sandboxId)).toMatchObject([{ status: "stopped" }]);
+    const { destroySandboxServices } = await import("../lib/sandboxes/services");
+    await destroySandboxServices(sandboxId, { docker: docker.runner });
+    await stopSandboxServices(sandboxId, { docker: docker.runner });
+    expect(listSandboxServices(db(), sandboxId)).toMatchObject([{ status: "destroyed" }]);
   });
 });

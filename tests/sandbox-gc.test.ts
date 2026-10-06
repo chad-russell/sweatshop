@@ -200,3 +200,72 @@ describe("0013 sandbox reaper", () => {
     await expect(destroySandboxNow("sbx_nope", provider)).rejects.toMatchObject({ code: "not-found" });
   });
 });
+
+describe("0019 the reaper's stop and destroy take the sandbox's services with them", () => {
+  const docker = () => {
+    const calls: string[][] = [];
+    const runner = async (args: string[]) => {
+      calls.push(args);
+      return "";
+    };
+    return { calls, runner };
+  };
+  const withService = (sandboxId: string, status: "running" | "stopped" = "running") => {
+    db()
+      .$client.prepare(
+        "insert into sandbox_services (id, sandbox_id, name, image, ref, status, port, created_at, updated_at) " +
+          "values (?, ?, 'db', 'postgres', ?, ?, 5432, 0, 0)",
+      )
+      .run(`ssvc_${sandboxId}`, sandboxId, `ref-${sandboxId}-svc-db`, status);
+  };
+  const svcStatus = (sandboxId: string) =>
+    (db().$client.prepare("select status from sandbox_services where sandbox_id = ?").get(sandboxId) as { status: string }).status;
+
+  it("idle-stop, manual stop, idle-destroy and manual destroy all reach the services", async () => {
+    const provider = new FakeProvider();
+    const d = docker();
+    const { setServiceDockerForTests } = await import("../lib/sandboxes/services");
+    setServiceDockerForTests(d.runner);
+    try {
+      const idle = lease("conversation", "running", 45 * MIN);
+      const old = lease("conversation", "stopped", 15 * DAY);
+      const manualStop = lease("conversation", "running", MIN);
+      const manualDestroy = lease("conversation", "running", MIN);
+      for (const id of [idle, manualStop, manualDestroy]) withService(id);
+      withService(old, "stopped"); // an already-stopped sandbox's services were stopped with it
+
+      await reap({ apply: true, provider });
+      expect(status(idle)).toBe("stopped");
+      expect(svcStatus(idle)).toBe("stopped");
+      expect(d.calls).toContainEqual(["stop", `ref-${idle}-svc-db`]);
+      expect(status(old)).toBe("destroyed");
+      expect(svcStatus(old)).toBe("destroyed");
+      expect(d.calls).toContainEqual(["rm", "-f", `ref-${old}-svc-db`]);
+
+      await stopSandboxNow(manualStop, provider);
+      expect(svcStatus(manualStop)).toBe("stopped");
+      await destroySandboxNow(manualDestroy, provider);
+      expect(svcStatus(manualDestroy)).toBe("destroyed");
+      expect(d.calls).toContainEqual(["rm", "-f", `ref-${manualDestroy}-svc-db`]);
+    } finally {
+      setServiceDockerForTests(null);
+    }
+  });
+
+  it("a service that will not stop never blocks the sandbox's own stop", async () => {
+    const provider = new FakeProvider();
+    const { setServiceDockerForTests } = await import("../lib/sandboxes/services");
+    setServiceDockerForTests(async () => {
+      throw new Error("podman wedged");
+    });
+    try {
+      const id = lease("conversation", "running", 45 * MIN);
+      withService(id);
+      const report = await reap({ apply: true, provider });
+      expect(report.errors).toEqual([]);
+      expect(status(id)).toBe("stopped");
+    } finally {
+      setServiceDockerForTests(null);
+    }
+  });
+});
