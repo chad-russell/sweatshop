@@ -14,14 +14,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { parseEnvBlock } from "@/lib/previews/env";
 import type { PreviewSetupDefinition } from "@/lib/previews/setup";
+import { FIELD, LABEL, MONO } from "@/components/form-styles";
 import {
   definitionFromSetupForm,
   emptySetupForm,
-  FIELD,
-  LABEL,
-  MONO,
   setupFormFromDefinition,
   SetupFields,
   type SetupFormValues,
@@ -276,9 +275,9 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
               <div className="grid grid-cols-2 gap-3">
                 <label className={FIELD} htmlFor={`${ids}-project`}>
                   <span className={LABEL}>Project</span>
-                  <select
+                  <NativeSelect
                     id={`${ids}-project`}
-                    className="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
+                    
                     value={projectId}
                     onChange={(e) => {
                       setProjectId(e.target.value);
@@ -293,13 +292,13 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
                         {p.name}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </label>
                 <label className={FIELD} htmlFor={`${ids}-repo`}>
                   <span className={LABEL}>Repo</span>
-                  <select
+                  <NativeSelect
                     id={`${ids}-repo`}
-                    className="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
+                    
                     value={repoId}
                     disabled={repos.length === 0}
                     onChange={(e) => {
@@ -313,7 +312,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
                         {r.name}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </label>
               </div>
 

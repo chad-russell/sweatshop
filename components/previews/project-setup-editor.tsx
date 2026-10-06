@@ -3,12 +3,12 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import type { PreviewSetupDefinition } from "@/lib/previews/setup";
+import { FIELD, LABEL } from "@/components/form-styles";
 import {
   definitionFromSetupForm,
   emptySetupForm,
-  FIELD,
-  LABEL,
   setupFormFromDefinition,
   SetupFields,
   type SetupFormValues,
@@ -86,21 +86,20 @@ export function ProjectSetupEditor({
       )}
       <label className={FIELD} htmlFor={`${ids}-repo`}>
         <span className={LABEL}>Repo the setup runs</span>
-        <select
+        <NativeSelect
           id={`${ids}-repo`}
           value={repoId}
           onChange={(e) => {
             setRepoId(e.target.value);
             setSaved(false);
           }}
-          className="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
           {repos.map((r) => (
             <option key={r.id} value={r.id}>
               {r.name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
       <SetupFields ids={ids} values={values} onChange={(next) => { setValues(next); setSaved(false); }} />
       {error && <p className="text-sm text-destructive">{error}</p>}

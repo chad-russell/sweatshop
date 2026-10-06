@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FIELD, LABEL, MONO } from "@/components/form-styles";
 import { parseEnvBlock } from "@/lib/previews/env";
 import type { PreviewSetupDefinition } from "@/lib/previews/setup";
 
@@ -32,10 +33,6 @@ export interface SetupFormValues {
   envText: string;
   services: ServiceRow[];
 }
-
-export const FIELD = "flex flex-col gap-1.5 text-sm";
-export const LABEL = "text-xs font-medium text-muted-foreground";
-export const MONO = "font-mono text-xs";
 
 const ENV_TEXTAREA =
   `${MONO} w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 outline-none ` +

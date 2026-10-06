@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { FIELD, LABEL, MONO } from "@/components/form-styles";
 
 /**
  * 0018 phase 3: the project page's editable surfaces — name + sandbox
@@ -12,10 +14,6 @@ import { Input } from "@/components/ui/input";
  * (typed-name confirmed project delete, the approved cascade). Thin
  * clients over /api/projects/[id]/*; every error surfaces its message.
  */
-
-const FIELD = "flex flex-col gap-1.5 text-sm";
-const LABEL = "text-xs font-medium text-muted-foreground";
-const MONO = "font-mono text-xs";
 
 interface Repo {
   id: string;
@@ -125,14 +123,14 @@ export function ProjectOverviewEditor({
 
       <label className={FIELD} htmlFor="proj-config">
         <span className={LABEL}>Sandbox config</span>
-        <select
+        <NativeSelect
           id="proj-config"
           value={configId}
           onChange={(e) => {
             setConfigId(e.target.value);
             setNote(null);
           }}
-          className="h-9 max-w-72 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="max-w-72"
         >
           <option value="">none — default image, sandbox per chat</option>
           {configOptions.map((c) => (
@@ -140,7 +138,7 @@ export function ProjectOverviewEditor({
               {c.name ?? c.id}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
 
       {configId && (
@@ -155,15 +153,14 @@ export function ProjectOverviewEditor({
             </label>
             <label className={FIELD} htmlFor="proj-network">
               <span className={LABEL}>Network policy (recorded, not enforced)</span>
-              <select
+              <NativeSelect
                 id="proj-network"
                 value={networkPolicy}
                 onChange={(e) => setNetworkPolicy(e.target.value)}
-                className="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
               >
                 <option value="allow-all">allow-all</option>
                 <option value="offline">offline</option>
-              </select>
+              </NativeSelect>
             </label>
           </div>
           <div>
