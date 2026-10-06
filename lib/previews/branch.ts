@@ -10,7 +10,7 @@ import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
 import { sandboxProvider } from "@/lib/sandboxes/provider";
 import { shellQuote } from "@/lib/previews/process";
 import { discoverPreviewCandidates, type PreviewCandidate } from "@/lib/previews/discover";
-import type { PreviewSetupService } from "@/lib/previews/setup";
+import type { ServiceSpec } from "@/lib/sandboxes/service-spec";
 import { CREATE_FAILED, lastLine, resolvePreviewContext, sh } from "@/lib/previews/context";
 import {
   launchPreview,
@@ -47,7 +47,7 @@ export interface CreateBranchPreviewInput {
    *  project's setup at confirm, always; there is no toggle. */
   provision?: string;
   seed?: string;
-  services?: PreviewSetupService[];
+  services?: ServiceSpec[];
 }
 
 // ── provision / discover / confirm ──────────────────────────────────────
@@ -180,7 +180,7 @@ export interface ConfirmInput {
    *  setup on confirm; unset input keeps the saved setup's values. */
   provision?: string;
   seed?: string;
-  services?: PreviewSetupService[];
+  services?: ServiceSpec[];
 }
 
 export interface ConfirmResult {

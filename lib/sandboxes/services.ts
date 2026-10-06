@@ -12,7 +12,7 @@ import {
 import { getLease, touchLease } from "@/db/sandboxes";
 import { HARNESS_NETWORK } from "@/lib/sandboxes/harness-bridge";
 import type { SandboxHandle } from "@/lib/sandboxes/provider";
-import type { PreviewSetupService } from "@/lib/previews/setup";
+import type { ServiceSpec } from "@/lib/sandboxes/service-spec";
 
 /**
  * 0017 phase 3: declared services — the substrate backend for the
@@ -24,7 +24,7 @@ import type { PreviewSetupService } from "@/lib/previews/setup";
  * a future VM provider runs the same declarations in-VM.
  */
 
-export type ServiceSpec = PreviewSetupService;
+export type { ServiceSpec };
 
 /** One docker invocation, returning stdout — injectable so unit tests
  *  script the substrate. */

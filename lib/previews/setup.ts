@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { serviceSpecSchema } from "@/lib/sandboxes/service-spec";
 
 /**
  * 0017: the JSON a preview setup row stores — everything a preview of
@@ -19,17 +20,6 @@ const relDir = z
 
 const envMap = z.record(z.string(), z.string());
 
-/** A declared service dependency (phase 3 runs these; the shape ships now). */
-export const previewSetupServiceSchema = z.object({
-  /** Name used in `${service:<name>:<port>}` references. */
-  name: z.string().regex(/^[a-z][a-z0-9-]{0,29}$/, "lowercase kebab service name"),
-  /** OCI image ref — portable across every substrate. */
-  image: z.string().min(1),
-  command: z.string().optional(),
-  env: envMap.default({}),
-  port: z.number().int().min(1).max(65_535),
-});
-
 export const previewSetupSchema = z.object({
   /** project_repos.id the setup runs in. */
   repo: z.string().min(1),
@@ -49,10 +39,9 @@ export const previewSetupSchema = z.object({
   /** Env layer 1 (per-preview overrides and the platform's PORT/HOST/
    *  PREVIEW_* win — 0017). */
   env: envMap.default({}),
-  services: z.array(previewSetupServiceSchema).default([]),
+  services: z.array(serviceSpecSchema).default([]),
 });
 
-export type PreviewSetupService = z.infer<typeof previewSetupServiceSchema>;
 export type PreviewSetupDefinition = z.infer<typeof previewSetupSchema>;
 
 export type ParsedSetup =
