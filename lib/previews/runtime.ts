@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { expireStaleProvisioning, getPreviewBySlug, previewSandbox, stampRequest } from "@/db/previews";
 import { harnessPreviewNetwork, type PreviewNetwork } from "@/lib/previews/network";
 import { createPreviewProxy, type Resolution } from "@/lib/previews/proxy";
-import { followBranchPreviews } from "@/lib/previews/branch";
+import { followBranchPreviews } from "@/lib/previews/follow";
 import { reconcilePreviews } from "@/lib/previews/service";
 
 /**

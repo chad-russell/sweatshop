@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { getPreview, listPreviewEvents } from "@/db/previews";
-import {
-  confirmBranchPreview,
-  discoverForPreview,
-  dismissPreviewFailure,
-  removePreview,
-  retryPreview,
-} from "@/lib/previews/branch";
+import { confirmBranchPreview, discoverForPreview, removePreview } from "@/lib/previews/branch";
+import { dismissPreviewFailure, retryPreview } from "@/lib/previews/follow";
 import {
   launchPreview,
   previewEnvView,

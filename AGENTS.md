@@ -308,7 +308,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   once per sandbox (`sandboxes.seeded_at`, an independent marker);
   they die with the sandbox; the sandbox page shows them; providers
   declare `canRunServices` (portability contract). Branch previews
-  (`lib/previews/branch.ts`): `/previews` → New preview is TWO-PHASE
+  (`lib/previews/branch.ts` create flow, `follow.ts` follower + retry/dismiss,
+  `context.ts` shared helpers; remote branch listing is
+  `lib/git-hosts/branches.ts`): `/previews` → New preview is TWO-PHASE
   (0017 phase 1): provision (the row is inserted BEFORE the sandbox —
   a `provisioning` status; failures land as visible `failed` rows with
   the reason, never invisible 500s) → discover (scan the checkout for

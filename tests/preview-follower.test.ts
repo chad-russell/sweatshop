@@ -10,7 +10,7 @@ import {
   dismissPreviewFailure,
   followPreview,
   retryPreview,
-} from "../lib/previews/branch";
+} from "../lib/previews/follow";
 import type { PreviewNetwork } from "../lib/previews/network";
 import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 
