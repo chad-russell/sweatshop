@@ -10,7 +10,7 @@ import { sandboxWorkRoot } from "@/lib/sandboxes/provision";
 import { sandboxProvider } from "@/lib/sandboxes/provider";
 import { shellQuote } from "@/lib/previews/process";
 import { discoverPreviewCandidates, type PreviewCandidate } from "@/lib/previews/discover";
-import type { ServiceSpec } from "@/lib/sandboxes/service-spec";
+import type { PreviewOverrides } from "@/lib/previews/overrides";
 import { CREATE_FAILED, lastLine, resolvePreviewContext, sh } from "@/lib/previews/context";
 import {
   launchPreview,
@@ -32,22 +32,12 @@ import {
  * reinstalls from the setup's `install`, not a lockfile guess.
  */
 
-export interface CreateBranchPreviewInput {
+/** Where to preview (project, repo, branch) plus this preview's values
+ *  (lib/previews/overrides.ts — unset fields fall back to the setup). */
+export interface CreateBranchPreviewInput extends PreviewOverrides {
   projectId: string;
   repoId: string;
   branch: string;
-  command?: string;
-  port?: number;
-  install?: string;
-  workDir?: string;
-  label?: string;
-  /** Sparse per-preview env overrides (0017 phase 2). */
-  env?: Record<string, string>;
-  /** Structural setup fields (0017 amendment) — they save to the
-   *  project's setup at confirm, always; there is no toggle. */
-  provision?: string;
-  seed?: string;
-  services?: ServiceSpec[];
 }
 
 // ── provision / discover / confirm ──────────────────────────────────────
@@ -167,21 +157,9 @@ export async function discoverForPreview(
   }
 }
 
-export interface ConfirmInput {
-  workDir?: string;
-  install?: string;
-  command?: string;
-  port?: number;
-  label?: string;
-  /** Sparse per-preview env overrides; with no toggle the confirm
-   *  form sends the full env block, which also becomes the setup's. */
-  env?: Record<string, string>;
-  /** Structural fields (0017 amendment): always save to the project's
-   *  setup on confirm; unset input keeps the saved setup's values. */
-  provision?: string;
-  seed?: string;
-  services?: ServiceSpec[];
-}
+/** Confirm takes the same values as create. A first setup is saved
+ *  from them; unset input keeps the saved setup's values. */
+export type ConfirmInput = PreviewOverrides;
 
 export interface ConfirmResult {
   preview: PreviewView;

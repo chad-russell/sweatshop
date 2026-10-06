@@ -5,6 +5,7 @@ import { getConversationBinding } from "@/db/sandboxes";
 import { machineRuns } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { createBranchPreview } from "@/lib/previews/branch";
+import { parsePreviewOverrides } from "@/lib/previews/overrides";
 import { previewProjectId } from "@/lib/previews/context";
 import { PreviewError, viewPreview } from "@/lib/previews/service";
 
@@ -33,61 +34,14 @@ export async function POST(request: Request) {
   if (!projectId || !repoId || !branch) {
     return NextResponse.json({ error: "projectId, repoId and branch are required" }, { status: 400 });
   }
-  const port = body.port === undefined || body.port === "" ? undefined : Number(body.port);
-  if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65_535)) {
-    return NextResponse.json({ error: "port must be 1–65535" }, { status: 400 });
-  }
-  const env = envOf(body.env);
-  if ("error" in env) return NextResponse.json({ error: env.error }, { status: 400 });
-  const services = servicesOf(body.services);
-  if ("error" in services) return NextResponse.json({ error: services.error }, { status: 400 });
+  const parsed = parsePreviewOverrides(body);
+  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
   try {
-    const result = await createBranchPreview({
-      projectId,
-      repoId,
-      branch,
-      ...(str("workDir") ? { workDir: str("workDir") } : {}),
-      ...(str("install") ? { install: str("install") } : {}),
-      ...(str("command") ? { command: str("command") } : {}),
-      ...(port !== undefined ? { port } : {}),
-      ...(str("label") ? { label: str("label") } : {}),
-      ...(env.env ? { env: env.env } : {}),
-      ...(str("provision") ? { provision: str("provision") } : {}),
-      ...(str("seed") ? { seed: str("seed") } : {}),
-      ...(services.services ? { services: services.services as never } : {}),
-    });
-    return NextResponse.json(result);
+    return NextResponse.json(await createBranchPreview({ projectId, repoId, branch, ...parsed.overrides }));
   } catch (err) {
     if (err instanceof PreviewError) return NextResponse.json({ error: err.message }, { status: 400 });
     throw err;
   }
-}
-
-/** Service rows from the body — shape-checked here, validated by the
- *  setup's zod at save (issues return value-shaped from the store). */
-function servicesOf(value: unknown): { services: unknown[] | null } | { error: string } {
-  if (value === undefined || value === null) return { services: null };
-  if (!Array.isArray(value)) return { error: "services must be an array" };
-  for (const s of value) {
-    if (typeof s !== "object" || s === null || Array.isArray(s)) {
-      return { error: "each service must be an object" };
-    }
-  }
-  return { services: value.length ? value : null };
-}
-
-/** A sparse env map from the body — string keys and values only. */
-function envOf(value: unknown): { env: Record<string, string> | null } | { error: string } {
-  if (value === undefined || value === null) return { env: null };
-  if (typeof value !== "object" || Array.isArray(value)) {
-    return { error: "env must be an object of KEY → string" };
-  }
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof v !== "string") return { error: `env ${k}: values must be strings` };
-    out[k] = v;
-  }
-  return { env: Object.keys(out).length ? out : null };
 }
 
 export function GET(request: Request) {

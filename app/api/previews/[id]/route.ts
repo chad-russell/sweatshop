@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { getPreview, listPreviewEvents } from "@/db/previews";
 import { confirmBranchPreview, discoverForPreview, removePreview } from "@/lib/previews/branch";
 import { dismissPreviewFailure, retryPreview } from "@/lib/previews/follow";
+import { parsePreviewOverrides } from "@/lib/previews/overrides";
 import {
   launchPreview,
   previewEnvView,
@@ -51,44 +52,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const str = (k: string) =>
-    typeof body[k] === "string" && (body[k] as string).trim() ? (body[k] as string).trim() : undefined;
   try {
     if (body.action === "confirm") {
-      const port = body.port === undefined || body.port === "" ? undefined : Number(body.port);
-      if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65_535)) {
-        return NextResponse.json({ error: "port must be 1–65535" }, { status: 400 });
-      }
-      let env: Record<string, string> | undefined;
-      if (body.env !== undefined) {
-        if (typeof body.env !== "object" || body.env === null || Array.isArray(body.env)) {
-          return NextResponse.json({ error: "env must be an object of KEY → string" }, { status: 400 });
-        }
-        const entries = Object.entries(body.env as Record<string, unknown>);
-        if (entries.some(([, v]) => typeof v !== "string")) {
-          return NextResponse.json({ error: "env values must be strings" }, { status: 400 });
-        }
-        env = Object.fromEntries(entries as [string, string][]);
-      }
-      let services: unknown[] | undefined;
-      if (body.services !== undefined) {
-        if (!Array.isArray(body.services)) {
-          return NextResponse.json({ error: "services must be an array" }, { status: 400 });
-        }
-        services = body.services;
-      }
-      const result = await confirmBranchPreview(id, {
-        ...(str("workDir") ? { workDir: str("workDir") } : {}),
-        ...(str("install") ? { install: str("install") } : {}),
-        ...(str("command") ? { command: str("command") } : {}),
-        ...(port !== undefined ? { port } : {}),
-        ...(str("label") ? { label: str("label") } : {}),
-        ...(env !== undefined ? { env } : {}),
-        ...(str("provision") ? { provision: str("provision") } : {}),
-        ...(str("seed") ? { seed: str("seed") } : {}),
-        ...(services !== undefined ? { services: services as never } : {}),
-      });
-      return NextResponse.json(result);
+      const parsed = parsePreviewOverrides(body);
+      if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+      return NextResponse.json(await confirmBranchPreview(id, parsed.overrides));
     }
     if (body.action === "restart") {
       const { preview, log } = await launchPreview(id, { healthTimeoutMs: 20_000 });
