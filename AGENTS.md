@@ -263,7 +263,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   cannot host one). Opt-in spike:
   `CLAUDE_SPIKE=1 npx vitest run tests/claude-spike.integration.test.ts`
   (+ `CLAUDE_SPIKE_LIVE=1` with `CLAUDE_CODE_OAUTH_TOKEN` set for a
-  bounded turn).
+  bounded turn). Other opt-in live tests (skipped in the normal gate;
+  the env var must be set INSIDE the container):
+  `./dev exec -- sh -c 'PREVIEW_E2E=1 npx vitest run tests/preview-first-fill.integration.test.ts'`
+  (0019: the New-preview first-fill path on real podman + a git-daemon
+  upstream), `SERVICES_SPIKE=1` (0017 services substrate).
 
 - Previews (0016): a preview is a long-running HTTP server in a
   sandbox, owned by the SANDBOX (outlives the turn/run/stage that

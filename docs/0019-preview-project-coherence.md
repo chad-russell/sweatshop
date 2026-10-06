@@ -262,4 +262,16 @@ provisioning stays `lib/sandboxes/provision.ts`.
   `data/sweatshop.db.pre-0032.bak`); the open-bible setup's `provision`
   became `migrate`, and `/sandboxes` — which 500'd while the running
   dev server held the new code against the old column — returns 200.
+- **Live first-fill test** (`tests/preview-first-fill.integration.test.ts`,
+  opt-in `PREVIEW_E2E=1`, ~45 s): a git-daemon container as the upstream,
+  real sandboxes, real npm, a real HTTP server probed over the harness
+  network, requests built by the dialog's own `overridesFromSetupForm`
+  and sent through the real route handlers. Covers: no setup → provision
+  + scan → candidates; launch → serving with the setup's env + platform
+  vars, setup saved, row env NULL; editing the setup (PUT, as the project
+  page does) then restart → the new env is served; with a setup, the
+  label-only create is one shot and never rewrites the setup; abandoning
+  a provisioning preview deletes it and destroys its container.
+  Mutation-checked: reinstating the old row-env copy fails exactly the
+  env assertions. The React markup itself remains unexercised.
 
