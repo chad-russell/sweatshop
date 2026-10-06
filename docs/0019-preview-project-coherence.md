@@ -199,4 +199,21 @@ provisioning stays `lib/sandboxes/provision.ts`.
   `env: …`) rather than the old hand-written strings; status stays 400.
 - Left alone as out of scope: raw project reads in `app/page.tsx`,
   `app/r/[runId]/page.tsx`, `app/machines/[machineId]/page.tsx`.
+- **Phase 2 shipped 2026-10-06.** Test-first: the shadowed-env bug was
+  reproduced (`first-fill env lands in the setup only…`) before the fix.
+  `confirmBranchPreview`: no setup → the confirmed values (env included)
+  become the project's first setup and the row keeps NO env copy; a
+  setup exists → it is never written, env is a sparse row override, and
+  passing `provision`/`seed`/`services` is an error naming them (they
+  are setup-level, shared once-per-sandbox — silently dropping them
+  would hide the mistake). This removes the old "different repo is not
+  rewritten" special case: nothing is ever rewritten. The dialog shows a
+  one-line summary + "Edit on the project page →" when a setup exists
+  (and a note when the setup's repo differs from the chosen one), sends
+  only the label, and keeps the editor only for first fill.
+  `PreviewView.overridesSetup` (command or port differs from the setup)
+  drives an "overrides setup" marker in the preview list; the editor's
+  labels now say "Default command / port". The `previews.env` cleanup
+  for existing rows is still migration `0032` (phase 4). The dialog is
+  not browser-verified (typecheck/lint/tests only).
 
