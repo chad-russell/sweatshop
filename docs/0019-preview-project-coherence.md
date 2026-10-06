@@ -1,8 +1,23 @@
 # 0019 — Previews, projects, sandboxes: one owner per concept
 
-Status: **draft — awaiting Chad's approval** (nothing below is
-implemented; the mechanical groundwork shipped without a doc, see
-"Already done")
+Status: **approved by Chad 2026-10-06** (see "Decisions" — they
+supersede the draft text below where they differ; the mechanical
+groundwork shipped without a doc, see "Already done")
+
+## Decisions (2026-10-06)
+
+1. **Setup editing is project-page only.** Chad's manual setup/tweaks
+   are rare (agents do >95%), so the dialog carries no per-preview
+   command/port editing; those stay API/agent-only row overrides.
+2. **Rename the stored field `provision` → `migrate`, no back-compat.**
+   No dual-key read. Existing rows are rewritten by the `0032`
+   migration (SQL `json_set`/`json_remove` on `preview_setups`), and
+   the frozen-env cleanup is simply `previews.env = NULL` for existing
+   rows — all of it is test data. Where stored data doesn't match, the
+   migration deletes or rewrites it; code never accommodates the old
+   shape.
+3. **Inline previews on `/p`** (matches the project page owning its
+   things).
 
 ## Why
 
@@ -72,9 +87,9 @@ Today the dialog sends the whole env block and `confirm` stores it in
 (`lib/previews/env.ts`), later edits to the project env never reach
 those previews. Fix: with change 1 the dialog no longer sends env when a
 setup exists; first-fill sends env to the **setup** only (the row stays
-`null`). Existing rows with a full-copy `previews.env` are migrated once:
-drop keys whose value equals the setup's (data migration, idempotent,
-store test). Needs reproducing in a test before the fix lands.
+`null`). Existing rows' `previews.env` is cleared in migration `0032` (test
+data; no per-key reconciliation). Needs reproducing in a test before
+the fix lands.
 
 ### 3. command/port: setup default, row instance (docs + UI)
 
@@ -108,9 +123,8 @@ exists) and a "New preview" button pre-scoped to the project.
 the setup's migrations step, and a column (`services_provisioned_at`)
 that marks only the migrations step. Rename:
 
-- setup field `provision` → `migrate` (the zod schema accepts the old key
-  on read and rewrites it on save, so stored rows and agents keep
-  working; the tool descriptions say `migrate`);
+- setup field `provision` → `migrate` (no old-key read — the `0032`
+  migration rewrites stored rows; the tool descriptions say `migrate`);
 - column `sandboxes.services_provisioned_at` → `migrated_at`
   (drizzle migration `0032`, pure rename);
 - UI label "Migrate — once per sandbox, after services are healthy".
@@ -159,17 +173,7 @@ provisioning stays `lib/sandboxes/provision.ts`.
 2. **Env fix + dialog rework** (changes 1, 2, 3): failing test first for
    the shadowed-env bug; the one-time `previews.env` cleanup.
 3. **Project page regrouping** (changes 4, 5).
-4. **`provision` → `migrate`** (change 6): rename + `0032` + back-compat
-   read.
+4. **`provision` → `migrate`** (change 6): rename + `0032` (also
+   clears `previews.env`); no back-compat read.
 5. **Dialog hook split** (rest of change 7) — last, since phase 2
    rewrites that file.
-
-## Open questions for Chad
-
-1. Change 1 on a project with a setup: is "summary + edit on the project
-   page" right, or do you still want to tweak command/port per preview in
-   the dialog (they would stay row-only)?
-2. Change 6: rename the stored field (with back-compat read), or leave
-   `provision` as the stored word and only relabel the UI?
-3. Change 5: inline previews on `/p` — or keep the link and let `/previews`
-   stay the one place?
