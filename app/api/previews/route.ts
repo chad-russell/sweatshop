@@ -23,7 +23,8 @@ export const dynamic = "force-dynamic";
  * services?, env? }`. With the project's saved setup (or explicit
  * values) it returns once serving or parked as failed; otherwise it
  * provisions and returns `candidates` for the Discover step (the row
- * waits in `provisioning` for a confirm, which saves the setup).
+ * waits in `provisioning` for a confirm, which saves the project's
+ * first setup — an existing one is never written from here, 0019).
  */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;

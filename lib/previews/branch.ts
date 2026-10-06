@@ -157,8 +157,8 @@ export async function discoverForPreview(
   }
 }
 
-/** Confirm takes the same values as create. A first setup is saved
- *  from them; unset input keeps the saved setup's values. */
+/** Confirm takes the same values as create. With no saved setup they
+ *  become it; with one, they are this preview's own (0019). */
 export type ConfirmInput = PreviewOverrides;
 
 export interface ConfirmResult {
@@ -170,7 +170,8 @@ export interface ConfirmResult {
 
 /**
  * Confirm a provisioning preview: resolve values (input → saved setup),
- * optionally SAVE the setup, run `install` at the repo root, launch.
+ * save the setup if this is the project's first (0019), run `install`
+ * at the repo root, launch.
  * The row's workDir becomes `<repoRoot>/<workDir>`; from here the
  * lifecycle is the ordinary 0016 one.
  */
@@ -202,28 +203,43 @@ export async function confirmBranchPreview(
     return { preview: viewPreview(p), error: `missing ${missing.join(", ")} — pick a candidate or save a setup` };
   }
 
-  // 0017 amendment: the confirm form is the setup editor — structural
-  // fields (and the env block) ALWAYS save; per-preview fields
-  // (command, port, label) stay this row's. Unset structural input
-  // keeps the saved setup's values, so API confirms behave. ONE
-  // exception: a setup bound to a different repo (one setup per
-  // project, v1) is never rewritten by previewing that other repo —
-  // the edits apply to this row only.
-  if (!setup || setup.repo === p.repoId) {
+  // 0019: a preview row stores only DEVIATIONS from the project's setup.
+  //  - First fill (no setup yet): the confirmed values become the
+  //    project's setup — env included — and the row keeps no env copy.
+  //  - A setup exists: it is never written from here. workDir / install /
+  //    command / port / label are this preview's own; env is a sparse
+  //    override on the row; provision / seed / services are setup-level
+  //    (once per sandbox, shared) so passing them is an error, not a
+  //    silent drop — edit them on the project page.
+  let rowEnv: Record<string, string> | undefined;
+  if (!setup) {
     const saved = savePreviewSetup(db(), projectId, {
       repo: p.repoId,
       workDir: workDirRel,
       install: install!,
       command: command!,
       port: port!,
-      env: input.env ?? setup?.env ?? {},
-      services: input.services ?? setup?.services ?? [],
-      ...((input.provision ?? setup?.provision) ? { provision: input.provision ?? setup!.provision! } : {}),
-      ...((input.seed ?? setup?.seed) ? { seed: input.seed ?? setup!.seed! } : {}),
+      env: input.env ?? {},
+      services: input.services ?? [],
+      ...(input.provision ? { provision: input.provision } : {}),
+      ...(input.seed ? { seed: input.seed } : {}),
     });
     if (!saved.ok) {
       return { preview: viewPreview(p), error: `setup invalid: ${saved.issues.join("; ")}` };
     }
+  } else {
+    const setupLevel = [
+      ...(input.provision ? ["provision"] : []),
+      ...(input.seed ? ["seed"] : []),
+      ...(input.services ? ["services"] : []),
+    ];
+    if (setupLevel.length) {
+      return {
+        preview: viewPreview(p),
+        error: `${setupLevel.join(", ")} belong to the project's setup — edit them on the project page`,
+      };
+    }
+    rowEnv = input.env;
   }
 
   updatePreview(db(), id, {
@@ -231,14 +247,14 @@ export async function confirmBranchPreview(
     command: command!,
     port: port!,
     ...(input.label?.trim() ? { label: input.label.trim() } : {}),
-    ...(input.env !== undefined ? { env: input.env } : {}),
+    ...(rowEnv !== undefined ? { env: rowEnv } : {}),
   });
 
   const lease = getLease(db(), p.sandboxId)!;
   const provider = deps.provider ?? sandboxProvider();
   const handle = provider.attach(lease.ref, repoRoot);
   // Install runs with the resolved env (private registries, tokens).
-  const bootEnv = resolvedEnvFor(p);
+  const bootEnv = resolvedEnvFor(getPreview(db(), id)!);
   const installEnv = "env" in bootEnv ? { GIT_TERMINAL_PROMPT: "0", ...bootEnv.env } : { GIT_TERMINAL_PROMPT: "0" };
   const installRun = await sh(handle, `set -o pipefail; ${install} 2>&1 | tail -60`, repoRoot, installEnv);
   if (!installRun.ok) {

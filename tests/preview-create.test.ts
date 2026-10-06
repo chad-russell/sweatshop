@@ -1,9 +1,9 @@
 import type { Experimental_SandboxSession } from "ai";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
 import { getPreview } from "../db/previews";
 import { getLease } from "../db/sandboxes";
-import { getPreviewSetup, savePreviewSetup } from "../db/preview-setups";
+import { deletePreviewSetup, getPreviewSetup, savePreviewSetup } from "../db/preview-setups";
 import { projectRepos, projects } from "../db/schema";
 import {
   confirmBranchPreview,
@@ -11,6 +11,7 @@ import {
   provisionBranchPreview,
 } from "../lib/previews/branch";
 import type { PreviewNetwork } from "../lib/previews/network";
+import { resolvedEnvFor } from "../lib/previews/service";
 import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 
 /**
@@ -84,6 +85,13 @@ db()
   .run();
 
 const fast = { healthTimeoutMs: 30, pollMs: 1 };
+
+// Every test starts with no saved setup and saves what it needs — the
+// DB is shared across the file, so leftovers would hide first-fill vs
+// existing-setup behavior (0019).
+beforeEach(() => {
+  deletePreviewSetup(db(), "p_create");
+});
 
 /** Faithful-enough docker for the services path: containers exist once
  *  run, disappear on rm, report running on inspect (else throw). */
@@ -290,6 +298,10 @@ describe("0017 phase 2: env through confirm", () => {
   });
 
   it("rotating a setup env value changes the next boot", async () => {
+    savePreviewSetup(db(), "p_create", {
+      repo: "p_create/web", workDir: ".", install: "pnpm install",
+      command: "pnpm run dev", port: 3000, env: { TOKEN: "t0" }, services: [],
+    });
     const g = new BranchSandbox();
     const result = await createBranchPreview(
       { projectId: "p_create", repoId: "p_create/web", branch: "main" },
@@ -309,3 +321,72 @@ describe("0017 phase 2: env through confirm", () => {
     expect(runEnvs.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("0019: a preview row stores only deviations from the setup", () => {
+  const confirmFirstFill = async (env: Record<string, string>) => {
+    const g = new BranchSandbox();
+    const provisioned = await provisionBranchPreview(
+      { projectId: "p_create", repoId: "p_create/web", branch: "main" },
+      { provider: g, ...fast },
+    );
+    const confirmed = await confirmBranchPreview(
+      provisioned.preview.id,
+      { workDir: ".", install: "pnpm install", command: "pnpm run dev", port: 3000, env },
+      { provider: g, network: networkFor(g), ...fast },
+    );
+    expect(confirmed.error).toBeUndefined();
+    return provisioned.preview.id;
+  };
+
+  it("first-fill env lands in the setup only — later setup edits reach the preview (was shadowed by a row copy)", async () => {
+    const id = await confirmFirstFill({ TOKEN: "t0" });
+    expect(getPreview(db(), id)?.env).toBeNull();
+    const setup = getPreviewSetup(db(), "p_create");
+    if (!setup.ok || !setup.setup) throw new Error("no setup saved");
+    savePreviewSetup(db(), "p_create", { ...setup.setup.definition, env: { TOKEN: "t1-rotated" } });
+    expect(resolvedEnvFor(getPreview(db(), id)!)).toMatchObject({ env: { TOKEN: "t1-rotated" } });
+  });
+
+  const existingSetup = () =>
+    savePreviewSetup(db(), "p_create", {
+      repo: "p_create/web", workDir: ".", install: "pnpm install",
+      command: "pnpm run dev", port: 3000, env: { A: "1", B: "2" }, services: [],
+    });
+
+  it("with a setup, confirm never writes it; env is a sparse row override layered over the setup's", async () => {
+    existingSetup();
+    const before = getPreviewSetup(db(), "p_create");
+    const g = new BranchSandbox();
+    const provisioned = await provisionBranchPreview(
+      { projectId: "p_create", repoId: "p_create/web", branch: "main" },
+      { provider: g, ...fast },
+    );
+    const confirmed = await confirmBranchPreview(
+      provisioned.preview.id,
+      { command: "pnpm run other", port: 4000, label: "mine", env: { B: "row" } },
+      { provider: g, network: networkFor(g), ...fast },
+    );
+    expect(confirmed.error).toBeUndefined();
+    expect(getPreviewSetup(db(), "p_create")).toEqual(before); // untouched, updatedAt included
+    const row = getPreview(db(), provisioned.preview.id)!;
+    expect(row).toMatchObject({ command: "pnpm run other", port: 4000, label: "mine", env: { B: "row" } });
+    expect(resolvedEnvFor(row)).toMatchObject({ env: { A: "1", B: "row" } });
+  });
+
+  it("with a setup, passing setup-level fields is an error naming them — nothing launches", async () => {
+    existingSetup();
+    const g = new BranchSandbox();
+    const provisioned = await provisionBranchPreview(
+      { projectId: "p_create", repoId: "p_create/web", branch: "main" },
+      { provider: g, ...fast },
+    );
+    const confirmed = await confirmBranchPreview(
+      provisioned.preview.id,
+      { provision: "pnpm migrate", seed: "pnpm seed" },
+      { provider: g, network: networkFor(g), ...fast },
+    );
+    expect(confirmed.error).toMatch(/provision, seed belong to the project's setup/);
+    expect(confirmed.preview.status).toBe("provisioning");
+  });
+});
+

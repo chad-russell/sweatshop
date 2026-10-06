@@ -40,10 +40,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 /**
- * 0017: `{ action }` — "confirm" (a provisioning preview gets its
- * chosen values; structural fields — workDir, install, provision,
- * seed, services, env — always save to the project's setup, then
- * install + launch), "restart" (relaunch the process), "stop",
+ * 0017/0019: `{ action }` — "confirm" (a provisioning preview gets its
+ * values: with no saved setup they become the project's first; with
+ * one they are this preview's own and setup-level fields — provision,
+ * seed, services — are refused; then install + launch), "restart" (relaunch the process), "stop",
  * "delete" (a branch preview destroys its own sandbox), and for branch
  * previews "retry" (forget the failure and redeploy the remote head —
  * a create-time failure re-provisions) and "dismiss" (hide this
