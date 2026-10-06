@@ -177,3 +177,26 @@ provisioning stays `lib/sandboxes/provision.ts`.
    clears `previews.env`); no back-compat read.
 5. **Dialog hook split** (rest of change 7) — last, since phase 2
    rewrites that file.
+
+## Implementation notes
+
+- **Phase 1 shipped 2026-10-06** (`4d7fe62`..): `resolvePreviewContext` /
+  `previewProjectId` in `lib/previews/context.ts` replace the three
+  resolvers (worktree previews resolve repoRoot through the setup's
+  repo, as before); the owner lookups are `getLeaseProjectId`
+  (`db/sandboxes.ts`) and `getProjectRepo` (`db/projects.ts`).
+  `ServiceSpec` + `serviceSpecSchema` live in
+  `lib/sandboxes/service-spec.ts`; `lib/previews/overrides.ts`
+  (`parsePreviewOverrides`) is the one create/confirm body parser —
+  `envOf`/`servicesOf`/the inline confirm parsing are gone and
+  `CreateBranchPreviewInput`/`ConfirmInput` derive from
+  `PreviewOverrides`. `/p`, `/previews` and the branches route read
+  through `db/projects.ts` (`getProjectOverview`, `listProjectsWithRepos`,
+  `listProjectRepos`, `listGitCredentials`). Tests:
+  `preview-overrides.test.ts`, `preview-context.test.ts`.
+- One mild behavior difference worth knowing: a bad `port`/`env` on
+  create/confirm now returns the schema's message (`port: …`,
+  `env: …`) rather than the old hand-written strings; status stays 400.
+- Left alone as out of scope: raw project reads in `app/page.tsx`,
+  `app/r/[runId]/page.tsx`, `app/machines/[machineId]/page.tsx`.
+
