@@ -2,7 +2,7 @@ import { execFile, spawn as nodeSpawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import type { Experimental_SandboxSession } from "ai";
-import { setupProjectWorkspace, type ProjectPlan } from "@/lib/sandboxes/setup";
+import { setupProjectWorkspace, type ProjectPlan } from "@/lib/sandboxes/workspace";
 
 const exec = promisify(execFile);
 

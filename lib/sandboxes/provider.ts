@@ -8,7 +8,7 @@ import {
   stopContainer,
   type ProvisionedSandbox,
 } from "@/lib/sandboxes/provision";
-import { setupProjectWorkspace } from "@/lib/sandboxes/setup";
+import { setupProjectWorkspace } from "@/lib/sandboxes/workspace";
 
 /**
  * 0010 Phase 2 — the SandboxProvider seam. Everything above this layer
