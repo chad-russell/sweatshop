@@ -19,7 +19,7 @@ still cannot edit `provision`/`services`. Two changes, one seam.
   an API/agent concept via `CreateBranchPreviewInput.env`). The setup
   editor is the New-preview dialog itself (plus its "Save setup only"
   footer action) — the shared field set is one component
-  (`components/previews/setup-editor.tsx`). A confirm whose preview's
+  (`components/project/setup-editor.tsx`). A confirm whose preview's
   repo differs from the saved setup's repo skips the save (one setup
   per project, bound to one repo).
 - **Phase 7 verification rode the worktree path, not a fresh create**:

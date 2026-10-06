@@ -24,7 +24,7 @@ import {
   setupFormFromDefinition,
   SetupFields,
   type SetupFormValues,
-} from "@/components/previews/setup-editor";
+} from "@/components/project/setup-editor";
 
 /**
  * 0017: New preview, two-phase. Project → repo → branch, then Create:

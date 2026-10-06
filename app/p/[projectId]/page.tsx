@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
 import { Button } from "@/components/ui/button";
 import { PageContextRegistration } from "@/components/page-context";
-import { ProjectSetupEditor } from "@/components/previews/project-setup-editor";
+import { ProjectSetupEditor } from "@/components/project/project-setup-editor";
 import {
   ProjectDangerZone,
   ProjectOverviewEditor,

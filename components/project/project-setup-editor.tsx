@@ -12,7 +12,7 @@ import {
   setupFormFromDefinition,
   SetupFields,
   type SetupFormValues,
-} from "@/components/previews/setup-editor";
+} from "@/components/project/setup-editor";
 
 /**
  * 0018 phase 2: the saved setup's permanent home — the project page.
