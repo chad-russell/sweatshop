@@ -40,11 +40,10 @@ Follow-through on the 0017 amendment: a preview setup IS project
 config ("how does this project run"), but its only editing surface
 lived on `/previews`, so it reads as preview state — the exact
 confusion that surfaced in review. The fix is placement, not a new
-mechanism: the DB stays the single source of truth (the
-repo-committed `.sweatshop/preview.json` idea stays the 0017
-follow-up, deliberately not chosen — placement over portability for
-now), and the project gets a real page instead of lending its URL to
-a chat.
+mechanism: the DB stays the single source of truth (a repo-committed
+setup file was considered and has since been ruled out for good —
+0019 decision 4), and the project gets a real page instead of lending
+its URL to a chat.
 
 ## The project page — `/p/[projectId]`
 

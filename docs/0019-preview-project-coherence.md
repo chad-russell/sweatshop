@@ -18,6 +18,16 @@ groundwork shipped without a doc, see "Already done")
    shape.
 3. **Inline previews on `/p`** (matches the project page owning its
    things).
+4. **Setup config lives in the DB only — no repo-committed
+   `.sweatshop/preview.json`, now or later** (Chad, 2026-10-06). The
+   repos are often employer projects; committing a sweatshop file
+   would mean adding `.sweatshop` to each one's gitignore (or
+   committing it), and nothing sweatshop-specific should have to land
+   in the projects it works on. This closes the idea 0017 listed as a
+   follow-up and 0018/0019 had kept open: it is removed from those
+   docs, not deferred. Portability is served by the DB-backed setup
+   plus the provider contract; if a setup ever needs to move between
+   machines, that is an export from sweatshop, not a file in the repo.
 
 ## Why
 
@@ -158,8 +168,7 @@ provisioning stays `lib/sandboxes/provision.ts`.
 ## Not changing
 
 - The `preview_setups` storage shape beyond the `migrate` rename, and the
-  decision to keep the DB the single source of truth (repo-committed
-  `.sweatshop/preview.json` stays the 0017 follow-up).
+  decision to keep the DB the single source of truth (decision 4).
 - Preview lifecycle semantics (follower, reaper, proxy, Inbox card).
 - The agent tools' names and behavior (`get_/save_preview_setup`,
   `start_preview`); only the `provision` → `migrate` field and the

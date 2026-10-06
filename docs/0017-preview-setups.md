@@ -209,8 +209,9 @@ in that conversation, recorded here:
   `git_credentials` precedent — the github token already lives there),
   masked in list views. Acceptable under the LAN-only, no-auth threat
   model; must be revisited the day the auth rule changes.
-- One setup per project (no named profiles), config in the DB only (no
-  committed `.sweatshop/preview.json` in v1). Per-preview sparse
+- One setup per project (no named profiles), config in the DB only —
+  never a file in the repo (decided 2026-10-06, 0019: nothing sweatshop-
+  specific lands in the projects it works on). Per-preview sparse
   overrides at creation time, unsaved.
 - The harness-network boundary model (any container on the network can
   reach preview services) is accepted for the v1 podman backend — it
@@ -513,9 +514,6 @@ ask_chad gate on `save_preview_setup`, were resolved in chat
   capability flag, with setup definitions unchanged. Requires the auth
   rule to grow up first (secrets and employer code on someone else's
   substrate), plus whatever egress rules the substrate imposes.
-- Repo-committed `.sweatshop/preview.json` for the non-secret parts
-  (Cursor's pattern) — reviewable, portable; a second source of truth
-  to earn its place first.
 - Service data snapshots (captured service state restored instead of
   a re-fetch per fresh sandbox — the amendment's `seed` field is the
   seam they plug into; build when a slow or rate-limited fetch re-runs
