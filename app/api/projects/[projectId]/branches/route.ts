@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { projectRepos } from "@/db/schema";
-import { listRemoteBranches } from "@/lib/previews/branch";
+import { gitCredentials, projectRepos } from "@/db/schema";
+import { listRemoteBranches } from "@/lib/git-hosts/branches";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +19,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ proj
     .where(eq(projectRepos.projectId, projectId))
     .all();
   const repo = new URL(request.url).searchParams.get("repo");
-  const listed = repo && repos.some((r) => r.id === repo) ? await listRemoteBranches(repo) : { branches: [], warning: null };
+  const target = repo ? repos.find((r) => r.id === repo) : undefined;
+  const listed = target
+    ? await listRemoteBranches(target.url, db().select().from(gitCredentials).all())
+    : { branches: [], warning: null };
   return NextResponse.json({ repos, ...listed });
 }
