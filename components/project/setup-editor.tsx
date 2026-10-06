@@ -3,119 +3,20 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FIELD, LABEL, MONO } from "@/components/form-styles";
-import { parseEnvBlock } from "@/lib/previews/env";
-import type { PreviewSetupDefinition } from "@/lib/previews/setup";
+import type { ServiceRow, SetupFormValues } from "@/components/project/setup-form";
 
 /**
- * 0017 amendment / 0018: the setup definition's ONE editor — the fields
- * and the two form↔definition conversions. Two hosts: the project page
- * (project-setup-editor.tsx, the definition's permanent home) and the
- * New-preview dialog (new-preview.tsx, the first-fill moment, which
- * saves the setup as part of the launch). The definition's shape lives
+ * 0017 amendment / 0018: the setup definition's ONE editor — its
+ * fields. The form values and conversions are in setup-form.ts. Two
+ * hosts: the project page (project-setup-editor.tsx, the definition's
+ * permanent home) and the New-preview dialog's first-fill step
+ * (components/previews/new-preview.tsx). The definition's shape lives
  * in lib/previews/setup.ts.
  */
-
-export interface ServiceRow {
-  name: string;
-  image: string;
-  port: string;
-  command: string;
-  envText: string;
-}
-
-export interface SetupFormValues {
-  workDir: string;
-  install: string;
-  migrate: string;
-  seed: string;
-  command: string;
-  port: string;
-  envText: string;
-  services: ServiceRow[];
-}
 
 const ENV_TEXTAREA =
   `${MONO} w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 outline-none ` +
   "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
-
-export const emptySetupForm: SetupFormValues = {
-  workDir: "",
-  install: "",
-  migrate: "",
-  seed: "",
-  command: "",
-  port: "",
-  envText: "",
-  services: [],
-};
-
-const envToText = (env: Record<string, string> | undefined): string =>
-  Object.entries(env ?? {})
-    .map(([k, v]) => `${k}=${v.includes(" ") ? JSON.stringify(v) : v}`)
-    .join("\n");
-
-export function setupFormFromDefinition(d: PreviewSetupDefinition): SetupFormValues {
-  return {
-    workDir: d.workDir,
-    install: d.install,
-    migrate: d.migrate ?? "",
-    seed: d.seed ?? "",
-    command: d.command,
-    port: String(d.port),
-    envText: envToText(d.env),
-    services: d.services.map((s) => ({
-      name: s.name,
-      image: s.image,
-      port: String(s.port),
-      command: s.command ?? "",
-      envText: envToText(s.env),
-    })),
-  };
-}
-
-/** The form's values as a definition (repo injected by the host); a
- * bad env block or service shape is an error string for the host to
- * show. The store's zod remains the authority — this only unwraps the
- * textarea conventions. */
-export function definitionFromSetupForm(
-  v: SetupFormValues,
-  repo: string,
-): { definition: PreviewSetupDefinition } | { error: string } {
-  const env = parseEnvBlock(v.envText);
-  if ("error" in env) return { error: env.error };
-  const services: PreviewSetupDefinition["services"] = [];
-  for (const [i, s] of v.services.entries()) {
-    if (!s.name.trim() || !s.image.trim()) {
-      return { error: `service ${i + 1}: name and image are required` };
-    }
-    const port = Number(s.port);
-    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-      return { error: `service ${s.name}: port must be 1–65535` };
-    }
-    const senv = parseEnvBlock(s.envText);
-    if ("error" in senv) return { error: `service ${s.name}: ${senv.error}` };
-    services.push({
-      name: s.name.trim(),
-      image: s.image.trim(),
-      port,
-      ...(s.command.trim() ? { command: s.command.trim() } : {}),
-      env: senv.env ?? {},
-    });
-  }
-  return {
-    definition: {
-      repo,
-      workDir: v.workDir.trim() || ".",
-      install: v.install,
-      ...(v.migrate.trim() ? { migrate: v.migrate.trim() } : {}),
-      ...(v.seed.trim() ? { seed: v.seed.trim() } : {}),
-      command: v.command,
-      port: Number(v.port),
-      env: env.env ?? {},
-      services,
-    },
-  };
-}
 
 /** The definition's editable fields (everything but repo + label). */
 export function SetupFields({

@@ -1,6 +1,6 @@
 # 0019 — Previews, projects, sandboxes: one owner per concept
 
-Status: **approved by Chad 2026-10-06** (see "Decisions" — they
+Status: **approved by Chad 2026-10-06; all five phases shipped the same day** (see "Decisions" — they
 supersede the draft text below where they differ; the mechanical
 groundwork shipped without a doc, see "Already done")
 
@@ -245,4 +245,21 @@ provisioning stays `lib/sandboxes/provision.ts`.
   dual-key read anywhere, per decision 2. **Not yet applied to the live
   `data/sweatshop.db`** — run `./dev exec -- npm run db:migrate`
   (the running dev server holds the old shape until then).
+- **Phase 5 shipped 2026-10-06.** `new-preview.tsx` (443 lines) split
+  into `use-new-preview.ts` (the flow's state: fetches, step machine,
+  request building, abandon-deletes-the-provisioning-row) and a
+  presentational dialog (211 lines). The setup editor split the same
+  way: `components/project/setup-form.ts` (pure: form values,
+  `definitionFromSetupForm` / `setupFormFromDefinition`, and the new
+  `overridesFromSetupForm` / `isLaunchable` the hook uses) and
+  `setup-editor.tsx` (just the fields). New `tests/setup-form.test.ts`
+  covers the pure half including the round trip into the server's
+  `parsePreviewOverrides`. One small fix rode along: after a successful
+  confirm the hook clears `pendingId` so closing the dialog can never
+  delete the preview that just launched. The dialog is still not
+  clicked through in a browser.
+- **Live DB:** `0032` was applied to `data/sweatshop.db` (backup:
+  `data/sweatshop.db.pre-0032.bak`); the open-bible setup's `provision`
+  became `migrate`, and `/sandboxes` — which 500'd while the running
+  dev server held the new code against the old column — returns 200.
 

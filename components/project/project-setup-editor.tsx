@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { PreviewSetupDefinition } from "@/lib/previews/setup";
 import { FIELD, LABEL } from "@/components/form-styles";
+import { SetupFields } from "@/components/project/setup-editor";
 import {
   definitionFromSetupForm,
   emptySetupForm,
   setupFormFromDefinition,
-  SetupFields,
   type SetupFormValues,
-} from "@/components/project/setup-editor";
+} from "@/components/project/setup-form";
 
 /**
  * 0018 phase 2: the saved setup's permanent home — the project page.
