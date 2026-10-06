@@ -9,8 +9,8 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { FIELD, LABEL, MONO } from "@/components/form-styles";
 
 /**
- * 0018 phase 3: the project page's editable surfaces — name + sandbox
- * config (overview), repos (guarded removal), and the danger zone
+ * 0018 phase 3 / 0019: the project page's editable surfaces — name,
+ * sandbox config, repos (guarded removal), and the danger zone
  * (typed-name confirmed project delete, the approved cascade). Thin
  * clients over /api/projects/[id]/*; every error surfaces its message.
  */
@@ -48,22 +48,63 @@ function useApi() {
   return { busy, error, note, setNote, call };
 }
 
-export function ProjectOverviewEditor({
+/** The project's name — rename in place, under the page header. */
+export function ProjectNameEditor({ projectId, name }: { projectId: string; name: string }) {
+  const router = useRouter();
+  const { busy, error, call } = useApi();
+  const [value, setValue] = useState(name);
+
+  const rename = () =>
+    call(
+      () =>
+        fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: value }),
+        }),
+      () => router.refresh(),
+    );
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <Input
+          aria-label="Project name"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="max-w-72 text-base font-medium"
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy || !value.trim() || value.trim() === name}
+          onClick={() => void rename()}
+        >
+          Rename
+        </Button>
+        <span className={`${MONO} text-muted-foreground`}>{projectId}</span>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+/** The project's sandbox config: pick one, and edit the SHARED config
+ *  (image, network policy) — other projects may run it too. */
+export function ProjectSandboxEditor({
   projectId,
-  name,
   config,
   configOptions,
   sharedWith,
 }: {
   projectId: string;
-  name: string;
   config: Config | null;
   configOptions: { id: string; name?: string }[];
   sharedWith: number;
 }) {
   const router = useRouter();
   const { busy, error, note, setNote, call } = useApi();
-  const [nameValue, setNameValue] = useState(name);
   const [configId, setConfigId] = useState(config?.id ?? "");
   const [imageRef, setImageRef] = useState(config?.imageRef ?? "");
   const [networkPolicy, setNetworkPolicy] = useState(config?.networkPolicy ?? "allow-all");
@@ -87,40 +128,6 @@ export function ProjectOverviewEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-end gap-2">
-        <label className={`${FIELD} flex-1`} htmlFor="proj-name">
-          <span className={LABEL}>Name</span>
-          <Input
-            id="proj-name"
-            value={nameValue}
-            onChange={(e) => setNameValue(e.target.value)}
-            className="max-w-72"
-          />
-        </label>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={busy || !nameValue.trim() || nameValue.trim() === name}
-          onClick={() =>
-            call(
-              () =>
-                fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
-                  method: "PATCH",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ name: nameValue }),
-                }),
-              () => {
-                setNote("Renamed.");
-                router.refresh();
-              },
-            )
-          }
-        >
-          Rename
-        </Button>
-      </div>
-
       <label className={FIELD} htmlFor="proj-config">
         <span className={LABEL}>Sandbox config</span>
         <NativeSelect

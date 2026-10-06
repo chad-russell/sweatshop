@@ -28,7 +28,9 @@ import {
 } from "@/components/project/setup-editor";
 
 /**
- * 0017/0019: New preview, two-phase. Project → repo → branch, then
+ * 0017/0019: New preview, two-phase. Project (hidden when `projects`
+ * has one entry — the project page and a scoped /previews pass just
+ * theirs) → repo → branch, then
  * Create. With the project's saved setup it shows a one-line summary
  * (the setup is edited on the project page only) and provisions +
  * launches in one shot, sending just the label. With NO setup yet this
@@ -277,34 +279,34 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
 
           {step === "form" ? (
             <>
-              <div className="grid grid-cols-2 gap-3">
-                <label className={FIELD} htmlFor={`${ids}-project`}>
-                  <span className={LABEL}>Project</span>
-                  <NativeSelect
-                    id={`${ids}-project`}
-                    
-                    value={projectId}
-                    onChange={(e) => {
-                      setProjectId(e.target.value);
-                      setBranch("");
-                      setBranches(null);
-                      setHasSetup(false);
-                      setSetupRepoId(null);
-                      setValues(emptySetupForm);
-                    }}
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </label>
+              <div className={projects.length > 1 ? "grid grid-cols-2 gap-3" : "grid grid-cols-1 gap-3"}>
+                {projects.length > 1 && (
+                  <label className={FIELD} htmlFor={`${ids}-project`}>
+                    <span className={LABEL}>Project</span>
+                    <NativeSelect
+                      id={`${ids}-project`}
+                      value={projectId}
+                      onChange={(e) => {
+                        setProjectId(e.target.value);
+                        setBranch("");
+                        setBranches(null);
+                        setHasSetup(false);
+                        setSetupRepoId(null);
+                        setValues(emptySetupForm);
+                      }}
+                    >
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </label>
+                )}
                 <label className={FIELD} htmlFor={`${ids}-repo`}>
                   <span className={LABEL}>Repo</span>
                   <NativeSelect
                     id={`${ids}-repo`}
-                    
                     value={repoId}
                     disabled={repos.length === 0}
                     onChange={(e) => {

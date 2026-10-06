@@ -5,10 +5,13 @@ import { AppHeader } from "@/components/app-header";
 import { Button } from "@/components/ui/button";
 import { PageContextRegistration } from "@/components/page-context";
 import { ProjectSetupEditor } from "@/components/project/project-setup-editor";
+import { NewPreviewForm } from "@/components/previews/new-preview";
+import { PreviewList } from "@/components/previews/preview-list";
 import {
   ProjectDangerZone,
-  ProjectOverviewEditor,
+  ProjectNameEditor,
   ProjectReposEditor,
+  ProjectSandboxEditor,
 } from "@/components/project/project-editors";
 import { db } from "@/db";
 import { getProjectOverview } from "@/db/projects";
@@ -17,11 +20,13 @@ import { GIT_HOSTS } from "@/lib/git-hosts/hosts";
 
 export const dynamic = "force-dynamic";
 
+const SECTION = "text-xs font-medium tracking-wide text-muted-foreground uppercase";
+
 /**
- * The project's home (0018): its properties and config, editable (phase
- * 3) — name + sandbox config, repos, the preview setup — plus links to
- * its work surfaces and the danger zone. Starting a chat lives on /
- * via `?project=`.
+ * The project's home (0018/0019): name, repos, sandbox (shared config),
+ * the preview setup (its permanent editor), the project's previews,
+ * and the danger zone — each concept in one card. Starting a chat
+ * lives on / via `?project=`.
  */
 export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -42,20 +47,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
       </AppHeader>
 
       <div className="flex flex-col gap-8 p-6">
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Overview</h2>
-          <p className="font-mono text-xs text-muted-foreground">{project.id}</p>
-          <ProjectOverviewEditor
-            projectId={project.id}
-            name={project.name}
-            config={config ? { id: config.id, imageRef: config.imageRef, networkPolicy: config.networkPolicy } : null}
-            configOptions={configOptions.map((c) => ({ id: c.id }))}
-            sharedWith={sharedWith}
-          />
-        </section>
+        <ProjectNameEditor projectId={project.id} name={project.name} />
 
         <section className="flex flex-col gap-2">
-          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Repos</h2>
+          <h2 className={SECTION}>Repos</h2>
           <ProjectReposEditor
             projectId={project.id}
             repos={repos.map((repo) => ({
@@ -68,7 +63,17 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
         </section>
 
         <section className="flex flex-col gap-2">
-          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Preview setup</h2>
+          <h2 className={SECTION}>Sandbox</h2>
+          <ProjectSandboxEditor
+            projectId={project.id}
+            config={config ? { id: config.id, imageRef: config.imageRef, networkPolicy: config.networkPolicy } : null}
+            configOptions={configOptions.map((c) => ({ id: c.id }))}
+            sharedWith={sharedWith}
+          />
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h2 className={SECTION}>Preview setup</h2>
           {/* 0018 phase 2: the definition's permanent editor. */}
           <ProjectSetupEditor
             projectId={project.id}
@@ -78,29 +83,20 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
           />
         </section>
 
-        <section className="flex flex-col gap-2">
-          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Work surfaces</h2>
-          <ul className="flex flex-col divide-y divide-border rounded-lg border border-border text-sm">
-            <li>
-              <Link href="/machines" className="flex items-center justify-between px-3 py-2 transition-colors hover:bg-accent">
-                <span>Machines</span>
-                <span className="text-xs text-muted-foreground">the automation catalog →</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                href={`/previews?project=${encodeURIComponent(project.id)}`}
-                className="flex items-center justify-between px-3 py-2 transition-colors hover:bg-accent"
-              >
-                <span>Previews</span>
-                <span className="text-xs text-muted-foreground">branch + chat previews →</span>
-              </Link>
-            </li>
-          </ul>
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className={SECTION}>Previews</h2>
+            {repos.length > 0 && <NewPreviewForm projects={[{ id: project.id, name: project.name }]} />}
+          </div>
+          <PreviewList
+            query={`project=${encodeURIComponent(project.id)}`}
+            showSandbox
+            empty="No previews yet — create a branch preview, or ask an agent in a project chat."
+          />
         </section>
 
         <section className="flex flex-col gap-2">
-          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Danger zone</h2>
+          <h2 className={SECTION}>Danger zone</h2>
           <ProjectDangerZone projectId={project.id} name={project.name} />
         </section>
       </div>
