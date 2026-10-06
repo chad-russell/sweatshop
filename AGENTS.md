@@ -107,11 +107,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `sandbox_exec` (one command in a named sandbox, in its owner's
   workDir, without binding the caller; resumes a stopped one, never
   stops or destroys) — `lib/agent/tools/inspect.ts`.
-  Entities
-  are managed db-first via `npm run db:seed` (secrets from env only;
-  project-page editing is 0018 phase 3); `/p/[projectId]` is the
+  Entities are managed on the project page (0018 phase 3: rename,
+  repos with guarded removal, sandbox-config pick + shared editing,
+  and delete-project — the approved cascade: cancel live runs, destroy
+  live sandboxes, then every project-owned row, conversations
+  hard-deleted via `deleteConversationForever`; machines, configs,
+  credentials untouched); creating sandbox configs stays
+  `npm run db:seed` (secrets from env only); `/p/[projectId]` is the
   PROJECT PAGE (0018: repos + resolved git hosts, sandbox config,
-  preview-setup summary, work-surface links) and project conversations
+  preview-setup editor, work-surface links) and project conversations
   start on `/` with `?project=<id>`; `create_pr` is the
   agent's PR tool.
 - Machines (0009): user-editable stage machines — sqlite `machines`

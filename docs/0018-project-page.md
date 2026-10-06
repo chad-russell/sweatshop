@@ -3,6 +3,27 @@
 Status: **approved in chat 2026-10-05 (shape + both forks — `/?project=`
 for new chat, read-only first); phases 1–2 shipped same day**
 
+## Phase 3 — cascade decided in chat 2026-10-05
+
+- **Conversations hard-delete** in the project delete (typed-name
+  confirm). Trash stays a conversation-level op — a deleted project
+  leaves no dangling-group trashed rows.
+- **Repo removal guards and refuses** with named blockers (the setup
+  targets it, previews reference it); clearing them is deliberate,
+  never a cascade side effect.
+- **Cascade order:** cancel live machine runs → destroy live sandboxes
+  (services die with them) → per-conversation
+  `deleteConversationForever` (the purge pattern, including owned
+  sandboxes' containers) → one transaction: the project's previews +
+  events, sandbox calls/attachments, sandbox ROWS (deviation from
+  0011's rows-stay: those rows exist as call-attribution history and
+  the calls die here too), folders, preview setup, repos, the project.
+  Untouched: machines (not project-owned), sandbox configs
+  (shareable), git credentials (global by host).
+- **CRUD scope:** rename; repo add (unique name per project) and
+  guarded remove; config pick (none/existing) + shared field editing
+  with a shared-with-N note; creating configs stays `db:seed` v1.
+
 ## Implementation notes (phases 1–2)
 
 - Phase 2 deviation: the project page hosts the editor for setups
