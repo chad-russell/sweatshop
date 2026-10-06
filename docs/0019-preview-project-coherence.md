@@ -216,4 +216,14 @@ provisioning stays `lib/sandboxes/provision.ts`.
   labels now say "Default command / port". The `previews.env` cleanup
   for existing rows is still migration `0032` (phase 4). The dialog is
   not browser-verified (typecheck/lint/tests only).
+- **Phase 3 shipped 2026-10-06.** `/p` is: header (New chat) → name
+  (`ProjectNameEditor`, with the project id) → Repos → Sandbox
+  (`ProjectSandboxEditor`, the former Overview's config half) → Preview
+  setup → Previews (the project's `PreviewList` + a New preview button
+  scoped to this project; the dialog hides its project picker when it
+  is handed a single project) → Danger zone. "Overview" and "Work
+  surfaces" are gone; the Machines link went with it. Verified by
+  fetching the running dev server's `/p/open-bible`, `/previews?project=`
+  and `/api/previews?project=` (200s, expected sections, no stale
+  headings) — not clicked through in a browser.
 
