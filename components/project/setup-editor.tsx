@@ -145,12 +145,12 @@ export function SetupFields({
         </label>
       </div>
       <label className={FIELD} htmlFor={`${ids}-command`}>
-        <span className={LABEL}>Command</span>
+        <span className={LABEL}>Default command (a preview can override)</span>
         <Input id={`${ids}-command`} value={values.command} onChange={(e) => set("command", e.target.value)} placeholder="pnpm run dev -H 0.0.0.0 -p $PORT" className={MONO} />
       </label>
       <div className="grid grid-cols-2 gap-3">
         <label className={FIELD} htmlFor={`${ids}-port`}>
-          <span className={LABEL}>Port</span>
+          <span className={LABEL}>Default port</span>
           <Input id={`${ids}-port`} value={values.port} onChange={(e) => set("port", e.target.value)} placeholder="3000" inputMode="numeric" className={MONO} />
         </label>
         <label className={FIELD} htmlFor={`${ids}-provision`}>

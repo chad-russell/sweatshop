@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -27,15 +28,14 @@ import {
 } from "@/components/project/setup-editor";
 
 /**
- * 0017: New preview, two-phase. Project → repo → branch, then Create:
- * with the project's saved setup (or explicit values) it provisions and
- * launches in one shot; otherwise it provisions, SCANS the checkout
- * (Discover), and you pick/edit a candidate. The field set IS the full
- * setup definition (0017 amendment): structural fields (workDir,
- * install, provision, seed, services, env) save to the project's setup
- * on confirm — there is no toggle — while command/port/label stay this
- * preview's row. Provisioning failures are visible rows on /previews,
- * never silent 500s.
+ * 0017/0019: New preview, two-phase. Project → repo → branch, then
+ * Create. With the project's saved setup it shows a one-line summary
+ * (the setup is edited on the project page only) and provisions +
+ * launches in one shot, sending just the label. With NO setup yet this
+ * is the first-fill moment: it provisions, SCANS the checkout
+ * (Discover), you pick/edit a candidate in the setup editor, and
+ * confirming saves that as the project's setup. Provisioning failures
+ * are visible rows on /previews, never silent 500s.
  */
 
 interface Repo {
@@ -66,6 +66,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
   const [branch, setBranch] = useState("");
 
   const [hasSetup, setHasSetup] = useState(false);
+  const [setupRepoId, setSetupRepoId] = useState<string | null>(null);
   const [values, setValues] = useState<SetupFormValues>(emptySetupForm);
   const [label, setLabel] = useState("");
 
@@ -84,6 +85,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
     setBusy(null);
     setError(null);
     setHasSetup(false);
+    setSetupRepoId(null);
     setValues(emptySetupForm);
     setLabel("");
   };
@@ -105,6 +107,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
       if (cancelled) return;
       const definition = body.setup?.definition ?? null;
       setHasSetup(Boolean(definition));
+      setSetupRepoId(definition?.repo ?? null);
       setValues(definition ? setupFormFromDefinition(definition) : emptySetupForm);
     })();
     return () => {
@@ -164,9 +167,11 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
     }));
   };
 
-  /** The full body both create and confirm send: every structural
-   *  field when the definition resolves, per-preview fields always. */
+  /** What create and confirm send. With a saved setup: just this
+   *  preview's label — the setup is never edited here. First fill: the
+   *  editor's whole definition (it becomes the project's setup). */
   const body = () => {
+    if (hasSetup) return label.trim() ? { label: label.trim() } : {};
     const definition = definitionFromSetupForm(values, repoId);
     if ("error" in definition) return definition;
     const d = definition.definition;
@@ -265,7 +270,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
             <DialogTitle>{step === "discover" ? "Pick what to preview" : "New branch preview"}</DialogTitle>
             <DialogDescription>
               {step === "discover"
-                ? "Scanned the checkout — pick a package; edit and launch. Structural fields save as the project's setup."
+                ? "Scanned the checkout — pick a package; edit and launch. This saves as the project's setup."
                 : "A dedicated sandbox serves the branch and redeploys every time it moves. Failures land in your Inbox."}
             </DialogDescription>
           </DialogHeader>
@@ -284,6 +289,7 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
                       setBranch("");
                       setBranches(null);
                       setHasSetup(false);
+                      setSetupRepoId(null);
                       setValues(emptySetupForm);
                     }}
                   >
@@ -344,20 +350,40 @@ export function NewPreviewForm({ projects }: { projects: { id: string; name: str
                 </datalist>
               </label>
 
-              <details className="text-sm" open={hasSetup || Boolean(values.command)}>
-                <summary className="cursor-pointer text-xs text-muted-foreground">
-                  {hasSetup
-                    ? "Saved setup — edits launch this preview and save back to it (edit in place on the project page)"
-                    : "Command, install, port… (optional — or we scan and ask)"}
-                </summary>
-                <div className="mt-3 flex flex-col gap-3">
-                  <SetupFields ids={ids} values={values} onChange={setValues} />
-                  <label className={FIELD} htmlFor={`${ids}-label`}>
-                    <span className={LABEL}>Label (this preview only)</span>
-                    <Input id={`${ids}-label`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={branch || "branch name"} />
-                  </label>
+              {hasSetup ? (
+                <div className="flex flex-col gap-1 rounded-md border border-input px-3 py-2 text-sm">
+                  <span className={LABEL}>Project setup</span>
+                  <span className={MONO}>
+                    {values.command} · :{values.port}
+                    {values.services.length ? ` · ${values.services.length} service${values.services.length > 1 ? "s" : ""}` : ""}
+                  </span>
+                  {setupRepoId && repoId && setupRepoId !== repoId && (
+                    <span className="text-xs text-muted-foreground">
+                      The setup is for {repos.find((r) => r.id === setupRepoId)?.name ?? "another repo"}; this preview
+                      uses its values anyway.
+                    </span>
+                  )}
+                  <Link
+                    href={`/p/${encodeURIComponent(projectId)}`}
+                    className="self-start text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Edit on the project page →
+                  </Link>
                 </div>
-              </details>
+              ) : (
+                <details className="text-sm" open={Boolean(values.command)}>
+                  <summary className="cursor-pointer text-xs text-muted-foreground">
+                    Command, install, port… (optional — or we scan and ask). Saves as the project&apos;s setup.
+                  </summary>
+                  <div className="mt-3 flex flex-col gap-3">
+                    <SetupFields ids={ids} values={values} onChange={setValues} />
+                  </div>
+                </details>
+              )}
+              <label className={FIELD} htmlFor={`${ids}-label`}>
+                <span className={LABEL}>Label (this preview only)</span>
+                <Input id={`${ids}-label`} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={branch || "branch name"} />
+              </label>
             </>
           ) : (
             <>

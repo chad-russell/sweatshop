@@ -11,7 +11,7 @@ import {
   provisionBranchPreview,
 } from "../lib/previews/branch";
 import type { PreviewNetwork } from "../lib/previews/network";
-import { resolvedEnvFor } from "../lib/previews/service";
+import { resolvedEnvFor, viewPreview } from "../lib/previews/service";
 import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 
 /**
@@ -387,6 +387,23 @@ describe("0019: a preview row stores only deviations from the setup", () => {
     );
     expect(confirmed.error).toMatch(/provision, seed belong to the project's setup/);
     expect(confirmed.preview.status).toBe("provisioning");
+  });
+
+  it("viewPreview flags a command/port that differs from the setup, and only then", async () => {
+    existingSetup();
+    const g = new BranchSandbox();
+    const same = await createBranchPreview(
+      { projectId: "p_create", repoId: "p_create/web", branch: "main" },
+      { provider: g, network: networkFor(g), ...fast },
+    );
+    expect(same.preview.overridesSetup).toBe(false);
+    const other = await createBranchPreview(
+      { projectId: "p_create", repoId: "p_create/web", branch: "main", port: 4000 },
+      { provider: g, network: networkFor(g), ...fast },
+    );
+    expect(other.preview.overridesSetup).toBe(true);
+    deletePreviewSetup(db(), "p_create");
+    expect(viewPreview(getPreview(db(), other.preview.id)!).overridesSetup).toBe(false); // nothing to differ from
   });
 });
 

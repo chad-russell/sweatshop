@@ -82,12 +82,16 @@ export interface PreviewView {
   headSha: string | null;
   startedBy: string;
   error: string | null;
+  /** 0019: this preview's command or port differs from the project
+   *  setup's defaults (false when there is no setup to differ from). */
+  overridesSetup: boolean;
   lastRequestAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
 
 export function viewPreview(p: Preview): PreviewView {
+  const { setup } = resolvePreviewContext(p);
   return {
     id: p.id,
     slug: p.slug,
@@ -104,6 +108,7 @@ export function viewPreview(p: Preview): PreviewView {
     headSha: p.headSha,
     startedBy: p.startedBy,
     error: p.error,
+    overridesSetup: Boolean(setup && (setup.command !== p.command || setup.port !== p.port)),
     lastRequestAt: p.lastRequestAt,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,

@@ -114,6 +114,11 @@ export function PreviewList({
               <span className="min-w-0 truncate" title={p.command}>
                 {p.command}
               </span>
+              {p.overridesSetup && (
+                <span title="This preview's command or port differs from the project's setup defaults">
+                  overrides setup
+                </span>
+              )}
               {p.source === "branch" && p.branch && (
                 <span>
                   {p.branch}
