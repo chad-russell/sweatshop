@@ -22,6 +22,7 @@ import {
   startMachineStep,
   systemDocsStep,
   ghStep,
+  forgejoStep,
   webFetchStep,
   webSearchStep,
 } from "./steps";
@@ -229,6 +230,21 @@ export function buildChatTools(
         args: z.array(z.string().min(1)).min(1).max(12).describe("The gh argv, e.g. [\"repo\", \"view\", \"TangoGroup/360-gpl\"]"),
       }),
       execute: ({ args }) => ghStep(args),
+    }),
+
+    // 0033 A′: read-only forgejo API on the stored credential — the gh
+    // tool's twin for the self-hosted instance.
+    forgejo: tool({
+      description:
+        "Run one read-only forgejo API GET against Chad's self-hosted instance (git.crussell.io) " +
+        "with his stored credentials. Paths: /repos/search?q=…, /repos/{owner}/{repo}, " +
+        "/orgs/{org}/repos, /users/{user}/repos, and …/branches, …/issues[/{n}], …/pulls[/{n}], " +
+        "…/releases under a repo, plus /user. Query params go in params (e.g. {q: \"sweatshop\", limit: \"10\"}).",
+      inputSchema: z.object({
+        path: z.string().min(1).max(200).describe("API path, e.g. \"/repos/search\" or \"/repos/chad/sweatshop\""),
+        params: z.record(z.string(), z.string()).optional().describe("Query parameters"),
+      }),
+      execute: ({ path, params }) => forgejoStep(path, params ?? {}),
     }),
 
     // 0015 Part A: machine-definition tools — every chat, no sandbox or

@@ -46,8 +46,30 @@ credential's token as `GH_TOKEN`:
   binary → `gh-not-installed`.
 - The app image gains gh (pinned v2.102.0 .deb); the sandbox image and
   in-sandbox `GH_TOKEN` delivery land with Phase B / 2.2.
-- Forgejo keeps the seam verbs (`listRemoteBranches`, `createPR`) —
-  CLI parity only if friction asks for it.
+
+### Phase A′ — forgejo parity (approved in chat, 2026-10-08)
+
+A `forgejo` tool, the gh twin for the self-hosted instance: read-only
+API GETs on the stored forgejo credential (Basic auth with the PAT —
+the seam's existing convention), allowlisted path patterns
+(`/repos/search`, `/repos/{owner}/{repo}` and its branches/issues/
+pulls/releases subpaths, `/orgs/{org}/repos`, `/users/{u}/repos`,
+`/user`), value-shaped `not-allowed` / `not-configured` / `http-error`
+/ `network`, output clipped, secret scrubbed. REST over fetch, not
+the `tea` CLI — tea exists and mostly speaks Forgejo's API, but wants
+a configured login rather than a per-call credential and has a
+spotty release cadence; six GET endpoints are smaller and safer, and
+a later swap is contained.
+
+**Capability gating (decided in the same chat, applies to both A and
+A′): no settings toggles — the credential is the switch** (the 0021
+provider pattern). Tools are always present in every chat and
+self-describe (`not-configured` as a value the model reads and
+reports); binaries are always in the image; the system prompt stays
+capability-level (never toggled on env); `docs/agent/*` changes with
+the implementation, which is the versioned truth. Agent stages keep
+the omit-not-configure posture only where the toolset is frozen at
+visit start; presence there follows the same credential rule.
 
 ## Phase B — project-management tools (awaiting approval)
 

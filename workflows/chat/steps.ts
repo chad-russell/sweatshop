@@ -170,6 +170,13 @@ export async function ghStep(args: string[]): Promise<unknown> {
   return runGh(args);
 }
 
+/** 0033 A′: one read-only forgejo API GET on the stored credential. */
+export async function forgejoStep(path: string, params: Record<string, string>): Promise<unknown> {
+  "use step";
+  const { runForgejo } = await import("../../lib/agent/tools/forgejo");
+  return runForgejo(path, params);
+}
+
 /** 0010 Phase 3: machines available in this conversation (0009). */
 export async function listMachinesStep(
   conversationId: string,

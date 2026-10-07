@@ -60,6 +60,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     webSearch,
     docs,
     gh,
+    forgejo,
   ] = await Promise.all([
     import("@ai-sdk/workflow"),
     import("workflow"),
@@ -75,6 +76,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     import("../../lib/agent/tools/web-search"),
     import("../../lib/agent/tools/docs"),
     import("../../lib/agent/tools/gh"),
+    import("../../lib/agent/tools/forgejo"),
   ]);
 
   const stage: Stage | undefined = input.definition.stages[input.stageId];
@@ -114,6 +116,17 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
         "commits, org list, pr list/view/checks/diff, issue list/view, release list/view.",
       inputSchema: z.object({ args: z.array(z.string().min(1)).min(1).max(12) }),
       execute: ({ args }): Promise<unknown> => gh.runGh(args),
+    }),
+    forgejo: tool({
+      description:
+        "One read-only forgejo API GET on Chad's self-hosted instance with his stored " +
+        "credentials: /repos/search, /repos/{owner}/{repo}, /orgs/{org}/repos, /users/{u}/repos, " +
+        "repo subpaths (branches/issues/pulls/releases), /user.",
+      inputSchema: z.object({
+        path: z.string().min(1).max(200),
+        params: z.record(z.string(), z.string()).optional(),
+      }),
+      execute: ({ path, params }): Promise<unknown> => forgejo.runForgejo(path, params ?? {}),
     }),
     web_fetch: tool({
       description:
