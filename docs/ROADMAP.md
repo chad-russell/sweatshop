@@ -111,6 +111,16 @@ Production run mode + backups (0020): **live 2026-10-07.** One
 `scripts/deploy.sh`; state in `data/` (restic + 23:00 snapshot). Phase 4,
 confirming `data/` in the first nightly restic snapshot, is pending.
 
+## Simplification pass (doc 0031, approved 2026-10-08)
+
+Runs alongside Phase 1 as small PRs, not a stop-the-world pass: drop
+0011 per-call attribution (bindings answer it), fold `sandbox_configs`
+into `projects.image_ref` (simplifies 1.4), collapse reaper windows to
+one pair, dedup the two provisioning paths and the two harness-turn
+engines, demote the machine canvas to a read-only viewer (editing =
+JSON tab + agent tools). Net ≈ −1,200 to −1,900 lines. Keep list and
+details in 0031.
+
 ## Phase 1 — The floor 🔴
 
 Order matters: 1.1 → 1.2 feeds 1.3 and 1.6; 1.4 and 1.5 are independent.
