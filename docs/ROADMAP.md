@@ -154,6 +154,13 @@ workflows returning handles, woken the same way on completion/failure;
 `cancel_run` stops runs and calls; a 30 s sweep makes wakes
 crash-safe. No `wait` tool (the wake is the wait; `inspect` for
 check-ins), no fan-out — per the decisions below and 0022's YAGNI list.
+Follow-up from the first live test (2026-10-07, no design doc — bug fixes
+plus a polled status): the turn's durable stream now spans the whole turn
+(slices no longer close it), a first send no longer blanks the fresh page,
+run and background-harness cards poll their child's status, and
+`create_machine` is approval-gated. pi/claude stay project-chat-only and
+there are no inline (unsaved) machine definitions — the agent picks an
+existing machine or calls a harness directly.
 
 **1.4 Sandbox image in settings.** Sandbox configs already hold `image_ref`;
 this item is making it settable in the UI and by agent tool (creation is
@@ -212,6 +219,16 @@ folders/archive/trash, run control (cancel, answer gates), settings. Principle:
 UI and tools call the same core function (the 0015 pattern). Check existing
 tools for value-shaped errors, conflict handling, approvals on destructive
 ops, and tests.
+
+**2.4b Agent instructions (design session).** The chat turn's instructions
+are three lines plus tool descriptions; the 2026-10-07 async test showed the
+agent improvising (a throwaway machine standing in for pi, a pass reported
+on a substitute) where it should have stopped and said what was missing. One
+guardrail line and an approval on `create_machine` went in as a stopgap. Do
+this properly alongside the tool audit: what the agent should know about
+its own surface (which tools exist where and why), when to ask vs act,
+reporting honestly what actually ran, and per-surface instructions (chat,
+agent stage, panel) instead of one string.
 
 **2.5 Hindsight integration (design session → doc 0028).** One bank per
 project shared with dsh, a global bank, retain from chats/run stage outputs/
