@@ -82,7 +82,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
 
   // /h/<harness>/<sessionId> needs a harness_runs row; claim on entry.
   if (firstStep) claimHarnessRun(sessionId, kind);
-  if (firstStep) recordHarnessEvent(sessionId, kind, { kind: "start" });
+  if (firstStep) recordHarnessEvent(sessionId, kind, { kind: "start", input: clipHarnessText(input.state.prompt ?? "", HARNESS_INPUT_CLIP) });
 
   const route = input.route;
   const agent = buildHarnessAgent({

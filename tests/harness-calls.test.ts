@@ -11,7 +11,7 @@ import {
   setCallWorkflowRun,
 } from "../db/harness-calls";
 import { ensureConversation } from "../db/chat";
-import { claimHarnessRun, getActiveHarnessRun, getHarnessRun } from "../lib/harness-events";
+import { claimHarnessRun, getActiveHarnessRun, getHarnessEvents, getHarnessRun } from "../lib/harness-events";
 import { conversations, harnessRuns, projects } from "../db/schema";
 import { wakeCallIfDue, sweepWakes } from "../lib/chat/wake";
 import { cancelRunTool } from "../lib/agent/tools/cancel-run";
@@ -110,6 +110,9 @@ describe("startHarnessCall", () => {
     expect(getActiveHarnessRun(conv)?.kind).toBe("pi");
     // No events-page transcript rows were fabricated; the start event is real.
     expect(getHarnessRun(conv, "pi")?.status).toBe("running");
+    // The session page shows what pi was asked: the task rides on start.
+    const start = getHarnessEvents(conv, "pi").events.find((e) => e.kind === "start");
+    expect(start?.input).toBe("fix it");
   });
 
   it("reports busy when the session slot is held (any kind)", async () => {

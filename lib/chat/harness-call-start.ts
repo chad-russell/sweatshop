@@ -3,10 +3,12 @@ import { getConversation, getHarnessResumeState } from "@/db/chat";
 import { createHarnessCall, setCallWorkflowRun, settleHarnessCall } from "@/db/harness-calls";
 import {
   claimHarnessRun,
+  clipHarnessText,
   getActiveHarnessRun,
   recordHarnessEvent,
   recordHarnessRunEnd,
 } from "@/lib/harness-events";
+import { HARNESS_INPUT_CLIP } from "@/lib/harness-limits";
 import { requireRoute } from "@/lib/providers/resolve";
 import type { HarnessRoute } from "@/lib/providers/route";
 import { start as startWorkflowRun } from "workflow/api";
@@ -121,7 +123,9 @@ export async function startHarnessCall(
     return { ok: false, code: "start-failed", message: `could not start: ${message}` };
   }
 
-  recordHarnessEvent(input.conversationId, input.kind, { kind: "start" });
+  // The task rides on the start event so the session page shows what
+  // the harness was asked (the chat card already does).
+  recordHarnessEvent(input.conversationId, input.kind, { kind: "start", input: clipHarnessText(input.task, HARNESS_INPUT_CLIP) });
   return {
     ok: true,
     callId: call.id,

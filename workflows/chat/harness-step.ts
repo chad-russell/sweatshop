@@ -208,7 +208,7 @@ export async function harnessToolStep(
 
     const hostTools = { create_pr: createPrTool(projectId) };
 
-    recordHarnessEvent(conversationId, kind, { kind: "start" });
+    recordHarnessEvent(conversationId, kind, { kind: "start", input: clipHarnessText(task, HARNESS_INPUT_CLIP) });
     try {
       let steps = 0;
       do {
