@@ -9,9 +9,9 @@ import { NewPreviewForm } from "@/components/previews/new-preview";
 import { PreviewList } from "@/components/previews/preview-list";
 import {
   ProjectDangerZone,
+  ProjectImageEditor,
   ProjectNameEditor,
   ProjectReposEditor,
-  ProjectSandboxEditor,
 } from "@/components/project/project-editors";
 import { db } from "@/db";
 import { getProjectOverview } from "@/db/projects";
@@ -32,7 +32,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
   const { projectId } = await params;
   const overview = getProjectOverview(db(), projectId);
   if (!overview) notFound();
-  const { project, repos, credentials, configOptions, config, sharedWith, setup } = overview;
+  const { project, repos, credentials, setup } = overview;
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
@@ -64,12 +64,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
 
         <section className="flex flex-col gap-2">
           <h2 className={SECTION}>Sandbox</h2>
-          <ProjectSandboxEditor
-            projectId={project.id}
-            config={config ? { id: config.id, imageRef: config.imageRef, networkPolicy: config.networkPolicy } : null}
-            configOptions={configOptions.map((c) => ({ id: c.id }))}
-            sharedWith={sharedWith}
-          />
+          <ProjectImageEditor projectId={project.id} imageRef={project.imageRef} />
         </section>
 
         <section className="flex flex-col gap-2">

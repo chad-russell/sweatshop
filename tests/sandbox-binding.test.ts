@@ -152,6 +152,9 @@ describe("0013 migration: sandbox_pref → binding", () => {
     // apply 0020+ and read the bindings back.
     const dir = mkdtempSync(path.join(tmpdir(), "sweatshop-mig-"));
     const sqlite = new Database(path.join(dir, "m.db"));
+    // 0031: migrations apply with FKs off (schema surgery posture —
+    // same as scripts/migrate.mjs and tests/setup.ts).
+    sqlite.pragma("foreign_keys = OFF");
     const folder = path.join(process.cwd(), "drizzle");
     const files = readdirSync(folder).filter((f) => f.endsWith(".sql")).sort();
     const run = (file: string) => {
@@ -177,6 +180,9 @@ describe("0013 migration: sandbox_pref → binding", () => {
         ('c_fresh', 'p', null, 0, 0),
         ('c_plain', null, null, 0, 0);
     `);
+    // 0007 (in the first slice) ends with PRAGMA foreign_keys=ON; the
+    // 0034 table recreate needs the migration posture (FKs off) again.
+    sqlite.pragma("foreign_keys = OFF");
     files.slice(split).forEach(run);
 
     const rows = Object.fromEntries(

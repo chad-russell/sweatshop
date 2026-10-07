@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { getProjectOverview, listProjectsWithRepos } from "../db/projects";
 import { getLeaseProjectId } from "../db/sandboxes";
 import { savePreviewSetup } from "../db/preview-setups";
 import { insertPreview } from "../db/previews";
-import { conversations, machineRuns, projectRepos, projects, sandboxConfigs } from "../db/schema";
+import { conversations, machineRuns, projectRepos, projects } from "../db/schema";
 import { previewProjectId, resolvePreviewContext } from "../lib/previews/context";
 
 /**
@@ -14,8 +15,8 @@ import { previewProjectId, resolvePreviewContext } from "../lib/previews/context
 
 const now = Date.now();
 
-function project(id: string, withRepo: boolean, configId?: string) {
-  db().insert(projects).values({ id, name: id, ...(configId ? { sandboxConfigId: configId } : {}), createdAt: now }).run();
+function project(id: string, withRepo: boolean) {
+  db().insert(projects).values({ id, name: id, createdAt: now }).run();
   if (!withRepo) return null;
   const repoId = `${id}/web`;
   db().insert(projectRepos).values({ id: repoId, projectId: id, name: "web", url: "https://git.example/web.git", createdAt: now }).run();
@@ -117,15 +118,14 @@ describe("0019: resolvePreviewContext", () => {
 });
 
 describe("0019: project reads", () => {
-  it("getProjectOverview: repos, config + shared-with count, setup; null for an unknown project", () => {
-    db().insert(sandboxConfigs).values({ id: "cfg_ov", name: "cfg_ov", createdAt: now }).run();
-    const repoId = project("p_ov_a", true, "cfg_ov")!;
-    project("p_ov_b", false, "cfg_ov");
+  it("getProjectOverview: repos, image, setup; null for an unknown project", () => {
+    const repoId = project("p_ov_a", true)!;
+    project("p_ov_b", false);
+    db().update(projects).set({ imageRef: "localhost/ov:1" }).where(eq(projects.id, "p_ov_a")).run();
     savePreviewSetup(db(), "p_ov_a", setupFor(repoId));
     const o = getProjectOverview(db(), "p_ov_a")!;
     expect(o.repos.map((r) => r.name)).toEqual(["web"]);
-    expect(o.config?.id).toBe("cfg_ov");
-    expect(o.sharedWith).toBe(2);
+    expect(o.project.imageRef).toBe("localhost/ov:1");
     expect(o.setup.ok && o.setup.setup?.definition.repo).toBe(repoId);
     expect(getProjectOverview(db(), "p_ov_missing")).toBeNull();
   });

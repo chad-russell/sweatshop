@@ -1,7 +1,7 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { markSandboxPreviewsStopped } from "@/db/previews";
-import { projects, sandboxConfigs } from "@/db/schema";
+import { projects } from "@/db/schema";
 import {
   deleteLease,
   getLease,
@@ -137,19 +137,13 @@ async function resumeDedicatedLease(
 }
 
 /**
- * 0013: the image a project's sandboxes run — its sandbox config's
- * `image_ref` (a project with no config uses the "default" config).
- * Null = the provider default. `network_policy` stays recorded but
- * unenforced.
+ * 0031: the image a project's sandboxes run — its `image_ref` column
+ * (was its sandbox config's, pre-fold). Null = the provider default.
  */
 export function projectSandboxImage(projectId: string): string | null {
   const row = db()
-    .select({ imageRef: sandboxConfigs.imageRef })
+    .select({ imageRef: projects.imageRef })
     .from(projects)
-    .leftJoin(
-      sandboxConfigs,
-      eq(sandboxConfigs.id, sql`coalesce(${projects.sandboxConfigId}, 'default')`),
-    )
     .where(eq(projects.id, projectId))
     .get();
   return row?.imageRef?.trim() || null;

@@ -5,12 +5,11 @@ import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
 import { FIELD, LABEL, MONO } from "@/components/form-styles";
 
 /**
- * 0018 phase 3 / 0019: the project page's editable surfaces — name,
- * sandbox config, repos (guarded removal), and the danger zone
+ * 0018 phase 3 / 0019 / 0031: the project page's editable surfaces —
+ * name, sandbox image, repos (guarded removal), and the danger zone
  * (typed-name confirmed project delete, the approved cascade). Thin
  * clients over /api/projects/[id]/*; every error surfaces its message.
  */
@@ -20,12 +19,6 @@ interface Repo {
   name: string;
   url: string;
   host: string | null;
-}
-
-interface Config {
-  id: string;
-  imageRef: string | null;
-  networkPolicy: string;
 }
 
 function useApi() {
@@ -90,35 +83,26 @@ export function ProjectNameEditor({ projectId, name }: { projectId: string; name
   );
 }
 
-/** The project's sandbox config: pick one, and edit the SHARED config
- *  (image, network policy) — other projects may run it too. */
-export function ProjectSandboxEditor({
+/** 0031: the project's sandbox image — one field, one button. Applies
+ *  to the project's next sandbox (existing ones keep their image). */
+export function ProjectImageEditor({
   projectId,
-  config,
-  configOptions,
-  sharedWith,
+  imageRef,
 }: {
   projectId: string;
-  config: Config | null;
-  configOptions: { id: string; name?: string }[];
-  sharedWith: number;
+  imageRef: string | null;
 }) {
   const router = useRouter();
   const { busy, error, note, setNote, call } = useApi();
-  const [configId, setConfigId] = useState(config?.id ?? "");
-  const [imageRef, setImageRef] = useState(config?.imageRef ?? "");
-  const [networkPolicy, setNetworkPolicy] = useState(config?.networkPolicy ?? "allow-all");
+  const [value, setValue] = useState(imageRef ?? "");
 
   const save = () =>
     call(
       () =>
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/sandbox-config`, {
+        fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            configId: configId || null,
-            ...(configId ? { imageRef, networkPolicy } : {}),
-          }),
+          body: JSON.stringify({ imageRef: value.trim() || null }),
         }),
       () => {
         setNote("Saved — applies to this project's next sandbox.");
@@ -127,57 +111,34 @@ export function ProjectSandboxEditor({
     );
 
   return (
-    <div className="flex flex-col gap-3">
-      <label className={FIELD} htmlFor="proj-config">
-        <span className={LABEL}>Sandbox config</span>
-        <NativeSelect
-          id="proj-config"
-          value={configId}
-          onChange={(e) => {
-            setConfigId(e.target.value);
-            setNote(null);
-          }}
-          className="max-w-72"
-        >
-          <option value="">none — default image, sandbox per chat</option>
-          {configOptions.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name ?? c.id}
-            </option>
-          ))}
-        </NativeSelect>
-      </label>
-
-      {configId && (
-        <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
-          <p className="text-xs text-muted-foreground">
-            Shared config{sharedWith > 1 ? ` — ${sharedWith} projects run it; edits change all of them` : ""}.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <label className={FIELD} htmlFor="proj-image">
-              <span className={LABEL}>Image ref</span>
-              <Input id="proj-image" value={imageRef} onChange={(e) => setImageRef(e.target.value)} placeholder="localhost/sweatshop-sandbox" className={MONO} />
-            </label>
-            <label className={FIELD} htmlFor="proj-network">
-              <span className={LABEL}>Network policy (recorded, not enforced)</span>
-              <NativeSelect
-                id="proj-network"
-                value={networkPolicy}
-                onChange={(e) => setNetworkPolicy(e.target.value)}
-              >
-                <option value="allow-all">allow-all</option>
-                <option value="offline">offline</option>
-              </NativeSelect>
-            </label>
-          </div>
-          <div>
-            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={save}>
-              Save config
-            </Button>
-          </div>
+    <div className="flex flex-col gap-2">
+      <label className={FIELD} htmlFor="proj-image">
+        <span className={LABEL}>Sandbox image</span>
+        <div className="flex items-center gap-2">
+          <Input
+            id="proj-image"
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setNote(null);
+            }}
+            placeholder="localhost/sweatshop-sandbox"
+            className={`${MONO} max-w-96`}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy || (value.trim() || null) === imageRef}
+            onClick={() => void save()}
+          >
+            Save
+          </Button>
         </div>
-      )}
-
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Empty = the default image (built from Containerfile.sandbox).
+      </p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       {note && <p className="text-sm text-muted-foreground">{note}</p>}
     </div>
@@ -290,8 +251,8 @@ export function ProjectDangerZone({ projectId, name }: { projectId: string; name
     <div className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-3">
       <p className="text-sm text-muted-foreground">
         Deletes the project and everything it owns — conversations and their history (hard delete, no trash),
-        machine runs, previews and their sandboxes, folders, the preview setup, repos. Machines, sandbox configs,
-        and git credentials are untouched.
+        machine runs, previews and their sandboxes, folders, the preview setup, repos. Machines and git
+        credentials are untouched.
       </p>
       <label className={FIELD} htmlFor="danger-name">
         <span className={LABEL}>Type “{name}” to confirm</span>

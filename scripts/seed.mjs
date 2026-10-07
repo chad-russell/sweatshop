@@ -33,25 +33,15 @@ const upsert = (table, row) =>
     )
     .run(...Object.values(row));
 
-// --- sandbox configs -------------------------------------------------
-upsert("sandbox_configs", {
-  id: "default",
-  name: "Default sandbox",
-  provider: "docker",
-  image_ref: null, // unset = localhost/sweatshop-sandbox (Containerfile.sandbox)
-  network_policy: "allow-all",
-  notes: "Shared base image (0004 decision 2).",
-  created_at: now(),
-});
-
 // --- projects ---------------------------------------------------------
 // Phase B spike project: a public repo, no credentials required to clone.
 // Replace with real projects (or add a push-target repo) as desired.
+// 0031: no sandbox configs — a project's image is projects.image_ref.
 upsert("projects", {
   id: "spike",
   name: "Sandbox spike",
   description: "0004 Phase A/B verification project.",
-  sandbox_config_id: "default",
+  image_ref: null,
   created_at: now(),
 });
 
@@ -81,7 +71,7 @@ upsert("projects", {
   id: "open-bible",
   name: "open-bible",
   description: "Biblica open-bible monorepo. Preview app: apps/web (pnpm/turbo workspace).",
-  sandbox_config_id: "default",
+  image_ref: null,
   created_at: now(),
 });
 

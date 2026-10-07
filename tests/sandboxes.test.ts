@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Experimental_SandboxSession } from "ai";
+import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { projects } from "../db/schema";
 import {
@@ -172,21 +173,16 @@ describe("0010 sandbox leases", () => {
   });
 });
 
-describe("0013 project image", () => {
-  it("creates a project sandbox with its config's image_ref; default config otherwise", async () => {
-    const { sandboxConfigs } = await import("../db/schema");
-    const { eq } = await import("drizzle-orm");
+describe("0013/0031 project image", () => {
+  it("creates a project sandbox with its image_ref; unset = provider default", async () => {
     const { projectSandboxImage } = await import("../lib/sandboxes/lease");
-    db().insert(sandboxConfigs).values({ id: "img-custom", name: "c", imageRef: "localhost/custom:1", createdAt: 0 })
-      .onConflictDoNothing().run();
-    db().insert(sandboxConfigs).values({ id: "default", name: "d", imageRef: null, createdAt: 0 })
-      .onConflictDoNothing().run();
-    db().insert(projects).values({ id: "p_img", name: "img", sandboxConfigId: "img-custom", createdAt: 0 })
+    db().insert(projects).values({ id: "p_img", name: "img", imageRef: "localhost/custom:1", createdAt: 0 })
       .onConflictDoNothing().run();
     db().insert(projects).values({ id: "p_noimg", name: "noimg", createdAt: 0 }).onConflictDoNothing().run();
 
     expect(projectSandboxImage("p_img")).toBe("localhost/custom:1");
     expect(projectSandboxImage("p_noimg")).toBeNull();
+    expect(projectSandboxImage("p_missing")).toBeNull();
 
     const provider = new FakeProvider();
     await acquireSandbox(
@@ -203,9 +199,10 @@ describe("0013 project image", () => {
     );
     expect(provider.created.map((s) => s.image)).toEqual(["localhost/custom:1", undefined, undefined]);
 
-    // a project whose config falls back to "default" picks up its image
-    db().update(sandboxConfigs).set({ imageRef: "localhost/default-img" }).where(eq(sandboxConfigs.id, "default")).run();
-    expect(projectSandboxImage("p_noimg")).toBe("localhost/default-img");
-    db().update(sandboxConfigs).set({ imageRef: null }).where(eq(sandboxConfigs.id, "default")).run();
+    // setting the image directly takes effect for the next acquire
+    db().update(projects).set({ imageRef: "localhost/new-img" }).where(eq(projects.id, "p_noimg")).run();
+    expect(projectSandboxImage("p_noimg")).toBe("localhost/new-img");
+    db().update(projects).set({ imageRef: null }).where(eq(projects.id, "p_noimg")).run();
+    expect(projectSandboxImage("p_noimg")).toBeNull();
   });
 });

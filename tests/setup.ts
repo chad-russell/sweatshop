@@ -17,6 +17,14 @@ process.env.WORKFLOW_LOCAL_RECOVER_ACTIVE_RUNS = "0";
 
 const sqlite = new Database(process.env.SWEATSHOP_DB);
 sqlite.pragma("journal_mode = WAL");
+// 0031: same migration posture as scripts/migrate.mjs — FKs off while
+// applying (schema surgery), then assert integrity.
+sqlite.pragma("foreign_keys = OFF");
 migrate(drizzle(sqlite), {
   migrationsFolder: path.join(process.cwd(), "drizzle"),
 });
+const violations = sqlite.prepare("PRAGMA foreign_key_check").all();
+if (violations.length > 0) {
+  throw new Error(`foreign key violations in test schema: ${JSON.stringify(violations.slice(0, 5))}`);
+}
+sqlite.pragma("foreign_keys = ON");
