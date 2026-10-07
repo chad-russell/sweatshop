@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { HarnessMark } from "@/components/harness-logo";
@@ -43,6 +43,8 @@ import {
   type ToolState,
 } from "@/lib/machine-tool-view";
 import { objectOf } from "@/lib/tool-fields";
+import type { ChildStatus } from "@/lib/child-status";
+import { elapsed, useChildStatus } from "@/lib/use-child-status";
 import { cn } from "@/lib/utils";
 
 // --- shell --------------------------------------------------------------------
@@ -154,6 +156,43 @@ function Card({
 
 const statePill = (state: ToolState, failed: boolean): { tone: Tone; pill: string } =>
   failed ? { tone: "fail", pill: "failed" } : state === "running" ? { tone: "running", pill: "running" } : { tone: "ok", pill: "done" };
+
+/** The pill for a background child's own status (0022 runs / calls). */
+export function childPill(s: ChildStatus): { tone: Tone; pill: string } {
+  switch (s.status) {
+    case "running":
+      return { tone: "running", pill: "running" };
+    case "waiting":
+      return { tone: "warn", pill: "waiting on you" };
+    case "needs-attention":
+      return { tone: "warn", pill: "needs attention" };
+    case "completed":
+      return { tone: "ok", pill: "completed" };
+    case "failed":
+      return { tone: "fail", pill: "failed" };
+    case "cancelled":
+      return { tone: "neutral", pill: "cancelled" };
+    default:
+      return { tone: "neutral", pill: s.status };
+  }
+}
+
+/** Stage (runs) and elapsed time — ticking while live, frozen once settled. */
+export function ChildMeta({ status }: { status: ChildStatus }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!status.live) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [status.live]);
+  const end = status.live ? now : (status.settledAt ?? now);
+  return (
+    <MetaChip>
+      {status.stage && status.live ? `${status.stage} · ` : ""}
+      {elapsed(status.startedAt, end)}
+    </MetaChip>
+  );
+}
 
 /** Failure lines for a card: the tool's own `ok:false` (with its issues) or a thrown error. */
 function failureLines(output: unknown, errorText?: string): string[] | undefined {
@@ -386,18 +425,27 @@ export function StartMachineCard({
   const run = runStarted(output);
   const i = objectOf(input);
   const prompt = typeof i?.prompt === "string" ? i.prompt : undefined;
-  const failed = state === "error" || Boolean(failureOf(output));
-  const sp = statePill(state, failed);
+  // The tool's own result only says the run STARTED; once it has, the
+  // pill follows the run itself (polled while it is live).
+  const live = useChildStatus(run?.runId ?? null);
+  const failedToStart = state === "error" || Boolean(failureOf(output));
+  const sp = live ? childPill(live) : statePill(state, failedToStart);
+  const failed = failedToStart || live?.status === "failed";
   return (
     <Card
       icon={PlayIcon}
-      title={state === "running" ? "Starting run" : "Started run"}
+      title={state === "running" ? "Starting run" : "Run"}
       subtitle={typeof i?.machineId === "string" ? i.machineId : "…"}
-      extra={run?.sandbox ? <MetaChip>{run.sandbox === "inherited" ? "this sandbox" : run.sandbox === "own" ? "own sandbox" : "no sandbox"}</MetaChip> : undefined}
+      extra={
+        <>
+          {live && <ChildMeta status={live} />}
+          {run?.sandbox ? <MetaChip>{run.sandbox === "inherited" ? "this sandbox" : run.sandbox === "own" ? "own sandbox" : "no sandbox"}</MetaChip> : null}
+        </>
+      }
       link={run ? { href: run.url, label: "Open run" } : undefined}
       {...sp}
       failed={failed}
-      errorLines={failureLines(output, errorText)}
+      errorLines={failureLines(output, errorText) ?? (live?.status === "failed" && live.error ? [live.error] : undefined)}
       defaultOpen={Boolean(prompt)}
     >
       {prompt ? (
