@@ -10,7 +10,6 @@ import {
   previewSetups,
   projects,
   projectRepos,
-  sandboxCalls,
   sandboxAttachments,
   sandboxConfigs,
   sandboxes,
@@ -271,7 +270,6 @@ export function deleteProjectRows(db: Db, projectId: string): ProjectResult<{ co
     }
 
     if (sandboxIds.length) {
-      tx.delete(sandboxCalls).where(inArray(sandboxCalls.sandboxId, sandboxIds)).run();
       tx.delete(sandboxAttachments).where(inArray(sandboxAttachments.sandboxId, sandboxIds)).run();
       tx.delete(sandboxes).where(inArray(sandboxes.id, sandboxIds)).run();
     }

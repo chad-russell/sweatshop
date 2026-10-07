@@ -93,11 +93,10 @@ export async function drainSteerStep(conversationId: string): Promise<string[]> 
 export async function bashStep(
   conversationId: string,
   command: string,
-  toolCallId?: string,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   "use step";
   const { runBash } = await import("../../lib/agent/tools/bash");
-  return runBash(conversationId, command, undefined, toolCallId);
+  return runBash(conversationId, command);
 }
 
 /** 0010 Phase 3: open a PR on one of the bound project's repos (0004 D). */

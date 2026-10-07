@@ -306,35 +306,6 @@ export const sandboxAttachments = sqliteTable(
 );
 
 /**
- * 0011: which sandbox each sandboxed tool call actually ran in, keyed by
- * the AI SDK toolCallId. Written when the call acquires its sandbox, so
- * it records what happened, not what the conversation's pref said.
- */
-export const sandboxCalls = sqliteTable(
-  "sandbox_calls",
-  {
-    toolCallId: text("tool_call_id").primaryKey(),
-    sandboxId: text("sandbox_id")
-      .notNull()
-      .references(() => sandboxes.id),
-    conversationId: text("conversation_id")
-      .notNull()
-      .references(() => conversations.id),
-    /** "bash" | "pi" | "claude". */
-    tool: text("tool").notNull(),
-    /** "dedicated" | "attached". */
-    via: text("via").notNull(),
-    /** Workdir inside the sandbox: /work/<conversationId>. */
-    workdir: text("workdir").notNull(),
-    at: integer("at").notNull(),
-  },
-  (table) => [
-    index("sandbox_calls_sandbox_idx").on(table.sandboxId),
-    index("sandbox_calls_conversation_idx").on(table.conversationId),
-  ],
-);
-
-/**
  * 0004 — projects & sandboxes. Projects break up types of work; a
  * project is defined by one or more git repos, references a shareable
  * sandbox config, and its repos' remotes resolve credentials by host.

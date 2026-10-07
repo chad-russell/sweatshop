@@ -10,7 +10,6 @@ import {
   machineRuns,
   messages,
   sandboxAttachments,
-  sandboxCalls,
 } from "./schema";
 
 /**
@@ -344,9 +343,8 @@ export function deleteConversationForever(db: Db, id: string): string[] {
         .run();
       tx.delete(harnessEvents).where(eq(harnessEvents.sessionId, sid)).run();
       tx.delete(harnessRuns).where(eq(harnessRuns.sessionId, sid)).run();
-      // 0011 sandbox records name the conversation (FKs): its calls and
+      // 0011 sandbox records name the conversation (FKs): its
       // attachments go with it; the sandbox rows themselves stay.
-      tx.delete(sandboxCalls).where(eq(sandboxCalls.conversationId, sid)).run();
       tx.delete(sandboxAttachments).where(eq(sandboxAttachments.conversationId, sid)).run();
       tx.delete(conversations).where(eq(conversations.id, sid)).run();
     }

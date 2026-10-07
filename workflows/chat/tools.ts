@@ -228,7 +228,7 @@ export function buildChatTools(
         inputSchema: z.object({
           command: z.string().max(20_000).describe("The bash command to run."),
         }),
-        execute: ({ command }, { toolCallId }) => bashStep(conversationId, command, toolCallId),
+        execute: ({ command }) => bashStep(conversationId, command),
       }),
       // 0016: previews live in the sandbox, so they need one too.
       ...previewTools((action, input) => previewToolStep(conversationId, action, input)),
@@ -243,8 +243,7 @@ export function buildChatTools(
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
-        execute: ({ task }, { toolCallId }) =>
-          harnessToolStep({ conversationId, kind: "pi", task, toolCallId }),
+        execute: ({ task }) => harnessToolStep({ conversationId, kind: "pi", task }),
       }),
 
       claude: tool({
@@ -256,8 +255,7 @@ export function buildChatTools(
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
-        execute: ({ task }, { toolCallId }) =>
-          harnessToolStep({ conversationId, kind: "claude", task, toolCallId }),
+        execute: ({ task }) => harnessToolStep({ conversationId, kind: "claude", task }),
       }),
     }),
 

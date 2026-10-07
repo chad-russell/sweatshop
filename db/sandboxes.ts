@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, lt, ne, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Db } from "./index";
-import { conversations, machineRuns, sandboxAttachments, sandboxCalls, sandboxes } from "./schema";
+import { conversations, machineRuns, sandboxAttachments, sandboxes } from "./schema";
 
 /**
  * 0010 Phase 2 sandbox lease store. The `sandboxes` table is a registry
@@ -222,52 +222,6 @@ export function getAttachmentByConversation(
     .where(eq(sandboxAttachments.conversationId, conversationId))
     .get();
   return row ?? null;
-}
-
-/** 0011: one sandboxed tool call's attribution row. */
-export interface SandboxCall {
-  toolCallId: string;
-  sandboxId: string;
-  conversationId: string;
-  tool: "bash" | "pi" | "claude";
-  via: "dedicated" | "attached";
-  workdir: string;
-  at: number;
-}
-
-/**
- * Record the sandbox a tool call actually ran in. Idempotent on
- * toolCallId (a step retry re-records the same call), keeping the first
- * row's timestamp.
- */
-export function recordSandboxCall(db: Db, call: Omit<SandboxCall, "at">): void {
-  db.insert(sandboxCalls)
-    .values({ ...call, at: Date.now() })
-    .onConflictDoUpdate({
-      target: sandboxCalls.toolCallId,
-      set: { sandboxId: call.sandboxId, via: call.via, workdir: call.workdir },
-    })
-    .run();
-}
-
-export function listCallsForConversation(db: Db, conversationId: string): SandboxCall[] {
-  return db
-    .select()
-    .from(sandboxCalls)
-    .where(eq(sandboxCalls.conversationId, conversationId))
-    // rowid breaks ties between calls recorded in the same millisecond, so
-    // "previous call" (the switched flag) is insertion order, not luck.
-    .orderBy(asc(sandboxCalls.at), asc(sql`rowid`))
-    .all() as SandboxCall[];
-}
-
-export function listCallsForSandbox(db: Db, sandboxId: string): SandboxCall[] {
-  return db
-    .select()
-    .from(sandboxCalls)
-    .where(eq(sandboxCalls.sandboxId, sandboxId))
-    .orderBy(desc(sandboxCalls.at), desc(sql`rowid`))
-    .all() as SandboxCall[];
 }
 
 // ── 0013: conversation sandbox bindings ─────────────────────────────────

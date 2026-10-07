@@ -64,10 +64,9 @@ function SandboxList({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{s.ownerLabel}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {s.ownerKind === "machine_run" ? "machine run" : "chat"}
+                  {s.ownerKind === "machine_run" ? "machine run" : s.ownerKind === "preview" ? "branch preview" : "chat"}
                   {s.projectName ? ` · ${s.projectName}` : ""}
-                  {" · "}
-                  {s.calls} call{s.calls === 1 ? "" : "s"} · {s.chats} chat{s.chats === 1 ? "" : "s"}
+                  {s.chats > 0 ? ` · ${s.chats} chat${s.chats === 1 ? "" : "s"}` : ""}
                 </span>
               </span>
               <span className="flex shrink-0 flex-col items-end gap-0.5">

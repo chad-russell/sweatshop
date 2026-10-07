@@ -208,19 +208,19 @@ describe("0013 run sandboxes on purge", () => {
     expect(deleteConversationForever(db(), inherited.id)).toEqual([]);
   });
 
-  it("a chat with recorded sandbox calls and an attachment can be purged", async () => {
+  it("a chat with an attachment can be purged", async () => {
     const { deleteConversationForever } = await import("../db/organize");
     const { attachConversation } = await import("../lib/sandboxes/binding");
-    const { listCallsForSandbox, getLease } = await import("../db/sandboxes");
+    const { getConversationBinding, getLease } = await import("../db/sandboxes");
     const provider = new FakeProvider();
     ensureConversation(db(), "c_mb_owner", "p_mb");
-    const owner = await openConversationSandbox("c_mb_owner", provider, { toolCallId: "own_call", tool: "bash" });
+    const owner = await openConversationSandbox("c_mb_owner", provider);
     ensureConversation(db(), "c_mb_guest");
     await attachConversation("c_mb_guest", owner.sandboxId, provider);
-    await openConversationSandbox("c_mb_guest", provider, { toolCallId: "guest_call", tool: "bash" });
+    await openConversationSandbox("c_mb_guest", provider);
 
     expect(deleteConversationForever(db(), "c_mb_guest")).toEqual([]);
-    expect(listCallsForSandbox(db(), owner.sandboxId).map((c) => c.toolCallId)).toEqual(["own_call"]);
+    expect(getConversationBinding(db(), "c_mb_owner")).toMatchObject({ sandboxId: owner.sandboxId });
     expect(getLease(db(), owner.sandboxId)?.status).toBe("running");
   });
 });

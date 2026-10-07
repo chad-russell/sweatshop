@@ -103,8 +103,6 @@ export interface HarnessToolStepInput {
   conversationId: string;
   kind: "pi" | "claude";
   task: string;
-  /** 0011: the AI SDK tool call, for sandbox attribution. */
-  toolCallId?: string;
   /** 0013: run in this binding (an agent stage's — the run's) with
    *  this project, instead of the conversation's own binding. */
   inherited?: { binding: BoundSandbox; projectId: string };
@@ -121,7 +119,7 @@ export async function harnessToolStep(
   input: HarnessToolStepInput,
 ): Promise<HarnessToolStepResult> {
   "use step";
-  const { conversationId, kind, task, toolCallId, inherited } = input;
+  const { conversationId, kind, task, inherited } = input;
   const [
     { createHarnessWorkflowState, runHarnessAgentStep },
     { toNetworkSandboxSession },
@@ -174,10 +172,9 @@ export async function harnessToolStep(
     // use) or the one it attached to, in the bound working directory.
     // An agent stage passes the run's binding instead (0013 inherit).
     const { openConversationSandbox, openInheritedSandbox } = await import("../../lib/sandboxes/binding");
-    const attribution = toolCallId ? { toolCallId, tool: kind } : undefined;
     const { sandboxId, workDir, handle } = inherited
-      ? await openInheritedSandbox(conversationId, inherited.binding, undefined, attribution)
-      : await openConversationSandbox(conversationId, undefined, attribution);
+      ? await openInheritedSandbox(inherited.binding)
+      : await openConversationSandbox(conversationId);
     const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
 
     const resumeFrom =

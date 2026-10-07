@@ -2,7 +2,7 @@ import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import { ensureConversation, setActiveRun } from "../db/chat";
-import { getLease, listCallsForSandbox } from "../db/sandboxes";
+import { getLease } from "../db/sandboxes";
 import { createMachine, createRun, bindRun } from "../db/machines";
 import { projects } from "../db/schema";
 import { claimHarnessRun } from "../lib/harness-events";
@@ -111,19 +111,12 @@ describe("0013 sandbox reaper", () => {
     expect(provider.log.join(" ")).not.toContain(ids.chat4d);
   });
 
-  it("marks destroyed rows and keeps their call history", async () => {
+  it("marks destroyed rows and keeps them as history", async () => {
     const provider = new FakeProvider();
     const id = lease("conversation", "stopped", 20 * DAY, "c_gc_hist");
     ensureConversation(db(), "c_gc_hist");
-    db().$client
-      .prepare(
-        "insert into sandbox_calls (tool_call_id, sandbox_id, conversation_id, tool, via, workdir, at) " +
-          "values ('gc_call', ?, 'c_gc_hist', 'bash', 'dedicated', '/work/c_gc_hist', 0)",
-      )
-      .run(id);
     await reap({ apply: true, provider });
     expect(getLease(db(), id)).toMatchObject({ status: "destroyed", destroyedAt: expect.any(Number) });
-    expect(listCallsForSandbox(db(), id)).toHaveLength(1);
   });
 
   it("a dry run changes nothing", async () => {

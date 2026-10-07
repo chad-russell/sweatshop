@@ -192,12 +192,6 @@ describe("0018 phase 3: the delete cascade", () => {
     fixtureSandbox(sandboxId, "p_del");
     const previewId = `pv_del${Math.floor(Math.random() * 1e6)}`;
     fixturePreview(previewId, sandboxId, repoId);
-    db()
-      .$client.prepare(
-        "insert into sandbox_calls (tool_call_id, sandbox_id, conversation_id, tool, via, workdir, at) " +
-          "values (?, ?, 'c_crud_chat', 'bash', 'dedicated', '/w', ?)",
-      )
-      .run(`tc_del${Math.floor(Math.random() * 1e6)}`, sandboxId, now);
     savePreviewSetup(db(), "p_del", {
       repo: repoId,
       workDir: ".",
@@ -224,7 +218,6 @@ describe("0018 phase 3: the delete cascade", () => {
     expect(rows("previews", "id", previewId)).toBe(0);
     expect(rows("preview_events", "preview_id", previewId)).toBe(0);
     expect(rows("sandboxes", "id", sandboxId)).toBe(0);
-    expect(rows("sandbox_calls", "sandbox_id", sandboxId)).toBe(0);
     expect(rows("projects", "id", "p_del")).toBe(0);
 
     // untouched: the other project's world

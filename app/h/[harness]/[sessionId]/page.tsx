@@ -49,7 +49,7 @@ export default async function HarnessSessionPage({
         <HarnessSessionView
           initialRun={run}
           initialEvents={page.events}
-          sandbox={sandboxForHarnessSession(db(), sessionId, harness)}
+          sandbox={sandboxForHarnessSession(db(), sessionId)}
           parent={{
             id: sessionId,
             title: parent?.title ?? null,
