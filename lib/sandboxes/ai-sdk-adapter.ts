@@ -8,9 +8,9 @@ import type { SandboxShell } from "@/lib/sandbox-shell";
 
 /**
  * The canonical SandboxShell seam plus real long-lived process support
- * (0006) — implemented by ProvisionedSandbox (Path B) and by a thin
- * wrapper over an eve session sandbox (Path A), so both paths present
- * identical AI SDK sessions.
+ * (0006) — implemented by a SandboxHandle from the provider (0031: the
+ * one handle type), so every consumer sees the identical AI SDK
+ * session.
  */
 export interface SandboxShellLike extends SandboxShell {
   /**

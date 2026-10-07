@@ -1,12 +1,12 @@
 import type { Experimental_SandboxSession } from "ai";
 import {
-  attachSandbox,
   createContainer,
+  execSandbox,
   removeContainer,
   sandboxWorkRoot,
+  spawnInSandbox,
   startContainer,
   stopContainer,
-  type ProvisionedSandbox,
 } from "@/lib/sandboxes/provision";
 import { setupProjectWorkspace } from "@/lib/sandboxes/workspace";
 
@@ -16,6 +16,10 @@ import { setupProjectWorkspace } from "@/lib/sandboxes/workspace";
  * acquireSandbox (lib/sandboxes/lease.ts) and never learns what a
  * sandbox is made of: podman containers today, VMs later. "Sandbox", not
  * "container", is the vocabulary on purpose (docs/0010).
+ *
+ * 0031: ONE provisioning path and ONE handle type — the provider is
+ * the only creator, and attach/run/spawn are the podman primitives
+ * composed inline (the 0004 Path B parallel API is gone).
  */
 
 export interface SandboxSpec {
@@ -25,7 +29,7 @@ export interface SandboxSpec {
   root?: string;
   /** Deterministic provider name prefix (owner id is used). */
   namePrefix: string;
-  /** 0013: the image to run — the project's sandbox config `image_ref`;
+  /** 0013: the image to run — the project's `image_ref`;
    *  unset = the provider default (`localhost/sweatshop-sandbox`). */
   image?: string;
 }
@@ -62,7 +66,7 @@ function suffix(): string {
 
 /**
  * The podman provider (the only one today): a sibling container on host
- * podman — the project config's image, else `localhost/sweatshop-sandbox` — with
+ * podman — the project's image, else `localhost/sweatshop-sandbox` — with
  * the project's repos cloned under the work root. `stop` is a plain
  * container stop — filesystem state survives (unlike eve's selector,
  * which replaced stopped session containers with fresh ones).
@@ -96,12 +100,11 @@ export const podmanProvider: SandboxProvider = {
   },
 
   attach(ref: string, root?: string): SandboxHandle {
-    const attached: ProvisionedSandbox = attachSandbox(ref, root);
     return {
-      ref: attached.containerName,
+      ref,
       run: (command, env, workingDirectory) =>
-        attached.run(command, env, workingDirectory),
-      spawn: attached.spawn,
+        execSandbox(ref, command, env, workingDirectory ?? root),
+      spawn: spawnInSandbox(ref, root),
     };
   },
 

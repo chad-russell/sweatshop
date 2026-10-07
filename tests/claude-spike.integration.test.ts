@@ -22,9 +22,10 @@ run("claude harness bridge spike (0006/0013)", () => {
     "bootstraps the claude bridge and completes the WS handshake",
     async () => {
       process.env.SWEATSHOP_DB = "data/sweatshop.db";
-      const { attachSandbox, createContainer, removeContainer } = await import(
+      const { createContainer, removeContainer } = await import(
         "../lib/sandboxes/provision"
       );
+      const { podmanProvider } = await import("../lib/sandboxes/provider");
       const { toNetworkSandboxSession } = await import(
         "../lib/sandboxes/ai-sdk-adapter"
       );
@@ -35,13 +36,13 @@ run("claude harness bridge spike (0006/0013)", () => {
       const name = `sweatshop-claude-spike-${Date.now()}`;
       const workDir = "/work/claude-spike";
       await createContainer(name);
-      const sb = attachSandbox(name, workDir);
+      const sb = podmanProvider.attach(name, workDir);
       await sb.run(`mkdir -p ${workDir}/scratch`, undefined, "/");
 
       try {
         const sandboxSession = toNetworkSandboxSession({
           id: name,
-          handle: { ref: name, run: sb.run, spawn: sb.spawn },
+          handle: sb,
           workDir,
         });
         const endpoint = await sandboxSession.getPortEndpoint({

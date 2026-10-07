@@ -24,7 +24,7 @@ run("machines spike (0009)", () => {
     "pi then claude, step by step, in one container",
     async () => {
       process.env.SWEATSHOP_DB = "data/sweatshop.db";
-      const { provisionProjectSandbox } = await import("../lib/sandboxes/provision");
+      const { podmanProvider } = await import("../lib/sandboxes/provider");
       const { toNetworkSandboxSession } = await import("../lib/sandboxes/ai-sdk-adapter");
       const { HarnessAgent } = await import("@ai-sdk/harness/agent");
       const { createPi } = await import("@ai-sdk/harness-pi");
@@ -34,14 +34,15 @@ run("machines spike (0009)", () => {
       );
       const { isStepCount } = await import("ai");
 
-      const sb = await provisionProjectSandbox("spike");
+      const provider = podmanProvider;
+      const sb = await provider.create({ projectId: "spike", namePrefix: "machine-spike" });
       const sandboxSession = toNetworkSandboxSession({
-        id: sb.containerName,
-        handle: { ref: sb.containerName, run: sb.run, spawn: sb.spawn },
+        id: sb.ref,
+        handle: sb,
         // Same default directory the basic session resolved via pwd.
         workDir: (await sb.run("pwd")).stdout.trim(),
       });
-      console.log("CONTAINER", sb.containerName);
+      console.log("CONTAINER", sb.ref);
 
       // Fresh agent per call — a step never sees a cached in-memory agent.
       const buildPi = () =>
@@ -142,7 +143,7 @@ run("machines spike (0009)", () => {
           console.log("claude stage skipped: CLAUDE_CODE_OAUTH_TOKEN unset");
         }
       } finally {
-        await sb.remove();
+        await provider.destroy(sb.ref);
       }
     },
     1_200_000,
