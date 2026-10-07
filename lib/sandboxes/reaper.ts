@@ -17,8 +17,8 @@ import { destroySandboxServices, stopSandboxServices } from "@/lib/sandboxes/ser
  * timer, "Run cleanup now", and `npm run sandbox:gc` all call `reap`)
  * plus the manual per-sandbox Stop / Destroy.
  *
- * Windows are per owner kind: a run's sandbox is mostly kept for
- * after-the-fact inspection, a chat's for coming back to. A destroyed
+ * 0031: ONE window for every owner kind (stop 30m, destroy 7d,
+ * env-overridable) — the per-kind split never earned its keep. A destroyed
  * sandbox's row is MARKED destroyed, never deleted (0011 — recorded
  * calls keep their target). A sandbox someone is actively working in is
  * never stopped or destroyed, however stale its last-use stamp.
@@ -38,22 +38,11 @@ function envNumber(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-export function reapWindows(): Record<"conversation" | "machine_run" | "preview", ReapWindows> {
+/** 0031: one window — idle stop and final destroy, env-overridable. */
+export function reapWindows(): ReapWindows {
   return {
-    conversation: {
-      stopMs: envNumber("GC_STOP_MINUTES", 30) * MINUTE,
-      destroyMs: envNumber("GC_DESTROY_DAYS", 14) * DAY,
-    },
-    machine_run: {
-      stopMs: envNumber("GC_RUN_STOP_MINUTES", 10) * MINUTE,
-      destroyMs: envNumber("GC_RUN_DESTROY_DAYS", 3) * DAY,
-    },
-    // 0016: a branch preview's dedicated sandbox. Its idle clock starts
-    // when its last preview stops (a serving preview keeps it busy).
-    preview: {
-      stopMs: envNumber("GC_STOP_MINUTES", 30) * MINUTE,
-      destroyMs: envNumber("GC_PREVIEW_DESTROY_DAYS", 7) * DAY,
-    },
+    stopMs: envNumber("GC_STOP_MINUTES", 30) * MINUTE,
+    destroyMs: envNumber("GC_DESTROY_DAYS", 7) * DAY,
   };
 }
 
@@ -129,7 +118,6 @@ export async function reap(
 ): Promise<ReapReport> {
   const now = options.now ?? Date.now();
   const provider = options.provider ?? sandboxProvider();
-  const windows = reapWindows();
   const report: ReapReport = { apply: options.apply, actions: [], errors: [] };
 
   // 0016: idle previews first — stopping one can free its sandbox for
@@ -159,7 +147,7 @@ export async function reap(
       }
       continue;
     }
-    const window = windows[row.ownerKind as keyof typeof windows] ?? windows.conversation;
+    const window = reapWindows();
     const due =
       idleMs > window.destroyMs
         ? "destroy"
