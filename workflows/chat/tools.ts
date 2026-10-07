@@ -5,6 +5,7 @@ import { harnessToolStep } from "./harness-step";
 import { runOverridesSchema } from "../../lib/providers/route";
 import {
   bashStep,
+  cancelRunStep,
   createMachineStep,
   createPrStep,
   deleteMachineStep,
@@ -94,9 +95,11 @@ export function buildChatTools(
     start_machine: tool({
       description:
         "Start a machine run (a multi-stage pipeline: coding harnesses, agent conversations, and " +
-        "Chad's approval gates) and return its URL. Call with no machineId to list machines available here. " +
-        "A project machine runs in THIS conversation's sandbox and directory (it sees and changes the same " +
-        "files) unless fresh: true gives it a new sandbox of its own.",
+        "Chad's approval gates) — it runs in the background and THIS conversation gets a '[run …]' " +
+        "message when it finishes, fails, parks, or waits for Chad. Call with no machineId to list " +
+        "machines available here. A project machine runs in THIS conversation's sandbox and directory " +
+        "(it sees and changes the same files) unless fresh: true gives it a new sandbox of its own. " +
+        "Check on it with inspect; stop it with cancel_run.",
       inputSchema: z.object({
         machineId: z.string().optional().describe("Machine id; omit to list machines"),
         prompt: z.string().optional().describe("The task the run works on (required to start)"),
@@ -122,6 +125,17 @@ export function buildChatTools(
           ...(overrides ? { overrides } : {}),
         });
       },
+    }),
+
+    cancel_run: tool({
+      description:
+        "Cancel a machine run you started (or are watching): a running or waiting run stops and is " +
+        "marked cancelled; its sandbox and work are kept. The conversation still gets a record of it " +
+        "in /r/<runId>. Check state first with inspect if unsure.",
+      inputSchema: z.object({
+        runId: z.string().min(1).describe("Run id (mr_…)"),
+      }),
+      execute: ({ runId }) => cancelRunStep(runId),
     }),
 
     // 0013 Phase 6: post-mortems from outside — no project or binding
