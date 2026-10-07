@@ -125,7 +125,7 @@ export async function listMachinesStep(
 /** 0010 Phase 3: start a machine run directly, in-process (0009). */
 export async function startMachineStep(
   conversationId: string,
-  input: { machineId: string; prompt: string; fresh?: boolean },
+  input: { machineId: string; prompt: string; fresh?: boolean; overrides?: unknown },
 ): Promise<{ runId: string; url: string; sandbox: "inherited" | "own" | "none" }> {
   "use step";
   const { startMachineRun } = await import("../../lib/agent/tools/start-machine");
@@ -236,6 +236,25 @@ export async function pendingStep(
 
 /** 0010 Phase 4: generated titles (0007) for new-runtime conversations —
  *  fired from the turn (the mirror hook fired for eve's). */
+/**
+ * 0021: resolve and validate the chat turn's route (conversation >
+ * project > global) — a step because it reads sqlite and env. A route
+ * the project forbids, or a provider without a key, fails the turn with
+ * the reason (value-shaped issues joined) instead of a mid-stream 401.
+ */
+export async function resolveTurnRouteStep(
+  conversationId: string,
+): Promise<{ route: import("../../lib/providers/route").ChatRoute; layer: import("../../lib/providers/route").RouteLayer }> {
+  "use step";
+  const [{ db }, { getConversation }, { requireRoute }] = await Promise.all([
+    import("../../db"),
+    import("../../db/chat"),
+    import("../../lib/providers/resolve"),
+  ]);
+  const conversation = getConversation(db(), conversationId);
+  return requireRoute(db(), "chat", { conversation: conversation?.route ?? null }, conversation?.projectId);
+}
+
 export async function maybeTitleStep(conversationId: string): Promise<void> {
   "use step";
   const { maybeGenerateTitle } = await import("../../lib/titles");
@@ -252,15 +271,12 @@ export async function persistTurn(
   conversationId: string,
   messages: ModelMessage[],
   skip: number,
+  /** 0021: recorded on the turn's first assistant row ("what actually ran"). */
+  route?: import("../../db/chat").MessageRowMetadata["route"],
 ): Promise<number> {
   "use step";
   const { db, chat } = await chatStore();
-  const tail: {
-    id: string;
-    role: "user" | "assistant" | "tool";
-    text: string;
-    modelMessage: ModelMessage;
-  }[] = [];
+  const tail: import("../../db/chat").NewMessageRow[] = [];
   messages.slice(skip).forEach((message, i) => {
     // System messages are injected viewing notes (and the agent's
     // instructions) — model input only, never persisted as rows.
@@ -272,6 +288,8 @@ export async function persistTurn(
       modelMessage: message,
     });
   });
+  const firstAssistant = tail.find((row) => row.role === "assistant");
+  if (route && firstAssistant) firstAssistant.metadata = { route };
   chat.appendMessages(db, conversationId, tail);
   chat.setActiveRun(db, conversationId, null);
   return tail.length;

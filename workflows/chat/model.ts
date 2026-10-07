@@ -6,7 +6,8 @@ import type {
 import type { LanguageModel } from "ai";
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { scriptedChatModel } from "./mock-model";
-import { zaiModel } from "../../lib/model";
+import { chatLanguageModel } from "../../lib/providers/registry";
+import type { ChatRoute } from "../../lib/providers/route";
 
 /**
  * 0010 spike model factory. The model instance crosses a step boundary
@@ -25,7 +26,8 @@ import { zaiModel } from "../../lib/model";
  * it ever matters.)
  */
 
-type ChatModelData = { kind: "zai"; modelId: string } | { kind: "mock" };
+/** 0021: the recipe is the route (provider + model), never the instance. */
+type ChatModelData = { kind: "route"; route: ChatRoute } | { kind: "mock" };
 
 /** Structural shape shared by every spec version we wrap (v3: zhipu, v4: mock). */
 interface AnyLanguageModel {
@@ -41,7 +43,7 @@ function buildInner(data: ChatModelData): AnyLanguageModel {
   if (data.kind === "mock") {
     return scriptedChatModel() as unknown as AnyLanguageModel;
   }
-  return zaiModel(data.modelId) as unknown as AnyLanguageModel;
+  return chatLanguageModel(data.route.provider, data.route.model) as unknown as AnyLanguageModel;
 }
 
 export class SerializableChatModel {
@@ -80,14 +82,11 @@ export class SerializableChatModel {
   }
 }
 
-export async function buildTurnModel(modelId: string): Promise<LanguageModel> {
+export async function buildTurnModel(route: ChatRoute): Promise<LanguageModel> {
   if (process.env.SWEATSHOP_CHAT_MOCK && process.env.NODE_ENV === "test") {
     return new SerializableChatModel({ kind: "mock" }) as unknown as LanguageModel;
   }
-  return new SerializableChatModel(
-    { kind: "zai", modelId },
-    zaiModel(modelId) as unknown as AnyLanguageModel,
-  ) as unknown as LanguageModel;
+  return new SerializableChatModel({ kind: "route", route }) as unknown as LanguageModel;
 }
 
 export type { LanguageModelV3, LanguageModelV4 };

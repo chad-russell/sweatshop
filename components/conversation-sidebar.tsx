@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowLeft, Box, Inbox, MessageSquare, MonitorPlay, PanelLeft, Search, SquarePen, Trash2, Workflow, X } from "lucide-react";
+import { Archive, ArrowLeft, Box, Inbox, MessageSquare, MonitorPlay, PanelLeft, Search, Settings, SquarePen, Trash2, Workflow, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -254,6 +254,18 @@ export function ConversationSidebar({
           >
             <MonitorPlay className="size-4 shrink-0 text-sidebar-foreground/60" />
             <span className="flex-1">Previews</span>
+          </Link>
+          {/* 0021: default model routes, provider availability. */}
+          <Link
+            href="/settings"
+            aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent/60",
+              pathname.startsWith("/settings") && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+          >
+            <Settings className="size-4 shrink-0 text-sidebar-foreground/60" />
+            <span className="flex-1">Settings</span>
           </Link>
         </div>
 

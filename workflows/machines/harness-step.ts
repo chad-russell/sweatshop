@@ -2,6 +2,7 @@ import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "@/lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { MachineDefinition } from "@/lib/machines/definition";
 import type { BoundSandbox } from "@/db/sandboxes";
+import type { HarnessRoute } from "@/lib/providers/route";
 import { harnessEventSink } from "../shared/harness-sink";
 
 /**
@@ -24,6 +25,8 @@ export interface HarnessStepInput {
   projectId: string;
   /** 0013: the run's binding (own or inherited). */
   binding: BoundSandbox;
+  /** 0021: the visit's resolved, validated route. */
+  route: HarnessRoute;
   state: HarnessWorkflowState;
 }
 
@@ -52,7 +55,11 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     import("@/lib/harness-events"),
     import("workflow"),
   ]);
-  const { stageSessionId } = await import("@/db/machines");
+  const [{ stageSessionId }, { db }, { getModelInfo }] = await Promise.all([
+    import("@/db/machines"),
+    import("@/db"),
+    import("@/db/providers"),
+  ]);
 
   const stage = input.definition.stages[input.stageId];
   if (!stage || stage.kind !== "harness") throw new Error(`stage ${input.stageId} is not a harness stage`);
@@ -77,12 +84,12 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   if (firstStep) claimHarnessRun(sessionId, kind);
   if (firstStep) recordHarnessEvent(sessionId, kind, { kind: "start" });
 
+  const route = input.route;
   const agent = buildHarnessAgent({
-    harness: kind,
+    route,
     sessionId,
     tools,
-    model: stage.model,
-    thinking: stage.thinking,
+    ...(route.harness === "pi" ? { modelInfo: getModelInfo(db(), route.provider, route.model) } : {}),
   });
 
   // Tee the UI chunks through the shared harness sink (0031): events

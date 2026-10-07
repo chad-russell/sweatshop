@@ -131,7 +131,7 @@ pi/claude adapters (exact pins, together; AGENTS.md pairing rule), then
 typecheck/lint/test and a live pi + claude smoke. Required before Cursor;
 safe to do first.
 
-**1.2 Providers and routes (doc 0021, drafted 2026-10-07).** GLM, Gloo,
+**1.2 Providers and routes (doc 0021) — implemented 2026-10-08.** GLM, Gloo,
 OpenRouter as providers for chats, agent stages and pi; one route value
 resolved run → stage → conversation → project → global; per-surface
 defaults on a new `/settings` page (swap test vs real models in one

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { chatRouteSchema, harnessRouteSchema } from "../providers/route";
 
 /**
  * 0009 machine definitions: the JSON a machine row stores and every run
@@ -17,8 +18,6 @@ export const END = "end";
 
 export const HARNESSES = ["pi", "claude"] as const;
 export type StageHarness = (typeof HARNESSES)[number];
-
-const THINKING = ["off", "low", "medium", "high"] as const;
 
 const stageId = z
   .string()
@@ -41,18 +40,18 @@ const common = {
 const harnessStage = z.object({
   kind: z.literal("harness"),
   harness: z.enum(HARNESSES),
-  /** Harness model id (pi: provider/model; claude: Claude model). */
-  model: z.string().max(120).optional(),
-  /** pi thinking level. */
-  thinking: z.enum(THINKING).optional(),
+  /** 0021: pin this stage's route (its `harness` must match the stage's).
+   *  Absent = run override → project default → global default. */
+  route: harnessRouteSchema.optional(),
   ...common,
 });
 
 const agentStage = z.object({
   /** 0010 Phase 5: an in-process WorkflowAgent turn (was "eve", 0009). */
   kind: z.literal("agent"),
-  /** Chat model id (lib/model); default applies when absent. */
-  model: z.string().max(120).optional(),
+  /** 0021: pin this stage's route (provider + model). Absent = run
+   *  override → project default → global agent default. */
+  route: chatRouteSchema.optional(),
   ...common,
 });
 
@@ -109,6 +108,13 @@ export const machineDefinitionSchema = z
         }
         seen.add(t.to);
       });
+      if (stage.kind === "harness" && stage.route && stage.route.harness !== stage.harness) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["stages", id, "route", "harness"],
+          message: `route harness "${stage.route.harness}" does not match the stage's harness "${stage.harness}"`,
+        });
+      }
       if (stage.kind === "harness" && def.workspace !== "project") {
         ctx.addIssue({
           code: "custom",

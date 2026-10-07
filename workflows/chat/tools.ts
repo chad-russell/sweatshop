@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "./hooks";
 import { harnessToolStep } from "./harness-step";
+import { runOverridesSchema } from "../../lib/providers/route";
 import {
   bashStep,
   createMachineStep,
@@ -103,11 +104,23 @@ export function buildChatTools(
           .boolean()
           .optional()
           .describe("Give the run its own new sandbox instead of sharing this conversation's"),
+        overrides: runOverridesSchema
+          .optional()
+          .describe(
+            "Model routes for this run only. route: { provider, model } for every agent/pi stage; " +
+              "stages: { <stageId>: route } per stage (pi: { harness: \"pi\", provider, model }; claude: " +
+              "{ harness: \"claude\", model?, effort? }). provider is glm | gloo | openrouter. Omit to use the defaults.",
+          ),
       }),
-      execute: async ({ machineId, prompt, fresh }) => {
+      execute: async ({ machineId, prompt, fresh, overrides }) => {
         if (!machineId) return listMachinesStep(conversationId);
         if (!prompt?.trim()) throw new Error("prompt is required to start a run");
-        return startMachineStep(conversationId, { machineId, prompt, ...(fresh ? { fresh } : {}) });
+        return startMachineStep(conversationId, {
+          machineId,
+          prompt,
+          ...(fresh ? { fresh } : {}),
+          ...(overrides ? { overrides } : {}),
+        });
       },
     }),
 

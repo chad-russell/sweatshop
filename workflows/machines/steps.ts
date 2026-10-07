@@ -113,3 +113,42 @@ export async function loadHistory(runId: string): Promise<MachineStageRun[]> {
   const { db, m } = await machineStore();
   return m.listStageRuns(db, runId);
 }
+
+/**
+ * 0021: resolve and validate a visit's route (run-stage override > run
+ * override > stage > project > global; claude never inherits a chat or
+ * project route) and record it — with the layer it came from — on the
+ * visit row. A step because it reads sqlite and env; deterministic
+ * failures (missing key, project restriction) are FatalErrors.
+ */
+export async function resolveVisitRoute(input: {
+  runId: string;
+  seq: number;
+  stageId: string;
+  surface: "agent" | "pi" | "claude";
+}): Promise<{
+  route: import("@/lib/providers/route").Route;
+  layer: import("@/lib/providers/route").RouteLayer;
+}> {
+  "use step";
+  const [{ db }, m, { requireRoute }] = await Promise.all([
+    import("@/db"),
+    import("@/db/machines"),
+    import("@/lib/providers/resolve"),
+  ]);
+  const run = m.getRun(db(), input.runId);
+  const stage = run.definition.stages[input.stageId];
+  const stageRoute = stage && "route" in stage ? (stage.route ?? null) : null;
+  const resolved = requireRoute(
+    db(),
+    input.surface,
+    {
+      runStage: run.overrides?.stages?.[input.stageId] ?? null,
+      run: run.overrides?.route ?? null,
+      stage: stageRoute,
+    },
+    run.projectId,
+  );
+  m.recordStageRoute(db(), input.runId, input.seq, resolved);
+  return resolved;
+}

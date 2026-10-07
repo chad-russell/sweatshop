@@ -49,6 +49,8 @@ export async function startMachineRun(input: {
   prompt: string;
   /** 0013: give the run its own new sandbox instead of this chat's. */
   fresh?: boolean;
+  /** 0021: route overrides for the run. */
+  overrides?: unknown;
   provider?: SandboxProvider;
   /** Test seam: the run starter (default lib/machines/runs startRun). */
   start?: typeof startRun;
@@ -77,6 +79,7 @@ export async function startMachineRun(input: {
     prompt: input.prompt,
     projectId,
     ...(inherit ? { inherit } : {}),
+    ...(input.overrides ? { overrides: input.overrides } : {}),
   });
   return {
     runId: run.id,

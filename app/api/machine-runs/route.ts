@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   });
 }
 
-/** Start a run (0009): `{ machineId, prompt, projectId? }`. */
+/** Start a run (0009): `{ machineId, prompt, projectId?, overrides? }` (0021 route overrides). */
 export async function POST(request: Request) {
   try {
     const body = await readMachineBody(request);
@@ -26,6 +26,7 @@ export async function POST(request: Request) {
       machineId: typeof body.machineId === "string" ? body.machineId : "",
       prompt: body.prompt,
       projectId: body.projectId,
+      overrides: body.overrides,
     });
     return NextResponse.json({ run }, { status: 201 });
   } catch (err) {

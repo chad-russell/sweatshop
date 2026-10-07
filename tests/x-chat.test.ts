@@ -3,6 +3,7 @@ import { getHookByToken, getRun, start } from "workflow/api";
 import { db } from "../db";
 import {
   ensureConversation,
+  listMessageTexts,
   listModelMessages,
   listPendingInputs,
   resolvePendingInput,
@@ -28,8 +29,6 @@ import { startWorkflowExecutor, type WorkflowExecutor } from "./helpers/workflow
  * exactly the getReadable() API asserted in the "approve" test.
  */
 
-const MODEL = "glm-5.3-flash";
-
 function conv(name: string): string {
   const id = `c_test_${name}_${Math.random().toString(36).slice(2, 8)}`;
   ensureConversation(db(), id);
@@ -37,7 +36,7 @@ function conv(name: string): string {
 }
 
 async function turn(conversationId: string, userText: string) {
-  return start(chatTurn, [{ conversationId, userText, modelId: MODEL }]);
+  return start(chatTurn, [{ conversationId, userText }]);
 }
 
 async function waitFor(what: () => Promise<boolean>, label: string, ms = 10_000) {
@@ -95,6 +94,13 @@ describe("0010 spike: chat turn workflow", () => {
       const after1 = listModelMessages(db(), id);
       expect(after1.map((m) => m.role)).toEqual(["user", "assistant"]);
       expect(JSON.stringify(after1[1])).toContain("mock-reply:1");
+
+      // 0021: the turn records what ran it (built-in global default here).
+      const rows = listMessageTexts(db(), id);
+      expect(rows.find((r) => r.role === "assistant")?.metadata?.route).toEqual({
+        route: { provider: "glm", model: "glm-5.3-flash" },
+        layer: "global",
+      });
 
       // Second turn: history must include turn one, so the mock counts 2.
       const second = await turn(id, "second message");
@@ -252,7 +258,7 @@ describe("0010 spike: chat turn workflow", () => {
 
       // The route passes the send's context; the turn injects the note.
       const first = await start(chatTurn, [
-        { conversationId: id, userText: "what about this?", modelId: MODEL, viewing },
+        { conversationId: id, userText: "what about this?", viewing },
       ]);
       expect((await first.returnValue).finishReason).toBe("stop");
 
@@ -274,7 +280,7 @@ describe("0010 spike: chat turn workflow", () => {
 
       // A later turn re-injects the persisted note (history) plus its own.
       const second = await start(chatTurn, [
-        { conversationId: id, userText: "and this one?", modelId: MODEL, viewing: { kind: "chat", id } },
+        { conversationId: id, userText: "and this one?", viewing: { kind: "chat", id } },
       ]);
       expect((await second.returnValue).finishReason).toBe("stop");
       expect(serialized(id)).toContain("mock-viewing:2");
@@ -282,7 +288,7 @@ describe("0010 spike: chat turn workflow", () => {
       // A send with no context adds no note, and nothing note-shaped is
       // ever persisted as a message row.
       const third = await start(chatTurn, [
-        { conversationId: id, userText: "plain now", modelId: MODEL },
+        { conversationId: id, userText: "plain now" },
       ]);
       await third.returnValue;
       expect(JSON.stringify(listModelMessages(db(), id))).not.toContain("[viewing]");

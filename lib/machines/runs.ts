@@ -1,6 +1,18 @@
 import { getRun as getWorkflowRun, start } from "workflow/api";
 import { db } from "@/db";
-import { createRun, getRun, getRunBinding, LIVE_STATUSES, markRunCancelled, updateRun, type RunView } from "@/db/machines";
+import {
+  createRun,
+  getRun,
+  getRunBinding,
+  LIVE_STATUSES,
+  MachineError,
+  markRunCancelled,
+  updateRun,
+  type RunView,
+} from "@/db/machines";
+import { getProjectModels } from "@/db/providers";
+import { validationContext } from "@/lib/providers/resolve";
+import { validateRoute } from "@/lib/providers/route";
 import type { BoundSandbox } from "@/db/sandboxes";
 
 /**
@@ -15,8 +27,17 @@ export async function startRun(input: {
   projectId?: unknown;
   /** 0013: run in this inherited binding (the starting chat's). */
   inherit?: BoundSandbox;
+  /** 0021: route overrides — `{ route?, stages?: { [stageId]: route } }`. */
+  overrides?: unknown;
 }): Promise<RunView> {
   const run = createRun(db(), input);
+  // 0021: an override that cannot run (missing key, forbidden by the
+  // project) is rejected at start, not discovered mid-run.
+  const issues = overrideIssues(run);
+  if (issues.length > 0) {
+    updateRun(db(), run.id, { status: "failed", error: `invalid overrides: ${issues.join("; ")}` });
+    throw new MachineError("invalid", `overrides: ${issues.join("; ")}`);
+  }
   try {
     const { runMachine } = await import("@/workflows/machines/run-machine");
     const workflow = await start(runMachine, [
@@ -51,4 +72,26 @@ export async function cancelRun(runId: string, reason = "cancelled by user"): Pr
     if (await workflow.exists) await workflow.cancel({ cancelReason: reason });
   }
   return markRunCancelled(db(), runId);
+}
+
+/** 0021: every route a run's overrides name, checked against its project. */
+function overrideIssues(run: RunView): string[] {
+  if (!run.overrides) return [];
+  const ctx = validationContext(db(), getProjectModels(db(), run.projectId));
+  const issues: string[] = [];
+  const check = (where: string, route: Parameters<typeof validateRoute>[0]) => {
+    const r = validateRoute(route, ctx);
+    if (!r.ok) issues.push(...r.issues.map((i) => `${where}: ${i}`));
+  };
+  if (run.overrides.route) check("route", run.overrides.route);
+  for (const [stageId, route] of Object.entries(run.overrides.stages ?? {})) {
+    const stage = run.definition.stages[stageId];
+    if (stage?.kind === "human") issues.push(`stages.${stageId}: human stages have no route`);
+    else if (stage?.kind === "harness" && !("harness" in route && route.harness === stage.harness)) {
+      issues.push(`stages.${stageId}: a ${stage.harness} stage needs a { harness: "${stage.harness}", … } route`);
+    } else if (stage?.kind === "agent" && "harness" in route) {
+      issues.push(`stages.${stageId}: an agent stage takes { provider, model }`);
+    } else check(`stages.${stageId}`, route);
+  }
+  return issues;
 }

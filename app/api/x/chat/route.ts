@@ -12,10 +12,12 @@ import {
   getConversation,
   listMessageTexts,
   setActiveRun,
-  updateConversationSettings,
+  setConversationRoute,
 } from "@/db/chat";
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
-import { resolveChatModel } from "@/lib/model";
+import { getProjectModels } from "@/db/providers";
+import { validationContext } from "@/lib/providers/resolve";
+import { chatRouteSchema, parseRouteAs, validateRoute } from "@/lib/providers/route";
 import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
 import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
@@ -40,7 +42,9 @@ export async function POST(request: Request) {
     /** Explicit text (steer/fetch callers) — else taken from the last
      * user message in `messages` (WorkflowChatTransport callers). */
     text?: string;
-    modelId?: string;
+    /** 0021: the picker's route ({ provider, model }); null = clear
+     *  (inherit the project / global default); absent = unchanged. */
+    route?: unknown;
     /** Conversation-creation binding (landing pages). */
     projectId?: string;
     /** 0013, creation only: "none" | "attached:<sandboxId>" | null (own). */
@@ -78,7 +82,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid sandbox choice" }, { status: 400 });
   }
 
+  // 0021: validate a picked route against the conversation's project
+  // BEFORE creating anything — a rejected route sends nothing.
   const existing = getConversation(db(), body.conversationId);
+  const projectId = existing ? existing.projectId : (body.projectId ?? null);
+  let pickedRoute: import("@/lib/providers/route").ChatRoute | null | undefined;
+  if (body.route !== undefined) {
+    if (body.route === null) {
+      pickedRoute = null;
+    } else {
+      const parsed = parseRouteAs(chatRouteSchema, body.route);
+      const check = parsed.ok
+        ? validateRoute(parsed.route, validationContext(db(), getProjectModels(db(), projectId)))
+        : parsed;
+      if (!check.ok) {
+        return NextResponse.json({ error: "invalid route", issues: check.issues }, { status: 400 });
+      }
+      pickedRoute = parsed.ok ? parsed.route : undefined;
+    }
+  }
   if (!existing) {
     ensureConversation(db(), body.conversationId, body.projectId ?? null);
     if (body.sandbox === "none") {
@@ -94,9 +116,7 @@ export async function POST(request: Request) {
       }
     }
   }
-  updateConversationSettings(db(), body.conversationId, {
-    ...(body.modelId ? { modelId: resolveChatModel(body.modelId).id } : {}),
-  });
+  if (pickedRoute !== undefined) setConversationRoute(db(), body.conversationId, pickedRoute);
 
   let active = getActiveRun(db(), body.conversationId);
   if (active) {
@@ -131,7 +151,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     messages: listMessageTexts(db(), conversationId),
     activeRunId: getActiveRun(db(), conversationId),
-    modelId: conversation?.modelId ?? null,
+    route: conversation?.route ?? null,
     sandbox: getConversationBinding(db(), conversationId),
     projectId: conversation?.projectId ?? null,
     title: db()

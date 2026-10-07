@@ -1,7 +1,9 @@
 # 0021 — Providers and routes
 
-Status: **draft, revised 2026-10-07 after Chad's answers — awaiting
-approval.** Roadmap item 1.2 (go-live floor).
+Status: **implemented 2026-10-08** (Chad: "implement now" — approval;
+one PR, sequenced commits). Roadmap item 1.2 (go-live floor). See
+"Implementation notes" at the end for where the build differs from the
+design above.
 
 ## Decisions (Chad, 2026-10-07)
 
@@ -301,3 +303,48 @@ Each phase is its own PR with the gate green.
 
 None outstanding. The three from the first draft are answered in
 "Decisions".
+
+## Implementation notes (2026-10-08)
+
+Verified live on a copy of the production DB (isolated server, port
+3390): a chat turn on each provider (GLM via the global default; Gloo
+and OpenRouter with a real tool round-trip), a `/settings` swap taking
+effect on the next new chat, a project default + restriction (a
+forbidden route rejected with the reason; narrowing providers so the
+default would be forbidden refused), a machine run with a per-stage
+override (`layer: "run-stage"` recorded), pi on all three providers
+through the real `buildHarnessAgent`, and a bounded claude turn on a
+route (model + effort).
+
+Differences from the design:
+
+- **No pi-side Gloo transform.** A negative control (pi on Gloo with an
+  undescribed host tool, fix disabled) passed: harness-pi already gives
+  every host tool a description. The chat-side transform is required —
+  the same control on the chat path returns 422 without it.
+- **pi providers are namespaced** (`ss-glm`, `ss-gloo`, `ss-openrouter`)
+  and register the route's model explicitly (`models: [...]` with
+  catalog sizing), so pi never consults its built-in catalog.
+  `PI_MODEL` and the old `zai-glm` provider are gone.
+- **Restriction enforcement also happens at write time**: the chat
+  route rejects a picked route the project forbids before anything is
+  created; `startRun` rejects overrides that cannot run (missing key,
+  forbidden, wrong shape for the stage kind) with a value-shaped error.
+- **Route failures are fatal, not retried**: a missing key or a
+  restriction fails the chat turn (FatalError) or parks the run at that
+  visit with the reason, instead of retrying a deterministic failure.
+- **Stage routes**: a harness stage keeps its `harness` field, and its
+  optional `route` must match it (schema check; switching harness drops
+  a mismatched route). The machine editor is read-only since 0031, so
+  the "route picker in the editor" became the `set_route` edit op (the
+  agent surface) plus the JSON tab; the run view shows each visit's
+  route with its layer on hover.
+- **Model picker is per conversation, not sticky**: the old
+  localStorage "last model" is gone — a fresh chat starts on the
+  default (that is what makes a `/settings` swap meaningful), and the
+  route is sent only when Chad picks.
+- **Migration**: `0036` (tables/columns + stripping the old stage
+  `model`/`thinking` fields — none were set in live data), `0037`
+  (`conversations.route` + backfill from `model_id`), `0038` (drop
+  `model_id`). Checked against a copy of the live DB: 15 routes
+  backfilled, 76 null.

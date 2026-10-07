@@ -1,7 +1,9 @@
 import { asc, eq, sql } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import { viewingNote, type ViewingContext } from "../lib/page-context";
+import type { ChatRoute, RouteLayer } from "../lib/providers/route";
 import type { Db } from "./index";
+import { parseStoredChatRoute } from "./providers";
 import {
   chatHarnessState,
   conversations,
@@ -22,6 +24,9 @@ import {
 /** 0015: per-row metadata — the viewing context of a user message. */
 export interface MessageRowMetadata {
   viewing?: ViewingContext;
+  /** 0021: on a turn's first assistant row — what ran it, and which
+   *  layer the route resolved from. */
+  route?: { route: ChatRoute; layer: RouteLayer };
 }
 
 export interface NewMessageRow {
@@ -58,29 +63,29 @@ export function getConversation(
 ): {
   id: string;
   projectId: string | null;
-  modelId: string | null;
+  /** 0021: the conversation's own route (null = project / global default). */
+  route: ChatRoute | null;
 } | null {
   const row = db
     .select({
       id: conversations.id,
       projectId: conversations.projectId,
-      modelId: conversations.modelId,
+      route: conversations.route,
     })
     .from(conversations)
     .where(eq(conversations.id, id))
     .get();
-  return row ?? null;
+  return row ? { ...row, route: parseStoredChatRoute(row.route) } : null;
 }
 
-/** 0010: update the conversation's explicit knobs (model; the sandbox
- *  binding is set once, through db/sandboxes.ts). */
-export function updateConversationSettings(
-  db: Db,
-  id: string,
-  set: { modelId?: string },
-): void {
-  if (Object.keys(set).length === 0) return;
-  db.update(conversations).set(set).where(eq(conversations.id, id)).run();
+/** 0021: set (or clear, with null) the conversation's route — the chat
+ *  picker's choice. The sandbox binding is set once, through
+ *  db/sandboxes.ts. Caller validates. */
+export function setConversationRoute(db: Db, id: string, route: ChatRoute | null): void {
+  db.update(conversations)
+    .set({ route: route ? JSON.stringify(route) : null })
+    .where(eq(conversations.id, id))
+    .run();
 }
 
 /**

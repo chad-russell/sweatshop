@@ -32,9 +32,10 @@ export const conversations = sqliteTable(
     titleSource: text("title_source").notNull().default("auto"),
     /** 0007: titles generated so far (0, 1, or 2 — see lib/titles.ts). */
     titleGenerations: integer("title_generations").notNull().default(0),
-    /** 0010: the model this conversation runs (plain column — the
-     *  header→principal-attribute plumbing is gone). Null = default. */
-    modelId: text("model_id"),
+    /** 0021: the conversation's route (JSON ChatRoute — provider +
+     *  model), set by the chat's model picker; what its turns and its
+     *  pi tool calls inherit. Null = the project / global default. */
+    route: text("route"),
     /** 0013 binding: the sandbox this conversation runs in — null until
      *  bound (a project chat binds on its first sandboxed call, an
      *  attacher at creation), then fixed for the conversation's life. */
@@ -286,6 +287,13 @@ export const projects = sqliteTable("projects", {
    *  sandbox_configs entity — never actually shared); unset = the
    *  provider default, `localhost/sweatshop-sandbox`. */
   imageRef: text("image_ref"),
+  /** 0021: JSON ChatRoute — the project's default for chats, agent
+   *  stages, and pi. Null = the global defaults. */
+  defaultRoute: text("default_route"),
+  /** 0021: JSON ProviderId[] — null = every provider allowed. */
+  allowedProviders: text("allowed_providers"),
+  /** 0021: JSON ("pi" | "claude")[] — null = every harness allowed. */
+  allowedHarnesses: text("allowed_harnesses"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -445,6 +453,8 @@ export const machineRuns = sqliteTable(
     settledAt: integer("settled_at"),
     /** 0012: the Workflow SDK run executing this machine run (cancel). */
     workflowRunId: text("workflow_run_id"),
+    /** 0021: JSON RunOverrides (`startRun({ overrides })`) — null = none. */
+    overrides: text("overrides"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -480,6 +490,10 @@ export const machineStageRuns = sqliteTable(
     transitionTo: text("transition_to"),
     steps: integer("steps").notNull().default(0),
     error: text("error"),
+    /** 0021: JSON { route, layer } — what actually ran this visit and
+     *  which layer it resolved from. Null for human gates (and pre-0021
+     *  visits). */
+    route: text("route"),
     startedAt: integer("started_at").notNull(),
     endedAt: integer("ended_at"),
   },
@@ -628,4 +642,33 @@ export const previewEvents = sqliteTable(
     at: integer("at").notNull(),
   },
   (table) => [index("preview_events_preview_idx").on(table.previewId, table.at)],
+);
+
+/**
+ * 0021: app settings — one JSON value per key. Today: the per-surface
+ * default routes (`default_route.<surface>`); a missing row = the
+ * built-in default (lib/providers/route.ts BUILTIN_DEFAULTS).
+ */
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/**
+ * 0021: cached model catalogs for providers with a list API
+ * (OpenRouter). Refreshed at most daily, or on demand from /settings.
+ */
+export const providerModels = sqliteTable(
+  "provider_models",
+  {
+    provider: text("provider").notNull(),
+    id: text("id").notNull(),
+    label: text("label").notNull(),
+    contextWindow: integer("context_window").notNull(),
+    maxTokens: integer("max_tokens").notNull(),
+    vision: integer("vision", { mode: "boolean" }).notNull().default(false),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.provider, table.id] })],
 );

@@ -2,11 +2,14 @@ import { generateText } from "ai";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db as defaultDb, type Db } from "../db";
 import { conversations, messages } from "../db/schema";
-import { glmFlash } from "./model";
+import { getGlobalDefaults, getProjectModels } from "../db/providers";
+import { chatLanguageModel } from "./providers/registry";
+import { titleRoute, type ChatRoute } from "./providers/route";
 
 /**
  * 0007 generated titles. After a conversation's first assistant reply a
- * single GLM Flash call writes a 4–6 word title and a one-line summary;
+ * single cheap model call (0021: the `titles` default route, GLM Flash
+ * unless changed on /settings) writes a 4–6 word title and a one-line summary;
  * it regenerates once more when the conversation reaches
  * REGENERATE_AT_USER_MESSAGES user messages (topics drift). A manual
  * rename (`title_source = 'manual'`) is never overwritten. At most two
@@ -33,9 +36,23 @@ Reply with exactly two lines and nothing else:
 TITLE: <4 to 6 words naming what the conversation is about, no quotes, no trailing period>
 SUMMARY: <one sentence, under 25 words, stating the topic and any outcome>`;
 
-async function generateWithGlm(transcript: string): Promise<string> {
+/**
+ * 0021: the title call's route — the titles default, or the project's
+ * own default when the project forbids the titles provider; null skips
+ * the title (a restriction holds for every model call).
+ */
+export function titleRouteFor(db: Db, conversationId: string): ChatRoute | null {
+  const projectId = db
+    .select({ projectId: conversations.projectId })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get()?.projectId;
+  return titleRoute(getGlobalDefaults(db), getProjectModels(db, projectId));
+}
+
+async function generateWithRoute(route: ChatRoute, transcript: string): Promise<string> {
   const { text } = await generateText({
-    model: glmFlash(),
+    model: chatLanguageModel(route.provider, route.model),
     system: INSTRUCTIONS,
     prompt: transcript,
     maxRetries: 1,
@@ -107,7 +124,6 @@ export async function maybeGenerateTitle(
   deps: { db?: Db; generate?: TitleGenerator } = {},
 ): Promise<GeneratedMeta | null> {
   const db = deps.db ?? defaultDb();
-  const generate = deps.generate ?? generateWithGlm;
 
   const convo = db
     .select({
@@ -118,6 +134,12 @@ export async function maybeGenerateTitle(
     .where(eq(conversations.id, conversationId))
     .get();
   if (!convo || convo.titleSource === "manual") return null;
+  let generate = deps.generate;
+  if (!generate) {
+    const route = titleRouteFor(db, conversationId);
+    if (!route) return null;
+    generate = (transcript) => generateWithRoute(route, transcript);
+  }
   if (convo.titleGenerations >= MAX_GENERATIONS) return null;
 
   const users = userMessageCount(db, conversationId);

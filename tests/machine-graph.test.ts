@@ -148,9 +148,9 @@ describe("edit operations", () => {
   });
 
   it("updates fields per kind and changes kinds while keeping the shared fields", () => {
-    const edited = updateStage(think, "draft", { title: "Write", maxVisits: 5, model: "glm-5.3" });
-    expect(edited.stages.draft).toMatchObject({ title: "Write", maxVisits: 5, model: "glm-5.3" });
-    expect(updateStage(edited, "draft", { model: undefined }).stages.draft).not.toHaveProperty("model");
+    const edited = updateStage(think, "draft", { title: "Write", maxVisits: 5 });
+    expect(edited.stages.draft).toMatchObject({ title: "Write", maxVisits: 5 });
+    expect(updateStage(edited, "draft", { maxVisits: undefined }).stages.draft).not.toHaveProperty("maxVisits");
     expect(() => updateStage(think, "draft", { harness: "claude" })).toThrow(EditError);
     const human = setKind(edited, "draft", "human");
     expect(human.stages.draft).toEqual({ kind: "human", title: "Write", instructions: think.stages.draft!.instructions, next: [{ to: "critique" }], maxVisits: 5 });

@@ -15,6 +15,11 @@ process.env.SWEATSHOP_DB = path.join(dir, "test.db");
 process.env.WORKFLOW_LOCAL_DATA_DIR = path.join(dir, "workflow-data");
 process.env.WORKFLOW_LOCAL_RECOVER_ACTIVE_RUNS = "0";
 
+// 0021: route resolution checks a provider key is present before a turn
+// runs. The built-in defaults are GLM; tests never reach a real model
+// (scripted mock), so a placeholder keeps them independent of .env.local.
+process.env.ZAI_API_KEY ||= "test-placeholder";
+
 const sqlite = new Database(process.env.SWEATSHOP_DB);
 sqlite.pragma("journal_mode = WAL");
 // 0031: same migration posture as scripts/migrate.mjs — FKs off while
