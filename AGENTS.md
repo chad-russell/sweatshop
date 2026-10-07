@@ -17,8 +17,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 
 ## Ground rules
 
-- **Branch:** all work on `main` unless told otherwise. There is no remote
-  yet; that's fine.
+- **Branch / remote:** `origin` is `chad/sweatshop` on Forgejo
+  (git.crussell.io, pushed as the `glen` account; this checkout's
+  `core.sshCommand` selects the key). `main` is this repo; the
+  prototype's history lives on as `archive/prototype` + its `v0.*` tags.
+  Agents work on branches and open PRs; Chad merges; `scripts/deploy.sh`
+  ships merged `main`.
 - **Commits:** conventional commits — `type(scope): subject` (feat, fix,
   docs, chore, refactor…). Commit often enough that history reads as a
   logical sequence of small steps.

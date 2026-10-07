@@ -69,8 +69,12 @@ Backups then need exactly one new path.
 
 ### 2. Forgejo remote
 
-Create `chad/sweatshop` on git.crussell.io (private), add it as `origin`,
-push `main`. Register sweatshop as a project inside sweatshop with that
+Done 2026-10-07: the existing private `chad/sweatshop` (the prototype's
+remote) now holds this repo on `main` (force-replaced at Chad's direction);
+the prototype's full history, including 25 commits that had never been
+pushed, is kept as `archive/prototype` plus its `v0.*` tags, and its 16
+old feature branches were deleted. A local bundle of the prototype is at
+`/tmp/sweatshop-prototype-2026-10-06.bundle` until the next reboot. Register sweatshop as a project inside sweatshop with that
 repo, so `create_pr` targets it. Done during cut-over via the existing
 Forgejo token path (forgejo-pr skill).
 
