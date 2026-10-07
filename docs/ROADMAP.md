@@ -1,242 +1,282 @@
 # Roadmap to go-live
 
 Go-live = Chad does his daily work in sweatshop instead of dsh. Drafted
-2026-10-06 from Chad's list plus the open follow-ups scattered through
-docs 0006–0019. Each item that is architectural gets a numbered design doc
-(0020+) before code, per AGENTS.md. Status: **draft, not yet reviewed with Chad.**
+2026-10-06, revised the same day after an interview with Chad (decisions
+below are his). Each architectural item gets a numbered design doc (0020+)
+approved before code, per AGENTS.md. Numbers are provisional.
 
-Legend: 🔴 blocks go-live · 🟡 should land before or soon after · ⚪ later / optional.
+Legend: 🔴 on the go-live floor · 🟡 soon after / during the trial · ⚪ later.
 
-## Chad's list
+## Decisions recorded (interview, 2026-10-06)
 
-### A. Final machine catalog 🔴
-Today's rows: `think`, `ticket`, `smoke` (live DB; seeds only cover `think` and
-`ticket`). `smoke` is a test fixture, not a catalog entry.
+**Scope and posture**
+- Sweatshop starts as the **software factory**; homelab follows soon, treated as
+  ordinary projects (NixOS and Fedora bootc config are just repos). Household
+  tasks (finance, smart home, image generation) stay in dsh for now.
+- **No work/personal distinction** except model selection, built as
+  composably and agnostically as possible. Most of Chad's work is employer
+  projects (polymer, gpl, qr-codes, open-bible) plus hod. No fencing or egress
+  limits beyond today's behavior.
+- **Dogfood target**: an employer project (open-bible or qr-codes), which
+  exercises gloo models immediately.
+- Evidence from 733 dsh sessions: 73% were subagents, the median was one
+  turn, and web search/fetch was used ~1.8k times. See "Parity audit" at the end.
 
-- Decide the real set of machines for daily work (candidates to discuss:
-  ticket/feature, bugfix, PR review, research/think, chore/dependency bump,
-  homelab change). Each: purpose, stages, which harness/model, human gates.
-- Review `ticket` against real use: prompts, branch convention, `maxVisits`,
-  whether verify should run the project's own test command, publish step.
-- Retire `smoke` (or keep as a test-only seed outside the catalog); make the
-  seeds the single source of the shipped catalog.
-- Sequencing: **after B**, because definitions will carry fallbacks.
+**Machines and async**
+- **No fan-out/parallel stages.** Machines run asynchronously as tool calls; an
+  agent that wants several starts several and tracks them. Machines stay linear.
+- **No reviewer stage kind.** Independent review is a machine in the catalog
+  (fresh context per visit is already the behavior).
+- **No generic subagents.** Only machine runs and harness calls (pi / claude /
+  cursor) can be started in the background from a chat. Completion **auto-wakes
+  the chat with a new turn**; a status tool also exists for explicit waits.
+- **Catalog** for go-live: Ticket (reworked), Bugfix, Independent review,
+  Think-it-through. Not now: research, chore/dependency, factory orchestrator
+  (the async work makes the orchestrator possible later).
 
-### B. Harness fallback and run overrides 🔴 (design doc 0020)
-Two mechanisms, probably both:
+**Models, providers, fallback**
+- Providers are **native per vendor**: GLM (Z.AI, existing), **Gloo**,
+  **OpenRouter** (each with its own key). Cursor is a third-party harness.
+- Model choice is one **route** value = `{harness, provider, model}`, layered:
+  run override > stage > project default > global default. Stages, projects and
+  fallback chains all hold the same shape.
+- **Fallbacks**: a static chain on the stage, switching automatically on
+  quota/credit/auth/rate-limit errors only (not task failures), with a visible
+  banner and a record of what ran and why.
+- **Cursor** (`@ai-sdk/harness-cursor`, ACP) needs a user API key; Chad uses
+  enterprise SSO and probably has none. **Planned as blocked-on-key**, off the
+  floor.
 
-1. **Static fallback chain in the stage definition** — e.g.
-   `fallback: [{ harness: "pi", model: … }]`. The interpreter advances down
-   the chain on a classified failure (credit/quota/rate limit/auth), not on
-   ordinary task failure. Needs a failure classifier; `harness-limits` and the
-   session-limit pending-input kind are the nearest existing seams.
-2. **Per-run overrides at start** — `startRun({ overrides })`: global
-   (`harness`, `model`) and/or per stage. Surfaces: composer target picker,
-   `POST /api/machine-runs`, `start_machine` tool, and a "retry this stage with…"
-   action on a parked/failed run.
+**Sandboxes, secrets, skills**
+- **Sandbox image: image ref only** (public image or locally built), exposed in
+  settings so nix/rust/flutter images are easy. No in-app build subsystem.
+  Caveat: a locally built image lives in bee's podman; a VM runtime would need to
+  pull or import it.
+- **Secrets are an entity**, with their own sidebar page next to Machines and
+  Sandboxes. No Proton Pass (or any provider) dependency: a pass-cli token is
+  just a secret you store, which the sandbox then uses to reach Pass. Design:
+  values encrypted at rest in SQLite with a key from `.env.local`; write-only in
+  UI and tools (agents see names, never values); granted to **projects** first,
+  per-stage narrowing later (that is the least-privilege stretch goal); delivered
+  as a **per-command env var** by default, optional file-at-path for credential
+  files; **stored events and transcripts redact** granted values. Git host
+  credentials fold in as a secret type later.
+- **Skills are an entity too**, but the source of truth is **files in the repo**
+  (`skills/<name>/SKILL.md`), vendored in git; the DB holds only grants, to
+  projects and machines. The user-global instruction layer is one more grantable
+  item. Origin can still be the Forgejo skills repo, copied in.
 
-Design questions: the run snapshot must record what actually ran (and why it
-fell back); 0009 says each visit is fresh, so handoff between harnesses is
-"restart the visit", not resume; `agent` stages are GLM-only today, so their
-fallback is a model, not a harness; does a fallback also cover chat's `pi` /
-`claude` tools; visible banner on the run when a fallback fired.
+**Memory (Hindsight)**
+- One bank per project, **shared with the dsh-written `coding-agent::<repo>`
+  banks**, plus a global bank for cross-project facts. Design session still owed.
 
-### C. Hindsight memory integration 🟡 (design session → doc 0021)
-Chats, machine runs, and project knowledge participating in one global memory.
-Agenda for the design session:
+**Operation**
+- Run mode: **production build as a systemd/quadlet service on bee**, managed
+  from cn like hindsight; `./dev` stays for working on sweatshop itself.
+- Setup agent: **any chat**, with management tools always present (like the
+  machine tools, 0015). Approvals only for destructive and secret-related ops.
+  No audit log.
+- Harness set (`@ai-sdk/harness` 1.0.132 plus pi/claude adapters) gets
+  **one deliberate upgrade** before Cursor is added.
+- Reports: **deferred past launch**. See Phase 3 (artifacts).
 
-- **Banks**: one global bank vs per-project vs both (recall from several). Note
-  the existing dsh plugin already writes `coding-agent::<repo>` banks, and bank
-  ids with `::` must be URL-encoded or a NEW bank is silently created.
-- **Retain**: what and when — chat turns (batched at turn end, like titles),
-  run stage outputs, finished-run summaries, PR URLs/decisions. Use stable
-  document ids so retries are idempotent; tag with project / conversation / run.
-  Failures never block the turn (same invariant as 0002).
-- **Recall**: auto-inject at turn/stage start vs an explicit `recall` tool vs
-  both; budget; how it appears in the transcript (credited 🧠 block?).
-  `reflect` as a tool for the agent.
-- **Overlap**: dsh sessions and sweatshop chats about the same repo — avoid
-  double-ingesting the same facts; decide which system owns which bank.
-- **Cost/limits**: server throttles (mental-model refresh floor, 2 concurrent
-  reflects); the extraction LLM is the cost driver. Machine runs are chatty.
-- **Safety**: sandbox env/secrets must never reach retain; scrub rules.
-- **Testing**: mock Hindsight client so tests never hit the server.
-- Whether go-live waits on it: proposal below is retain-only before go-live,
-  recall after.
+## Go-live floor (Chad's selection)
 
-### D. VM-based sandboxes (BoxLite) 🟡 (spike, then doc 0022)
-Candidate: [BoxLite](https://github.com/boxlite-ai/boxlite) — daemonless
-micro-VM runtime, Apache-2.0, runs OCI images, Node SDK
-(`@boxlite-ai/boxlite`), needs `/dev/kvm` (present and world-writable on bee
-and bees). From its README: per-box QCOW2 disk that persists across
-stop/restart, clone and `.boxlite` export/import, volume mounts, local port
-forwarding, `allow_net` egress allow-list, secret injection where real values
-never enter the VM, CPU/memory limits.
+1. Web search and fetch tools
+2. Provider breadth (Gloo, OpenRouter) and the route setting
+3. Async machine/harness runs with auto-wake
+4. Sandbox image in settings
+5. Final machine catalog (4 machines)
 
-Why it fits: enforces `network_policy` (0013, recorded-only today); clone is
-the "fork instead of attach" follow-up; it is the VM tier 0004/0017 anticipated.
-What the spike must answer, because today's design leans on podman networking:
-- **Reachability**: the claude bridge, the preview proxy and `${service:…}` all
-  reach containers by name on `sweatshop-harness`. A VM has no podman network
-  membership — port forwarding/tunnels, or keep services as sibling containers
-  and route through the host.
-- **Services**: sibling service containers (0017) vs services inside the VM;
-  `canRunServices` is the capability seam.
-- **Exec semantics**: the harness adapter needs real streaming spawn and
-  `docker exec -e` style env; check the BoxLite exec API against `toSandboxSession`.
-- **Images**: existing `localhost/sweatshop-sandbox` and per-project images
-  (nix, flutter, rust — see parity audit) must run as OCI images, plus pull/cache cost.
-- **Lifecycle**: stop/resume, reaper, detached boxes outliving Next restarts.
-- **Maturity**: Node SDK stability, boot time, memory overhead on bee.
-Deliverable: a `BoxliteProvider` behind the existing `SandboxProvider` seam,
-chosen per sandbox config, podman kept as the fallback tier.
+Not selected but in my plan as prerequisites or immediate followers, flagged
+for Chad to confirm: **supervised run mode** (Phase 0, since the daily tool
+cannot depend on a terminal), **backups of the DB** (Phase 0), **fallbacks**
+(Phase 2, first item: it's cheap once routes exist and your original ask),
+and **secrets** (Phase 2; employer repos already work through git credentials,
+so pass-cli is the first real need).
 
-### E. Agent-tool audit: configure everything by chatting 🔴 (audit, then doc 0023)
-Goal: a top-level chat agent can set up and curate the whole system. Today's
-agent tools cover machines (`list/get/create/edit/delete_machine`), runs
-(`start_machine`, `inspect`), sandboxes (`sandbox_exec`), previews (5 tools),
-`create_pr`, `ask_chad`. The HTTP API already exposes much more with no tool:
-- **Projects**: create/rename/delete, repos add/remove, sandbox-config pick,
-  branches listing (`/api/projects/*`). Project creation and sandbox configs
-  are still `npm run db:seed` only.
-- **Sandbox configs and credentials**: no tools (secrets must stay out of the
-  model's context — design that, e.g. reference by name, never by value).
-- **Sandbox lifecycle**: stop/destroy/reap (`/api/sandboxes`), attach.
-- **Conversation organization**: folders, move, archive, trash, rename.
-- **Run control**: cancel/retry, answer a human gate (inbox is UI-only).
-- **Settings**: default model, reaper windows, themes.
-Audit method: enumerate every mutating route/store function, mark which have a
-tool, and check each existing tool for value-shaped errors, `baseVersion`-style
-conflict handling, approval gates on destructive ops, and tests. Also decide
-the principle: tools and UI call the same core functions (as 0015 did for machines).
+## Phase 0 — Readiness (small, first) 🔴
 
-### F. Review, evidence and delivery tooling 🟡 (design session → doc 0024)
-Agents should verify and present their own work, not just push a branch:
-- **Browser + screenshots**: a headless browser in sandbox images (chromium +
-  playwright) with a `screenshot`/`browse` tool for chats, agent stages and
-  harness stages; works against the preview URL.
-- **Test running as a first-class step**: per-project test/lint/typecheck
-  commands stored in project config (like the preview setup), run by a tool or
-  a `verify` stage, with structured results rather than scraped bash.
-- **End-of-run report**: a stage output that is an artifact — HTML (or markdown)
-  with findings, diffs, test results, screenshots, preview link, PR link —
-  stored with the run (SQLite + S3 per the persistence north star), rendered
-  inline on `/r/<runId>` and in the Inbox card. The existing household
-  `design`/`artifacts` skills are prior art for look and publishing.
-- **PR quality**: PR body generated from the report, PR checks surfaced, review
-  comments fed back into a fix stage.
-Design questions: report format and sanitization (agent-authored HTML must be
-sandboxed/iframed), where screenshots live, who captures them, size limits.
+- **Production run mode.** `next build` + start under a quadlet unit with
+  restart-on-failure and boot start, in cn. The reaper, preview proxy and
+  follower tick live in this process, so uptime is the product's uptime. Check
+  that the workflow world (`.workflow-data`) survives a restart.
+- **Backups.** Confirm `data/sweatshop.db` (+WAL) and `.workflow-data` fall
+  under bee's restic path; add a consistent SQLite snapshot if not.
+- **Live DB.** Verify migration 0032 is applied (0019 notes said it wasn't at
+  that time) and `generate` reports no drift.
+- **Triage** the 1 `needs-attention` and 2 `failed` runs: product bugs or noise?
+- **Retire `smoke`** machine row (a test fixture, not catalog).
 
-## Known open items (from the docs and the code)
+## Phase 1 — The floor 🔴
 
-### Go-live readiness 🔴
-- **Run mode**: the app runs as an attached `./dev` dev server. Daily use needs
-  a supervised service (quadlet/systemd unit, restart on boot/crash, ideally a
-  production `next build`). The reaper, preview proxy and follower tick all live
-  in that process, so its uptime *is* the product's uptime.
-- **Backups**: confirm `data/sweatshop.db` (+ WAL) and `.workflow-data` are in
-  bee's restic path; today only hand-made `.bak` copies exist. Workflow state
-  durability across restarts needs a deliberate check.
-- **Live DB state**: 0019 notes say migration 0032 was not yet applied to the
-  live DB at the time; verify and apply (`./dev exec -- npm run db:migrate`).
-- **Triage of existing runs**: 1 `needs-attention`, 2 `failed` runs — find out
-  whether they are product bugs.
-- **Daily-driver parity audit vs dsh**: done 2026-10-06, see the section
-  below. Its findings feed the items in this file.
+Order matters: 1.1 → 1.2 feeds 1.3 and 1.6; 1.4 and 1.5 are independent.
 
-### Machines / harnesses 🟡
-- Show a run's sandbox on `/r/<runId>` and the sandbox chip on the pi/claude
-  session page (0011).
-- Harness tool-approval cards instead of bypass (0006/0009).
-- Cursor as a third harness (0006 review question 1).
-- Parallel branches/fan-out, schedules as triggers, cross-stage harness resume
-  (0009 out-of-scope list) ⚪
-- Agent edits to a machine proposed on-canvas for accept/reject (0015) ⚪
-- Usage/cost visibility per run and per provider — needed to make fallback
-  decisions, not designed yet.
+**1.1 Harness upgrade (prep).** One verified bump of `@ai-sdk/harness` and the
+pi/claude adapters (exact pins, together; AGENTS.md pairing rule), then
+typecheck/lint/test and a live pi + claude smoke. Required before Cursor;
+safe to do first.
 
-### Sandboxes / previews ⚪
-- Enforce `network_policy` (recorded only today) (0013).
-- Fork-instead-of-attach, opt-in git worktrees, parallel harness calls (0013).
-- Push webhooks for immediate follows; preview per PR from `create_pr` (0016/0017).
-- VM tier and external sandbox providers; service data snapshots (0017).
-- Harness SSE replacing `/h` polling (0006).
+**1.2 Providers and routes (doc 0020).** Provider registry (GLM, Gloo,
+OpenRouter; each key in env now, secrets later). Route value
+`{harness, provider, model}` with the layered override chain. Chat model picker
+shows every provider; per-project default route. Harness stages take a route
+(pi on any provider the adapter supports; claude via the gloo Anthropic route
+for employer work). Verify what pi and claude can be pointed at before promising
+anything, since claude today speaks only the Anthropic Messages surface. Model
+catalogs: gloo's list is in dsh's settings; OpenRouter has its own. Open
+design point: how routes appear in the run snapshot.
 
-### Security 🟡
-- LAN/Nebula-only today. A real auth verifier is a hard prerequisite for any
-  internet exposure (phone access off-Nebula, public share links).
+**1.3 Async runs with auto-wake (doc 0021).** `start_machine` and the
+pi/claude tools return a handle immediately; the conversation gets a new turn
+(a user-role "[run finished]" message, same mechanism as the 0015 viewing note)
+when the run completes, fails, parks or needs input. Tools: start (async),
+`wait`/status for several handles, cancel. Questions: what wakes a conversation
+that is mid-turn (steer queue exists), what if the chat was closed, who owns a
+harness call's sandbox slot (one-run-per-sandbox today, 0013), how the sidebar
+shows live children, and the interaction with the sandbox reaper.
+
+**1.4 Sandbox image in settings.** Sandbox configs already hold `image_ref`;
+this item is making it settable in the UI and by agent tool (creation is
+`db:seed` only today), validating the image is pullable/present, and showing
+which image a sandbox ran. Check that harness bridges (claude's `pnpm install`
+bootstrap, non-root `sandbox` user, `bash`) still work on arbitrary images and
+document the image contract in `Containerfile.sandbox`. Ship example images
+for nix (hod), rust, flutter.
+
+**1.5 Web search and fetch (small, can be first).** `web_fetch` is plain HTTP
+with a size cap and untrusted-content framing. `web_search` via Z.AI's search
+MCP tool (`web_search_prime`; the coding plan includes it per search results,
+and the oh-my-pi changelog notes a Streamable-HTTP session init quirk) — verify
+against the live endpoint before building; fallback to Brave/Exa if the plan's
+quota is unusable. Available in chats and agent stages; harness tools bring
+their own.
+
+**1.6 Machine catalog (doc 0022).** Rework `ticket` (project test command in
+verify, branch naming, publish), add `bugfix` (reproduce red → fix → verify →
+PR, matching systematic-debugging), `review` (read-only fresh reviewer returning
+pass/fix with findings), keep `think`. Each uses routes (planning cheap,
+implementation strong). Replace seeds so the catalog is the seeds.
+
+**Trial week.** Chad works in sweatshop on an employer project (open-bible or
+qr-codes), with dsh as the escape hatch. Record friction in a file; it drives
+Phase 2/3 ordering.
+
+## Phase 2 — Foundations of the "just chat to set it up" world 🟡
+
+**2.1 Fallbacks and run overrides (doc 0023).** Static chain on the stage's
+route; a failure classifier (credit/quota/auth/rate limit); banner on the run;
+snapshot records the route actually used and why. Overrides at start
+(`startRun({overrides})`: global and per-stage) across composer picker, API,
+`start_machine`, plus "retry this stage with…" on a parked/failed run. Visits
+are fresh by design (0009), so handoff means restarting the visit.
+
+**2.2 Secrets (doc 0024).** As decided above. Sidebar page, store with
+encryption, grants on projects, per-command env delivery in the sandbox exec
+seam (`SandboxHandle.run` already takes env), file-at-path option, redaction
+in `harness_events`/messages, tools that manage secrets with value-blind
+shape and approval. Stretch: per-stage grants (least privilege); folding git
+credentials in.
+
+**2.3 Skills (doc 0025).** `skills/` directory in the repo, a loader, grants to
+projects and machines, mounting a granted skill into the sandbox where the
+harness looks for skills (check each harness: pi, claude, cursor each have
+their own skill/rules convention), agent tools to read and (with a commit)
+edit them. Decide what ships in the repo first (design, systematic-debugging,
+refactor-checklist, forgejo-pr are the proven set).
+
+**2.4 Tool audit (doc 0026).** After 2.2 and 2.3 and 1.4 exist so the new
+entities are covered. Enumerate every mutating route/store function, mark which
+have an agent tool, and close the gaps: projects (create/rename/delete, repos),
+sandbox configs, secrets, skills grants, sandbox lifecycle (stop/destroy),
+folders/archive/trash, run control (cancel, answer gates), settings. Principle:
+UI and tools call the same core function (the 0015 pattern). Check existing
+tools for value-shaped errors, conflict handling, approvals on destructive
+ops, and tests.
+
+**2.5 Hindsight integration (design session → doc 0027).** One bank per
+project shared with dsh, a global bank, retain from chats/run stage outputs/
+finished-run summaries (stable document ids, never blocking a turn, secret-
+scrubbed), recall by tool and/or injected at turn/stage start, mock client for
+tests. Agenda carried from the first draft: bank id `::` encoding trap, overlap
+with the dsh plugin (avoid double ingest), cost limits on the server, how
+recalled memory is shown in transcripts. Retain can ship before recall.
+
+## Phase 3 — Delivery tooling, VMs, more harnesses ⚪/🟡
+
+**3.1 Artifacts and review tooling (design session → doc 0028).** Chad's
+framing: a structured tool for agents to write static content (a file or a
+folder) that sweatshop serves at a URL, like Claude artifacts, so an agent
+can say "take a look at this" with nice HTML explanations, diagrams or
+screenshots, and good instructions for how to produce them. Prior art: the
+household `artifacts` and `design` skills. Includes a headless browser
+(chromium/playwright in sandbox images) and a screenshot tool, project-level
+test/lint commands as a first-class step with structured results, serving and
+sandboxing agent-authored HTML (iframe/origin isolation, size limits), storage
+(SQLite + S3 per the persistence north star), linking from run view, inbox and
+PR body. Deferred past launch because it needs thorough design.
+
+**3.2 Cursor harness.** Blocked on a user API key (Cursor Settings →
+Integrations → User API Keys; may be unavailable under SSO — check with the
+admin, or the ACP route could use an interactive login stored in the sandbox
+image). The adapter installs the Cursor CLI in the sandbox with Cursor's
+installer (needs network, one exposed TCP port), so consider baking the CLI
+into the image. Needs 1.1 first.
+
+**3.3 BoxLite VM sandboxes (spike → doc 0029).** `/dev/kvm` is present on bee
+and bees; BoxLite is an embedded Rust runtime with a Node SDK, OCI images,
+persistent per-box disk, clone, egress allow-list and secret injection. Spike
+questions (it would replace podman networking assumptions): reaching the claude
+bridge, preview proxy and `${service:…}` from outside a VM; services as
+siblings vs inside; exec streaming and env semantics against the harness
+adapter; locally built images; stop/resume/detach and the reaper; SDK maturity,
+boot time, overhead. Deliverable: a `BoxliteProvider` behind `SandboxProvider`
+with podman kept as fallback. Gains: enforceable `network_policy`, fork-via-clone.
+
+**3.4 Homelab as projects.** Register cn, bootc configs and others as projects
+with the right image (nix), secrets (host SSH, agenix handling), and skills
+(homelab-ops, outage-triage). Mostly configuration once 1.4, 2.2 and 2.3 exist;
+the open question is how deploys (`nixos-rebuild`, SSH to other hosts) run
+from inside a sandbox safely.
+
+**3.5 Remaining follow-ups** (from docs 0006–0019): sandbox chip on `/r/<runId>`
+and the harness session page (0011); harness tool-approval cards (0006);
+enforce `network_policy`; push webhooks for follows; preview per PR; VM tier
+extras (0017); harness SSE; usage/cost visibility per provider/run.
+
+## Open questions
+
+- **Releases and migrations** once sweatshop is the daily tool: how are
+  deploys of sweatshop itself done, and how does a `db:migrate` fit (this is a
+  one-process service with sqlite).
+- **Cost/usage visibility** per provider and per run, which fallbacks make more
+  valuable; not designed.
+- **Mobile access** (dsh-satellite exists because Chad wants a phone client):
+  needs the auth verifier before any off-Nebula exposure.
+- **Cursor key**: can Chad get a user API key under enterprise SSO?
+- **Route in run snapshots** and how claude is pointed at the gloo Anthropic
+  route (1.2 spike).
+- **How skills reach each harness** (2.3 spike).
 
 ## Parity audit (2026-10-06)
 
 Method: decoded all 733 dsh sessions in `/var/lib/dsh/sessions` (26 working
-directories) and counted tool calls, skills, bash commands, models and prompt
-shapes. This is how you actually work, not how the app assumes you do.
+directories) and counted tool calls, skills, bash commands, models and
+prompt shapes.
 
-**What the data says**
-- **Most work is delegated factory work, not chat.** 73% of sessions are
-  subagents (delegation depth ≥1); the median session is one turn. The prompts
-  are worker briefs: "you are the build worker for DoD-N", "independent
-  reviewer (did not author it)", "research worker, read-only, write only
-  under research/…". Hod, seddit, dsh-satellite and bubblebox are all run as
-  factories with a primary agent that fans out and gathers.
+- **Most work is delegated.** 73% of sessions are subagents (delegation depth
+  ≥1), median one turn. Prompts are worker briefs ("build worker for DoD-N",
+  "independent reviewer, did not author", "research worker, write only under
+  research/") across hod, seddit, dsh-satellite, bubblebox.
 - **Heaviest tools**: bash 35k, edit 12.5k, read 11.5k, write 3k, grep 2k,
-  todo_write 1.5k, web_fetch 1.5k, send_message/subagent/job_output/
-  list_agents ~2.8k together, hindsight_* ~1k, skill 346, web_search 340,
-  create/update_goal ~400, present 214, ask_user_question 123.
-- **Toolchains in the work**: git, nix (2k `nix develop` calls: hod), cargo
-  (hod, seddit, 3.6k), flutter/dart (satellite), podman, npm/pnpm, curl.
-  Tests ran in 230 sessions; a browser/screenshot appeared in 72.
-- **Models**: glm-5.3 dominates. Employer work (biblica-qr, open-bible, thi,
-  360-*) runs on the gloo route: gpt-5.6-sol, gpt-6-sol, claude sonnet.
-  Others via 9router (`cx/`, `or/`).
-- **Skills actually loaded**: systematic-debugging (68), homelab-ops (43),
-  proton-pass (37), design (30), biblica-qr-development (25), artifacts (10),
-  refactor-checklist (9).
-- **Outside software**: homelab/nix deploys (81 sessions), SSH to other
-  hosts (52), pass-cli (29), forgejo API (59), and a handful each of monarch,
-  home-assistant/roku, comfy, llama.
-
-**Gaps this exposes** (the bold ones are new to the roadmap)
-1. **Fan-out/parallel stages** — bubblebox's 3-agent batches and the
-   seddit/hod worker swarms are the core pattern; 0009 lists fan-out as out
-   of scope. Promote it. 🔴
-2. **Independent reviewer stage** — fresh context, read-only, "did not author
-   this", result gates the merge. Machine kind or stage option. 🔴
-3. **Delegation inside chats** — chats have no subagent, background job,
-   send_message or goal/todo tools; the top-level agent in E needs them. 🟡
-4. **Web search and fetch** — 1.8k calls; absent from sweatshop chats. 🔴
-5. **Model/provider breadth** — chat offers two GLM models; no gloo/employer
-   route, no gpt/claude choice outside the claude harness. Needs a provider
-   registry (9router is already the household broker). 🔴
-6. **Project environments** — sandbox image is node-only. Hod needs nix, satellite
-   flutter, seddit rust (all with "no host installs, containers only" rules).
-   Per-project `image_ref` exists; the missing piece is an image build/curate
-   story and reaching it from the audit tool in E. 🟡
-7. **Rules and skills in sandboxes** — repo `AGENTS.md` reaches a harness only if
-   its CWD loads it; household skills and the user-global layer do not. Decide
-   what a worker sees. Also the "orchestrator commits, workers never push" rule
-   some projects use vs the ticket machine's commit-and-PR flow. 🟡
-8. **Secrets** — proton-pass is used in 29 sessions; sandboxes only have git
-   creds. Pairs with the credential design in E. 🟡
-9. **Scope decision**: homelab/nix deploys, other-host SSH and household
-   (monarch, home-assistant, comfy) probably stay in dsh. Sweatshop is the
-   software factory. See the open question below. 🔴
-10. **Phone access** — dsh-satellite exists because Chad wants a mobile client;
-    sweatshop is LAN/Nebula-only with no auth. Needs the verifier before
-    anything off-Nebula. ⚪
-
-**Not found**: schedules/cron triggers (a few ralph/workflow sessions only), so
-those stay deferred.
-
-## Proposed order
-
-1. **Readiness basics** — run mode, backups, live-DB check, run triage. Small, unblocks everything.
-2. **Parity audit** — done; confirm the scope decision (item 9) and the 🔴 gaps with Chad.
-3. **B: fallbacks + overrides** — design doc 0020, then build.
-4. **C design session** — doc 0021 (can overlap with 3; design only).
-5. **E: tool audit** — prerequisite for setting up the catalog by chat; then **A: machine catalog** (including fan-out and reviewer patterns) with fallbacks in place.
-6. **Go-live gate** — Chad works in sweatshop for a trial week with dsh as the escape hatch; record friction.
-7. **C implementation** — retain first (can ship before the gate), then recall/reflect.
-8. **F (review/evidence tooling)** design and build; **D (BoxLite)** spike in parallel, adopt only if the reachability questions resolve.
-9. Remaining 🟡 items by friction observed in the trial.
+  todo_write 1.5k, web_fetch 1.5k, delegation/job tools ~2.8k, hindsight ~1k,
+  skill 346, web_search 340, goals ~400, present 214.
+- **Toolchains**: git, nix (2k `nix develop`), cargo (3.6k), flutter/dart, podman,
+  npm/pnpm. Tests in 230 sessions; browser/screenshot in 72.
+- **Models**: glm-5.3 dominates; employer work runs gloo/gpt-5.6-sol,
+  gpt-6-sol, claude sonnet; some via 9router (`cx/`, `or/`).
+- **Skills loaded**: systematic-debugging 68, homelab-ops 43, proton-pass 37,
+  design 30, biblica-qr-development 25, artifacts 10, refactor-checklist 9.
+- **Outside software**: homelab/nix deploys (81 sessions), SSH to other hosts
+  (52), pass-cli (29), forgejo API (59); monarch, home-assistant, comfy a handful.
+- **Not found**: schedules/cron triggers; stay deferred.
