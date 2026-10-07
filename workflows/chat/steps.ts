@@ -155,6 +155,14 @@ export async function webSearchStep(
   return searchWeb(query, opts);
 }
 
+/** The agent's capability docs (docs/agent/*.md), read from the checkout. */
+export async function systemDocsStep(topic?: string): Promise<unknown> {
+  "use step";
+  const { listDocTopics, readDoc } = await import("../../lib/agent/tools/docs");
+  if (topic === undefined || topic === "") return { ok: true, topics: await listDocTopics() };
+  return readDoc(topic);
+}
+
 /** 0010 Phase 3: machines available in this conversation (0009). */
 export async function listMachinesStep(
   conversationId: string,
