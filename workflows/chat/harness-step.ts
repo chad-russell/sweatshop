@@ -1,6 +1,7 @@
 import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "../../lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { BoundSandbox } from "../../db/sandboxes";
+import { harnessEventSink } from "../shared/harness-sink";
 
 /** The resume handle a terminal state carries for the next user turn. */
 type HarnessResumeFrom = NonNullable<HarnessWorkflowState["resumeFrom"]>;
@@ -123,25 +124,19 @@ export async function harnessToolStep(
   const [
     { createHarnessWorkflowState, runHarnessAgentStep },
     { toNetworkSandboxSession },
-    { buildHarnessAgent },
+    { buildHarnessAgent, createPrTool },
     { claimHarnessRun, clipHarnessText, getActiveHarnessRun, recordHarnessEvent, recordHarnessRunEnd },
-    { openProjectPR },
     { db },
     { getConversation, getHarnessResumeState, saveHarnessResumeState },
     { getWritable },
-    { tool },
-    { z },
   ] = await Promise.all([
     import("@ai-sdk/workflow-harness"),
     import("../../lib/sandboxes/ai-sdk-adapter"),
     import("../machines/harness-agent"),
     import("../../lib/harness-events"),
-    import("../../lib/git-hosts/open-pr"),
     import("../../db"),
     import("../../db/chat"),
     import("workflow"),
-    import("ai"),
-    import("zod"),
   ]);
 
   const projectId = inherited?.projectId ?? getConversation(db(), conversationId)?.projectId;
@@ -185,83 +180,25 @@ export async function harnessToolStep(
       resumeFrom,
     });
 
-    // Tee the UI chunks: forward to the turn's output stream (the chat
-    // shows harness activity live) and mirror the useful ones into
-    // harness_events (0005 visibility).
+    // Tee the UI chunks through the shared harness sink (0031): events
+    // into harness_events, the model-part form to the turn's output
+    // stream (the chat shows harness activity live).
     const out = getWritable<Record<string, unknown>>();
     const writer = out.getWriter();
-    let text = "";
-    const toolNames = new Map<string, string>();
-    const sink = new WritableStream<Record<string, unknown>>({
-      async write(chunk) {
-        switch (chunk.type) {
-          case "text-delta":
-            text += String(chunk.delta ?? "");
-            break;
-          case "tool-input-available": {
-            const name = String(chunk.toolName ?? "");
-            toolNames.set(String(chunk.toolCallId), name);
-            // fileChange / compaction are synthetic harness events, not calls.
-            if (name !== "fileChange" && name !== "compaction") toolCalls += 1;
-            recordHarnessEvent(conversationId, kind, {
-              kind: "tool-start",
-              toolName: name,
-              toolCallId: String(chunk.toolCallId),
-              input: clipHarnessText(chunk.input, HARNESS_INPUT_CLIP),
-            });
-            break;
-          }
-          case "tool-output-available": {
-            const name = toolNames.get(String(chunk.toolCallId)) ?? "tool";
-            recordHarnessEvent(conversationId, kind, {
-              kind: "tool-end",
-              toolName: name,
-              toolCallId: String(chunk.toolCallId),
-              output: clipHarnessText(chunk.output, HARNESS_OUTPUT_CLIP),
-            });
-            break;
-          }
-          case "tool-output-error": {
-            const name = toolNames.get(String(chunk.toolCallId)) ?? "tool";
-            recordHarnessEvent(conversationId, kind, {
-              kind: "tool-error",
-              toolName: name,
-              toolCallId: String(chunk.toolCallId),
-              output: clipHarnessText(chunk.errorText, HARNESS_OUTPUT_CLIP),
-            });
-            break;
-          }
-        }
-        // Events are recorded from the UI chunk (its shape is what the
-        // harness emits); the durable stream gets the model-part form.
-        const part = uiChunkToModelPart(chunk);
-        if (part !== undefined) {
-          await writer.write({ ...part, chatConversation: conversationId, chatHarness: kind });
-        }
+    const { sink, text } = harnessEventSink({
+      recordEvent: (event) => recordHarnessEvent(conversationId, kind, event),
+      clip: clipHarnessText,
+      inputClip: HARNESS_INPUT_CLIP,
+      outputClip: HARNESS_OUTPUT_CLIP,
+      writer,
+      forward: uiChunkToModelPart,
+      envelope: { chatConversation: conversationId, chatHarness: kind },
+      onToolStart: (name) => {
+        if (name !== "fileChange" && name !== "compaction") toolCalls += 1;
       },
     });
 
-    const hostTools = {
-      create_pr: tool({
-        description:
-          "Open a pull request for a pushed branch of one of this project's repos " +
-          "(repo = directory name under the work root). Push the branch first.",
-        inputSchema: z.object({
-          repo: z.string(),
-          head: z.string(),
-          base: z.string().optional(),
-          title: z.string().min(1),
-          body: z.string().optional(),
-        }),
-        execute: async (args: {
-          repo: string;
-          head: string;
-          base?: string;
-          title: string;
-          body?: string;
-        }) => openProjectPR({ projectId, ...args }),
-      }),
-    };
+    const hostTools = { create_pr: createPrTool(projectId) };
 
     recordHarnessEvent(conversationId, kind, { kind: "start" });
     try {
@@ -281,7 +218,7 @@ export async function harnessToolStep(
         steps += 1;
         recordHarnessEvent(conversationId, kind, {
           kind: "step-end",
-          text: clipHarnessText(text, 500),
+          text: clipHarnessText(text(), 500),
         });
       } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
     } finally {
@@ -298,7 +235,7 @@ export async function harnessToolStep(
     }
 
     return {
-      text,
+      text: text(),
       toolCalls,
       harnessUrl: `/h/${kind}/${conversationId}`,
       eventLogUrl: `/api/harness/${conversationId}?harness=${kind}`,

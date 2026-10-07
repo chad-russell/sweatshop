@@ -1,10 +1,12 @@
 import type { MachineStageRun } from "@/db/schema";
 import type { BoundSandbox } from "@/db/sandboxes";
+import { machineStore } from "./deps";
 
 /**
  * 0009 machine-run side effects — every function here is a `"use step"`
- * (replay-safe via recorded results); Node/sqlite imports happen inside.
- * The workflow body (run-machine.ts) only orchestrates.
+ * (replay-safe via recorded results); Node/sqlite imports happen inside
+ * (through ./deps loaders). The workflow body (run-machine.ts) only
+ * orchestrates.
  */
 
 export async function markRun(
@@ -12,8 +14,8 @@ export async function markRun(
   set: { status?: string; currentStage?: string | null; error?: string | null },
 ): Promise<void> {
   "use step";
-  const [{ db }, { updateRun }] = await Promise.all([import("@/db"), import("@/db/machines")]);
-  updateRun(db(), runId, set);
+  const { db, m } = await machineStore();
+  m.updateRun(db, runId, set);
 }
 
 export async function provisionWorkspace(runId: string, projectId: string): Promise<BoundSandbox> {
@@ -46,10 +48,10 @@ export async function beginVisit(input: {
   harness?: string | null;
 }): Promise<void> {
   "use step";
-  const [{ db }, m] = await Promise.all([import("@/db"), import("@/db/machines")]);
+  const { db, m } = await machineStore();
   const sessionId = input.kind === "harness" ? m.stageSessionId(input.runId, input.seq) : null;
-  m.beginStageRun(db(), { ...input, sessionId });
-  m.updateRun(db(), input.runId, {
+  m.beginStageRun(db, { ...input, sessionId });
+  m.updateRun(db, input.runId, {
     currentStage: input.stageId,
     status: input.kind === "human" ? "waiting" : "running",
   });
@@ -82,8 +84,8 @@ export async function endVisit(input: {
 
 export async function recordSteps(runId: string, seq: number, steps: number): Promise<void> {
   "use step";
-  const [{ db }, { updateStageRun }] = await Promise.all([import("@/db"), import("@/db/machines")]);
-  updateStageRun(db(), runId, seq, { steps });
+  const { db, m } = await machineStore();
+  m.updateStageRun(db, runId, seq, { steps });
 }
 
 /** Close the harness_runs row the /h view reads. */
@@ -108,7 +110,6 @@ export async function endHarnessSession(input: {
 /** Earlier visits for the brief (seq < current). */
 export async function loadHistory(runId: string): Promise<MachineStageRun[]> {
   "use step";
-  const [{ db }, { listStageRuns }] = await Promise.all([import("@/db"), import("@/db/machines")]);
-  return listStageRuns(db(), runId);
+  const { db, m } = await machineStore();
+  return m.listStageRuns(db, runId);
 }
-

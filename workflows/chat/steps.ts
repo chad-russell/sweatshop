@@ -1,10 +1,11 @@
 import type { ModelMessage } from "ai";
+import { chatStore } from "./deps";
 
 /**
  * 0010 spike turn side effects — every function here is a `"use step"`
- * (replay-safe via recorded results); Node/sqlite imports happen inside,
- * same pattern as workflows/machines/steps.ts. The workflow body
- * (turn.ts) only orchestrates.
+ * (replay-safe via recorded results); Node/sqlite imports happen inside
+ * (through ./deps loaders), same pattern as workflows/machines/steps.ts.
+ * The workflow body (turn.ts) only orchestrates.
  *
  * Relative imports throughout: this tree is compiled into the workflow
  * bundle, where the "@/" alias is not guaranteed outside Next.
@@ -20,14 +21,11 @@ export async function loadTurnHistory(
   conversationId: string,
 ): Promise<ModelMessage[]> {
   "use step";
-  const [{ db }, chat] = await Promise.all([
-    import("../../db"),
-    import("../../db/chat"),
-  ]);
-  const queued = chat.drainSteer(db(), conversationId);
+  const { db, chat } = await chatStore();
+  const queued = chat.drainSteer(db, conversationId);
   if (queued.length > 0) {
     chat.appendMessages(
-      db(),
+      db,
       conversationId,
       queued.map((text, i) => ({
         id: `sq_${conversationId}_${Date.now()}_${i}`,
@@ -37,7 +35,7 @@ export async function loadTurnHistory(
       })),
     );
   }
-  return chat.listTurnMessages(db(), conversationId);
+  return chat.listTurnMessages(db, conversationId);
 }
 
 /**
@@ -53,11 +51,8 @@ export async function recordUserMessage(
   viewing?: import("../../lib/page-context").ViewingContext,
 ): Promise<void> {
   "use step";
-  const [{ db }, chat] = await Promise.all([
-    import("../../db"),
-    import("../../db/chat"),
-  ]);
-  chat.appendMessages(db(), conversationId, [
+  const { db, chat } = await chatStore();
+  chat.appendMessages(db, conversationId, [
     {
       id: `t_${conversationId}_${seq}`,
       role: "user",
@@ -78,11 +73,8 @@ export async function recordUserMessage(
  */
 export async function drainSteerStep(conversationId: string): Promise<string[]> {
   "use step";
-  const [{ db }, chat] = await Promise.all([
-    import("../../db"),
-    import("../../db/chat"),
-  ]);
-  return chat.drainSteer(db(), conversationId);
+  const { db, chat } = await chatStore();
+  return chat.drainSteer(db, conversationId);
 }
 
 /**
@@ -238,11 +230,8 @@ export async function pendingStep(
   kind: "approval" | "question" = "approval",
 ): Promise<void> {
   "use step";
-  const [{ db }, chat] = await Promise.all([
-    import("../../db"),
-    import("../../db/chat"),
-  ]);
-  chat.recordPendingInput(db(), { id, conversationId, kind, question });
+  const { db, chat } = await chatStore();
+  chat.recordPendingInput(db, { id, conversationId, kind, question });
 }
 
 /** 0010 Phase 4: generated titles (0007) for new-runtime conversations —
@@ -265,10 +254,7 @@ export async function persistTurn(
   skip: number,
 ): Promise<number> {
   "use step";
-  const [{ db }, chat] = await Promise.all([
-    import("../../db"),
-    import("../../db/chat"),
-  ]);
+  const { db, chat } = await chatStore();
   const tail: {
     id: string;
     role: "user" | "assistant" | "tool";
@@ -286,8 +272,8 @@ export async function persistTurn(
       modelMessage: message,
     });
   });
-  chat.appendMessages(db(), conversationId, tail);
-  chat.setActiveRun(db(), conversationId, null);
+  chat.appendMessages(db, conversationId, tail);
+  chat.setActiveRun(db, conversationId, null);
   return tail.length;
 }
 

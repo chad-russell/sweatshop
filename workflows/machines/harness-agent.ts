@@ -94,3 +94,33 @@ export function transitionTool(stage: Stage) {
     execute: async ({ to }) => ({ ok: true as const, to, note: to === END ? "run will end" : `next stage: ${to}` }),
   });
 }
+
+/**
+ * The create_pr host tool every harness surface offers (0004 D; 0031:
+ * shared by the chat harness step and machine harness stages — one
+ * definition instead of two verbatim copies).
+ */
+export function createPrTool(projectId: string) {
+  return tool({
+    description:
+      "Open a pull request for a pushed branch of one of this project's repos " +
+      "(repo = directory name under the work root). Push the branch first.",
+    inputSchema: z.object({
+      repo: z.string(),
+      head: z.string(),
+      base: z.string().optional(),
+      title: z.string().min(1),
+      body: z.string().optional(),
+    }),
+    execute: async (args: {
+      repo: string;
+      head: string;
+      base?: string;
+      title: string;
+      body?: string;
+    }) => {
+      const { openProjectPR } = await import("@/lib/git-hosts/open-pr");
+      return openProjectPR({ projectId, ...args });
+    },
+  });
+}
