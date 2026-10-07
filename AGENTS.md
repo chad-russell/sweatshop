@@ -180,19 +180,23 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   visit) and `sandbox_exec` (one command in a named sandbox, in its
   owner's workDir, without binding the caller; resumes a stopped one,
   never stops or destroys) — `lib/agent/tools/inspect.ts`.
-  Entities are managed on the project page (0018 phase 3 + 0031: rename,
-  repos with guarded removal, the sandbox image field, and
+  Entities are managed on the project page (0018 phase 3 + 0031 + 0023:
+  rename, repos with guarded removal, the sandbox image field, the work
+  defaults (test command + branch prefix — carried into machine stage
+  briefs as a "# Project" section), and
   delete-project — the approved cascade: cancel live runs, destroy live
   sandboxes, then every project-owned row, conversations hard-deleted
   via `deleteConversationForever`; machines and credentials untouched);
   `/p/[projectId]` is the PROJECT PAGE (0018: repos + resolved git
-  hosts, sandbox image, preview-setup editor, work-surface links) and
+  hosts, sandbox image, work defaults, preview-setup editor,
+  work-surface links) and
   project conversations start on `/` with `?project=<id>`; `create_pr`
   is the agent's PR tool.
 - Machines (0009): user-editable stage machines — sqlite `machines`
   rows holding a zod-validated JSON definition (`lib/machines/
   definition.ts`; seeds in `lib/machines/seeds/*.json`, insert-only via
-  `npm run db:seed`); runs snapshot it (`machine_runs`,
+  `npm run db:seed`; `-- --replace` deletes and reseeds the catalog —
+  0023, run once at its deploy); runs snapshot it (`machine_runs`,
   `machine_stage_runs`, store `db/machines.ts`). `runMachine`
   (`workflows/machines/`) is a raw Workflow SDK interpreter — no agent
   session. Stage kinds: `harness` (pi/claude HarnessAgent, one

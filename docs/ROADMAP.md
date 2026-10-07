@@ -185,11 +185,18 @@ untouched); failures are values; descriptions and the turn instructions
 frame web content as untrusted; designed transcript cards
 (`components/ai-elements/web-cards.tsx`) like the machine tools.
 
-**1.6 Machine catalog (doc 0023).** Rework `ticket` (project test command in
-verify, branch naming, publish), add `bugfix` (reproduce red → fix → verify →
-PR, matching systematic-debugging), `review` (read-only fresh reviewer returning
-pass/fix with findings), keep `think`. Each uses routes (planning cheap,
-implementation strong). Replace seeds so the catalog is the seeds.
+**1.6 Machine catalog (doc 0023) — implemented 2026-10-08.** Four
+machines, seeds as the catalog: `ticket` reworked (three-way approve
+gate — Approve / Revise-with-comment → re-plan / Reject; verify runs
+the project's test command; branch naming = prompt ticket key >
+project prefix > `<type>/<slug>`), `bugfix` new (reproduce RED →
+diagnose → gated fix → verify green → publish, mirroring
+systematic-debugging), `review` new (one fresh-context read-only
+agent stage, PASS/FIX + findings, route inherited so employer
+projects review on gloo), `think` kept. Substrate:
+`projects.test_command` + `branch_prefix` (migration 0041, project
+page "Work defaults" card, stage briefs' "# Project" section) and
+`seed.mjs --replace` (catalog swap mode; run once at the deploy).
 
 **Trial week.** Chad works in sweatshop on an employer project (open-bible or
 qr-codes), with dsh as the escape hatch. Record friction in a file; it drives
