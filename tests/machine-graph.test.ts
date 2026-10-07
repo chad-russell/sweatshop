@@ -52,7 +52,8 @@ describe("layoutMachine", () => {
     const { nodes, edges } = layoutMachine(seed("ticket"));
     const rank = new Map(nodes.map((n) => [n.id, n.rank]));
     const back = edges.filter((e) => e.back).map((e) => e.id);
-    expect(back).toEqual(["verify->implement"]);
+    // 0023: two loops now — verify→implement and the approve→plan revise edge
+    expect(back).toEqual(["approve->plan", "verify->implement"]);
     for (const e of edges.filter((x) => !x.back)) expect(rank.get(e.target)!).toBeGreaterThan(rank.get(e.source)!);
   });
 

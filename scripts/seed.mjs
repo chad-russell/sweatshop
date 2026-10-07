@@ -114,13 +114,27 @@ if (
   console.log("seeded: forgejo credential (forgejo-chad)");
 }
 
-// --- machines (0009) -------------------------------------------------
-// Seed machines are JSON under lib/machines/seeds/. Insert-only: a seed
-// never overwrites a machine Chad has since edited in the app. Their
-// definitions are validated by the app on read (db/machines.ts).
+// --- machines (0009 / 0023) -------------------------------------------
+// Seed machines are JSON under lib/machines/seeds/ — the catalog IS the
+// seeds. Insert-only by default: a seed never overwrites a machine Chad
+// has since edited in the app. `--replace` (0023) deletes the seed ids
+// and reinserts them from the files (version resets to 1) — the catalog
+// swap mode, run once at the 1.6 deploy. Run snapshots are never
+// touched either way (0009 invariant). Definitions are validated by the
+// app on read (db/machines.ts).
+const replace = process.argv.includes("--replace");
 const seedDir = path.join(process.cwd(), "lib", "machines", "seeds");
-for (const file of readdirSync(seedDir).filter((f) => f.endsWith(".json")).sort()) {
-  const seed = JSON.parse(readFileSync(path.join(seedDir, file), "utf8"));
+const seeds = readdirSync(seedDir)
+  .filter((f) => f.endsWith(".json"))
+  .sort()
+  .map((file) => JSON.parse(readFileSync(path.join(seedDir, file), "utf8")));
+if (replace && seeds.length > 0) {
+  const removed = db
+    .prepare(`delete from machines where id in (${seeds.map(() => "?").join(", ")})`)
+    .run(...seeds.map((s) => s.id));
+  if (removed.changes) console.log(`replaced: machines ${seeds.map((s) => s.id).join(", ")}`);
+}
+for (const seed of seeds) {
   const inserted = db
     .prepare(
       `insert into machines (id, name, description, definition, version, created_at, updated_at)

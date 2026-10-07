@@ -1,0 +1,66 @@
+{
+  "id": "bugfix",
+  "name": "Bugfix",
+  "description": "Reproduce the bug red, diagnose the root cause, approve, fix with claude (failing test first), verify green, then push and open a PR.",
+  "definition": {
+    "workspace": "project",
+    "start": "reproduce",
+    "stages": {
+      "reproduce": {
+        "kind": "harness",
+        "harness": "pi",
+        "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
+        "title": "Reproduce",
+        "instructions": "You are the reproduction stage. Build a tight RED loop for the reported symptom: one shell command, run from a repo root, that fails on the exact symptom and will pass once the bug is fixed (a failing test at the right seam is best; a CLI or curl invocation is fine). Tighten it — deterministic, fast, specific to THIS bug.\n\nDo NOT propose fixes or hypotheses, and do not change any files.\n\nThe FIRST line of your reply must be exactly `RED: <command>`. If you cannot reproduce the bug after a genuine effort, say exactly what you tried and why it cannot be reproduced, and end the run — that is a finding, not a failure.",
+        "next": [
+          { "to": "diagnose", "when": "Reproduced — the red command is ready" },
+          { "to": "end", "when": "Could not reproduce (report what was tried)" }
+        ]
+      },
+      "diagnose": {
+        "kind": "harness",
+        "harness": "pi",
+        "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
+        "title": "Diagnose",
+        "instructions": "You are the diagnosis stage — the Iron Law: no fix before a root cause. Using the red command from the earlier stage: read the full error (stack, line numbers, codes) and grep its strings; check recent changes (git log/diff around the affected files); trace the bad value to where it originates.\n\nWhen several causes are plausible, rank them and test the cheapest probe first — but your reply names ONE chosen root cause with the evidence for it, plus the minimal fix plan (the failing test to keep, the one change to make). Do not change any files.",
+        "next": [{ "to": "approve" }]
+      },
+      "approve": {
+        "kind": "human",
+        "title": "Approve fix",
+        "instructions": "Review the root cause and the fix plan. Approve it to implement, or reject to end the run.",
+        "next": [
+          { "to": "fix", "when": "Approve the fix" },
+          { "to": "end", "when": "Reject" }
+        ]
+      },
+      "fix": {
+        "kind": "harness",
+        "harness": "claude",
+        "title": "Fix",
+        "instructions": "You are the fix stage, working from the approved root cause and fix plan. On the branch named in the brief's plan (or a `bugfix/<slug>` branch if none): first commit the failing test built from the reproduction stage's RED command (it must fail), then make the ONE planned fix, then confirm the test is green. No while-I'm-here improvements — anything else the diagnosis noticed goes in your report, not the diff. Commit with clear messages. Do not push.",
+        "next": [{ "to": "verify" }]
+      },
+      "verify": {
+        "kind": "harness",
+        "harness": "pi",
+        "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
+        "title": "Verify",
+        "instructions": "You are the QA stage. Confirm: the reproduction stage's RED command now passes; the project's test command from the brief's \"# Project\" section passes (or, when unset, the repo's own test script — say which you ran); and the diff contains only the planned fix plus its failing test. If all three hold, transition to publish; otherwise transition back to fix and explain exactly what failed.",
+        "next": [
+          { "to": "publish", "when": "Red is green and the gate passes" },
+          { "to": "fix", "when": "The fix needs work (explain exactly what)" }
+        ],
+        "maxVisits": 3
+      },
+      "publish": {
+        "kind": "harness",
+        "harness": "pi",
+        "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
+        "title": "Publish",
+        "instructions": "You are the publish stage. Push the work branch to origin with git (credentials are installed), then open a pull request with the create_pr tool (repo = the repo's directory name). The PR body states the root cause, the red command, and the red→green evidence. Reply with the PR URL.",
+        "next": []
+      }
+    }
+  }
+}
