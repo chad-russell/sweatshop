@@ -16,6 +16,31 @@ export async function markRun(
   "use step";
   const { db, m } = await machineStore();
   m.updateRun(db, runId, set);
+  // 0022: a settle (completed/failed/needs-attention here) wakes the
+  // chat that started the run, once per settle.
+  await maybeWake(runId);
+}
+
+/**
+ * 0022: deliver this run's latest settle to its parent chat, if due.
+ * Shared by markRun, beginVisit's waiting write, and the tick sweep —
+ * always AFTER the status write, and stamping `woken_settled_at` only
+ * once the message is on its way (a crash in between duplicates at
+ * worst; the sweep re-fires).
+ */
+async function maybeWake(runId: string): Promise<void> {
+  const [dbMod, m, { wakeRunIfDue }] = await Promise.all([
+    import("@/db"),
+    import("@/db/machines"),
+    import("@/lib/chat/wake"),
+  ]);
+  try {
+    await wakeRunIfDue(m.getRun(dbMod.db(), runId));
+  } catch (err) {
+    // A wake failure must never fail the run's own step — the sweep
+    // retries, and the settle itself already happened.
+    console.error(`[wake] ${runId}:`, err);
+  }
 }
 
 export async function provisionWorkspace(runId: string, projectId: string): Promise<BoundSandbox> {
@@ -55,6 +80,8 @@ export async function beginVisit(input: {
     currentStage: input.stageId,
     status: input.kind === "human" ? "waiting" : "running",
   });
+  // 0022: a human gate settles the run into `waiting` — wake the parent.
+  if (input.kind === "human") await maybeWake(input.runId);
 }
 
 export async function endVisit(input: {
