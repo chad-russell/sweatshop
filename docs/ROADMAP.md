@@ -103,9 +103,11 @@ deleted; the test executor's 1.2 GB leak fixed (a73f8e3); a dev reaper
 stuck on a pre-migration module found and restarted.
 
 Remaining: **production run mode + backups**, design in
-`docs/0020-production-run-mode.md` (awaiting approval). Nothing of
-sweatshop is in restic today, and the workflow state lives inside
-`.next/`.
+`docs/0020-production-run-mode.md` (awaiting approval). One instance
+only, no dev environment (Chad, 2026-10-07): sweatshop develops itself
+via PRs to a Forgejo remote and ships by redeploying, with dsh as the
+emergency path. Nothing of sweatshop is in restic today, and the
+workflow state lives inside `.next/`.
 
 ## Phase 1 — The floor 🔴
 
@@ -245,8 +247,8 @@ extras (0017); harness SSE; usage/cost visibility per provider/run.
 
 ## Open questions
 
-- **Releases and migrations**: proposed in 0020 (deploy script: build,
-  snapshot, migrate, restart).
+- **Releases and migrations**: proposed in 0020 (deploy script:
+  fast-forward, snapshot, stop, build + migrate, start).
 - **Cost/usage visibility** per provider and per run, which fallbacks make more
   valuable; not designed.
 - **Mobile access** (dsh-satellite exists because Chad wants a phone client):

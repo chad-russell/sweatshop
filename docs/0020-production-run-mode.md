@@ -1,188 +1,164 @@
 # 0020 — Production run mode and backups
 
-Status: **draft — awaiting Chad's approval.** Phase 0 of `docs/ROADMAP.md`.
+Status: **draft, revised 2026-10-07 after Chad's review — awaiting
+approval.** Phase 0 of `docs/ROADMAP.md`.
 
 ## Goal
 
-Sweatshop becomes a daily tool: it survives reboots and crashes without
-a terminal, serves a production build, and its state is in bee's
-nightly restic backups. Developing sweatshop stays on `./dev`, isolated
-from the instance Chad works in.
+Sweatshop runs as one ordinary service on bee: production build,
+restarts on crash and boot, state in the nightly backups. There is no
+separate dev instance. Sweatshop develops itself like any other project
+— a sandboxed chat or machine run opens a PR against its Forgejo repo —
+and a merged change ships by redeploying the service. dsh remains the
+emergency path if a deploy breaks the app.
 
 ## Findings (2026-10-07)
 
 - **The app runs only as `./dev`**: `podman run --rm` of the dev image,
-  attached, `next dev`, up since 2026-10-04 by luck. Nothing restarts it
-  after a reboot.
+  attached, `next dev`. Nothing restarts it after a reboot.
 - **Nothing of sweatshop is backed up.** bee's restic paths
-  (`hosts/bee/backup.nix`) cover `~/Gloo`, `/var/lib/dsh`,
-  `~/.local/share/containers` (volumes), and more — not `~/ss`. The only
-  copies of `data/sweatshop.db` are hand-made `.bak` files beside it.
+  (`hosts/bee/backup.nix` in cn) do not include `~/ss`; the only copies
+  of `data/sweatshop.db` are hand-made `.bak` files beside it.
 - **Workflow state lives in `.next/workflow-data`** (124 MB: runs,
-  events, hooks, steps, streams), not `.workflow-data/`: `withWorkflow()`
-  sets `WORKFLOW_LOCAL_DATA_DIR=.next/workflow-data` when unset. It sits
-  inside the build directory next to 5 GB of disposable dev cache, so
-  any `rm -rf .next` (a routine fix for a broken dev build) silently
-  destroys every in-flight run and hook. A suspended human gate or an
-  `ask_chad` would be lost.
-- **One dev process is the whole product.** The reaper, preview proxy
-  (:3001), and 30 s follower tick all start from `instrumentation-node.ts`.
-- **A hot-reload hazard, observed tonight**: the dev server's reaper
-  had failed every pass (80 times) since migration 0032 renamed
-  `services_provisioned_at`. `next dev` reloaded routes with the new
-  schema, but the long-lived reaper timer kept the module from before the
-  migration. A restart fixed it. In production, a migration always pairs
-  with a restart, so this class goes away.
-- **`next build` succeeds today** (all routes dynamic). It writes into
-  the same `.next/` the running dev server uses, so prod and dev cannot
-  share a checkout without separating build directories.
-- Housekeeping done in this phase: `smoke` machine deleted (runs keep
-  their snapshots); the test executor no longer leaks an 8 MB bundle per
-  run into `.workflow-data/` (1.2 GB removed, a73f8e3); migrations: 33
-  journal entries / 33 applied, `drizzle-kit generate` reports no drift.
-  The two `failed` and one `needs-attention` runs are all from
-  2026-10-01, the `spike` project, before `bcb73df` fixed the bootstrap
-  `mkdir` cwd; every run since has completed. No action.
+  events, hooks, steps, streams). `withWorkflow()` defaults
+  `WORKFLOW_LOCAL_DATA_DIR` there when unset, so `rm -rf .next`, a common
+  fix for a broken build, deletes every in-flight run, suspended gate and
+  pending `ask_chad`.
+- **Hot-reload hazard, observed**: the dev server's sandbox reaper had
+  failed every pass (80) since migration 0032 renamed a column. `next dev`
+  reloaded routes, but the long-lived timer kept the old module. A
+  restart fixed it. In production, a migration always pairs with a
+  restart, so this class goes away.
+- **A production build works today.** Verified 2026-10-07 on a copy of
+  the live DB: `next build` succeeds (all routes dynamic); `next start`
+  serves `/`, `/inbox`, `/machines`, `/machines/ticket`, `/sandboxes`,
+  `/r/<id>`, `/api/attention` (all 200, ~30–40 ms warm, first request
+  554 ms); and a `think` run went draft → critique → parked at the
+  `decide` human gate in 18 s. So workflows, agent stages, sandbox
+  provisioning and hooks all work under `next start`.
+- **Build directory constraint**: Next rewrites `tsconfig.json` whenever
+  it builds into a new `distDir`, so the build always uses the one
+  default `.next`. Building while the server runs from that same
+  directory is unsafe (lazy chunk loads), hence the stop-build-start
+  deploy below.
+- Housekeeping done in Phase 0: `smoke` machine deleted; test executor
+  bundle leak fixed (a73f8e3, 1.2 GB removed); 33/33 migrations applied,
+  no schema drift; the 3 bad runs are all from 2026-10-01, before
+  `bcb73df` fixed the bootstrap `mkdir`; every run since has completed.
+- Noticed for the catalog item: the live `think` machine (version 4) has
+  `workspace: "project"`, so it refuses to run without a project, but
+  its seed says `none`. Fix it with the catalog rework (roadmap 1.6).
 
 ## Design
 
-### 1. Two instances, two checkouts
+### 1. One checkout, one data directory
 
-| | **prod** (daily use) | **dev** (working on sweatshop) |
-|---|---|---|
-| Checkout | `~/ss/sweatshop-prod` — a `git worktree` of this repo, pinned to a deployed commit | `~/ss/sweatshop` (unchanged) |
-| Process | `next start` from a production build | `next dev` via `./dev` |
-| Port | **3300** (the URL Chad already uses) | **3310** (`SWEATSHOP_PORT` default changes) |
-| Preview proxy | `10.10.0.12:3301` (unchanged, bees' Caddy already points here) | off by default (`PREVIEW_PROXY_PORT=off`) |
-| Reaper / tick | on | off by default (`SANDBOX_REAPER=off`, `PREVIEW_TICK=off`) |
-| Data | `/home/crussell/.local/share/sweatshop/` | `./data/` (unchanged; a dev copy) |
+`~/ss/sweatshop` stays the only checkout. After go-live it is the
+**deploy checkout**: it tracks `main` on the Forgejo remote and changes
+only through `scripts/deploy.sh`. Work on sweatshop happens in sandboxes
+(like any project) and arrives as merged PRs.
 
-Why a worktree and not the same tree: a production build must not be
-replaced by whatever the dev checkout is mid-edit on, and the two
-`.next/` directories must never collide. A worktree shares git objects
-(no second clone), and "deploy" is an explicit act: move the worktree to
-a commit, build, restart.
+All state stays under the existing gitignored `data/`:
 
-Why dev turns background work off: two reapers over two databases are
-harmless, but two preview proxies cannot both bind :3001, and a dev
-reaper over a copy of prod data would stop and destroy real sandboxes
-that the copied rows point at (the containers are shared on host
-podman). Dev can opt back in per variable.
+- `data/sweatshop.db` (+ `-wal`, `-shm`), unchanged.
+- `data/workflow-data/`, set explicitly by `WORKFLOW_LOCAL_DATA_DIR` so it
+  moves out of `.next/`. One-time move of the current
+  `.next/workflow-data/` while the server is stopped.
+- `data/backups/`, the pre-deploy and nightly snapshots.
 
-### 2. State outside the checkout
+Backups then need exactly one new path.
 
-One directory, `~/.local/share/sweatshop/`, holds everything that must
-survive a rebuild:
+### 2. Forgejo remote
 
-- `sweatshop.db` (+ `-wal`, `-shm`) via `SWEATSHOP_DB`
-- `workflow-data/` via an explicit `WORKFLOW_LOCAL_DATA_DIR` (setting it
-  stops `withWorkflow()` from defaulting into `.next/`)
-
-It sits under `~/.local/share`, so it is outside the checkout and the
-`.next` blast radius. The existing restic path list doesn't cover it, so
-cn adds it.
-
-**Moving the data across** (one time): stop dev, copy
-`data/sweatshop.db` (after `PRAGMA wal_checkpoint(TRUNCATE)`) and
-`.next/workflow-data/` into the new directory, start prod. Dev then keeps
-`./data` as a disposable copy. Runs that were in flight at the cut-over
-resume in prod because the workflow world is copied too. Expect to check
-any run that was live (there are none now).
+Create `chad/sweatshop` on git.crussell.io (private), add it as `origin`,
+push `main`. Register sweatshop as a project inside sweatshop with that
+repo, so `create_pr` targets it. Done during cut-over via the existing
+Forgejo token path (forgejo-pr skill).
 
 ### 3. The service
 
 A rootless user quadlet in cn, `hosts/bee/sweatshop.nix` +
-`hosts/bee/sweatshop/sweatshop.container`, using the same mechanics as
-hindsight (materialize under `/etc`, symlink into
-`~/.config/containers/systemd`, daemon-reload, enable):
+`hosts/bee/sweatshop/sweatshop.container`, using hindsight's mechanics
+(materialize under `/etc`, symlink into `~/.config/containers/systemd`,
+daemon-reload, enable):
 
-- Image `localhost/sweatshop-dev` (node 24 + docker-cli + git, same as
-  dev, so sandboxes and `git ls-remote` keep working). No separate prod
-  image: the build output is in the worktree, and one image avoids drift.
-- `Exec=sh -lc 'exec npx next start -p 3000'` with `WorkingDir=/workspace`.
-  `node_modules` comes from its own named volume, `sweatshop-prod-node-modules`,
-  so a dev `npm install` never changes prod's dependencies under it.
-- Mounts: the prod worktree at `/workspace`, the data directory, the host
-  podman socket at `/var/run/docker.sock`, `.env.local` from the prod
-  worktree via `EnvironmentFile=`.
-- `Network=sweatshop-harness` (claude bridge membership, 0006). The
-  network is created by `./dev` today, so the quadlet adds a
-  `sweatshop-harness.network` unit (same name, so existing sandboxes
-  stay on it).
-- `PublishPort=3300:3000` and `PublishPort=10.10.0.12:3301:3001`.
+- Image `localhost/sweatshop-dev` (node 24 + docker-cli + git, as today;
+  the name stays to avoid churn).
+- `Exec=sh -lc 'exec npx next start -p 3000'`, `WorkingDir=/workspace`.
+- Mounts: the checkout at `/workspace`, the existing
+  `sweatshop-node-modules` volume at `/workspace/node_modules`, the host
+  podman socket at `/var/run/docker.sock`. `EnvironmentFile=` the
+  checkout's `.env.local`.
+- `Network=sweatshop-harness`, declared by a `sweatshop-harness.network`
+  quadlet (same name, so existing sandboxes stay attached; `./dev` keeps
+  its create-if-missing).
+- `PublishPort=3300:3000` and `PublishPort=10.10.0.12:3301:3001`
+  (unchanged URLs; bees' Caddy preview route needs no change).
+- `Environment=NODE_ENV=production WORKFLOW_LOCAL_DATA_DIR=/workspace/data/workflow-data`.
 - `Restart=always`, `[Install] WantedBy=default.target` (crussell lingers,
   so it starts at boot).
-- `Environment=NODE_ENV=production SWEATSHOP_DB=/data/sweatshop.db
-  WORKFLOW_LOCAL_DATA_DIR=/data/workflow-data`.
 
-Secrets stay in the worktree's `.env.local` (gitignored, mode 0600).
-Moving them to agenix is possible but would split config across two
-repos; the Secrets entity (roadmap 2.2) is the long-term home.
+`./dev` stays as the tool for `./dev exec -- …` (tests, migrations, the
+gate) and `./dev shell`. Its `run` mode is removed, since the service is
+the only server.
 
-### 4. Deploying a new version
+### 4. Deploying
 
-`scripts/deploy-prod.sh` in this repo, run from the dev checkout:
+`scripts/deploy.sh` on bee, run by Chad (or an agent in dsh). It is a
+host script, so sweatshop's own sandboxed agents cannot redeploy it:
 
-1. Refuse if the dev tree is dirty or the gate is not green (runs
-   typecheck/lint/test in the container).
-2. `git -C ~/ss/sweatshop-prod checkout --detach <commit>` (default `main`).
-3. `npm ci` + `next build` inside a one-off container on the prod mounts.
-   Build failure → stop here, prod keeps running the old build.
-4. Snapshot the DB (`sqlite3 .backup` via node into
-   `~/.local/share/sweatshop/backups/pre-<commit>.db`, keep the last 5).
-5. `npm run db:migrate` against the prod DB.
-6. `systemctl --user restart sweatshop`, then poll `/api/attention` until
-   200 (fail loudly after 60 s).
+1. `git fetch origin && git merge --ff-only origin/main` (refuse if the
+   checkout has local changes or diverged).
+2. Snapshot the DB to `data/backups/pre-<sha>.db` (better-sqlite3's
+   `backup()`, the same call verified in the trial; keep the last 10).
+3. `systemctl --user stop sweatshop`.
+4. `npm ci` + `next build` + `npm run db:migrate` in a one-off container
+   (`./dev exec`). On failure: `git reset --hard <previous sha>`, rebuild,
+   start the old version, exit non-zero.
+5. `systemctl --user start sweatshop`; poll `/api/attention` for 200 up to
+   60 s.
 
-Migrations run with the old server still up for a few seconds. Today's
-migrations are additive or renames that the old server would fail on
-until the restart; the window is seconds and the server is single-user,
-so accept it rather than stopping first. Rollback = deploy the previous
-commit plus restore the pre-deploy snapshot if a migration was involved.
-This answers the roadmap's "releases and migrations" open question.
+Downtime is the install + build, a few minutes. That's acceptable for a
+single user. In-flight workflow runs resume on start (the local world
+re-enqueues active runs by default), and suspended gates and hooks are
+files in `data/workflow-data/`, so they survive. A step interrupted
+mid-flight is retried, as on any restart.
+
+Rollback: `scripts/deploy.sh <sha>` deploys an older commit; if the
+bad deploy ran a migration, restore `data/backups/pre-<sha>.db` with the
+service stopped. That's the whole recovery path dsh would follow.
 
 ### 5. Backups
 
-- cn `hosts/bee/backup.nix`: add `/home/crussell/.local/share/sweatshop`.
-  restic captures db + wal together, which SQLite recovers cleanly; the
-  bees wankbank note records the lesson of backing up a bare `.db`.
-- For a consistent copy regardless of timing, a user timer runs
-  `VACUUM INTO backups/nightly.db` an hour before the restic window.
-  restic then always has one point-in-time copy even if the live pair
-  was mid-write.
-- `workflow-data/` is files, backed up as is. A torn file there would
-  affect one run, not the database.
+- cn `hosts/bee/backup.nix`: add `/home/crussell/ss/sweatshop/data`.
+  restic captures db + WAL together, which SQLite recovers cleanly
+  (the bees wankbank comment records what happens with a bare `.db`).
+- A user timer an hour before the restic window writes
+  `data/backups/nightly.db` with `VACUUM INTO`, so restic always holds one
+  guaranteed-consistent copy.
+- The `.bak` and `pre-0007`/`pre-0009` files in `data/` move into
+  `data/backups/` (or get deleted, Chad's call).
 
 ## Phases
 
-1. **Repo side** (this repo): `SWEATSHOP_PORT` default 3310 and dev
-   background work off by default in `./dev`; `scripts/deploy-prod.sh`;
-   `scripts/db-snapshot.mjs` (the `VACUUM INTO` helper shared by deploy
-   and the timer); AGENTS.md Environment section updated. Gate green.
-2. **cn side**: `hosts/bee/sweatshop.nix` + quadlet + network unit +
-   snapshot timer; backup path. Deploy bee (`dsh-web` bounce caveat from
-   the homelab-ops skill: bee self-deploys restart dsh-web).
-3. **Cut-over**: create the worktree, copy `.env.local`, first deploy
-   via the script, stop dev, move the data, start prod, verify:
-   `/inbox` loads, the sidebar shows existing chats, a preview URL
-   resolves through bees, the reaper logs its first pass, and a chat
-   turn works. Then start dev on 3310 against `./data`.
-4. **Verify the backup**: after the next nightly run, `restic ls latest`
-   shows the data directory.
+1. **Repo**: `WORKFLOW_LOCAL_DATA_DIR` documented in `.env.example`,
+   `scripts/deploy.sh`, `scripts/db-snapshot.mjs` (shared by deploy and
+   the nightly timer), `./dev` loses `run`, AGENTS.md "Environment"
+   rewritten for the service. Gate green; commit.
+2. **cn**: `hosts/bee/sweatshop.nix` + container + network units +
+   snapshot timer; backup path; deploy bee (dsh-web bounce caveat from
+   homelab-ops).
+3. **Cut-over**: create the Forgejo repo, push, add `origin`; stop
+   `./dev`; move `.next/workflow-data` → `data/workflow-data`; first
+   `scripts/deploy.sh`; verify `/inbox`, sidebar history, a chat turn, a
+   preview URL through bees, the reaper's first pass in the journal;
+   register sweatshop as a project.
+4. **Backup check**: after the next nightly run, `restic ls latest`
+   shows `data/`.
 
 ## Out of scope
 
-- A separate production image or multi-stage build.
-- Zero-downtime deploys.
-- Running prod on bees or anywhere but bee.
+- A dev instance, a second checkout, staging, zero-downtime deploys.
+- Automatic deploy on merge (deploys stay deliberate).
+- A separate production image.
 - Auth: still LAN/Nebula only (hard rule unchanged).
-
-## Questions for Chad
-
-1. Prod keeps **3300** and dev moves to **3310**? (Keeps your bookmarks;
-   the alternative is prod on a new port.)
-2. Data under `~/.local/share/sweatshop` OK, or would you rather it live
-   somewhere else (e.g. `/srv`)?
-3. Deploys by `scripts/deploy-prod.sh` that you (or I) run, rather than
-   automatic on every commit to `main`? Automatic would deploy half-done
-   work, since everything is on `main`.
