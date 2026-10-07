@@ -16,7 +16,22 @@
 # it, so the app never redeploys itself.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The deploy moves the checkout this script lives in, and bash reads a
+# script lazily as it runs — so a deploy that changed deploy.sh executed a
+# mix of old and new lines (2026-10-07: the old build() ran, and the
+# service went down). Re-exec from a private copy first, so the whole run
+# is the version that started.
+if [[ -z "${SWEATSHOP_DEPLOY_COPY:-}" ]]; then
+  copy="$(mktemp "${TMPDIR:-/tmp}/sweatshop-deploy.XXXXXX")"
+  cp "${BASH_SOURCE[0]}" "$copy"
+  export SWEATSHOP_DEPLOY_COPY="$copy"
+  export SWEATSHOP_DEPLOY_ROOT
+  SWEATSHOP_DEPLOY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  exec bash "$copy" "$@"
+fi
+trap 'rm -f "$SWEATSHOP_DEPLOY_COPY"' EXIT
+
+ROOT="$SWEATSHOP_DEPLOY_ROOT"
 cd "$ROOT"
 UNIT=sweatshop
 URL="${SWEATSHOP_URL:-http://localhost:3300}"
@@ -74,11 +89,13 @@ wait_healthy() {
 say "stopping $UNIT"
 user_systemctl stop "$UNIT" || true
 
-if [[ $# -ge 1 ]]; then
+if [[ $# -ge 1 && "$target" != "$(git rev-parse origin/main)" ]]; then
   git checkout --quiet --detach "$target"
 else
   git checkout --quiet main && git merge --quiet --ff-only "$target"
 fi
+# NOTE: anything below runs from the private copy made at the top, so it
+# is always the deploy.sh that started — even when this deploy changed it.
 
 if ! build; then
   say "build or migrate failed — restoring $(git rev-parse --short "$previous")"
