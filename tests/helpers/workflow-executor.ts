@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { BaseBuilder, createBaseBuilderConfig } from "@workflow/builders";
@@ -132,6 +132,9 @@ export async function startWorkflowExecutor(): Promise<WorkflowExecutor> {
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
       });
+      // The generated bundles (~8 MB per run) are only needed while the
+      // executor lives; left behind they piled up to >1 GB.
+      rmSync(dir, { recursive: true, force: true });
     },
   };
 }
