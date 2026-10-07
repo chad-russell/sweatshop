@@ -2,7 +2,7 @@
 
 Go-live = Chad does his daily work in sweatshop instead of dsh. Drafted
 2026-10-06, revised the same day after an interview with Chad (decisions
-below are his). Each architectural item gets a numbered design doc (0020+)
+below are his). Each architectural item gets a numbered design doc (0021+; 0020 is Phase 0)
 approved before code, per AGENTS.md. Numbers are provisional.
 
 Legend: 🔴 on the go-live floor · 🟡 soon after / during the trial · ⚪ later.
@@ -95,18 +95,17 @@ cannot depend on a terminal), **backups of the DB** (Phase 0), **fallbacks**
 and **secrets** (Phase 2; employer repos already work through git credentials,
 so pass-cli is the first real need).
 
-## Phase 0 — Readiness (small, first) 🔴
+## Phase 0 — Readiness 🔴
 
-- **Production run mode.** `next build` + start under a quadlet unit with
-  restart-on-failure and boot start, in cn. The reaper, preview proxy and
-  follower tick live in this process, so uptime is the product's uptime. Check
-  that the workflow world (`.workflow-data`) survives a restart.
-- **Backups.** Confirm `data/sweatshop.db` (+WAL) and `.workflow-data` fall
-  under bee's restic path; add a consistent SQLite snapshot if not.
-- **Live DB.** Verify migration 0032 is applied (0019 notes said it wasn't at
-  that time) and `generate` reports no drift.
-- **Triage** the 1 `needs-attention` and 2 `failed` runs: product bugs or noise?
-- **Retire `smoke`** machine row (a test fixture, not catalog).
+Done 2026-10-07: live DB verified (33/33 migrations, no drift); the 3
+bad runs triaged (all 2026-10-01, before `bcb73df`; no action); `smoke`
+deleted; the test executor's 1.2 GB leak fixed (a73f8e3); a dev reaper
+stuck on a pre-migration module found and restarted.
+
+Remaining: **production run mode + backups**, design in
+`docs/0020-production-run-mode.md` (awaiting approval). Nothing of
+sweatshop is in restic today, and the workflow state lives inside
+`.next/`.
 
 ## Phase 1 — The floor 🔴
 
@@ -246,9 +245,8 @@ extras (0017); harness SSE; usage/cost visibility per provider/run.
 
 ## Open questions
 
-- **Releases and migrations** once sweatshop is the daily tool: how are
-  deploys of sweatshop itself done, and how does a `db:migrate` fit (this is a
-  one-process service with sqlite).
+- **Releases and migrations**: proposed in 0020 (deploy script: build,
+  snapshot, migrate, restart).
 - **Cost/usage visibility** per provider and per run, which fallbacks make more
   valuable; not designed.
 - **Mobile access** (dsh-satellite exists because Chad wants a phone client):
