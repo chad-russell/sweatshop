@@ -363,6 +363,45 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "background harness call: the worker advances the harness, settles with its text, and wakes the chat (0022)",
+    { timeout: 30_000 },
+    async () => {
+      // Scripted harness (two semantic steps); the wake starts a chat
+      // turn, answered by the plain mock.
+      process.env.SWEATSHOP_HARNESS_MOCK = "1";
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      try {
+        const { projects } = await import("../db/schema");
+        const { getHarnessCall } = await import("../db/harness-calls");
+        const { startHarnessCall } = await import("../lib/chat/harness-call-start");
+        db().insert(projects).values({ id: "p_xchat_hc", name: "HC", createdAt: 0 }).onConflictDoNothing().run();
+        const id = `c_test_hc_${Math.random().toString(36).slice(2, 8)}`;
+        ensureConversation(db(), id, "p_xchat_hc");
+
+        const started = await startHarnessCall({ conversationId: id, kind: "pi", task: "say hi" });
+        expect(started.ok).toBe(true);
+        if (!started.ok) return;
+
+        await waitFor(async () => getHarnessCall(db(), started.callId)?.status !== "running", "call to settle");
+        const call = getHarnessCall(db(), started.callId)!;
+        // It RAN: both scripted steps' text, not an empty instant "completed".
+        expect(call.status).toBe("completed");
+        expect(call.result).toContain("mock-harness-step:1");
+        expect(call.result).toContain("mock-harness-step:2");
+        // ...and woke the chat with that result.
+        await waitFor(
+          async () => listMessageTexts(db(), id).some((r) => r.role === "user" && r.text.startsWith("[pi finished]")),
+          "the wake message",
+        );
+        const wake = listMessageTexts(db(), id).find((r) => r.text.startsWith("[pi finished]"))!;
+        expect(wake.text).toContain("mock-harness-step:2");
+      } finally {
+        delete process.env.SWEATSHOP_HARNESS_MOCK;
+      }
+    },
+  );
+
+  it(
     "cancel: a hung model call cancels the run and nothing is persisted for it",
     { timeout: 30_000 },
     async () => {

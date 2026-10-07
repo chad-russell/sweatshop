@@ -285,6 +285,18 @@ export async function harnessAdvanceStep(input: {
   state: HarnessWorkflowState;
 }): Promise<{ state: HarnessWorkflowState; text: string; toolCalls: number }> {
   "use step";
+  // Tests: a scripted harness (no sandbox, no model) — two semantic
+  // steps then finished, so the worker loop itself is exercised.
+  // Double-gated like the chat mock (workflows/chat/model.ts).
+  if (process.env.SWEATSHOP_HARNESS_MOCK && process.env.NODE_ENV === "test") {
+    const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
+    const done = n >= 2;
+    return {
+      state: { ...input.state, mockStep: n, status: done ? "finished" : "ready_for_next_step" } as HarnessWorkflowState,
+      text: `mock-harness-step:${n}`,
+      toolCalls: 1,
+    };
+  }
   const [
     { runHarnessAgentStep },
     { toNetworkSandboxSession },
