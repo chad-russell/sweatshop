@@ -17,11 +17,14 @@ import {
   setTrashed,
 } from "../db/organize";
 import {
+  chatHarnessState,
   conversations,
   folders,
   harnessRuns,
   messages,
+  pendingInputs,
   projects,
+  steerQueue,
 } from "../db/schema";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
@@ -191,6 +194,24 @@ describe("rename, archive, trash", () => {
     expect(
       tdb.select().from(harnessRuns).where(eq(harnessRuns.sessionId, c)).all(),
     ).toEqual([]);
+  });
+
+  it("delete-forever removes steer queue, harness state, and pending inputs (FKs into conversations)", () => {
+    // Found live 2026-10-08: purging a conversation with harness history
+    // or answered approvals threw FOREIGN KEY — the three tables were
+    // never part of the teardown.
+    const c = convo(null);
+    tdb.insert(steerQueue).values({ id: `sq_${c}`, conversationId: c, text: "queued", createdAt: 1 }).run();
+    tdb.insert(chatHarnessState).values({ conversationId: c, harness: "pi", resumeFrom: "{}", updatedAt: 1 }).run();
+    tdb.insert(pendingInputs).values({
+      id: `pi_${c}`, conversationId: c, kind: "approval", question: "ok?", createdAt: 1,
+      resolvedAt: 2, answer: '{"approved":true}',
+    }).run();
+    expect(() => deleteConversationForever(tdb, c)).not.toThrow();
+    expect(tdb.select().from(conversations).where(eq(conversations.id, c)).get()).toBeUndefined();
+    expect(tdb.select().from(steerQueue).where(eq(steerQueue.conversationId, c)).all()).toEqual([]);
+    expect(tdb.select().from(chatHarnessState).where(eq(chatHarnessState.conversationId, c)).all()).toEqual([]);
+    expect(tdb.select().from(pendingInputs).where(eq(pendingInputs.conversationId, c)).all()).toEqual([]);
   });
 
   it("purges only trash older than the retention window", () => {

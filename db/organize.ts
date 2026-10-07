@@ -2,13 +2,16 @@ import { randomUUID } from "node:crypto";
 import { and, eq, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import {
+  chatHarnessState,
   conversations,
   folders,
   harnessEvents,
   harnessRuns,
   machineRuns,
   messages,
+  pendingInputs,
   sandboxAttachments,
+  steerQueue,
 } from "./schema";
 
 /**
@@ -342,6 +345,12 @@ export function deleteConversationForever(db: Db, id: string): string[] {
       // 0011 sandbox records name the conversation (FKs): its
       // attachments go with it; the sandbox rows themselves stay.
       tx.delete(sandboxAttachments).where(eq(sandboxAttachments.conversationId, sid)).run();
+      // Everything else that FKs the conversation (found live
+      // 2026-10-08: a purged harness chat or an answered approval
+      // threw FOREIGN KEY — these were never part of the teardown).
+      tx.delete(steerQueue).where(eq(steerQueue.conversationId, sid)).run();
+      tx.delete(chatHarnessState).where(eq(chatHarnessState.conversationId, sid)).run();
+      tx.delete(pendingInputs).where(eq(pendingInputs.conversationId, sid)).run();
       tx.delete(conversations).where(eq(conversations.id, sid)).run();
     }
   });
