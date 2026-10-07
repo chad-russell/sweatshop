@@ -451,6 +451,17 @@ export const machineRuns = sqliteTable(
     /** 0012: Unix ms the run last entered a settled status (waiting,
      *  needs-attention, completed, failed) — its "unread" moment. */
     settledAt: integer("settled_at"),
+    /** 0022: the chat whose start_machine created this run — the wake
+     *  target when the run settles. Null (UI/API starts) = never wakes;
+     *  a deleted parent goes null and wakes stop. */
+    parentConversationId: text("parent_conversation_id").references(
+      (): AnySQLiteColumn => conversations.id,
+      { onDelete: "set null" },
+    ),
+    /** 0022: the run's latest settled_at already delivered to its parent
+     *  (wake-once-per-settle idempotency; the tick sweep re-fires
+     *  anything older — crash, restart). */
+    wokenSettledAt: integer("woken_settled_at"),
     /** 0012: the Workflow SDK run executing this machine run (cancel). */
     workflowRunId: text("workflow_run_id"),
     /** 0021: JSON RunOverrides (`startRun({ overrides })`) — null = none. */
