@@ -251,9 +251,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   functions, and the workflow body imports harness packages type-only
   (a runtime import drags pi's raw-.ts deps into the bundle). Harness
   packages are `serverExternalPackages` in next.config. Keep
-  `@ai-sdk/workflow` aligned with the installed `ai` line (2.0.53 ↔
-  ai 7.0.122 / provider-utils 5.0.51), and `@ai-sdk/workflow-harness`
-  exactly on the harness line (1.0.132; its stale `workflow@4` peer is
+  `@ai-sdk/workflow` aligned with the installed `ai` line (2.0.62 ↔
+  ai 7.0.130 / provider-utils 5.0.56), and `@ai-sdk/workflow-harness`
+  exactly on the harness line (1.0.141; its stale `workflow@4` peer is
   satisfied by a scoped npm override). These pins are exact in
   package.json on purpose — a caret range would let a routine install
   break a load-bearing pairing; bump them deliberately, together.
@@ -315,7 +315,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   GLM via the Z.AI coding plan's Anthropic Messages surface
   (`https://api.z.ai/api/anthropic`), through the shared AI SDK adapter
   (`toSandboxSession`). claude (`@ai-sdk/harness-claude-code`, pinned
-  exactly 1.0.136) runs the official Agent SDK as an in-sandbox bridge
+  exactly 1.0.145) runs the official Agent SDK as an in-sandbox bridge
   process reached over the private `sweatshop-harness` podman network
   (host processes have no route to podman bridge subnets — membership
   is the boundary, never a published LAN port). claude auth (0006
@@ -329,8 +329,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (pi, claude); legacy `/h/<id>` and `/h/<id>/<harness>` URLs
   permanent-redirect. Failures record as failed with a clipped error,
   events page by id cursor. Packaging pins:
-  `pi-coding-agent` exactly 0.85.1; harness-pi 1.0.134 / harness
-  1.0.132 / harness-claude-code 1.0.136. Adapter rules: env goes as
+  `pi-coding-agent` exactly 0.85.1; harness-pi 1.0.143 / harness
+  1.0.141 / harness-claude-code 1.0.145 (the 1.1 stack bump: harness
+  1.0.141 pins provider-utils 5.0.56 / ai 7.0.130 exactly, so the ai /
+  workflow / provider-utils line moves with it — one deliberate bump). Adapter rules: env goes as
   `docker exec -e` flags, exec uses `bash` not `sh`, and bridge
   processes need the real streaming spawn (run-to-completion replay
   cannot host one). Opt-in spike:
