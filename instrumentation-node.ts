@@ -11,6 +11,8 @@
  * - 0016 previews: the Host-routing proxy listener (`PREVIEW_PROXY_PORT`,
  *   default 3001 inside the container; `off` disables) and the
  *   reconcile/follow tick (every 30 s; `PREVIEW_TICK=off` disables).
+ * - 0022 wake sweep: deliver run settles the in-run wake missed (every
+ *   30 s; `WAKE_SWEEP=off` disables).
  */
 
 const REAP_INTERVAL_MS = 5 * 60_000;
@@ -71,4 +73,35 @@ async function startPreviews(g: Globals) {
     every.unref();
     g[tickKey] = every;
   }
+
+  startWakeSweep(g);
+}
+
+const WAKE_SWEEP_MS = 30_000;
+const WAKE_SWEEP_FIRST_MS = 10_000;
+
+/**
+ * 0022: deliver run settles the in-run wake missed — crash/restart
+ * recovery, and the tripwire for settles that happen without one.
+ * `WAKE_SWEEP=off` disables.
+ */
+function startWakeSweep(g: Globals) {
+  if (process.env.WAKE_SWEEP === "off") return;
+  const key = Symbol.for("sweatshop.wakeSweep");
+  if (g[key]) return;
+
+  const sweep = async () => {
+    try {
+      const { sweepWakes } = await import("./lib/chat/wake");
+      await sweepWakes();
+    } catch (err) {
+      console.error("[wake-sweep] pass failed", err);
+    }
+  };
+  console.log(`[wake-sweep] every ${WAKE_SWEEP_MS / 1000}s (first pass in ${WAKE_SWEEP_FIRST_MS / 1000}s)`);
+  const first = setTimeout(() => void sweep(), WAKE_SWEEP_FIRST_MS);
+  const every = setInterval(() => void sweep(), WAKE_SWEEP_MS);
+  first.unref();
+  every.unref();
+  g[key] = every;
 }

@@ -49,6 +49,7 @@ export async function recordUserMessage(
   text: string,
   seq: number,
   viewing?: import("../../lib/page-context").ViewingContext,
+  runEvent?: import("../../db/chat").RunEventMeta,
 ): Promise<void> {
   "use step";
   const { db, chat } = await chatStore();
@@ -59,6 +60,7 @@ export async function recordUserMessage(
       text,
       modelMessage: { role: "user", content: text },
       ...(viewing ? { metadata: { viewing } } : {}),
+      ...(runEvent ? { metadata: { runEvent } } : {}),
     },
   ]);
 }
@@ -130,6 +132,13 @@ export async function startMachineStep(
   "use step";
   const { startMachineRun } = await import("../../lib/agent/tools/start-machine");
   return startMachineRun({ conversationId, ...input });
+}
+
+/** 0022: cancel a run the agent started (or watches). */
+export async function cancelRunStep(runId: string): Promise<unknown> {
+  "use step";
+  const { cancelRunTool } = await import("../../lib/agent/tools/cancel-run");
+  return cancelRunTool(runId);
 }
 
 /** 0016/0017: preview tools in this conversation's sandbox binding. */
