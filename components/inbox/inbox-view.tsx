@@ -86,8 +86,8 @@ export function InboxView({ data }: { data: InboxData }) {
   const answer = useCallback(
     (id: string) => {
       setAnswered((prev) => new Set(prev).add(id));
-      // The mirror records input.resolved just after eve accepts the reply.
-      setTimeout(() => router.refresh(), 800);
+      // /api/x/input resolves the row before responding — refresh now.
+      router.refresh();
     },
     [router],
   );

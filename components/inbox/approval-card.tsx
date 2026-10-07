@@ -16,17 +16,16 @@ function formatInput(input: Record<string, unknown> | null): string | null {
   return text.length > INPUT_MAX ? `${text.slice(0, INPUT_MAX)}…` : text;
 }
 
-/** Fallback options when eve sends none (it normally does). */
+/** Fallback options when the request carries none. */
 const DEFAULT_APPROVAL: RequestOption[] = [
   { id: "approve", label: "Approve", style: "primary" },
   { id: "cancel", label: "Deny", style: "danger" },
 ];
 
 /**
- * A pending tool approval (or session-limit confirmation): what the agent
- * wants to run, with the options eve offered as buttons. Answering goes
- * straight to the session; the card stays until eve records the
- * resolution, so a refused answer never silently disappears.
+ * A pending tool approval: what the agent wants to run, with Approve /
+ * Deny as buttons. Answering goes to /api/x/input, which resolves the
+ * row before responding — a refused answer never silently disappears.
  */
 export function ApprovalCard({
   thread,
@@ -37,7 +36,7 @@ export function ApprovalCard({
   request: PendingRequest;
   onAnswered: (requestId: string) => void;
 }) {
-  const { respond, busy, error } = useRespond(thread.id, request.runtime);
+  const { respond, busy, error } = useRespond();
   const options = request.options.length > 0 ? request.options : DEFAULT_APPROVAL;
   const input = formatInput(request.toolInput);
 

@@ -8,111 +8,65 @@ import {
   markAllSeen,
   markSeen,
   markUnread,
-  pendingFromEvents,
-  type EventRow,
 } from "../db/attention";
-import { mirrorStreamEvent } from "../db/mirror";
 import { loadSidebar } from "../db/organize";
-import { conversations, folders, machineRuns, machineStageRuns, projects } from "../db/schema";
+import { conversations, folders, machineRuns, machineStageRuns, messages, projects } from "../db/schema";
 import { recordPendingInput, resolvePendingInput } from "../db/chat";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 
 let seq = 0;
-const nextId = () => `evt_att${String(++seq).padStart(20, "0")}`;
+const nextId = () => `msg_att${String(++seq).padStart(20, "0")}`;
 const convId = () => `wrun_att_${++seq}`;
 
-function emit(sessionId: string, type: string, data: unknown, atMs: number) {
-  mirrorStreamEvent(sessionId, {
-    type,
-    data,
-    meta: { id: nextId(), at: new Date(atMs).toISOString() },
-  });
+/** Seed a conversation and one message row — the source of truth. */
+function say(sessionId: string, role: "user" | "assistant", text: string, atMs: number) {
+  tdb
+    .insert(conversations)
+    .values({ id: sessionId, createdAt: atMs, updatedAt: atMs })
+    .onConflictDoNothing()
+    .run();
+  tdb
+    .insert(messages)
+    .values({ id: nextId(), conversationId: sessionId, role, text, at: atMs })
+    .run();
 }
 
-const approval = (requestId: string) => ({
-  requestId,
-  kind: "tool-approval",
-  prompt: "Run rm -rf?",
-  action: { kind: "tool-call", callId: "c1", toolName: "bash", input: { command: "ls" } },
-  options: [
-    { id: "approve", label: "Approve", style: "primary" },
-    { id: "cancel", label: "Deny", style: "danger" },
-  ],
-});
-
-const row = (type: string, data: unknown, at = 1): EventRow => ({
-  type,
-  event: JSON.stringify({ type, data }),
-  at,
-});
-
-describe("pendingFromEvents", () => {
-  it("keeps a request until input.resolved names it", () => {
-    const requested = row("input.requested", { requests: [approval("r1"), approval("r2")] });
-    expect(pendingFromEvents([requested]).map((r) => r.requestId)).toEqual(["r1", "r2"]);
-
-    const partial = row("input.resolved", { resolutions: [{ requestId: "r1", outcome: "approved" }] });
-    expect(pendingFromEvents([requested, partial]).map((r) => r.requestId)).toEqual(["r2"]);
+/** A pending ask_chad approval on `sessionId`. */
+const ask = (sessionId: string, requestId: string) =>
+  recordPendingInput(tdb, {
+    id: requestId,
+    conversationId: sessionId,
+    kind: "approval",
+    question: "Run rm -rf?",
   });
 
-  it("parses kind, tool, options", () => {
-    const [r] = pendingFromEvents([row("input.requested", { requests: [approval("r1")] })]);
-    expect(r).toMatchObject({
-      kind: "tool-approval",
-      toolName: "bash",
-      toolInput: { command: "ls" },
-      prompt: "Run rm -rf?",
-    });
-    expect(r.options.map((o) => o.id)).toEqual(["approve", "cancel"]);
-  });
-
-  it("clears on context.cleared and session end; ignores junk", () => {
-    const requested = row("input.requested", { requests: [approval("r1")] });
-    expect(pendingFromEvents([requested, row("context.cleared", {})])).toEqual([]);
-    expect(pendingFromEvents([requested, row("session.failed", {})])).toEqual([]);
-    expect(
-      pendingFromEvents([
-        row("input.requested", { requests: [{ nope: true }, null, { requestId: "x", kind: "weird" }] }),
-        { type: "input.requested", event: "{not json", at: 1 },
-      ]),
-    ).toEqual([]);
-  });
-
-  it("a later request after an earlier resolution is pending again", () => {
-    const rows = [
-      row("input.requested", { requests: [approval("r1")] }, 1),
-      row("input.resolved", { resolutions: [{ requestId: "r1", outcome: "approved" }] }, 2),
-      row("input.requested", { requests: [approval("r3")] }, 3),
-    ];
-    expect(pendingFromEvents(rows).map((r) => r.requestId)).toEqual(["r3"]);
-  });
-});
+const resolve = (requestId: string) => resolvePendingInput(tdb, requestId, { approved: true });
 
 describe("unread + seen", () => {
   it("is unread only once an assistant message is newer than last_seen_at", () => {
     const id = convId();
-    emit(id, "message.received", { message: "hi" }, 1000);
-    emit(id, "message.completed", { message: "hello back" }, 2000);
+    say(id, "user", "hi", 1000);
+    say(id, "assistant", "hello back", 2000);
     expect(loadAttention(tdb).unread.has(id)).toBe(true);
 
     expect(markSeen(tdb, id, 3000)).toBe(true); // was unread
     expect(loadAttention(tdb).unread.has(id)).toBe(false);
     expect(markSeen(tdb, id, 3500)).toBe(false); // already seen — no change
 
-    emit(id, "message.completed", { message: "more" }, 4000);
+    say(id, "assistant", "more", 4000);
     expect(loadAttention(tdb).unread.has(id)).toBe(true);
   });
 
   it("a conversation with only the user's own message is not unread", () => {
     const id = convId();
-    emit(id, "message.received", { message: "just me" }, 5000);
+    say(id, "user", "just me", 5000);
     expect(loadAttention(tdb).unread.has(id)).toBe(false);
   });
 
   it("markSeen never moves backwards; markUnread rewinds to just before the newest reply", () => {
     const id = convId();
-    emit(id, "message.completed", { message: "a" }, 10_000);
+    say(id, "assistant", "a", 10_000);
     markSeen(tdb, id, 20_000);
     markSeen(tdb, id, 15_000);
     expect(tdb.select().from(conversations).where(eq(conversations.id, id)).get()!.lastSeenAt).toBe(20_000);
@@ -124,7 +78,7 @@ describe("unread + seen", () => {
 
   it("markUnread is a no-op without assistant output; unknown ids are not-found", () => {
     const id = convId();
-    emit(id, "message.received", { message: "q" }, 1000);
+    say(id, "user", "q", 1000);
     expect(markUnread(tdb, id)).toBe(false);
     expect(() => markSeen(tdb, "wrun_nope")).toThrow(/not found/);
     expect(() => markUnread(tdb, "wrun_nope")).toThrow(/not found/);
@@ -133,8 +87,8 @@ describe("unread + seen", () => {
   it("archived conversations are not unread; markAllSeen clears the live ones", () => {
     const a = convId();
     const b = convId();
-    emit(a, "message.completed", { message: "x" }, 1000);
-    emit(b, "message.completed", { message: "y" }, 1000);
+    say(a, "assistant", "x", 1000);
+    say(b, "assistant", "y", 1000);
     tdb.update(conversations).set({ archivedAt: 1 }).where(eq(conversations.id, b)).run();
     const state = loadAttention(tdb);
     expect(state.unread.has(a)).toBe(true);
@@ -147,19 +101,19 @@ describe("unread + seen", () => {
 describe("needs you", () => {
   it("survives opening the thread; clears when resolved", () => {
     const id = convId();
-    emit(id, "message.completed", { message: "may I?" }, 1000);
-    emit(id, "input.requested", { requests: [approval("rq1")] }, 2000);
+    say(id, "assistant", "may I?", 1000);
+    ask(id, "rq1");
 
     markSeen(tdb, id, 3000); // opening the thread must NOT clear the ask
     expect(loadAttention(tdb).needsYou.has(id)).toBe(true);
 
-    emit(id, "input.resolved", { resolutions: [{ requestId: "rq1", outcome: "approved" }] }, 4000);
+    resolve("rq1");
     expect(loadAttention(tdb).needsYou.has(id)).toBe(false);
   });
 
-  it("0010 chat-runtime pending inputs merge into needs-you and clear on resolve", () => {
+  it("pending inputs populate needs-you and clear on resolve", () => {
     const id = convId();
-    emit(id, "message.completed", { message: "chat reply" }, 1000);
+    say(id, "assistant", "chat reply", 1000);
     recordPendingInput(tdb, {
       id: "call_x1",
       conversationId: id,
@@ -171,7 +125,6 @@ describe("needs you", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       requestId: "call_x1",
-      runtime: "chat",
       toolName: "ask_chad",
     });
 
@@ -181,8 +134,8 @@ describe("needs you", () => {
 
   it("appears once in the inbox: needs-you absorbs the same thread's unread", () => {
     const id = convId();
-    emit(id, "message.completed", { message: "needs a yes" }, 1000);
-    emit(id, "input.requested", { requests: [approval("rq2")] }, 2000);
+    say(id, "assistant", "needs a yes", 1000);
+    ask(id, "rq2");
     const inbox = loadInbox(tdb);
     const hit = inbox.needsYou.find((n) => n.kind === "thread" && n.id === id);
     expect(hit).toMatchObject({ kind: "thread", unread: true });
@@ -193,8 +146,8 @@ describe("needs you", () => {
     tdb.insert(projects).values({ id: "att-p", name: "Att P", createdAt: 1 }).onConflictDoNothing().run();
     const older = convId();
     const newer = convId();
-    emit(older, "message.completed", { message: "older reply" }, 5_000);
-    emit(newer, "message.completed", { message: "newer   reply\nwith  spaces" }, 6_000);
+    say(older, "assistant", "older reply", 5_000);
+    say(newer, "assistant", "newer   reply\nwith  spaces", 6_000);
     const inbox = loadInbox(tdb);
     const ids = inbox.unread.map((u) => u.id);
     expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older));
@@ -242,8 +195,8 @@ describe("sidebar roll-ups", () => {
       tdb.insert(conversations).values({ id, projectId: "att-s", createdAt: 1, updatedAt: 1 }).onConflictDoNothing().run();
     }
     tdb.update(conversations).set({ folderId: "fld_att_sub" }).where(eq(conversations.id, deep)).run();
-    emit(deep, "message.completed", { message: "deep" }, 1000);
-    emit(loose, "input.requested", { requests: [approval("rq3")] }, 1000);
+    say(deep, "assistant", "deep", 1000);
+    ask(loose, "rq3");
 
     const data = loadSidebar(tdb, loadAttention(tdb));
     const group = data.groups.find((g) => g.project?.id === "att-s")!;
@@ -260,19 +213,20 @@ describe("attention signature", () => {
     const base = loadAttention(tdb).signature;
     expect(loadAttention(tdb).signature).toBe(base); // stable when idle
 
-    emit(id, "message.completed", { message: "ping" }, 1000);
+    say(id, "assistant", "ping", 1000);
     const afterUnread = loadAttention(tdb).signature;
     expect(afterUnread).not.toBe(base);
 
-    emit(id, "input.requested", { requests: [approval("sig1")] }, 2000);
+    ask(id, "sig1");
     const afterAsk = loadAttention(tdb).signature;
     expect(afterAsk).not.toBe(afterUnread);
 
     // A second request in an already-waiting thread still changes it.
-    emit(id, "input.requested", { requests: [approval("sig2")] }, 3000);
+    ask(id, "sig2");
     expect(loadAttention(tdb).signature).not.toBe(afterAsk);
 
-    emit(id, "input.resolved", { resolutions: [{ requestId: "sig1", outcome: "approved" }, { requestId: "sig2", outcome: "approved" }] }, 4000);
+    resolve("sig1");
+    resolve("sig2");
     markSeen(tdb, id, 5000);
     expect(loadAttention(tdb).signature).toBe(base);
   });
