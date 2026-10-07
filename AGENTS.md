@@ -56,12 +56,45 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
   `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
   TSX; themes `clickhouse` (default), `cal`, `nova`.
-- Chat models (lib/model.ts): Z.AI GLM coding plan via
-  `zhipu-ai-provider` on the coding plan's OpenAI-compatible endpoint
-  (`api.z.ai/api/coding/paas/v4`); default `glm-5.3-flash`; key in
-  `ZAI_API_KEY` (`.env.local`). Per-conversation choice is a plain
-  column (`conversations.model_id`). (Harnesses separately use the
-  Anthropic Messages surface — see 0005.)
+- Models: providers and routes (0021). Providers are code, keys are
+  env: `lib/providers/registry.ts` — GLM (Z.AI coding plan via
+  `zhipu-ai-provider`, OpenAI surface for chats, Anthropic surface for
+  pi; `ZAI_API_KEY`), Gloo and OpenRouter (`@ai-sdk/openai-compatible`
+  3.0.59, exact pin; `GLOO_API_KEY`, `OPENROUTER_API_KEY`). A provider
+  without a key is unavailable (hidden, rejected at validation). Gloo
+  422s a tool without a `description`: the chat path fills it
+  (`fillToolDescriptions`, `transformRequestBody`); harness-pi already
+  describes host tools. Catalogs: GLM/Gloo static
+  (`lib/providers/catalog.ts`), OpenRouter fetched + cached in
+  `provider_models` (tool-capable only, ≤ daily, "Refresh models" on
+  `/settings`). One ROUTE value (`lib/providers/route.ts`, pure zod):
+  `{provider, model}` for chats/agent stages/titles, `{harness:"pi",
+  provider, model, thinking?}`, `{harness:"claude", model?, effort?}` —
+  claude has nowhere to put a provider (subscription-only, ToS by
+  construction). Resolution per surface (`resolveRoute`): chat =
+  conversation > project > global; agent = run-stage > run > stage >
+  project > global; pi = run-stage > run > stage > conversation >
+  project > global; claude = run-stage > stage > global (never inherits
+  a chat/project route); titles = the titles default, else the
+  project's default when the project forbids it, else skipped. Project
+  restrictions (`projects.allowed_providers` / `allowed_harnesses`,
+  null = all) apply AFTER resolution at every layer — rejected, never
+  swapped. `lib/providers/resolve.ts` (`checkRoute` / `requireRoute`,
+  Node-only) is the one resolver; steps throw a FatalError (no retries)
+  on a route that cannot run. Storage: `conversations.route`,
+  `projects.default_route`, the `settings` table (per-surface global
+  defaults; built-ins = GLM `glm-5.3-flash`, claude subscription
+  default), machine stage `route` (replaced harness `model`/`thinking`
+  and agent `model`; `set_route` edit op), `machine_runs.overrides`
+  (`startRun({overrides})`, API, `start_machine`; validated at start).
+  What ran is recorded: `machine_stage_runs.route` ({route, layer}) and
+  the turn's first assistant row's `metadata.route`. Write paths shared
+  by UI and future tools live in `lib/providers/settings.ts`. Surfaces:
+  the chat's route picker (`components/route-picker.tsx`, per
+  conversation, not sticky), `/settings`, the project page Models
+  card, the run view's per-visit route. Live check:
+  `PI_SPIKE=1` (pi on every keyed provider via the real builder) and
+  `CLAUDE_SPIKE=1 CLAUDE_SPIKE_LIVE=1` (claude on a route).
 - Auth: LAN-only personal tool with no auth layer. **Hard rule: add a
   real verifier before any internet exposure.**
 - Persistence north star: SQLite (single db, or split where it makes
@@ -81,7 +114,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   trees (`folders`, `conversations.folder_id`), an "Unfiled" list per
   group split by age, archive (searchable) and trash (30-day lazy
   purge, not searchable), manual rename pinned via `title_source`, and
-  GLM-Flash generated title+summary (`lib/titles.ts`, fired from the
+  generated title+summary (`lib/titles.ts`, the 0021 `titles` route, fired from the
   chat turn after persisting, max two calls per conversation). All invariants live in
   `db/organize.ts`; routes under `app/api/{folders,conversations}`; the
   sidebar is `components/sidebar/*` with native drag and drop plus a
