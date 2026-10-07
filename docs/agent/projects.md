@@ -29,8 +29,11 @@ itself are (or will be) projects.
 Finding repos: the `gh` tool runs the real GitHub CLI with Chad's
 stored credentials — including PRIVATE repos his user can see
 (`gh search repos "org:TangoGroup gpl"`, `gh repo view
-TangoGroup/360-gpl --json name,defaultBranchRef,url`). Read-only
-allowlist; forgejo repos are found by URL, not search.
+TangoGroup/360-gpl --json name,defaultBranchRef,url`). The `forgejo`
+tool is its twin for the self-hosted instance (read-only API GETs:
+`/repos/search?q=…`, `/repos/{owner}/{repo}`, `/orgs/{org}/repos`…).
+Both are read-only allowlists; either reports `not-configured` when
+its credential is absent — say so plainly if that happens.
 
 Creating projects still needs Chad today (the projects list → new
 project; 0033 Phase B will give you the tool). Once it exists with
