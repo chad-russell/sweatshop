@@ -5,18 +5,31 @@ approval.** Roadmap item 1.2 (go-live floor).
 
 ## Decisions (Chad, 2026-10-07)
 
-1. **claude and cursor exist only to use Chad's own subscriptions in a way
-   that meets each vendor's terms of service.** They always run on their
-   subscription (claude: `CLAUDE_CODE_OAUTH_TOKEN`; cursor: its own login),
-   never repointed at another provider's endpoint. **Everything else runs on
-   pi** (harness work) or the in-process agent (chats, agent stages), and
-   those are the only surfaces that take a provider.
+0. **Generic, not workflow-shaped.** Sweatshop has no notion of "work" vs
+   "personal", or of any particular employer. Everything here is a generic
+   feature (providers, routes, per-project restrictions, settings) that a
+   user configures to fit their own situation.
+1. **Subscription harnesses are not provider-routed.** The claude and
+   cursor harnesses exist to use a vendor subscription through that
+   vendor's own tool, within its terms of service. They always run on the
+   subscription credential (claude: `CLAUDE_CODE_OAUTH_TOKEN`; cursor:
+   `CURSOR_API_KEY`), never repointed at another provider's endpoint, and
+   any project may use them. **The model is still chosen per route**
+   (e.g. claude opus vs sonnet, plus effort; cursor's model via its picker).
+   **Everything else runs on pi** (harness work) or the in-process agent
+   (chats, agent stages), and those are the only surfaces that take a
+   provider.
 2. Gloo and OpenRouter keys are copied from agenix into the service's
    `.env.local` for now (`GLOO_API_KEY`, `OPENROUTER_API_KEY`; done
    2026-10-07); the Secrets entity takes over later.
 3. The default chat model stays `glm-5.3-flash`, and it is **a setting**,
    easy to swap (e.g. a cheap model while testing, a strong one for real
-   work), not a constant.
+   use), not a constant.
+4. **Projects can restrict their providers** (`projects.allowed_providers`,
+   optional) and **their harnesses** (`projects.allowed_harnesses`,
+   optional). Unset = everything available. A generic way to keep a
+   project's code on the providers or subscriptions it is supposed to use,
+   whatever the reason.
 
 ## Goal
 
@@ -24,9 +37,9 @@ Every place sweatshop runs a model (chats, agent stages, harness stages,
 the chat's `pi` / `claude` tools, title generation) picks it the same way:
 from one **route** that names the harness, the provider and the model.
 Three providers at go-live: **GLM** (Z.AI coding plan, today's only
-provider), **Gloo** (employer-paid; most of Chad's work), and
-**OpenRouter**. No work/personal distinction beyond which route is chosen
-(interview decision). The route shape is what later carries fallbacks
+provider), **Gloo** (an OpenAI-compatible platform API), and
+**OpenRouter**. Which provider a given project uses is configuration
+(decision 4), not something sweatshop knows about. The route shape is what later carries fallbacks
 (roadmap 2.1) and run overrides, so this doc fixes the shape and the
 resolution order. It doesn't build fallbacks.
 
@@ -49,10 +62,15 @@ resolution order. It doesn't build fallbacks.
 - **claude** (`@ai-sdk/harness-claude-code`) is the Claude Agent SDK and
   speaks only Anthropic Messages. It *could* be repointed through `env:`
   (`ANTHROPIC_BASE_URL` at OpenRouter or GLM). Per decision 1 it never is:
-  it runs only on Chad's subscription token, exactly as today. (Gloo has no
+  it runs only on its subscription token, exactly as today. (Gloo has no
   Anthropic surface anyway.) Claude *models* on any provider are reached
   through **pi**.
-- **cursor** (roadmap 3.2) likewise runs only on its own login.
+- **cursor** (`@ai-sdk/harness-cursor`, roadmap 3.2) runs the Cursor CLI over
+  ACP. It authenticates only with a Cursor user API key (`CURSOR_API_KEY`);
+  there is no interactive-login path in the adapter, so cursor stays
+  blocked until such a key exists for the account. The model is passed as
+  an ACP session config option (`modelMapping: session-config-option
+  "model"`), so per-route model choice works.
 
 **Current consumers** of a model choice, all hard-wired to Z.AI:
 `lib/model.ts` (`zaiModel`, `CHAT_MODELS`, `resolveChatModel`),
@@ -142,9 +160,10 @@ type Route =
 ```
 
 One zod schema (`lib/providers/route.ts`), `parseRoute`, and
-`validateRoute(route)`, which checks: provider available (key present),
-model in the provider's catalog (OpenRouter: the cached list), claude
-only when `CLAUDE_CODE_OAUTH_TOKEN` is set. The schema has nowhere to
+`validateRoute(route, { project })`, which checks: provider available
+(key present), model in the provider's catalog (OpenRouter: the cached
+list), claude only when `CLAUDE_CODE_OAUTH_TOKEN` is set (cursor:
+`CURSOR_API_KEY`), and the project's restrictions (decision 4; see §4). The schema has nowhere to
 put a provider on claude/cursor, so the ToS rule holds by construction
 rather than by validation. Errors are value-shaped
 (`{ ok:false, issues:[…] }`) so agent tools can repair them, the same
@@ -176,8 +195,17 @@ Layered, most specific wins:
 Layers resolve per surface. A conversation or project route is a
 chat/pi route (provider + model); a claude or cursor stage never inherits
 it. It takes its own stage setting, else the global claude default. A
-project saying "use Gloo" therefore moves chats, agent stages and pi onto
-Gloo, while claude stays on the subscription. The resolved route and **which layer
+project default of Gloo therefore moves chats, agent stages and pi onto
+Gloo, while claude keeps its own model setting.
+
+**Project restrictions** (decision 4) apply after resolution, at every
+layer: a resolved route whose provider is not in the project's
+`allowed_providers`, or whose harness is not in `allowed_harnesses`, is
+rejected with a value-shaped error naming the restriction (never silently
+swapped for another route; fallbacks in 2.1 will respect the same lists).
+Pickers inside a restricted project only offer allowed entries, and a
+project's default route must itself be allowed. A project with neither
+list set behaves exactly as unrestricted. The resolved route and **which layer
 it came from** are recorded on every stage visit and chat turn
 (`machine_stage_runs.route`, and a `route` on the turn's assistant message
 metadata), so "what actually ran" is always answerable. Fallbacks (2.1)
@@ -194,15 +222,18 @@ extend exactly this record.
   `PI_MODEL` env goes away (the global default replaces it).
 - **claude**: unchanged auth (`CLAUDE_CODE_OAUTH_TOKEN`, `auth: "direct"`);
   the route only contributes `model` / `effort`.
-- **Titles**: stay on GLM Flash (cheap, personal subscription). No route.
+- **Titles**: a `settings` entry of their own (default GLM `glm-5.3-flash`,
+  cheap and fast), not per-conversation. Inside a restricted project the
+  title call uses the project's default route instead if the titles
+  default isn't allowed, so restrictions hold for every model call.
 
 ### 6. UI
 
 - **Chat model picker** (existing `modelId` picker in `chat-session.tsx`):
   grouped by provider, unavailable providers hidden, OpenRouter searchable.
   The route shown in the header ("Gloo · gpt-5.4").
-- **Project page**: a "Default model" field (route picker, plus separate
-  pi/claude defaults if wanted).
+- **Project page**: "Models" section, with a default route plus optional
+  allowed-providers and allowed-harnesses checklists (unset = all).
 - **Machine editor**: the stage inspector's harness/model fields become
   one route picker. `edit.ts` gets a `setStageRoute` op (agent tools get
   it for free through `applyOps`).
@@ -217,7 +248,8 @@ One drizzle migration:
 - `conversations.route` (JSON, null), backfilled from `model_id`
   (`{provider:"glm", model}`); then **drop `model_id`** (no dual read, the
   0019 rule).
-- `projects.default_route`, `machine_stage_runs.route`, `settings`,
+- `projects.default_route`, `projects.allowed_providers`,
+  `projects.allowed_harnesses`, `machine_stage_runs.route`, `settings`,
   `provider_models`.
 - Machine definitions: a data migration rewrites stored definitions.
   pi stages `{harness:"pi", model?, thinking?}` → `route: {harness:"pi",
@@ -243,14 +275,17 @@ One drizzle migration:
    `/settings` taking effect on the next new chat.
 3. **Harnesses**: pi on all three providers through the route (incl. the
    Gloo tool-description fix on pi's requests); claude keeps its
-   subscription auth and takes only model/effort from the route. The
+   subscription auth and takes model/effort from the route (opus vs
+   sonnet selectable). The
    chat's `pi` tool inherits the conversation route. Live check: a pi turn
    on Gloo with a tool call, a pi turn on OpenRouter, a bounded claude turn
    (the existing opt-in spike) still green.
 4. **Machines**: definition migration, stage `route`, resolution with the
    recorded layer, editor route picker, `setStageRoute` op, run-override
    shape on `startRun`.
-5. **Project default**: project page field; OpenRouter refresh.
+5. **Project models**: default route, allowed providers/harnesses with
+   enforcement at resolution (tests for each layer and for the title
+   call), project page section; OpenRouter refresh.
 
 Each phase is its own PR with the gate green.
 

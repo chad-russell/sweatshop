@@ -39,7 +39,11 @@ Legend: 🔴 on the go-live floor · 🟡 soon after / during the trial · ⚪ l
   **OpenRouter** (each with its own key). Cursor is a third-party harness.
 - Model choice is one **route** value = `{harness, provider, model}`, layered:
   run override > stage > project default > global default. Stages, projects and
-  fallback chains all hold the same shape.
+  fallback chains all hold the same shape. claude/cursor are subscription
+  harnesses (not provider-routed; model still selectable); projects may
+  restrict allowed providers/harnesses (0021).
+- **Sweatshop stays generic** (Chad, 2026-10-07): no "work" or employer
+  concepts in the app; workflow fit comes from configuration.
 - **Fallbacks**: a static chain on the stage, switching automatically on
   quota/credit/auth/rate-limit errors only (not task failures), with a visible
   banner and a record of what ran and why.
@@ -120,8 +124,10 @@ safe to do first.
 OpenRouter as providers for chats, agent stages and pi; one route value
 resolved run → stage → conversation → project → global; per-surface
 defaults on a new `/settings` page (swap test vs real models in one
-place). claude and cursor run only on Chad's subscriptions (ToS) and are
-never provider-routed; everything else defaults to pi.
+place); projects may restrict their allowed providers and harnesses.
+claude and cursor are subscription harnesses (vendor ToS): never
+provider-routed, but their model is chosen per route. Everything else
+defaults to pi. Generic: no work/personal concept in the app.
 
 **1.3 Async runs with auto-wake (doc 0022).** `start_machine` and the
 pi/claude tools return a handle immediately; the conversation gets a new turn
