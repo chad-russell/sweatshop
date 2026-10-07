@@ -86,13 +86,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `db/organize.ts`; routes under `app/api/{folders,conversations}`; the
   sidebar is `components/sidebar/*` with native drag and drop plus a
   "Move to…" menu; ⌘K palette shares `/api/search`.
-- Projects & sandboxes (0004, Phases A–D + Path B shipped): `projects`
-  (1+ git repos) reference shareable `sandbox_configs`; git credentials
-  resolve by host through the pluggable `GitHost` seam (`lib/git-hosts/`
-  — github + forgejo, `installAuth` + `createPR`). Conversations bind to
-  a project at creation (the plain `project_id` column,
-  set by the chat route on first send). Sandbox bindings (0013): a
-  conversation's sandbox is chosen once, by the send that creates it —
+- Projects & sandboxes (0004, Phases A–D + Path B shipped; 0031
+  simplifications): `projects` (1+ git repos) carry their sandbox image
+  directly (`projects.image_ref`; unset = `localhost/sweatshop-sandbox`,
+  built from `Containerfile.sandbox` — the shareable `sandbox_configs`
+  entity and the recorded-not-enforced `network_policy` are gone); git
+  credentials resolve by host through the pluggable `GitHost` seam
+  (`lib/git-hosts/` — github + forgejo, `installAuth` + `createPR`).
+  Conversations bind to a project at creation (the plain `project_id`
+  column, set by the chat route on first send). Sandbox bindings (0013):
+  a conversation's sandbox is chosen once, by the send that creates it —
   its own (created lazily on the first sandboxed call through the 0010
   lease seam, repos cloned into `/work/<conversationId>`), none, or
   attached (a copy of the owner's binding: same sandbox AND same
@@ -101,27 +104,23 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`getConversationBinding`/`bindConversation` in `db/sandboxes.ts`);
   tools open it with `openConversationSandbox`/`openSandbox`
   (`lib/sandboxes/binding.ts`), which never stop or destroy. A bound
-  conversation never switches sandboxes — start a new chat. A
-  project's sandboxes run its sandbox config's `image_ref` (a project
-  with no config uses `default`; unset = `localhost/sweatshop-sandbox`,
-  built from `Containerfile.sandbox`); `network_policy` is recorded,
-  not enforced. Post-mortems from outside (0013 phase 6): every chat
-  has `inspect` (read-only status / transcript tail / harness activity
-  / binding / call attribution of a chat, run, or stage visit) and
-  `sandbox_exec` (one command in a named sandbox, in its owner's
-  workDir, without binding the caller; resumes a stopped one, never
-  stops or destroys) — `lib/agent/tools/inspect.ts`.
-  Entities are managed on the project page (0018 phase 3: rename,
-  repos with guarded removal, sandbox-config pick + shared editing,
-  and delete-project — the approved cascade: cancel live runs, destroy
-  live sandboxes, then every project-owned row, conversations
-  hard-deleted via `deleteConversationForever`; machines, configs,
-  credentials untouched); creating sandbox configs stays
-  `npm run db:seed` (secrets from env only); `/p/[projectId]` is the
-  PROJECT PAGE (0018: repos + resolved git hosts, sandbox config,
-  preview-setup editor, work-surface links) and project conversations
-  start on `/` with `?project=<id>`; `create_pr` is the
-  agent's PR tool.
+  conversation never switches sandboxes — start a new chat. The BINDING
+  is the record of where a conversation's calls ran (0031 dropped 0011's
+  per-call `sandbox_calls` attribution). Post-mortems from outside
+  (0013 phase 6): every chat has `inspect` (read-only status /
+  transcript tail / harness activity / binding of a chat, run, or stage
+  visit) and `sandbox_exec` (one command in a named sandbox, in its
+  owner's workDir, without binding the caller; resumes a stopped one,
+  never stops or destroys) — `lib/agent/tools/inspect.ts`.
+  Entities are managed on the project page (0018 phase 3 + 0031: rename,
+  repos with guarded removal, the sandbox image field, and
+  delete-project — the approved cascade: cancel live runs, destroy live
+  sandboxes, then every project-owned row, conversations hard-deleted
+  via `deleteConversationForever`; machines and credentials untouched);
+  `/p/[projectId]` is the PROJECT PAGE (0018: repos + resolved git
+  hosts, sandbox image, preview-setup editor, work-surface links) and
+  project conversations start on `/` with `?project=<id>`; `create_pr`
+  is the agent's PR tool.
 - Machines (0009): user-editable stage machines — sqlite `machines`
   rows holding a zod-validated JSON definition (`lib/machines/
   definition.ts`; seeds in `lib/machines/seeds/*.json`, insert-only via
@@ -150,8 +149,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   harness stage, and every agent stage (which gets bash/pi/claude),
   works in that checkout. The sandbox outlives the run (finished or
   cancelled work stays inspectable/attachable). One reaper
-  (`lib/sandboxes/reaper.ts`) stops/destroys idle sandboxes — runs 10
-  min / 3 days, chats 30 min / 14 days (`GC_*` env), never one with
+  (`lib/sandboxes/reaper.ts`) stops/destroys idle sandboxes — ONE
+  window since 0031 (stop 30 min, destroy 7 days; `GC_STOP_MINUTES` /
+  `GC_DESTROY_DAYS` env), never one with
   live work in it — and MARKS rows destroyed, never deletes them. It
   runs on a timer from `instrumentation.ts` (every 5 min while the
   server is up; `SANDBOX_REAPER=off` disables), from "Run cleanup now"
@@ -180,20 +180,21 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   on `/machines/<id>`, ⌘K "Run …", `POST /api/machine-runs`, the
   `start_machine` chat tool; `/r/<runId>` is the run view (visit
   transcripts open in a side panel; `/c/<runId>` redirects there).
-  Links go through `conversationHref`. Machine graph (0014):
-  `/machines/<id>` is a graph editor (`@xyflow/react` 12.12.0, pinned;
-  AI Elements canvas/controls/panel) over ONE draft definition — every
-  change is a pure op in `lib/machines/edit.ts` (also the 0015 agent
-  tools' surface through `applyOps`/`editOpSchema`), re-validated by
-  `parseDefinition`, with issues placed on nodes/edges via
-  `issuesByElement`; a JSON tab edits the same draft. The editor polls
+  Links go through `conversationHref`. Machine graph (0014 → 0031):
+  `/machines/<id>` shows ONE draft definition as a READ-ONLY canvas
+  (`@xyflow/react` 12.12.0, pinned; AI Elements canvas/controls) plus a
+  JSON tab that edits it — canvas editing, drag-connect, and the
+  inspector are gone (0031; the agent's `edit_machine` ops in
+  `lib/machines/edit.ts`, applied through `applyOps`/`editOpSchema`,
+  are the structured edit surface), re-validated by `parseDefinition`,
+  with issues placed on nodes/edges via
+  `issuesByElement`. Selection is observational (the page's
+  "[viewing]" context). The editor polls
   its machine's version every 5 s while visible (0015): newer + clean
   draft reloads silently; newer + unsaved edits shows a stale banner
   (`components/machines/use-machine-version-sync.ts`). Layout is automatic and never stored
   (`lib/machines/layout.ts`, layered, loops as back edges; left→right or
-  top→bottom, auto-picked from the canvas size by `pickDirection`; the editor's
-  inspector exists only while something is selected — right dock when wide,
-  bottom sheet when the editor body is under 760px); the run
+  top→bottom, auto-picked from the canvas size by `pickDirection`); the run
   view shows the run's snapshot with a progress overlay. Graph modules
   are client-only (`machine-graph-lazy.tsx`, `ssr: false`). Everything runs in the Next
   process — no cross-runtime HTTP. Workflow-transform rule: Node-touching code only inside `"use step"`
@@ -346,7 +347,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   provisioning/starting/healthy
   preview makes its sandbox busy; previews idle past
   `GC_PREVIEW_STOP_HOURS` (12) are stopped; preview-owned sandboxes use
-  `GC_PREVIEW_DESTROY_DAYS` (7). LAN/Nebula only — no auth, never route
+  the shared 0031 window. LAN/Nebula only — no auth, never route
   publicly.
 
 - Inbox & attention (0008, no design doc — approved in chat): `/inbox`

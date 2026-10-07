@@ -113,7 +113,8 @@ confirming `data/` in the first nightly restic snapshot, is pending.
 
 ## Simplification pass (doc 0031, approved 2026-10-08)
 
-Runs alongside Phase 1 as small PRs, not a stop-the-world pass: drop
+Runs alongside Phase 1 (one PR, sequenced commits — Chad's call over the
+per-phase sketch): drop
 0011 per-call attribution (bindings answer it), fold `sandbox_configs`
 into `projects.image_ref` (simplifies 1.4), collapse reaper windows to
 one pair, dedup the two provisioning paths and the two harness-turn
