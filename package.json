@@ -10,11 +10,9 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:backfill": "node scripts/backfill-messages.mjs",
     "db:seed": "node scripts/seed.mjs",
     "sandbox:gc": "node scripts/sandbox-gc.mjs",
-    "test": "vitest run",
-    "chat:import": "node scripts/import-eve-conversations.mjs"
+    "test": "vitest run"
   },
   "dependencies": {
     "@ai-sdk/harness": "1.0.132",

@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { and, eq, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import {
-  conversationEvents,
   conversations,
   folders,
   harnessEvents,
@@ -338,9 +337,6 @@ export function deleteConversationForever(db: Db, id: string): string[] {
     }
     for (const sid of sessions) {
       tx.delete(messages).where(eq(messages.conversationId, sid)).run();
-      tx.delete(conversationEvents)
-        .where(eq(conversationEvents.conversationId, sid))
-        .run();
       tx.delete(harnessEvents).where(eq(harnessEvents.sessionId, sid)).run();
       tx.delete(harnessRuns).where(eq(harnessRuns.sessionId, sid)).run();
       // 0011 sandbox records name the conversation (FKs): its

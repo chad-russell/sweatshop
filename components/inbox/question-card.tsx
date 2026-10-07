@@ -23,7 +23,7 @@ export function QuestionCard({
   request: PendingRequest;
   onAnswered: (requestId: string) => void;
 }) {
-  const { respond, busy, error } = useRespond(thread.id, request.runtime);
+  const { respond, busy, error } = useRespond();
   const [text, setText] = useState("");
   const freeform = request.allowFreeform || request.options.length === 0;
 

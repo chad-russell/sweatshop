@@ -11,10 +11,9 @@ import {
 } from "./schema";
 
 /**
- * 0010 spike store: the new chat runtime's own tables. The mirror
- * (db/mirror.ts) keeps writing eve conversations exactly as before; these
- * helpers serve `/x` conversations whose source of truth is `messages`
- * rows with a serialized ModelMessage, not the event mirror.
+ * 0010 spike store: the new chat runtime's own tables. The source of
+ * truth is `messages` rows with a serialized ModelMessage (the eve
+ * event mirror these once coexisted with was retired by 0032).
  *
  * Rows are append-only and read back in insertion order (rowid); ids are
  * content-stable per turn so step retries cannot duplicate them.
@@ -273,7 +272,7 @@ export function listMessageTexts(
       metadata: row.metadata ? (JSON.parse(row.metadata) as MessageRowMetadata) : null,
     }));
   // One lineage: once a conversation has model_message rows (new
-  // runtime or imported), older mirror-extracted rows are superseded.
+  // runtime or imported), older text-only rows are superseded.
   if (rows.some((row) => row.modelMessage != null)) {
     return rows.filter((row) => row.modelMessage != null);
   }

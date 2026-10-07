@@ -11,10 +11,9 @@ import {
 
 /**
  * sweatshop's own store (0002). The conversations table is the app-level
- * index of eve sessions; conversation_events is the derived, append-only
- * mirror of each session's stream (see the dual-write invariants in
- * docs/0002: eve's stream is authoritative; this is a rebuildable
- * materialized view).
+ * index of conversations (chat runtime ids `c_…`; imported eve-era ids
+ * `wrun_…` — their history lives in `messages`; the eve event mirror was
+ * retired by 0032).
  */
 export const conversations = sqliteTable(
   "conversations",
@@ -56,14 +55,12 @@ export const conversations = sqliteTable(
     trashedAt: integer("trashed_at"),
     /** Unix ms. */
     createdAt: integer("created_at").notNull(),
-    /** Unix ms, bumped on each newly mirrored event. */
+    /** Unix ms, bumped on new activity. */
     updatedAt: integer("updated_at").notNull(),
     /** 0008 (inbox): Unix ms the user last viewed this conversation. A
      *  conversation is unread when it has an assistant message newer than
      *  this (db/attention.ts). 0 = never viewed. */
     lastSeenAt: integer("last_seen_at").notNull().default(0),
-    /** Rows mirrored for this conversation (gap audit via rebuild). */
-    eventCount: integer("event_count").notNull().default(0),
     /** 0010 spike: the conversation's running turn workflow (new chat
      *  runtime), null when idle. Route-set, cleared by the turn's
      *  persist step (or cancel). */
@@ -102,40 +99,11 @@ export const folders = sqliteTable(
   ],
 );
 
-export const conversationEvents = sqliteTable(
-  "conversation_events",
-  {
-    /**
-     * The evt_ ULID from the event envelope's meta.id — stable across
-     * reconnects and replays, so ON CONFLICT DO NOTHING is the correct
-     * idempotent ingest (per eve's envelope docs). ULIDs are broadly
-     * time-ordered, keeping inserts clustered. Ingestion order is the
-     * implicit rowid.
-     */
-    id: text("id").primaryKey(),
-    conversationId: text("conversation_id")
-      .notNull()
-      .references(() => conversations.id),
-    /** Loose event type (message.received, step.completed, ...). */
-    type: text("type").notNull(),
-    /** Raw JSON envelope, stored schemaless to survive eve drift. */
-    event: text("event").notNull(),
-    /** Unix ms from meta.at. */
-    at: integer("at").notNull(),
-  },
-  (table) => [
-    index("conversation_events_conversation_idx").on(table.conversationId),
-    // 0008: the inbox scans the (few) input.* events by type.
-    index("conversation_events_type_idx").on(table.type),
-  ],
-);
-
 /**
- * Extracted conversation text (0003): one row per user message
- * (`message.received`) or finalized assistant block (`message.completed`),
- * keyed on the event ULID so extraction is idempotent. `messages_fts`
- * (defined in the migration, not here — drizzle has no FTS5 type) is an
- * external-content index over this table kept in sync by triggers.
+ * Extracted conversation text (0003): one row per user or assistant
+ * message. `messages_fts` (defined in the migration, not here — drizzle
+ * has no FTS5 type) is an external-content index over this table kept in
+ * sync by triggers.
  */
 export const messages = sqliteTable(
   "messages",
@@ -180,8 +148,6 @@ export const steerQueue = sqliteTable(
 export type Folder = typeof folders.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
-export type ConversationEvent = typeof conversationEvents.$inferSelect;
-export type NewConversationEvent = typeof conversationEvents.$inferInsert;
 
 /**
  * 0010 Phase 2: sandboxes as explicit, provider-agnostic resources.

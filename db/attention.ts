@@ -1,8 +1,7 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import { OrganizeError, folderPath } from "./organize";
 import {
-  conversationEvents,
   conversations,
   folders,
   machineRuns,
@@ -24,15 +23,11 @@ import type { MachineDefinition } from "../lib/machines/definition";
  *    0012: a run conversation's "output" is the moment it settled
  *    (`machine_runs.settled_at`); `stage` conversations never count —
  *    their output surfaces through the run.
- *  - **Needs you** — a pending human-input request (tool approval,
- *    question, session limit) or a machine run waiting at a human stage
- *    (0009 — machines replaced the 0004 ticket pipeline and its gate).
- *    Opening the thread does NOT clear it; only answering does.
- *
- * Pending requests are *derived* from the mirrored `input.requested` /
- * `input.resolved` events (the mirror stays a pure projection — nothing is
- * stored). A request is pending until a later `input.resolved` names its
- * id, the context is cleared, or the session ends.
+ *  - **Needs you** — a pending human-input request (tool approval or
+ *    question, from unresolved `pending_inputs` rows — 0010; the eve-era
+ *    event fold was retired by 0032) or a machine run waiting at a human
+ *    stage (0009 — machines replaced the 0004 ticket pipeline and its
+ *    gate). Opening the thread does NOT clear it; only answering does.
  */
 
 type Conn = Pick<Db, "select" | "insert" | "update" | "delete">;
@@ -60,7 +55,7 @@ export interface RequestOption {
 
 export interface PendingRequest {
   requestId: string;
-  kind: "tool-approval" | "question" | "session-limit";
+  kind: "tool-approval" | "question";
   prompt: string;
   options: RequestOption[];
   allowFreeform: boolean;
@@ -69,156 +64,17 @@ export interface PendingRequest {
   toolInput: Record<string, unknown> | null;
   /** Unix ms the request was raised. */
   at: number;
-  /**
-   * Which runtime raised it: "eve" (mirrored input events — answered on
-   * /eve/v1/session) or "chat" (0010 pending_inputs — answered on
-   * /api/x/input). Absent means eve (pre-0010 rows and callers).
-   */
-  runtime?: "eve" | "chat";
-}
-
-export interface EventRow {
-  type: string;
-  event: string;
-  at: number;
-}
-
-const KINDS = new Set(["tool-approval", "question", "session-limit"]);
-
-function asRequest(raw: unknown, at: number): PendingRequest | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  if (typeof r.requestId !== "string" || typeof r.kind !== "string") return null;
-  if (!KINDS.has(r.kind)) return null;
-  const action = r.action as { toolName?: unknown; input?: unknown } | undefined;
-  const options = Array.isArray(r.options)
-    ? r.options.flatMap((o): RequestOption[] => {
-        if (!o || typeof o !== "object") return [];
-        const opt = o as Record<string, unknown>;
-        if (typeof opt.id !== "string" || typeof opt.label !== "string") return [];
-        return [
-          {
-            id: opt.id,
-            label: opt.label,
-            ...(typeof opt.description === "string" ? { description: opt.description } : {}),
-            ...(opt.style === "danger" || opt.style === "primary" || opt.style === "default"
-              ? { style: opt.style }
-              : {}),
-          },
-        ];
-      })
-    : [];
-  return {
-    requestId: r.requestId,
-    kind: r.kind as PendingRequest["kind"],
-    prompt: typeof r.prompt === "string" ? r.prompt : "",
-    options,
-    allowFreeform: r.allowFreeform === true,
-    toolName: typeof action?.toolName === "string" ? action.toolName : null,
-    toolInput:
-      action?.input && typeof action.input === "object" && !Array.isArray(action.input)
-        ? (action.input as Record<string, unknown>)
-        : null,
-    at,
-  };
 }
 
 /**
- * Fold one conversation's `input.*` / terminal events (in stream order)
- * into the requests still awaiting an answer. Pure — exported for tests.
+ * Pending requests per conversation (only conversations with any):
+ * unresolved `pending_inputs` rows (ask_chad), answered on
+ * `/api/x/input` — the single source since 0032 retired the eve fold.
  */
-export function pendingFromEvents(rows: readonly EventRow[]): PendingRequest[] {
-  const pending = new Map<string, PendingRequest>();
-  for (const row of rows) {
-    let parsed: { data?: Record<string, unknown> };
-    try {
-      parsed = JSON.parse(row.event) as { data?: Record<string, unknown> };
-    } catch {
-      continue;
-    }
-    switch (row.type) {
-      case "input.requested": {
-        const requests = parsed.data?.requests;
-        if (!Array.isArray(requests)) break;
-        for (const raw of requests) {
-          const request = asRequest(raw, row.at);
-          if (request) pending.set(request.requestId, request);
-        }
-        break;
-      }
-      case "input.resolved": {
-        const resolutions = parsed.data?.resolutions;
-        if (!Array.isArray(resolutions)) break;
-        for (const res of resolutions) {
-          const id = (res as { requestId?: unknown } | null)?.requestId;
-          if (typeof id === "string") pending.delete(id);
-        }
-        break;
-      }
-      case "context.cleared":
-      case "session.completed":
-      case "session.failed":
-        pending.clear();
-        break;
-    }
-  }
-  return [...pending.values()].sort((a, b) => a.at - b.at);
-}
-
-const INPUT_EVENT_TYPES = [
-  "input.requested",
-  "input.resolved",
-  "context.cleared",
-  "session.completed",
-  "session.failed",
-];
-
-/** Pending requests per conversation (only conversations with any). */
 export function loadPendingRequests(
   db: Conn,
   onlyIds?: readonly string[],
 ): Map<string, PendingRequest[]> {
-  const rows = db
-    .select({
-      conversationId: conversationEvents.conversationId,
-      type: conversationEvents.type,
-      event: conversationEvents.event,
-      at: conversationEvents.at,
-    })
-    .from(conversationEvents)
-    .where(
-      onlyIds
-        ? and(
-            inArray(conversationEvents.type, INPUT_EVENT_TYPES),
-            inArray(conversationEvents.conversationId, [...onlyIds]),
-          )
-        : inArray(conversationEvents.type, INPUT_EVENT_TYPES),
-    )
-    // Ingestion order is the implicit rowid (see the schema note).
-    .orderBy(asc(sql`rowid`))
-    .all();
-
-  const byConversation = new Map<string, EventRow[]>();
-  for (const { conversationId, ...row } of rows) {
-    const list = byConversation.get(conversationId) ?? [];
-    list.push(row);
-    byConversation.set(conversationId, list);
-  }
-  const out = new Map<string, PendingRequest[]>();
-  for (const [id, list] of byConversation) {
-    const pending = pendingFromEvents(list);
-    if (pending.length > 0) out.set(id, pending);
-  }
-  mergePendingInputs(db, out);
-  return out;
-}
-
-/**
- * 0010 Phase 4: fold the new chat runtime's pending_inputs rows into the
- * same attention shape. They answer on /api/x/input (the runtime field
- * routes the card), not eve's channel route.
- */
-function mergePendingInputs(db: Conn, out: Map<string, PendingRequest[]>): void {
   const rows = db
     .select({
       id: pendingInputs.id,
@@ -228,8 +84,17 @@ function mergePendingInputs(db: Conn, out: Map<string, PendingRequest[]>): void 
       createdAt: pendingInputs.createdAt,
     })
     .from(pendingInputs)
-    .where(isNull(pendingInputs.resolvedAt))
+    .where(
+      onlyIds
+        ? and(
+            isNull(pendingInputs.resolvedAt),
+            inArray(pendingInputs.conversationId, [...onlyIds]),
+          )
+        : isNull(pendingInputs.resolvedAt),
+    )
     .all();
+
+  const out = new Map<string, PendingRequest[]>();
   for (const row of rows) {
     const list = out.get(row.conversationId) ?? [];
     // kind "question" renders the freeform question card; anything else
@@ -249,10 +114,10 @@ function mergePendingInputs(db: Conn, out: Map<string, PendingRequest[]>): void 
       toolName: "ask_chad",
       toolInput: { kind: row.kind, question: row.question },
       at: row.createdAt,
-      runtime: "chat",
     });
     out.set(row.conversationId, list);
   }
+  return out;
 }
 
 /**

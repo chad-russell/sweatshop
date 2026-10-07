@@ -72,11 +72,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   serialized ModelMessage (`db/chat.ts`, plus `steer_queue`,
   `conversations.active_run_id`); and the sandbox lease registry
   (`sandboxes` + `sandbox_attachments`, `db/sandboxes.ts`). The eve-era
-  `conversation_events` mirror is RETIRED (0010 Phase 6 — nothing writes
-  it; db/mirror.ts stays as the ingest utility for tests/historical
-  rebuilds, and 0002's dual-write invariants are historical). Eve-era
-  transcripts were imported into `messages` (`npm run chat:import`,
-  idempotent).
+  `conversation_events` mirror is GONE (0010 Phase 6 retired it; 0032
+  dropped the table, `db/mirror.ts`, and the one-time importers —
+  history in docs/0010 and docs/0032; 0002's dual-write invariants are
+  historical). Eve-era transcripts live on in `messages` (imported
+  before the importer was deleted).
 - Conversation organization (0007): per-group (project, or Chats) folder
   trees (`folders`, `conversations.folder_id`), an "Unfiled" list per
   group split by age, archive (searchable) and trash (30-day lazy
@@ -352,18 +352,17 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 
 - Inbox & attention (0008, no design doc — approved in chat): `/inbox`
   is a dashboard of what is waiting on Chad. **Needs you** = pending
-  human-input requests (tool approval / question / session-limit) plus
+  human-input requests (tool approval / question) plus
   machine runs waiting at a human stage (0009); stays until answered, opening the
   thread does not clear it. **Unread** = assistant output newer than
   `conversations.last_seen_at`; opening a conversation marks it seen
   (`lib/use-mark-seen.ts`: only while the tab is visible AND focused),
   per-item mark read/unread via `PUT /api/conversations/[id]/seen`.
-  New-runtime pending requests are rows (`pending_inputs`, written by
-  ask_chad through a step, resolved by `/api/x/input`); eve-era requests
-  are still derived from the retired mirror's events (`db/attention.ts`
-  folds both, `runtime` routes each card's endpoint). Cards
+  Pending requests are rows (`pending_inputs`, written by ask_chad
+  through a step, resolved by `/api/x/input`) — the single source since
+  0032 retired the eve event fold and the `runtime` card routing. Cards
   (`components/inbox/`: approval / question / machine-gate / unread)
-  answer new-runtime approvals by POSTing to `/api/x/input`.
+  answer approvals by POSTing to `/api/x/input`.
   The sidebar shows the same signal as dots (amber = needs you, filled =
   unread) on rows, rolled up on collapsed folders/groups, kept live by
   `lib/use-attention-sync.ts`: while the tab is visible it polls
