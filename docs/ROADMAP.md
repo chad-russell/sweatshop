@@ -108,8 +108,11 @@ stuck on a pre-migration module found and restarted.
 
 Production run mode + backups (0020): **live 2026-10-07.** One
 `sweatshop` service on bee serving a production build; deploys via
-`scripts/deploy.sh`; state in `data/` (restic + 23:00 snapshot). Phase 4,
-confirming `data/` in the first nightly restic snapshot, is pending.
+`scripts/deploy.sh`; state in `data/` (restic + 23:00 snapshot). Phase 4
+**verified 2026-10-07**: `ss/sweatshop/data` is in bee's restic
+staticPaths; NAS snapshot `fdbd05e2` (00:03 that night) contains
+sweatshop.db + WAL, the workflow-data tree (508 files), and
+backups/nightly.db — contents checked, not exit codes.
 
 ## Simplification pass (doc 0031, approved 2026-10-08)
 
