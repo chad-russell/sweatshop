@@ -276,6 +276,27 @@ describe("0018 phase 3: the delete cascade", () => {
     // idempotent to re-run
     expect(deleteProjectRows(db(), "p_del")).toMatchObject({ ok: false, code: "not-found" });
   });
+
+  it("unbinds surviving conversations whose sandbox the cascade destroys (2026-10-08, round 2)", () => {
+    // An attached/plain conversation (project NULL) bound to a
+    // project-owned sandbox blocked the sandboxes delete — the binding
+    // FK has no cascade. The cascade unbinds instead: the container is
+    // gone either way, and a null binding re-chooses on the next send.
+    fixtureProject("p_unbind");
+    const sandboxId = `sbx_unbind${Math.floor(Math.random() * 1e6)}`;
+    fixtureSandbox(sandboxId, "p_unbind");
+    fixtureConversation("c_bound_elsewhere", null);
+    db()
+      .update(conversations)
+      .set({ sandboxId, sandboxWorkDir: "/work/x", sandboxOwner: false })
+      .where(eq(conversations.id, "c_bound_elsewhere"))
+      .run();
+
+    const result = deleteProjectRows(db(), "p_unbind");
+    expect(result).toMatchObject({ ok: true, counts: { sandboxes: 1 } });
+    const survivor = db().select().from(conversations).where(eq(conversations.id, "c_bound_elsewhere")).get();
+    expect(survivor).toMatchObject({ sandboxId: null, sandboxWorkDir: null, sandboxOwner: null });
+  });
 });
 
 // ── tiny helper over raw counts ──────────────────────────────────────────
