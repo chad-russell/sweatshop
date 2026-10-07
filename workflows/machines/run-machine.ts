@@ -11,7 +11,7 @@ import {
   MAX_HARNESS_STEPS,
   type MachineDefinition,
 } from "@/lib/machines/definition";
-import { buildBrief, resolveTransition, type PriorVisit } from "@/lib/machines/brief";
+import { buildBrief, resolveTransition, type PriorVisit, type ProjectFacts } from "@/lib/machines/brief";
 import { agentStageStep } from "./agent-step";
 import { harnessStep } from "./harness-step";
 import {
@@ -62,6 +62,9 @@ export interface RunMachineInput {
   /** 0013: an inherited binding (the starting chat's); null = provision
    *  the run's own sandbox at start (project machines). */
   binding?: BoundSandbox | null;
+  /** 0023: the project's work defaults for briefs ("# Project");
+   *  null = no project / none set. Plain data, fetched in startRun. */
+  project?: ProjectFacts | null;
 }
 
 type VisitOutcome =
@@ -116,6 +119,7 @@ export async function runMachine(input: RunMachineInput) {
         history: prior,
         feedback,
         workspaceRoot: binding?.workDir ?? null,
+        project: input.project ?? null,
       });
       feedback = null;
       const token = `${runId}:${seq}`;

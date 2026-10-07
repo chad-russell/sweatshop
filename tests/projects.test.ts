@@ -8,6 +8,7 @@ import {
   renameProject,
   removeProjectRepo,
   setProjectImage,
+  setProjectWorkSettings,
 } from "../db/projects";
 import { savePreviewSetup } from "../db/preview-setups";
 import { insertPreview } from "../db/previews";
@@ -147,6 +148,51 @@ describe("0018/0031: project image", () => {
     expect(setProjectImage(db(), "p_crud", "  ")).toMatchObject({ ok: true, imageRef: null });
     expect(getProject(db(), "p_crud")?.imageRef).toBeNull();
     expect(setProjectImage(db(), "p_missing", "x")).toMatchObject({ ok: false, code: "not-found" });
+  });
+});
+
+describe("0023: project work defaults", () => {
+  it("sets, partially updates, and clears test command and branch prefix", () => {
+    expect(
+      setProjectWorkSettings(db(), "p_crud", { testCommand: "npm test", branchPrefix: "eng" }),
+    ).toMatchObject({ ok: true, testCommand: "npm test", branchPrefix: "eng" });
+    // partial: only the key present is touched
+    expect(setProjectWorkSettings(db(), "p_crud", { branchPrefix: null })).toMatchObject({
+      ok: true,
+      testCommand: "npm test",
+      branchPrefix: null,
+    });
+    expect(getProject(db(), "p_crud")?.testCommand).toBe("npm test");
+    expect(getProject(db(), "p_crud")?.branchPrefix).toBeNull();
+    // blank clears
+    expect(setProjectWorkSettings(db(), "p_crud", { testCommand: " " })).toMatchObject({
+      ok: true,
+      testCommand: null,
+    });
+    expect(setProjectWorkSettings(db(), "p_missing", { testCommand: "x" })).toMatchObject({
+      ok: false,
+      code: "not-found",
+    });
+  });
+
+  it("rejects bad branch prefixes and overlong test commands", () => {
+    // (empty string clears — imageRef semantics, covered above)
+    for (const bad of ["feat/x", "two words", "a".repeat(61)]) {
+      expect(setProjectWorkSettings(db(), "p_crud", { branchPrefix: bad })).toMatchObject({
+        ok: false,
+        code: "invalid",
+      });
+    }
+    for (const good of ["eng", "ENG-1234", "cr.2", "a_b-c"]) {
+      expect(setProjectWorkSettings(db(), "p_crud", { branchPrefix: good })).toMatchObject({
+        ok: true,
+        branchPrefix: good,
+      });
+    }
+    expect(setProjectWorkSettings(db(), "p_crud", { testCommand: "x".repeat(501) })).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
   });
 });
 

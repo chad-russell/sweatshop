@@ -145,6 +145,85 @@ export function ProjectImageEditor({
   );
 }
 
+/** 0023: the project's work defaults — the verify-stage test command
+ * and the machine branch prefix (both carried in stage briefs). */
+export function ProjectWorkEditor({
+  projectId,
+  testCommand,
+  branchPrefix,
+}: {
+  projectId: string;
+  testCommand: string | null;
+  branchPrefix: string | null;
+}) {
+  const router = useRouter();
+  const { busy, error, note, setNote, call } = useApi();
+  const [command, setCommand] = useState(testCommand ?? "");
+  const [prefix, setPrefix] = useState(branchPrefix ?? "");
+
+  const dirty = command.trim() !== (testCommand ?? "") || prefix.trim() !== (branchPrefix ?? "");
+  const save = () =>
+    call(
+      () =>
+        fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            testCommand: command.trim() || null,
+            branchPrefix: prefix.trim() || null,
+          }),
+        }),
+      () => {
+        setNote("Saved — machine stages see it from the next run.");
+        router.refresh();
+      },
+    );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className={FIELD} htmlFor="proj-test-command">
+        <span className={LABEL}>Test command</span>
+        <Input
+          id="proj-test-command"
+          value={command}
+          onChange={(e) => {
+            setCommand(e.target.value);
+            setNote(null);
+          }}
+          placeholder="npm run typecheck && npm run test"
+          className={`${MONO} max-w-96`}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Run from a repo root; must exit 0. Machine verify stages run it — empty means they fall back to the repo&rsquo;s own test script.
+      </p>
+      <label className={FIELD} htmlFor="proj-branch-prefix">
+        <span className={LABEL}>Branch prefix</span>
+        <Input
+          id="proj-branch-prefix"
+          value={prefix}
+          onChange={(e) => {
+            setPrefix(e.target.value);
+            setNote(null);
+          }}
+          placeholder="eng"
+          className={`${MONO} max-w-96`}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Machine branches land as &lt;prefix&gt;/&lt;slug&gt;; a ticket key in the run&rsquo;s prompt (e.g. ENG-1234) always wins. Empty = the generic &lt;type&gt;/&lt;slug&gt;.
+      </p>
+      <div>
+        <Button type="button" size="sm" variant="outline" disabled={busy || !dirty} onClick={() => void save()}>
+          Save
+        </Button>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {note && <p className="text-sm text-muted-foreground">{note}</p>}
+    </div>
+  );
+}
+
 export function ProjectReposEditor({ projectId, repos }: { projectId: string; repos: Repo[] }) {
   const router = useRouter();
   const { busy, error, note, setNote, call } = useApi();

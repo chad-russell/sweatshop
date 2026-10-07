@@ -290,6 +290,13 @@ export const projects = sqliteTable("projects", {
   /** 0021: JSON ChatRoute — the project's default for chats, agent
    *  stages, and pi. Null = the global defaults. */
   defaultRoute: text("default_route"),
+  /** 0023: the project's "done" command — machine verify stages run it
+   *  (carried in the stage brief's "# Project" section). Null = verify
+   *  falls back to the repo's own test script. */
+  testCommand: text("test_command"),
+  /** 0023: standing branch prefix for machine-authored branches
+   *  (`<prefix>/<slug>`); a ticket/issue key in the run prompt wins. */
+  branchPrefix: text("branch_prefix"),
   /** 0021: JSON ProviderId[] — null = every provider allowed. */
   allowedProviders: text("allowed_providers"),
   /** 0021: JSON ("pi" | "claude")[] — null = every harness allowed. */

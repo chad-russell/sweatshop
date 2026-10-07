@@ -146,6 +146,40 @@ export function setProjectImage(
   return { ok: true, imageRef: next };
 }
 
+/** 0023: set (or clear, with null/empty) the project's work defaults —
+ * the verify-stage test command and the machine branch prefix, both
+ * carried in stage briefs ("# Project"). Partial: only the keys
+ * present are touched. */
+export function setProjectWorkSettings(
+  db: Db,
+  projectId: string,
+  input: { testCommand?: string | null; branchPrefix?: string | null },
+): ProjectResult<{ testCommand: string | null; branchPrefix: string | null }> {
+  const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
+  if (!project) return fail("not-found", `no project ${projectId}`);
+  const patch: { testCommand?: string | null; branchPrefix?: string | null } = {};
+  if (input.testCommand !== undefined) {
+    const next = (input.testCommand ?? "").trim();
+    if (next.length > 500) return fail("invalid", "test command is over 500 characters");
+    patch.testCommand = next || null;
+  }
+  if (input.branchPrefix !== undefined) {
+    const next = (input.branchPrefix ?? "").trim();
+    if (next && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/.test(next)) {
+      return fail("invalid", "branch prefix is one path segment (letters, digits, . _ -), 60 chars max");
+    }
+    patch.branchPrefix = next || null;
+  }
+  if (Object.keys(patch).length > 0) {
+    db.update(projects).set(patch).where(eq(projects.id, projectId)).run();
+  }
+  return {
+    ok: true,
+    testCommand: patch.testCommand !== undefined ? patch.testCommand : (project.testCommand ?? null),
+    branchPrefix: patch.branchPrefix !== undefined ? patch.branchPrefix : (project.branchPrefix ?? null),
+  };
+}
+
 // ── the delete cascade's store half ─────────────────────────────────────
 
 export interface DeleteProjectCounts {

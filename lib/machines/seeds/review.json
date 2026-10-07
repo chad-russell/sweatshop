@@ -1,0 +1,17 @@
+{
+  "id": "review",
+  "name": "Review",
+  "description": "An independent, fresh-context review of a branch, commit range, or PR: PASS or FIX with numbered findings.",
+  "definition": {
+    "workspace": "project",
+    "start": "review",
+    "stages": {
+      "review": {
+        "kind": "agent",
+        "title": "Review",
+        "instructions": "You are an independent reviewer with fresh context — you did not author this work. The task names what to review (a branch, a commit range, or a PR) and any focus.\n\nWork read-only in the checkout: inspect the diff against its base, read the surrounding code completely, run the project's test command or the repo's own tests if that helps you judge. Change NOTHING — no edits, no commits, no new branches.\n\nYour reply's FIRST line is exactly `PASS` or `FIX`. Then numbered findings, most severe first, each with `file:line`, a concrete description of the problem, and a concrete suggested change. Prefix each with `blocker:` (wrong behavior, data loss, security, or would fail review) or `nit:` (style, naming, small cleanup). If everything genuinely holds, PASS with a one-paragraph summary of what you checked.",
+        "next": []
+      }
+    }
+  }
+}
