@@ -26,15 +26,23 @@ itself are (or will be) projects.
 
 ## Who does what
 
-You cannot create or delete projects — Chad does that on the project
-page (`/p/<id>`, created from the projects list). Once a project
-exists with repos, you can drive everything else: start chats and
-machines against it, inspect runs, and tell Chad exactly which fields
-to fill (test command, models, image) when a setup gap bites.
+Finding repos: the `gh` tool runs the real GitHub CLI with Chad's
+stored credentials — including PRIVATE repos his user can see
+(`gh search repos "org:TangoGroup gpl"`, `gh repo view
+TangoGroup/360-gpl --json name,defaultBranchRef,url`). Read-only
+allowlist; forgejo repos are found by URL, not search.
+
+Creating projects still needs Chad today (the projects list → new
+project; 0033 Phase B will give you the tool). Once it exists with
+repos, drive everything else: start chats and machines against it,
+inspect runs, and tell Chad exactly which fields to fill (test
+command, models, image) when a setup gap bites.
 
 A conversation binds to its project at creation and never switches —
-`?project=<id>` on a fresh chat. Sandboxes bind once per conversation
-(see `system_docs("sandboxes")`).
+`?project=<id>` on a fresh chat. A setup chat is a CONTROLLER: help
+create the project, then hand off the `/?project=<id>` link; you are
+never the project chat. Sandboxes bind once per conversation (see
+`system_docs("sandboxes")`).
 
 ## Setting up a new project — the usual order
 
