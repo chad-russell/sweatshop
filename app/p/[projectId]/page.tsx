@@ -13,7 +13,9 @@ import {
   ProjectNameEditor,
   ProjectReposEditor,
 } from "@/components/project/project-editors";
+import { ProjectModelsEditor } from "@/components/project/project-models-editor";
 import { db } from "@/db";
+import { modelsView } from "@/lib/providers/catalog-view";
 import { getProjectOverview } from "@/db/projects";
 import { resolveCredential } from "@/lib/git-hosts";
 import { GIT_HOSTS } from "@/lib/git-hosts/hosts";
@@ -60,6 +62,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
               host: resolveCredential(repo.url, credentials, GIT_HOSTS)?.host.kind ?? null,
             }))}
           />
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h2 className={SECTION}>Models</h2>
+          <ProjectModelsEditor projectId={project.id} initial={modelsView(db(), project.id)} />
         </section>
 
         <section className="flex flex-col gap-2">

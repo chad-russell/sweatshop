@@ -5,7 +5,14 @@ import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
 import { buildTurnModel } from "./model";
 import { buildChatTools } from "./tools";
-import { drainSteerStep, loadTurnHistory, maybeTitleStep, persistTurn, recordUserMessage } from "./steps";
+import {
+  drainSteerStep,
+  loadTurnHistory,
+  maybeTitleStep,
+  persistTurn,
+  recordUserMessage,
+  resolveTurnRouteStep,
+} from "./steps";
 
 /**
  * 0010 spike: one chat turn = one workflow run. The run loads the
@@ -28,8 +35,6 @@ const MAX_STEPS = 50;
 export interface ChatTurnInput {
   conversationId: string;
   userText: string;
-  /** Endpoint model id (resolveChatModel already applied). */
-  modelId: string;
   /** 0013: the conversation has a sandbox binding (pending or bound);
    *  false omits the sandboxed tools. */
   hasSandbox?: boolean;
@@ -45,12 +50,15 @@ When a message carries a "[viewing]" note, "this"/"it" refers to what it names; 
 
 export async function chatTurn(input: ChatTurnInput) {
   "use workflow";
-  const { conversationId, userText, modelId } = input;
+  const { conversationId, userText } = input;
 
   const history = await loadTurnHistory(conversationId);
   await recordUserMessage(conversationId, userText, history.length, input.viewing);
 
-  const model = await buildTurnModel(modelId);
+  // 0021: resolved per turn (a picker change or a /settings swap takes
+  // effect on the next turn); recorded on the turn's assistant row.
+  const resolved = await resolveTurnRouteStep(conversationId);
+  const model = await buildTurnModel(resolved.route);
   const writable = getWritable<ModelCallStreamPart>();
   const agent = new WorkflowAgent({
     model,
@@ -103,7 +111,7 @@ export async function chatTurn(input: ChatTurnInput) {
   // user message) plus the injected note, which sits right before it —
   // persistTurn stores only the new tail.
   const skip = history.length + (input.viewing ? 1 : 0) + 1;
-  const stored = await persistTurn(conversationId, messages, skip);
+  const stored = await persistTurn(conversationId, messages, skip, resolved);
   // Generated titles (0007) — skipped under the scripted mock so tests
   // never wait on (or pay for) a real title call.
   if (!(process.env.SWEATSHOP_CHAT_MOCK && process.env.NODE_ENV === "test")) {

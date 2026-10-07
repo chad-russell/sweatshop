@@ -50,7 +50,7 @@ import { HarnessCard } from "@/components/harness-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Spinner } from "@/components/ui/spinner";
-import { DEFAULT_CHAT_MODEL, findChatModel } from "@/lib/model";
+import type { ChatRoute } from "@/lib/providers/route";
 import type { ToolState } from "@/lib/machine-tool-view";
 import type { ViewingContext } from "@/lib/page-context";
 import { useMarkSeen } from "@/lib/use-mark-seen";
@@ -79,7 +79,6 @@ import {
  */
 
 /** localStorage key for the chosen model (default for new conversations). */
-const MODEL_STORAGE_KEY = "sweatshop.model";
 
 /** localStorage prefix for per-conversation composer drafts. */
 const DRAFT_PREFIX = "sweatshop.draft.";
@@ -108,8 +107,9 @@ export interface ChatSessionState {
   started: boolean;
   /** Nothing sent yet on a new conversation (the machine-target moment). */
   fresh: boolean;
-  modelId: string;
-  selectModel: (id: string) => void;
+  /** 0021: the conversation's own route (null = project / global default). */
+  route: ChatRoute | null;
+  selectRoute: (route: ChatRoute | null) => void;
   sandboxChoice: string;
   setSandboxChoice: (choice: string) => void;
   sandboxes: SandboxOption[];
@@ -573,7 +573,7 @@ export function ChatSession({
   initialMessages,
   activeRunId,
   projectId,
-  initialModelId,
+  initialRoute,
   frameId,
   header,
   freshComposer,
@@ -586,7 +586,8 @@ export function ChatSession({
   initialMessages?: UIMessage[];
   activeRunId?: string | null;
   projectId?: string;
-  initialModelId?: string | null;
+  /** 0021: the stored conversation route (init-only). */
+  initialRoute?: ChatRoute | null;
   /** Names this frame's drafts (e.g. "panel") so two frames never share one. */
   frameId?: string;
   /** The frame's chrome, rendered above the transcript with the knobs. */
@@ -617,18 +618,14 @@ export function ChatSession({
   const [selfAdopted, setSelfAdopted] = useState(false);
   const adoptedNow = adopted || selfAdopted;
 
-  const [storedModelId, setStoredModelId] = useState<string>(() => {
-    if (typeof window === "undefined") return initialModelId ?? DEFAULT_CHAT_MODEL.id;
-    return (
-      window.localStorage.getItem(MODEL_STORAGE_KEY) ??
-      initialModelId ??
-      DEFAULT_CHAT_MODEL.id
-    );
-  });
-  const modelId = findChatModel(storedModelId)?.id ?? DEFAULT_CHAT_MODEL.id;
-  const selectModel = (id: string) => {
-    setStoredModelId(id);
-    window.localStorage.setItem(MODEL_STORAGE_KEY, id);
+  // 0021: per conversation, not sticky across chats — a fresh chat
+  // starts on the default (which /settings or the project decides). Sent
+  // only once Chad picks, so the server's stored route is never clobbered.
+  const [route, setRoute] = useState<ChatRoute | null>(initialRoute ?? null);
+  const [routeTouched, setRouteTouched] = useState(false);
+  const selectRoute = (next: ChatRoute | null) => {
+    setRoute(next);
+    setRouteTouched(true);
   };
 
   // 0013: the fresh composer's one-time sandbox choice ("auto" = own).
@@ -646,16 +643,16 @@ export function ChatSession({
   // Turn the knobs into request fields on every send. The refs are
   // synced in an effect (post-render); sends can only happen after
   // mount, so the values are always current when a request fires.
-  const modelRef = useRef(modelId);
+  const routeRef = useRef<{ touched: boolean; route: ChatRoute | null }>({ touched: false, route });
   const choiceRef = useRef(sandboxChoice);
   const conversationRef = useRef({ conversationId, projectId: projectId ?? null });
   const pageContextRef = useRef(pageContext);
   useEffect(() => {
-    modelRef.current = modelId;
+    routeRef.current = { touched: routeTouched, route };
     choiceRef.current = sandboxChoice;
     conversationRef.current = { conversationId, projectId: projectId ?? null };
     pageContextRef.current = pageContext;
-  }, [modelId, sandboxChoice, conversationId, projectId, pageContext]);
+  }, [route, routeTouched, sandboxChoice, conversationId, projectId, pageContext]);
 
   // The callback runs at send time (never during render) and must see
   // the current knobs.
@@ -676,7 +673,7 @@ export function ChatSession({
             body: {
               conversationId: conversationRef.current.conversationId,
               projectId,
-              modelId: modelRef.current,
+              ...(routeRef.current.touched ? { route: routeRef.current.route } : {}),
               // Only the creating send's choice counts (server-enforced);
               // "auto" = the chat's own sandbox, the default.
               ...(choiceRef.current !== "auto" ? { sandbox: choiceRef.current } : {}),
@@ -801,8 +798,8 @@ export function ChatSession({
     adopted: adoptedNow,
     started,
     fresh,
-    modelId,
-    selectModel,
+    route,
+    selectRoute,
     sandboxChoice,
     setSandboxChoice,
     sandboxes,

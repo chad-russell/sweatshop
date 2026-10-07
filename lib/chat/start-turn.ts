@@ -2,7 +2,6 @@ import { start } from "workflow/api";
 import { db } from "@/db";
 import { getConversation, setActiveRun } from "@/db/chat";
 import { getConversationBinding } from "@/db/sandboxes";
-import { resolveChatModel } from "@/lib/model";
 import type { ViewingContext } from "@/lib/page-context";
 import { chatTurn } from "@/workflows/chat/turn";
 
@@ -21,12 +20,10 @@ export async function startChatTurn(
 ): Promise<{ runId: string }> {
   const conversation = getConversation(db(), conversationId);
   if (!conversation) throw new Error(`no conversation ${conversationId}`);
-  const model = resolveChatModel(conversation.modelId);
   const run = await start(chatTurn, [
     {
       conversationId,
       userText: text,
-      modelId: model.id,
       hasSandbox: getConversationBinding(db(), conversationId)?.kind !== "none",
       hasProject: !!conversation.projectId,
       ...(viewing ? { viewing } : {}),

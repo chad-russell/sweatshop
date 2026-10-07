@@ -129,6 +129,8 @@ export async function harnessToolStep(
     { db },
     { getConversation, getHarnessResumeState, saveHarnessResumeState },
     { getWritable },
+    { requireRoute },
+    { getModelInfo },
   ] = await Promise.all([
     import("@ai-sdk/workflow-harness"),
     import("../../lib/sandboxes/ai-sdk-adapter"),
@@ -137,9 +139,12 @@ export async function harnessToolStep(
     import("../../db"),
     import("../../db/chat"),
     import("workflow"),
+    import("../../lib/providers/resolve"),
+    import("../../db/providers"),
   ]);
 
-  const projectId = inherited?.projectId ?? getConversation(db(), conversationId)?.projectId;
+  const conversation = getConversation(db(), conversationId);
+  const projectId = inherited?.projectId ?? conversation?.projectId;
   if (!projectId) {
     throw new Error(
       `${kind} requires a project conversation — start one from a project page`,
@@ -150,6 +155,12 @@ export async function harnessToolStep(
       "claude is not configured — set CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) in the app environment",
     );
   }
+
+  // 0021: pi inherits the conversation's route (provider + model, the
+  // harness swapped in), else the project / global pi default; claude
+  // takes its own global setting (subscription only). Checked before the
+  // slot is claimed so a forbidden route never holds the sandbox.
+  const { route } = requireRoute(db(), kind, { conversation: conversation?.route ?? null }, projectId);
 
   // v1 concurrency contract: one harness at a time per sandbox (0006).
   if (!claimHarnessRun(conversationId, kind)) {
@@ -205,9 +216,10 @@ export async function harnessToolStep(
       let steps = 0;
       do {
         const agent = buildHarnessAgent({
-          harness: kind,
+          route,
           sessionId: conversationId,
           tools: hostTools,
+          ...(route.harness === "pi" ? { modelInfo: getModelInfo(db(), route.provider, route.model) } : {}),
         });
         state = await runHarnessAgentStep({
           agent: agent as never,

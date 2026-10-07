@@ -2,6 +2,7 @@ import type { ModelCallStreamPart } from "@ai-sdk/workflow";
 import type { ToolSet } from "ai";
 import type { MachineDefinition, Stage } from "@/lib/machines/definition";
 import type { BoundSandbox } from "@/db/sandboxes";
+import type { ChatRoute } from "@/lib/providers/route";
 
 /**
  * 0010 Phase 5: one agent-stage visit — an in-process WorkflowAgent turn
@@ -29,7 +30,8 @@ export interface AgentStageInput {
   definition: MachineDefinition;
   stageId: string;
   brief: string;
-  model?: string;
+  /** 0021: the visit's resolved, validated route. */
+  route: ChatRoute;
   /** 0013: the run's binding (project runs); null = no sandbox tools. */
   binding?: BoundSandbox | null;
   projectId?: string | null;
@@ -48,7 +50,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     { getWritable },
     { tool },
     { z },
-    { resolveChatModel, zaiModel },
+    { chatLanguageModel },
     { db },
     { ensureConversation },
     chatSteps,
@@ -59,7 +61,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     import("workflow"),
     import("ai"),
     import("zod"),
-    import("../../lib/model"),
+    import("../../lib/providers/registry"),
     import("../../db"),
     import("../../db/chat"),
     import("../chat/steps"),
@@ -135,7 +137,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     },
   });
 
-  const model = zaiModel(resolveChatModel(stage.model ?? input.model).id);
+  const model = chatLanguageModel(input.route.provider, input.route.model);
   const agent = new WorkflowAgent({
     model,
     instructions: "You are a stage of a machine run. Follow the brief exactly.",

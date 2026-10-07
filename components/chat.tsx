@@ -27,7 +27,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CHAT_MODELS, findChatModel } from "@/lib/model";
+import { RoutePicker, shortRouteLabel, useModelsView } from "@/components/route-picker";
+import type { ChatRoute } from "@/lib/providers/route";
 import { cn } from "@/lib/utils";
 
 /**
@@ -37,53 +38,6 @@ import { cn } from "@/lib/utils";
  * machine-run target (0012). The transcript, composer and transport
  * live in ChatSession, which this frame and the agent panel share.
  */
-
-/** Model picker — a per-conversation knob, applied on the next send. */
-function ModelPicker({
-  selectedId,
-  onSelect,
-  displayLabel,
-}: {
-  selectedId: string;
-  onSelect: (id: string) => void;
-  displayLabel: string;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="Chat model"
-          title="Model for this conversation"
-          className="inline-flex h-8 max-w-40 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <span className="truncate">{displayLabel}</span>
-          <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {CHAT_MODELS.map((model) => (
-          <DropdownMenuItem
-            key={model.id}
-            onSelect={() => onSelect(model.id)}
-            className="items-start py-2"
-          >
-            <Check
-              className={cn("mt-0.5", model.id === selectedId ? "opacity-100" : "opacity-0")}
-              aria-hidden
-            />
-            <span className="flex flex-col">
-              <span>{model.label}</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                {model.description}
-              </span>
-            </span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 /**
  * 0013: what the trigger says. A fresh conversation shows its pending
@@ -319,7 +273,7 @@ export function ChatSurface({
   activeRunId,
   projectId,
   projectName,
-  initialModelId,
+  initialRoute,
   conversationTitle,
   headerExtra,
   initialMachineId,
@@ -330,7 +284,7 @@ export function ChatSurface({
   activeRunId?: string | null;
   projectId?: string;
   projectName?: string;
-  initialModelId?: string | null;
+  initialRoute?: ChatRoute | null;
   conversationTitle?: string | null;
   headerExtra?: React.ReactNode;
   /** 0012: preselect this machine as the fresh composer's target. */
@@ -350,6 +304,8 @@ export function ChatSurface({
   const [pickedProjectId, setPickedProjectId] = useState<string | null>(projectId ?? null);
   const activeProjectId = pickedProjectId ?? null;
   const activeProjectName = projectOptions?.find((p) => p.id === activeProjectId)?.name ?? projectName;
+  // 0021: the picker's catalog, scoped to the project's restrictions.
+  const models = useModelsView(activeProjectId);
 
   // 0015: this page is the chat itself (an adopted conversation) or the
   // project composer (a fresh chat bound to a project). projectId rides
@@ -481,7 +437,7 @@ export function ChatSurface({
       initialMessages={initialMessages}
       activeRunId={activeRunId}
       projectId={activeProjectId ?? undefined}
-      initialModelId={initialModelId}
+      initialRoute={initialRoute}
       className="mx-auto h-dvh max-w-3xl"
       onAdopted={handleAdopted}
       freshComposer={freshComposer}
@@ -497,10 +453,12 @@ export function ChatSurface({
           {/* A machine decides model and sandbox per stage. */}
           {!(s.fresh && machineTargeted) && (
             <>
-              <ModelPicker
-                selectedId={s.modelId}
-                onSelect={s.selectModel}
-                displayLabel={findChatModel(s.modelId)?.label ?? s.modelId}
+              <RoutePicker
+                ariaLabel="Chat model"
+                value={s.route}
+                onChange={s.selectRoute}
+                view={models}
+                inheritLabel={shortRouteLabel(models?.project?.defaultRoute ?? models?.defaults.chat ?? null, models)}
               />
               <SandboxPicker
                 choice={s.sandboxChoice}

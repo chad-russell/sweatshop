@@ -30,6 +30,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { ChatMessageView } from "@/components/chat-session";
 import { HarnessLiveLine, HarnessSummary, TaskQuote } from "@/components/harness-card";
 import { HarnessMark } from "@/components/harness-logo";
+import { routeLabel, routeSchema, type Route } from "@/lib/providers/route";
 import { HarnessEventLog, type HarnessEvent } from "@/components/harness-session-view";
 import { usePageContext } from "@/components/page-context";
 import { PreviewPill } from "@/components/previews/preview-pill";
@@ -421,6 +422,7 @@ function StageCard({
         <Badge variant="outline" className="font-mono">
           {visit.kind === "harness" ? visit.harness : visit.kind}
         </Badge>
+        <VisitRoute route={visit.route} />
         <span className="ml-auto flex items-center gap-3 font-mono text-xs text-muted-foreground">
           {visit.kind === "harness" && visit.steps > 0 && <span>{visit.steps} steps</span>}
           {visit.transitionTo && <span>→ {visit.transitionTo}</span>}
@@ -555,4 +557,22 @@ function StatusIcon({ status }: { status: string }) {
     default:
       return <Loader2 className="size-4 shrink-0 animate-spin text-info" />;
   }
+}
+
+/** 0021: what actually ran a visit, and which layer chose it (hover). */
+function VisitRoute({ route }: { route: string | null }) {
+  if (!route) return null;
+  let parsed: { route?: Route; layer?: string } | null = null;
+  try {
+    parsed = JSON.parse(route) as { route?: Route; layer?: string };
+  } catch {
+    return null;
+  }
+  const r = routeSchema.safeParse(parsed?.route);
+  if (!r.success) return null;
+  return (
+    <span className="truncate font-mono text-xs text-muted-foreground" title={`route from: ${parsed?.layer ?? "?"}`}>
+      {routeLabel(r.data)}
+    </span>
+  );
 }

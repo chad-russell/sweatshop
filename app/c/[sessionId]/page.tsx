@@ -4,6 +4,7 @@ import { ChatSurface } from "@/components/chat";
 import { db } from "@/db";
 import { conversations, projects } from "@/db/schema";
 import { getActiveRun, listMessageTexts } from "@/db/chat";
+import { parseStoredChatRoute } from "@/db/providers";
 import { rowsToUIMessages } from "@/lib/chat-ui";
 
 /**
@@ -47,7 +48,7 @@ export default async function ConversationPage({
       projectId={project?.id}
       projectName={project?.name}
       conversationTitle={conversation.title}
-      initialModelId={conversation.modelId}
+      initialRoute={parseStoredChatRoute(conversation.route)}
     />
   );
 }

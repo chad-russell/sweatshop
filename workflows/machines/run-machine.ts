@@ -22,7 +22,9 @@ import {
   markRun,
   provisionWorkspace,
   recordSteps,
+  resolveVisitRoute,
 } from "./steps";
+import type { ChatRoute, HarnessRoute } from "@/lib/providers/route";
 
 /**
  * 0009 runMachine — the interpreter and single writer of a run. Pure
@@ -118,7 +120,7 @@ export async function runMachine(input: RunMachineInput) {
       feedback = null;
       const token = `${runId}:${seq}`;
 
-      let result: VisitOutcome;
+      let result!: VisitOutcome;
       if (stage.kind === "harness") {
         result = await runHarnessVisit({
           runId,
@@ -133,16 +135,28 @@ export async function runMachine(input: RunMachineInput) {
       } else if (stage.kind === "agent") {
         // 0010 Phase 5: the visit is an in-process WorkflowAgent turn —
         // no session creation, no hook, no turn-end nudge.
-        const visit = await agentStageStep({
-          runId,
-          seq,
-          definition,
-          stageId: at,
-          brief,
-          binding,
-          projectId: input.projectId,
-        });
-        result = { ok: true, outcome: visit.text, proposed: visit.proposed };
+        // 0021: a route that cannot run (missing key, project
+        // restriction) parks the run with the reason, like a harness
+        // stage's failure — retrying with the same config cannot help.
+        let route: ChatRoute | null = null;
+        try {
+          route = (await resolveVisitRoute({ runId, seq, stageId: at, surface: "agent" })).route as ChatRoute;
+        } catch (err) {
+          result = { ok: false, parked: `route error: ${err instanceof Error ? err.message : String(err)}` };
+        }
+        if (route) {
+          const visit = await agentStageStep({
+            runId,
+            seq,
+            definition,
+            stageId: at,
+            route,
+            brief,
+            binding,
+            projectId: input.projectId,
+          });
+          result = { ok: true, outcome: visit.text, proposed: visit.proposed };
+        }
       } else {
         using hook = gateHook.create({ token });
         const answer = await hook;
@@ -199,6 +213,13 @@ async function runHarnessVisit(input: {
   let proposed: string | null = null;
   let steps = 0;
   try {
+    // 0021: resolved once per visit (every semantic step reuses it).
+    const { route } = await resolveVisitRoute({
+      runId: input.runId,
+      seq: input.seq,
+      stageId: input.stageId,
+      surface: input.harness,
+    });
     do {
       const r = await harnessStep({
         runId: input.runId,
@@ -207,6 +228,7 @@ async function runHarnessVisit(input: {
         definition: input.definition,
         projectId: input.projectId,
         binding: input.binding,
+        route: route as HarnessRoute,
         state,
       });
       state = r.state;

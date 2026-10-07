@@ -1,3 +1,4 @@
+import { runOverridesSchema, type RunOverrides } from "../lib/providers/route";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Db } from "./index";
@@ -140,12 +141,26 @@ export function deleteMachine(db: Db, id: string): void {
 
 // --- runs ------------------------------------------------------------------
 
-export interface RunView extends Omit<MachineRun, "definition"> {
+export interface RunView extends Omit<MachineRun, "definition" | "overrides"> {
+  /** The snapshot as stored. Pre-0021 snapshots may still carry the old
+   *  stage `model`/`thinking` fields — history, read for display only
+   *  and ignored by resolution (no run resumes across the migration). */
   definition: MachineDefinition;
+  overrides: RunOverrides | null;
 }
 
 function hydrateRun(row: MachineRun): RunView {
-  return { ...row, definition: JSON.parse(row.definition) as MachineDefinition };
+  const overrides = row.overrides ? runOverridesSchema.safeParse(JSON.parse(row.overrides)) : null;
+  return {
+    ...row,
+    definition: JSON.parse(row.definition) as MachineDefinition,
+    overrides: overrides?.success ? overrides.data : null,
+  };
+}
+
+/** 0021: record what ran a visit and which layer it resolved from. */
+export function recordStageRoute(db: Db, runId: string, seq: number, resolved: { route: unknown; layer: string }): void {
+  updateStageRun(db, runId, seq, { route: JSON.stringify(resolved) });
 }
 
 /** Create the run row (status running) — the trigger then start()s the workflow. */
@@ -158,6 +173,8 @@ export function createRun(
     /** 0013: run inside this (inherited) binding instead of provisioning
      *  its own sandbox — the starting chat's. Project machines only. */
     inherit?: BoundSandbox;
+    /** 0021: route overrides for this run (whole-run and per stage). */
+    overrides?: unknown;
   },
   now = Date.now(),
 ): RunView {
@@ -179,6 +196,19 @@ export function createRun(
   if (input.inherit && machine.definition.workspace !== "project") {
     throw new MachineError("invalid", `machine ${machine.id} has no workspace to inherit a sandbox into`);
   }
+  let overrides: RunOverrides | null = null;
+  if (input.overrides != null) {
+    const parsed = runOverridesSchema.safeParse(input.overrides);
+    if (!parsed.success) {
+      throw new MachineError("invalid", `overrides: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}`);
+    }
+    for (const stageId of Object.keys(parsed.data.stages ?? {})) {
+      if (!machine.definition.stages[stageId]) {
+        throw new MachineError("invalid", `overrides.stages.${stageId}: no such stage in ${machine.id}`);
+      }
+    }
+    overrides = parsed.data.route || parsed.data.stages ? parsed.data : null;
+  }
   const id = `mr_${now.toString(36)}${randomUUID().replace(/-/g, "").slice(0, 6)}`;
   const prompt = input.prompt.trim().slice(0, 50_000);
   db.transaction((tx) => {
@@ -191,6 +221,7 @@ export function createRun(
         definition: JSON.stringify(machine.definition),
         projectId,
         prompt,
+        ...(overrides ? { overrides: JSON.stringify(overrides) } : {}),
         ...(input.inherit
           ? {
               sandboxId: input.inherit.sandboxId,
@@ -361,7 +392,9 @@ export function updateStageRun(
   db: Db,
   runId: string,
   seq: number,
-  set: Partial<Pick<MachineStageRun, "status" | "sessionId" | "outcome" | "transitionTo" | "steps" | "error" | "endedAt">>,
+  set: Partial<
+    Pick<MachineStageRun, "status" | "sessionId" | "outcome" | "transitionTo" | "steps" | "error" | "endedAt" | "route">
+  >,
 ): void {
   db.update(machineStageRuns)
     .set(set)

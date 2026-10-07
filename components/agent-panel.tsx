@@ -11,6 +11,7 @@ import { usePageContextReader } from "@/components/page-context";
 import { rowsToUIMessages, type StoredRow } from "@/lib/chat-ui";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import type { ChatRoute } from "@/lib/providers/route";
 
 /**
  * 0015 Part B — the always-available agent panel: an ordinary chat
@@ -41,7 +42,7 @@ interface PanelHydration {
   id: string;
   messages: ReturnType<typeof rowsToUIMessages>;
   activeRunId: string | null;
-  modelId: string | null;
+  route: ChatRoute | null;
   projectId: string | null;
   title: string | null;
 }
@@ -145,7 +146,7 @@ export function AgentPanel() {
         const body = (await res.json()) as {
           messages: StoredRow[];
           activeRunId: string | null;
-          modelId: string | null;
+          route: ChatRoute | null;
           projectId: string | null;
           title: string | null;
         };
@@ -154,7 +155,7 @@ export function AgentPanel() {
           id: conversationId,
           messages: rowsToUIMessages(body.messages ?? []),
           activeRunId: body.activeRunId,
-          modelId: body.modelId,
+          route: body.route,
           projectId: body.projectId,
           title: body.title,
         });
@@ -306,7 +307,7 @@ export function AgentPanel() {
               conversationId={conversationId}
               initialMessages={hydration.messages}
               activeRunId={hydration.activeRunId}
-              initialModelId={hydration.modelId}
+              initialRoute={hydration.route}
               projectId={hydration.projectId ?? undefined}
               pageContext={readPageContext}
               onAdopted={handleAdopted}

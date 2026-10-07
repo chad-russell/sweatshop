@@ -4,6 +4,9 @@ import { createPi } from "@ai-sdk/harness-pi";
 import { isStepCount, tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { END, type Stage } from "@/lib/machines/definition";
+import type { ModelInfo } from "@/lib/providers/catalog";
+import { piProviderConfig } from "@/lib/providers/registry";
+import type { HarnessRoute } from "@/lib/providers/route";
 import { HARNESS_BRIDGE_PORT } from "@/lib/sandboxes/harness-bridge";
 
 /**
@@ -13,38 +16,38 @@ import { HARNESS_BRIDGE_PORT } from "@/lib/sandboxes/harness-bridge";
  * step — the semantic-step durability grain the doc decided.
  */
 
-const PI_DEFAULT_MODEL = process.env.PI_MODEL ?? "zai-glm/glm-5.3-flash";
-
 export type HarnessStage = Extract<Stage, { kind: "harness" }>;
 
 export interface BuildArgs {
-  /** Which harness to build ("pi" | "claude"). */
-  harness: "pi" | "claude";
+  /** 0021: the resolved, validated route — decides harness, provider, model. */
+  route: HarnessRoute;
   /** Harness session id (0010 chat: the conversation id). */
   sessionId: string;
   /** Host tools (transition, create_pr, …). */
   tools: ToolSet;
-  model?: string;
-  /** pi thinking level. */
-  thinking?: "off" | "low" | "medium" | "high";
+  /** pi model sizing, when the caller knows it (catalog entry). */
+  modelInfo?: ModelInfo;
 }
 
-export function buildHarnessAgent({ harness, sessionId, tools, model, thinking }: BuildArgs) {
-  if (harness === "pi") {
+/** pi provider ids are namespaced so they never collide with pi's built-ins. */
+const PI_PROVIDER_PREFIX = "ss-";
+
+export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildArgs) {
+  if (route.harness === "pi") {
+    // 0021: only the route's provider is registered, with the model
+    // declared explicitly — pi never needs its built-in catalog to know
+    // a Gloo or OpenRouter id.
+    const piProvider = `${PI_PROVIDER_PREFIX}${route.provider}`;
     return new HarnessAgent({
       harness: createPi({
-        providers: {
-          "zai-glm": {
-            name: "Z.AI GLM Coding Plan",
-            baseUrl: "https://api.z.ai/api/anthropic",
-            apiKey: process.env.ZAI_API_KEY ?? "",
-            api: "anthropic",
-          },
-        },
-        thinkingLevel: thinking ?? "low",
+        providers: { [piProvider]: piProviderConfig(route.provider, route.model, modelInfo) as never },
+        thinkingLevel: route.thinking ?? "low",
+        // No Gloo tool-description fix needed here: harness-pi already
+        // gives every host tool a description (verified live, 2026-10-08 —
+        // pi on Gloo with an undescribed host tool round-trips).
       }),
       id: `pi-${sessionId}`,
-      model: model ?? PI_DEFAULT_MODEL,
+      model: `${piProvider}/${route.model}`,
       // Without a workDir the harness gives every session a private
       // `<harness>-<sessionId>` directory — stages would not see each
       // other's work. "." = the sandbox cwd, the run's workspace root.
@@ -61,13 +64,16 @@ export function buildHarnessAgent({ harness, sessionId, tools, model, thinking }
     // 0006 amendment: setup-token through the env channel, direct route.
     // The bridge endpoint comes from the network sandbox session's
     // getPortEndpoint (0013) — joined to the harness network on demand.
+    // 0021: subscription only — the route contributes model/effort, never
+    // an endpoint.
     harness: createClaudeCode({
       auth: "direct",
       port: HARNESS_BRIDGE_PORT,
       env: { CLAUDE_CODE_OAUTH_TOKEN: token },
+      ...(route.effort ? { effort: route.effort } : {}),
     }),
     id: `claude-${sessionId}`,
-    ...(model ? { model } : {}),
+    ...(route.model ? { model: route.model } : {}),
     // "." = the sandbox cwd, the run's workspace root (shared by stages).
     sandboxConfig: { workDir: "." },
     tools,

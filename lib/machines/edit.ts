@@ -7,6 +7,7 @@ import {
   type StageHarness,
 } from "./definition";
 import { edgeId } from "./layout";
+import { chatRouteSchema, harnessRouteSchema, type ChatRoute, type HarnessRoute } from "../providers/route";
 
 /**
  * 0014 edit operations: the only way the machine editor (and, in 0015,
@@ -34,8 +35,6 @@ export type StagePatch = Partial<{
   instructions: string;
   maxVisits: number | undefined;
   harness: StageHarness;
-  model: string | undefined;
-  thinking: "off" | "low" | "medium" | "high" | undefined;
 }>;
 
 const ID = /^[a-z][a-z0-9-]{0,39}$/;
@@ -92,12 +91,44 @@ export function updateStage(def: MachineDefinition, id: string, patch: StagePatc
   const stage = stageOf(def, id);
   const next: Record<string, unknown> = { ...stage };
   for (const [key, value] of Object.entries(patch)) {
-    if (key === "harness" || key === "thinking") {
-      if (stage.kind !== "harness") throw new EditError(`${key} only applies to harness stages`);
-    }
-    if (key === "model" && stage.kind === "human") throw new EditError("human stages have no model");
+    if (key === "harness" && stage.kind !== "harness") throw new EditError("harness only applies to harness stages");
     if (value === undefined || value === "") delete next[key];
     else next[key] = value;
+  }
+  // 0021: switching harness invalidates a pinned route of the other harness.
+  const route = next.route as HarnessRoute | undefined;
+  if (stage.kind === "harness" && route && route.harness !== next.harness) delete next.route;
+  return withStage(def, id, next as Stage);
+}
+
+/**
+ * 0021: pin (or, with null, clear) a stage's route. Agent stages take a
+ * provider + model; harness stages a pi or claude route matching their
+ * harness; human stages have none.
+ */
+export function setStageRoute(def: MachineDefinition, id: string, route: ChatRoute | HarnessRoute | null): MachineDefinition {
+  const stage = stageOf(def, id);
+  if (stage.kind === "human") throw new EditError("human stages have no route");
+  const next: Record<string, unknown> = { ...stage };
+  if (route === null) {
+    delete next.route;
+    return withStage(def, id, next as Stage);
+  }
+  if (stage.kind === "agent") {
+    const parsed = chatRouteSchema.safeParse(route);
+    if (!parsed.success) throw new EditError("an agent stage's route is { provider, model }");
+    next.route = parsed.data;
+  } else {
+    const parsed = harnessRouteSchema.safeParse(route);
+    if (!parsed.success) {
+      throw new EditError(
+        'a harness stage\'s route is { harness: "pi", provider, model, thinking? } or { harness: "claude", model?, effort? }',
+      );
+    }
+    if (parsed.data.harness !== stage.harness) {
+      throw new EditError(`route harness "${parsed.data.harness}" does not match the stage's harness "${stage.harness}"`);
+    }
+    next.route = parsed.data;
   }
   return withStage(def, id, next as Stage);
 }
@@ -108,9 +139,9 @@ export function setKind(def: MachineDefinition, id: string, kind: StageKind): Ma
   if (stage.kind === kind) return def;
   const { title, instructions, next, maxVisits } = stage;
   const base = { title, instructions, next, ...(maxVisits !== undefined ? { maxVisits } : {}) };
-  const model = "model" in stage && stage.model && kind === "agent" && stage.kind === "agent" ? { model: stage.model } : {};
+  // A route never survives a kind change (its shape is per kind).
   const replaced: Stage =
-    kind === "harness" ? { kind, harness: "pi", ...base } : kind === "agent" ? { kind, ...base, ...model } : { kind, ...base };
+    kind === "harness" ? { kind, harness: "pi", ...base } : kind === "agent" ? { kind, ...base } : { kind, ...base };
   return withStage(def, id, replaced);
 }
 
@@ -208,12 +239,22 @@ export const editOpSchema = z.discriminatedUnion("op", [
         title: z.string().min(1).max(80).optional(),
         instructions: z.string().max(20_000).optional(),
         maxVisits: z.number().int().min(1).max(20).nullable().optional().describe("Loop bound; null clears it"),
-        harness: z.enum(HARNESSES).optional().describe("pi or claude (harness stages only)"),
-        model: z.string().max(120).nullable().optional().describe("Model id; null uses the default"),
-        thinking: z.enum(["off", "low", "medium", "high"]).nullable().optional().describe("pi thinking level; null clears it"),
+        harness: z.enum(HARNESSES).optional().describe("pi or claude (harness stages only; clears a mismatched route)"),
       })
       .strict()
       .describe("Fields to set; absent fields keep their value, null clears"),
+  }),
+  z.object({
+    op: z.literal("set_route"),
+    stage: z.string(),
+    route: z
+      .union([harnessRouteSchema, chatRouteSchema])
+      .nullable()
+      .describe(
+        'Pin the stage\'s model route. agent: { provider, model }; harness: { harness: "pi", provider, model, thinking? } ' +
+          'or { harness: "claude", model?, effort? } (must match the stage\'s harness). null = inherit (run → project → global). ' +
+          "provider is glm | gloo | openrouter.",
+      ),
   }),
   z.object({
     op: z.literal("set_kind"),
@@ -266,6 +307,9 @@ export function applyOps(def: MachineDefinition, ops: readonly EditOp[]): Machin
           break;
         case "update_stage":
           next = updateStage(next, op.stage, normalizePatch(op.patch));
+          break;
+        case "set_route":
+          next = setStageRoute(next, op.stage, op.route);
           break;
         case "set_kind":
           next = setKind(next, op.stage, op.kind);
