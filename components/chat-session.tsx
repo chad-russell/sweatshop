@@ -603,6 +603,7 @@ export function ChatSession({
   header,
   freshComposer,
   onAdopted,
+  onAddressable,
   pageContext,
   className,
   ref,
@@ -619,8 +620,13 @@ export function ChatSession({
   header?: (state: ChatSessionState) => ReactNode;
   /** The frame's takeover of the fresh composer (the machine target). */
   freshComposer?: (state: ChatSessionState) => FreshComposerMode | undefined;
-  /** Fired once when a send adopts the client-generated conversation id. */
+  /** Fired once when a send adopts the client-generated conversation id
+   *  (the turn may still be live — do not move to another route here). */
   onAdopted?: (conversationId: string) => void;
+  /** Fired once, after the creating turn settles: the server now holds
+   *  the whole turn, so a frame may navigate to the conversation's own
+   *  address (a remount there loses nothing). */
+  onAddressable?: (conversationId: string) => void;
   /** 0015: the page this chat is drawn on, read at send time — each send
    *  carries it as the turn's viewing note ("this"). Absent = no note. */
   pageContext?: () => ViewingContext | null;
@@ -775,6 +781,23 @@ export function ChatSession({
     setSelfAdopted(true);
     onAdoptedRef.current?.(conversationId);
   }, [adopted, conversationId, messages.length]);
+
+  // ...and, separately, once that creating turn has SETTLED: only then may
+  // the frame give the session its durable address. A frame whose address
+  // is a different route (the page frame's / → /c/<id>) remounts on the
+  // next router.refresh(); mid-turn that drops the live stream and mounts
+  // a snapshot taken before the turn wrote anything — the blank "new
+  // chat" Chad saw after a first send (2026-10-07).
+  const addressedRef = useRef(false);
+  const onAddressableRef = useRef(onAddressable);
+  useEffect(() => {
+    onAddressableRef.current = onAddressable;
+  }, [onAddressable]);
+  useEffect(() => {
+    if (adopted || !selfAdopted || isBusy || addressedRef.current) return;
+    addressedRef.current = true;
+    onAddressableRef.current?.(conversationId);
+  }, [adopted, selfAdopted, isBusy, conversationId]);
 
   // Opening a thread marks it read (visible + focused only) — including
   // a fresh session after its first send created the conversation.

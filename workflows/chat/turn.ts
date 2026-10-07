@@ -83,9 +83,13 @@ export async function chatTurn(input: ChatTurnInput) {
     { role: "user", content: userText },
   ];
   let finishReason: string = "stop";
+  let stored = 0;
   // One durable stream per TURN, not per slice: every slice leaves it
   // open and unfinished; finishTurnStream ends it exactly once — also
   // when a slice throws, so a reconnected browser is never left hanging.
+  // It ends AFTER persistTurn: a browser that sees `finish` may reload
+  // the conversation from sqlite (the fresh page's /c adoption does) and
+  // must find the whole turn there.
   try {
     for (let step = 0; step < MAX_STEPS; step += 1) {
       if (step > 0) {
@@ -116,15 +120,15 @@ export async function chatTurn(input: ChatTurnInput) {
         lastAssistant.content.some((part) => part.type === "tool-call");
       if (!wantsTools) break;
     }
+
+    // skip = everything already persisted (loaded history + this turn's
+    // user message) plus the injected note, which sits right before it —
+    // persistTurn stores only the new tail.
+    const skip = history.length + (input.viewing ? 1 : 0) + 1;
+    stored = await persistTurn(conversationId, messages, skip, resolved);
   } finally {
     await finishTurnStream(writable);
   }
-
-  // skip = everything already persisted (loaded history + this turn's
-  // user message) plus the injected note, which sits right before it —
-  // persistTurn stores only the new tail.
-  const skip = history.length + (input.viewing ? 1 : 0) + 1;
-  const stored = await persistTurn(conversationId, messages, skip, resolved);
   // Generated titles (0007) — skipped under the scripted mock so tests
   // never wait on (or pay for) a real title call.
   if (!(process.env.SWEATSHOP_CHAT_MOCK && process.env.NODE_ENV === "test")) {
