@@ -163,6 +163,13 @@ export async function systemDocsStep(topic?: string): Promise<unknown> {
   return readDoc(topic);
 }
 
+/** 0033: run one read-only gh command with the stored github credential. */
+export async function ghStep(args: string[]): Promise<unknown> {
+  "use step";
+  const { runGh } = await import("../../lib/agent/tools/gh");
+  return runGh(args);
+}
+
 /** 0010 Phase 3: machines available in this conversation (0009). */
 export async function listMachinesStep(
   conversationId: string,

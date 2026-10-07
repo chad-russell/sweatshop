@@ -21,6 +21,7 @@ import {
   sandboxExecStep,
   startMachineStep,
   systemDocsStep,
+  ghStep,
   webFetchStep,
   webSearchStep,
 } from "./steps";
@@ -211,6 +212,23 @@ export function buildChatTools(
         topic: z.string().optional().describe("The doc to read (e.g. \"machines\"); omit to list topics"),
       }),
       execute: ({ topic }) => systemDocsStep(topic),
+    }),
+
+    // 0033 Phase A: the real gh CLI, read-only, on Chad's stored
+    // github credential — repo/org discovery the web tools cannot see
+    // (private repos).
+    gh: tool({
+      description:
+        "Run one read-only GitHub CLI command with Chad's stored github credentials — " +
+        "see private repos his user can (e.g. find a repo in an org: gh search repos + `org:` " +
+        "qualifier, or repo view TangoGroup/name --json name,defaultBranchRef,url). " +
+        "Read-only allowlist: repo list/view, search repos/code/issues/prs/commits, " +
+        "org list, pr list/view/checks/diff, issue list/view, release list/view. " +
+        "Output is plain text or --json; clip long output yourself with --limit or --jq.",
+      inputSchema: z.object({
+        args: z.array(z.string().min(1)).min(1).max(12).describe("The gh argv, e.g. [\"repo\", \"view\", \"TangoGroup/360-gpl\"]"),
+      }),
+      execute: ({ args }) => ghStep(args),
     }),
 
     // 0015 Part A: machine-definition tools — every chat, no sandbox or

@@ -59,6 +59,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     web,
     webSearch,
     docs,
+    gh,
   ] = await Promise.all([
     import("@ai-sdk/workflow"),
     import("workflow"),
@@ -73,6 +74,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     import("../../lib/agent/tools/web"),
     import("../../lib/agent/tools/web-search"),
     import("../../lib/agent/tools/docs"),
+    import("../../lib/agent/tools/gh"),
   ]);
 
   const stage: Stage | undefined = input.definition.stages[input.stageId];
@@ -93,6 +95,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
   // pattern). web_fetch needs no key; web_search follows claude's
   // env-gating (a stage's toolset is fixed at visit start).
   // system_docs: the same capability docs the chat agent reads.
+  // gh: 0033 — the same read-only github discovery the chat has.
   const tools: ToolSet = {
     system_docs: tool({
       description:
@@ -103,6 +106,14 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
         topic === undefined || topic === ""
           ? { ok: true as const, topics: await docs.listDocTopics() }
           : docs.readDoc(topic),
+    }),
+    gh: tool({
+      description:
+        "Run one read-only GitHub CLI command with Chad's stored github credentials (private " +
+        "repos his user can see). Allowlist: repo list/view, search repos/code/issues/prs/" +
+        "commits, org list, pr list/view/checks/diff, issue list/view, release list/view.",
+      inputSchema: z.object({ args: z.array(z.string().min(1)).min(1).max(12) }),
+      execute: ({ args }): Promise<unknown> => gh.runGh(args),
     }),
     web_fetch: tool({
       description:
