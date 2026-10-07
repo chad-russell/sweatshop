@@ -117,6 +117,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   card, the run view's per-visit route. Live check:
   `PI_SPIKE=1` (pi on every keyed provider via the real builder) and
   `CLAUDE_SPIKE=1 CLAUDE_SPIKE_LIVE=1` (claude on a route).
+- Web tools (1.5): every chat and agent stage has `web_search` and
+  `web_fetch`. `web_fetch` is plain HTTP (redirects followed, 2 MiB
+  download cap, 60 k character context clip, HTML stripped to text,
+  textual content types only); `web_search` is Z.AI's coding-plan MCP
+  tool (`web_search_prime`) over hand-rolled streamable-HTTP JSON-RPC —
+  no SDK dependency; env-gated on `ZAI_API_KEY`, value-shaped
+  not-configured without it (agent stages omit it, claude-style).
+  Results are value-shaped and framed as untrusted content (tool
+  descriptions + one instructions line). Cores
+  `lib/agent/tools/web.ts` / `web-search.ts`, steps in
+  `workflows/chat/steps.ts`, cards `components/ai-elements/web-cards.tsx`
+  on the shared agent-cards shell, views `lib/web-tool-view.ts`.
 - Auth: LAN-only personal tool with no auth layer. **Hard rule: add a
   real verifier before any internet exposure.**
 - Persistence north star: SQLite (single db, or split where it makes
