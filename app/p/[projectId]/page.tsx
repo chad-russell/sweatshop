@@ -12,6 +12,7 @@ import {
   ProjectImageEditor,
   ProjectNameEditor,
   ProjectReposEditor,
+  ProjectWorkEditor,
 } from "@/components/project/project-editors";
 import { ProjectModelsEditor } from "@/components/project/project-models-editor";
 import { db } from "@/db";
@@ -72,6 +73,16 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
         <section className="flex flex-col gap-2">
           <h2 className={SECTION}>Sandbox</h2>
           <ProjectImageEditor projectId={project.id} imageRef={project.imageRef} />
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h2 className={SECTION}>Work defaults</h2>
+          {/* 0023: what machine stages know about this project. */}
+          <ProjectWorkEditor
+            projectId={project.id}
+            testCommand={project.testCommand ?? null}
+            branchPrefix={project.branchPrefix ?? null}
+          />
         </section>
 
         <section className="flex flex-col gap-2">
