@@ -1,7 +1,6 @@
 # 0020 — Production run mode and backups
 
-Status: **draft, revised 2026-10-07 after Chad's review — awaiting
-approval.** Phase 0 of `docs/ROADMAP.md`.
+Status: **approved 2026-10-07 (Chad); building.** Phase 0 of `docs/ROADMAP.md`.
 
 ## Goal
 
@@ -61,8 +60,8 @@ only through `scripts/deploy.sh`. Work on sweatshop happens in sandboxes
 All state stays under the existing gitignored `data/`:
 
 - `data/sweatshop.db` (+ `-wal`, `-shm`), unchanged.
-- `data/workflow-data/`, set explicitly by `WORKFLOW_LOCAL_DATA_DIR` so it
-  moves out of `.next/`. One-time move of the current
+- `data/workflow-data/`, set explicitly by `WORKFLOW_LOCAL_DATA_DIR` (with
+  `WORKFLOW_TARGET_WORLD=local`) so it moves out of `.next/`. One-time move of the current
   `.next/workflow-data/` while the server is stopped.
 - `data/backups/`, the pre-deploy and nightly snapshots.
 
@@ -94,7 +93,12 @@ daemon-reload, enable):
   its create-if-missing).
 - `PublishPort=3300:3000` and `PublishPort=10.10.0.12:3301:3001`
   (unchanged URLs; bees' Caddy preview route needs no change).
-- `Environment=NODE_ENV=production WORKFLOW_LOCAL_DATA_DIR=/workspace/data/workflow-data`.
+- `Environment=NODE_ENV=production WORKFLOW_TARGET_WORLD=local
+  WORKFLOW_LOCAL_DATA_DIR=/workspace/data/workflow-data`. Both are
+  required: `withWorkflow()` overwrites the data dir to
+  `.next/workflow-data` whenever `WORKFLOW_TARGET_WORLD` is unset (found
+  when the 2026-10-07 trial's run landed in the live dir despite the
+  variable; its 359 files were removed).
 - `Restart=always`, `[Install] WantedBy=default.target` (crussell lingers,
   so it starts at boot).
 

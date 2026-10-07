@@ -1,31 +1,26 @@
 #!/usr/bin/env bash
-# sweatshop dev wrapper — everything runs in podman; nothing installs on the
+# sweatshop tool wrapper — everything runs in podman; nothing installs on the
 # host. The repo is bind-mounted at /workspace and node_modules live in a
 # named volume so the host tree never contains dependencies.
 #
-#   ./dev              install deps if needed, then run the dev server (attached)
+# The app itself is NOT run from here (0020): the `sweatshop` rootless user
+# quadlet serves a production build of this checkout, and
+# scripts/deploy.sh is the only way that checkout moves. This wrapper is
+# for one-off commands — the gate, migrations, a shell.
+#
 #   ./dev install      npm install inside the container
 #   ./dev exec -- CMD  one-off CMD in a container with the same mounts
 #   ./dev shell        interactive shell in a fresh container
-#   ./dev build        rebuild the dev image (Containerfile.dev)
-#   ./dev clean        remove the dev container (volumes survive)
+#   ./dev build        rebuild the image (Containerfile.dev; the service uses it too)
 set -euo pipefail
 
 IMAGE=localhost/sweatshop-dev
-CONTAINER=sweatshop-dev
 MODULES_VOLUME=sweatshop-node-modules
 CACHE_VOLUME=sweatshop-npm-cache
 # Host rootless podman socket, mounted into the dev container at the
 # docker CLI's default path so the eve Docker sandbox provider creates
 # sibling containers on host podman.
 PODMAN_SOCK="${PODMAN_SOCK:-/run/user/1000/podman/podman.sock}"
-# Host port for the dev server (3000 is taken by an unrelated host
-# next-server on bee). Override with SWEATSHOP_PORT.
-PORT="${SWEATSHOP_PORT:-3300}"
-# 0016 preview proxy: container port 3001, published on bee's Nebula IP
-# only (bees' Caddy forwards pv-*.internal.crussell.io here). Override
-# with PREVIEW_PUBLISH (any `podman -p` host part, e.g. 127.0.0.1:3301).
-PREVIEW_PUBLISH="${PREVIEW_PUBLISH:-10.10.0.12:3301}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The dev image bakes the docker CLI (see Containerfile.dev); build it on
@@ -68,12 +63,7 @@ if [[ -S "$PODMAN_SOCK" ]]; then
   common_args+=(-v "$PODMAN_SOCK":/var/run/docker.sock)
 fi
 
-case "${1:-run}" in
-  run)
-    exec podman run --rm --init --replace --name "$CONTAINER" \
-      -p "$PORT":3000 -p "$PREVIEW_PUBLISH":3001 "${common_args[@]}" "$IMAGE" \
-      sh -lc 'npm install --no-audit --no-fund && exec npm run dev'
-    ;;
+case "${1:-}" in
   install)
     exec podman run --rm "${common_args[@]}" "$IMAGE" \
       sh -lc 'npm install --no-audit --no-fund'
@@ -89,11 +79,8 @@ case "${1:-run}" in
   build)
     exec podman build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
     ;;
-  clean)
-    podman rm -f "$CONTAINER" 2>/dev/null || true
-    ;;
   *)
-    echo "usage: ./dev [run|install|exec -- CMD|shell|build|clean]" >&2
+    echo "usage: ./dev [install|exec -- CMD|shell|build]   (the app runs as the sweatshop service — 0020)" >&2
     exit 2
     ;;
 esac

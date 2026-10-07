@@ -28,7 +28,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   under `docs/` (`docs/NNNN-slug.md`) approved by Chad before
   implementation starts.
 - **Quality bar:** `npm run typecheck`, `npm run lint`, and `npm run test`
-  pass before every commit (run inside the container — see Environment).
+  pass before every commit (run inside the container via `./dev exec` — see Environment).
   Store-layer tests run against per-worker temp databases; when the first
   agent-behavior test arrives, build a mock LLM first so tests never wait
   on a real model call.
@@ -278,7 +278,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`setsid nohup`, pid/log under `/work/.previews/`), so Next/`./dev`
   restarts never kill them. Reached at `https://pv-<slug>.internal.crussell.io`:
   bees' Caddy (`hosts/bees/caddy/routes/internal/previews.caddy` in cn)
-  → bee `10.10.0.12:3301` (published by `./dev`) → the hand-rolled
+  → bee `10.10.0.12:3301` (published by the `sweatshop` service) → the hand-rolled
   node:http Host-routing proxy (`lib/previews/proxy.ts`, WebSocket
   upgrades spliced at TCP — HMR works; not a Next route) → the sandbox
   container by name on `sweatshop-harness`. Node-only background work
@@ -368,28 +368,44 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 
 ## Environment
 
-Nothing is installed on the host; all development happens in podman:
+Nothing is installed on the host; everything runs in podman. There is
+ONE instance (0020) — no dev server, no second checkout:
 
-- `./dev` — install deps if needed, then run the dev server attached
-  (Ctrl-C stops). App on http://localhost:3300 (host 3000 is taken by an
-  unrelated service; override with `SWEATSHOP_PORT`).
-- `./dev install` — `npm install` inside the container.
-- `./dev exec -- <cmd>` — one-off command in a container with the same
-  mounts (works whether or not the dev container is running).
-- `./dev shell` — interactive shell in the dev container.
-- `./dev build` — rebuild the dev image from `Containerfile.dev`.
-- `./dev clean` — remove the dev container; node_modules volume survives.
-- Container: image `localhost/sweatshop-dev` (built from
-  `Containerfile.dev` — node:24-trixie-slim + docker-cli), repo
-  bind-mounted at `/workspace`, node_modules in a named volume so the
-  host tree stays clean, run as container root (rootless podman maps it
-  to the host user), `.env.local` via `--env-file`, host port 3300 →
-  container 3000, plus the 0016 preview proxy on 10.10.0.12:3301 →
-  container 3001 (`PREVIEW_PUBLISH` overrides). When the host rootless podman socket exists it is
-  mounted at `/var/run/docker.sock`, so the sandbox provider creates
-  lease containers as siblings on host podman. `./dev` also ensures a
-  private `sweatshop-harness` podman network and puts every invocation
-  on it (0006 — claude bridge connectivity).
+- **The app** is the `sweatshop` rootless user quadlet on bee (cn
+  `hosts/bee/sweatshop.nix`): `next start` of a production build of THIS
+  checkout, container name `sweatshop-dev` (kept so the harness-network
+  name and `sandbox:gc`'s default URL hold), image
+  `localhost/sweatshop-dev`, on http://localhost:3300 (host 3000 is taken)
+  plus the 0016 preview proxy on 10.10.0.12:3301. Restart=always, starts
+  at boot. Logs: `journalctl --user -u sweatshop` (agent shells need
+  `XDG_RUNTIME_DIR=/run/user/1000`).
+- **This checkout is the deploy checkout.** It tracks `main` on Forgejo
+  (`origin`, chad/sweatshop) and moves ONLY through `scripts/deploy.sh`
+  (fast-forward → `data/backups/pre-<sha>.db` snapshot → stop → `npm ci`
+  + `next build` + `db:migrate` → start → health check; a failed build
+  restores the previous commit). `scripts/deploy.sh <sha>` rolls back. A
+  host script on purpose — sandboxed agents cannot redeploy the app.
+- **Changing sweatshop** = an ordinary project: a sandboxed chat or
+  machine run on the `sweatshop` project opens a PR (`create_pr`); after
+  merge, deploy. dsh is the emergency path when a deploy breaks the app.
+- **State** is all under `data/` (backed up nightly by bee's restic, plus
+  a `VACUUM INTO` snapshot at `data/backups/nightly.db` an hour before):
+  `sweatshop.db` (+WAL), `workflow-data/` (the Workflow SDK local world —
+  set by `WORKFLOW_LOCAL_DATA_DIR` together with
+  `WORKFLOW_TARGET_WORLD=local` — without the latter `withWorkflow()`
+  silently overwrites the dir to `.next/workflow-data`, which a build may
+  wipe), `backups/`. `node scripts/db-snapshot.mjs <name>` takes a
+  consistent online copy.
+- `./dev exec -- <cmd>` — one-off command in a container with the app's
+  mounts (the gate, migrations against a temp db, scripts). `./dev
+  install`, `./dev shell`, `./dev build` (rebuild the image; the service
+  uses it too). Container root maps to the host user; `.env.local` via
+  `--env-file`; node_modules in the `sweatshop-node-modules` volume,
+  SHARED with the running service — never `./dev install` on bee (it
+  changes the live app's dependencies under it); dependency changes land
+  by PR and `scripts/deploy.sh` runs `npm ci` while the service is stopped. The host rootless podman socket is mounted at
+  `/var/run/docker.sock` (sandboxes are sibling containers), and every
+  invocation joins the private `sweatshop-harness` network (0006).
 - Agent shells must run podman under escalated (full-access) file
   permissions — podman writes runtime state under `/run`.
 - Workflow SDK docs are vendored at `docs/workflows/` — read and grep
