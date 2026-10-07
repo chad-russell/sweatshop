@@ -1,7 +1,49 @@
 # 0022 — Async runs and harness calls with auto-wake
 
-Status: approved 2026-10-08 (Chad, with the three defaults kept). Roadmap
+Status: **implemented 2026-10-08** (both cuts, branch glen/0022-async-runs).
+Approved the same day by Chad, with the three defaults kept. Roadmap
 item 1.3 (the floor's biggest unknown).
+
+## Implementation notes (delivered)
+
+- The wake primitive is `lib/chat/wake.ts` (`wakeConversation`,
+  `wakeRunIfDue`, `wakeCallIfDue`, `sweepWakes`); the steer-or-start
+  branch mirrors the chat route's own send logic, with an in-process
+  per-conversation lock so two settling children cannot start two turns.
+- Wake messages are user rows carrying `metadata.runEvent`
+  (`{ kind, id, status }`), rendered as a transcript chip
+  (`RunEventChip`, chat-session) — the text is the model input.
+- Settle triggers live in the run's own steps (`markRun`,
+  `beginVisit`'s human-gate `waiting`); pre-start failures do not wake
+  (the calling tool throws into the live turn). `startRun`'s early
+  failure path is excluded by requiring `workflow_run_id` in the sweep.
+- Idempotency: `woken_settled_at` stamped AFTER delivery; duplicates
+  over losses. The sweep rides a new 30 s timer in
+  `instrumentation-node.ts` (`WAKE_SWEEP=off`), first pass 10 s after
+  boot.
+- `machine_runs.parent_conversation_id` FK is `ON DELETE SET NULL`
+  (hand-added to migration 0039 — drizzle omits the clause in
+  `ADD COLUMN` statements; the snapshot records it correctly).
+- `harness_calls` (migration 0040): `hc_…` rows; settles are
+  running-only writes so a racing cancel wins exactly like
+  `markRunCancelled`. `recordHarnessRunEnd` gained a `cancelled`
+  status. The starter core is `lib/chat/harness-call-start.ts` (the
+  step wraps it; a `start` seam keeps tests off the runtime); the
+  worker is `workflows/chat/harness-call.ts` (one
+  `harnessAdvanceStep` per semantic step — the old chat loop moved
+  verbatim into per-step shape; `harnessSettleStep` saves the resume
+  handle, settles, releases the slot, wakes).
+- `harnessToolStep` narrowed to its one remaining caller: agent stages
+  (inherited binding, synchronous — a run's stage is already async
+  from every chat). The chat's own conversation-binding branch is gone.
+- `inspect` reads `hc_…` ids; `cancel_run` handles `mr_…` and `hc_…`;
+  the pi/claude tool descriptions and the `HarnessCard` ("in
+  background" pill + handle, live line off — the session page is the
+  live view) teach the new shape.
+- Tests: `tests/wake.test.ts` (routing, settle matrix, idempotency,
+  sweep containment, cancel) and `tests/harness-calls.test.ts` (store
+  settle-once, starter seams incl. busy/start-failed cleanup, wake,
+  cancel, trashed parents). 441 passing.
 
 ## Why
 

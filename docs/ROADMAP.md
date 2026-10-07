@@ -140,14 +140,14 @@ claude and cursor are subscription harnesses (vendor ToS): never
 provider-routed, but their model is chosen per route. Everything else
 defaults to pi. Generic: no work/personal concept in the app.
 
-**1.3 Async runs with auto-wake (doc 0022).** `start_machine` and the
-pi/claude tools return a handle immediately; the conversation gets a new turn
-(a user-role "[run finished]" message, same mechanism as the 0015 viewing note)
-when the run completes, fails, parks or needs input. Tools: start (async),
-`wait`/status for several handles, cancel. Questions: what wakes a conversation
-that is mid-turn (steer queue exists), what if the chat was closed, who owns a
-harness call's sandbox slot (one-run-per-sandbox today, 0013), how the sidebar
-shows live children, and the interaction with the sandbox reaper.
+**1.3 Async runs with auto-wake (doc 0022) — implemented 2026-10-08.**
+`start_machine` records the parent chat and wakes it when the run
+settles (steer if mid-turn, a new turn if idle — a "[run …]" message,
+chip-rendered); pi/claude chat calls are background harness-call
+workflows returning handles, woken the same way on completion/failure;
+`cancel_run` stops runs and calls; a 30 s sweep makes wakes
+crash-safe. No `wait` tool (the wake is the wait; `inspect` for
+check-ins), no fan-out — per the decisions below and 0022's YAGNI list.
 
 **1.4 Sandbox image in settings.** Sandbox configs already hold `image_ref`;
 this item is making it settable in the UI and by agent tool (creation is
