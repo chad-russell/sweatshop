@@ -261,6 +261,20 @@ export function deleteProjectRows(db: Db, projectId: string): ProjectResult<{ co
     }
 
     if (sandboxIds.length) {
+      // Surviving conversations (or runs) bound to a sandbox this
+      // cascade destroys lose the binding — the container is gone
+      // either way, and a null binding re-chooses on the next send
+      // (found live 2026-10-08: an attached e2e chat with a NULL
+      // project blocked the whole delete; SQL `!=` hides NULLs, so
+      // those rows were invisible to every earlier probe).
+      tx.update(conversations)
+        .set({ sandboxId: null, sandboxWorkDir: null, sandboxOwner: null })
+        .where(inArray(conversations.sandboxId, sandboxIds))
+        .run();
+      tx.update(machineRuns)
+        .set({ sandboxId: null, sandboxWorkDir: null, sandboxOwner: null })
+        .where(inArray(machineRuns.sandboxId, sandboxIds))
+        .run();
       tx.delete(sandboxAttachments).where(inArray(sandboxAttachments.sandboxId, sandboxIds)).run();
       // 0017 services FK the sandbox — they die with it (same class as
       // the conversation-teardown FK hole, found 2026-10-08).
