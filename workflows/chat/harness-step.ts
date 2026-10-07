@@ -7,23 +7,23 @@ import { harnessEventSink } from "../shared/harness-sink";
 type HarnessResumeFrom = NonNullable<HarnessWorkflowState["resumeFrom"]>;
 
 /**
- * 0010 Phase 3b: the chat harness tool's ONE workflow step — the whole
- * pi/claude tool call (port of agent/lib/harness-tool.ts + agent/tools/
- * {pi,claude}.ts onto the lease seam). Node-only, so everything happens
- * inside the step: acquire the conversation's sandbox, claim the one-
- * run-per-sandbox slot (0006), then advance the harness turn semantic
- * step by semantic step (runHarnessAgentStep + isStepCount(1), the 0009
- * grain) until the turn ends.
+ * 0010 Phase 3b: the chat harness steps. `harnessToolStep` is the
+ * agent-stage path (0010 Phase 5): one synchronous `"use step"` per
+ * tool call that advances the harness turn to completion inside the
+ * stage's own step — machine runs are already async from every chat, so
+ * stages keep the simple blocking shape.
  *
- * Cross-call continuity is durable, not cached: the terminal state's
- * `resumeFrom` handle is persisted to chat_harness_state, and the next
- * tool call seeds its turn with it — the same harness session resumes
- * with prior context (this replaces eve's in-memory session cache and
- * its sandbox-identity eviction; a replaced sandbox simply resumes from
- * the handle).
+ * 0022 cut 2: CHAT pi/claude calls are background work instead —
+ * `startHarnessCallStep` claims the slot, records the call, and returns
+ * a handle immediately; the `harnessCall` workflow (./harness-call.ts)
+ * advances the turn one semantic step per `"use step"`
+ * (`harnessAdvanceStep`) and settles + wakes (`harnessSettleStep`).
+ * Cross-call continuity is unchanged: the terminal `resumeFrom` handle
+ * persists in chat_harness_state and seeds the next call.
  *
  * Events are recorded per conversation × kind into harness_events —
- * /h/<kind>/<conversationId> is the view (0005/0006 unchanged).
+ * /h/<kind>/<conversationId> is the view (0005/0006 unchanged), and
+ * the live-activity page for background calls.
  */
 
 const MAX_STEPS = 200;
@@ -99,14 +99,14 @@ function uiChunkToModelPart(chunk: Record<string, unknown>): Record<string, unkn
 }
 
 export interface HarnessToolStepInput {
-  /** The harness session: a chat's conversation id, or an agent stage's
-   *  visit conversation (`<runId>_<seq>`). */
+  /** The harness session: an agent stage's visit conversation
+   *  (`<runId>_<seq>`) — 0022: chat calls go through
+   *  startHarnessCallStep instead. */
   conversationId: string;
   kind: "pi" | "claude";
   task: string;
-  /** 0013: run in this binding (an agent stage's — the run's) with
-   *  this project, instead of the conversation's own binding. */
-  inherited?: { binding: BoundSandbox; projectId: string };
+  /** 0013: run in this binding (the run's) with this project. */
+  inherited: { binding: BoundSandbox; projectId: string };
 }
 
 export interface HarnessToolStepResult {
@@ -144,7 +144,7 @@ export async function harnessToolStep(
   ]);
 
   const conversation = getConversation(db(), conversationId);
-  const projectId = inherited?.projectId ?? conversation?.projectId;
+  const projectId = inherited.projectId;
   if (!projectId) {
     throw new Error(
       `${kind} requires a project conversation — start one from a project page`,
@@ -174,13 +174,10 @@ export async function harnessToolStep(
   let toolCalls = 0;
   let failure: string | undefined;
   try {
-    // 0013: the conversation's binding — its own sandbox (bound on first
-    // use) or the one it attached to, in the bound working directory.
-    // An agent stage passes the run's binding instead (0013 inherit).
-    const { openConversationSandbox, openInheritedSandbox } = await import("../../lib/sandboxes/binding");
-    const { sandboxId, workDir, handle } = inherited
-      ? await openInheritedSandbox(inherited.binding)
-      : await openConversationSandbox(conversationId);
+    // 0013: the stage's inherited binding — the run's sandbox, in the
+    // bound working directory.
+    const { openInheritedSandbox } = await import("../../lib/sandboxes/binding");
+    const { sandboxId, workDir, handle } = await openInheritedSandbox(inherited.binding);
     const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
 
     const resumeFrom =
@@ -258,5 +255,165 @@ export async function harnessToolStep(
   } finally {
     // 0006: failures are failures — keep the transcript, record why.
     recordHarnessRunEnd(conversationId, kind, toolCalls, failure ? "failed" : "completed", failure);
+  }
+}
+
+// --- 0022 cut 2: background chat harness calls ------------------------------
+
+/**
+ * The chat pi/claude tools' step (0022) — the lib/chat/harness-call-start
+ * core (validation, slot claim, the harness_calls row, the workflow
+ * start) wrapped as a step; returns the handle. The turn never advances
+ * the harness itself; the result arrives as a wake message.
+ */
+export async function startHarnessCallStep(input: {
+  conversationId: string;
+  kind: "pi" | "claude";
+  task: string;
+}): Promise<import("../../lib/chat/harness-call-start").StartHarnessCallResult> {
+  "use step";
+  const { startHarnessCall } = await import("../../lib/chat/harness-call-start");
+  return startHarnessCall(input);
+}
+
+/** One semantic harness step (the 0009 grain) — the worker's loop body. */
+export async function harnessAdvanceStep(input: {
+  callId: string;
+  conversationId: string;
+  kind: "pi" | "claude";
+  route: import("../../lib/providers/route").HarnessRoute;
+  state: HarnessWorkflowState;
+}): Promise<{ state: HarnessWorkflowState; text: string; toolCalls: number }> {
+  "use step";
+  const [
+    { runHarnessAgentStep },
+    { toNetworkSandboxSession },
+    { buildHarnessAgent, createPrTool },
+    { recordHarnessEvent, clipHarnessText },
+    { db },
+    { getConversation },
+    { getWritable },
+    { getModelInfo },
+    { openConversationSandbox },
+  ] = await Promise.all([
+    import("@ai-sdk/workflow-harness"),
+    import("../../lib/sandboxes/ai-sdk-adapter"),
+    import("../machines/harness-agent"),
+    import("../../lib/harness-events"),
+    import("../../db"),
+    import("../../db/chat"),
+    import("workflow"),
+    import("../../db/providers"),
+    import("../../lib/sandboxes/binding"),
+  ]);
+
+  // The conversation's binding — bound on the call's first step if this
+  // is the conversation's first sandboxed use (0013).
+  const { sandboxId, workDir, handle } = await openConversationSandbox(input.conversationId);
+  const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
+
+  // Tee UI chunks through the shared sink (0031): events into
+  // harness_events (the /h page is the live view), the model-part form
+  // into this workflow run's durable stream.
+  const out = getWritable<Record<string, unknown>>();
+  const writer = out.getWriter();
+  let toolCalls = 0;
+  try {
+    const { sink, text } = harnessEventSink({
+      recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event),
+      clip: clipHarnessText,
+      inputClip: HARNESS_INPUT_CLIP,
+      outputClip: HARNESS_OUTPUT_CLIP,
+      writer,
+      forward: uiChunkToModelPart,
+      envelope: { chatConversation: input.conversationId, chatHarness: input.kind, callId: input.callId },
+      onToolStart: (name) => {
+        if (name !== "fileChange" && name !== "compaction") toolCalls += 1;
+      },
+    });
+
+    const projectId = getConversation(db(), input.conversationId)?.projectId;
+    if (!projectId) throw new Error(`conversation ${input.conversationId} lost its project mid-call`);
+    const agent = buildHarnessAgent({
+      route: input.route,
+      sessionId: input.conversationId,
+      tools: { create_pr: createPrTool(projectId) },
+      ...(input.route.harness === "pi"
+        ? { modelInfo: getModelInfo(db(), input.route.provider, input.route.model) }
+        : {}),
+    });
+    const state = await runHarnessAgentStep({
+      agent: agent as never,
+      state: input.state,
+      sandboxSession: sandboxSession as never,
+      writable: sink as never,
+    });
+    recordHarnessEvent(input.conversationId, input.kind, {
+      kind: "step-end",
+      text: clipHarnessText(text(), 500),
+    });
+    return { state, text: text(), toolCalls };
+  } finally {
+    writer.releaseLock();
+  }
+}
+
+/**
+ * Terminal: persist the resume handle (natural completion only), settle
+ * the call row, release the slot, and wake the conversation with the
+ * final text. Exactly-one-settle: a cancelled call cannot be re-settled.
+ */
+export async function harnessSettleStep(input: {
+  callId: string;
+  conversationId: string;
+  kind: "pi" | "claude";
+  status: "completed" | "failed";
+  text: string;
+  toolCalls: number;
+  error?: string;
+  resumeFrom?: unknown;
+}): Promise<void> {
+  "use step";
+  const [
+    { db },
+    { saveHarnessResumeState },
+    { recordHarnessEvent, recordHarnessRunEnd, clipHarnessText },
+    { settleHarnessCall },
+    { wakeConversation },
+  ] = await Promise.all([
+    import("../../db"),
+    import("../../db/chat"),
+    import("../../lib/harness-events"),
+    import("../../db/harness-calls"),
+    import("../../lib/chat/wake"),
+  ]);
+
+  if (input.status === "completed" && input.resumeFrom) {
+    saveHarnessResumeState(db(), input.conversationId, input.kind, input.resumeFrom as HarnessResumeFrom);
+  }
+  const result = clipHarnessText(input.text, 2_000);
+  const settled = settleHarnessCall(db(), input.callId, {
+    status: input.status,
+    ...(input.status === "completed" ? { result } : {}),
+    error: input.error ?? null,
+  });
+  recordHarnessEvent(input.conversationId, input.kind, { kind: "end" });
+  if (settled) {
+    // A racing cancel already released the slot with its own end record.
+    recordHarnessRunEnd(
+      input.conversationId,
+      input.kind,
+      input.toolCalls,
+      input.status,
+      input.error,
+    );
+    await wakeConversation(input.conversationId, {
+      kind: "harness",
+      id: input.callId,
+      name: input.kind,
+      status: input.status,
+      detail: input.status === "failed" ? (input.error ?? null) : clipHarnessText(input.text, 500),
+      url: `/h/${input.kind}/${input.conversationId}`,
+    });
   }
 }
