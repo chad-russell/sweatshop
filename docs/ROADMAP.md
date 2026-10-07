@@ -2,7 +2,7 @@
 
 Go-live = Chad does his daily work in sweatshop instead of dsh. Drafted
 2026-10-06, revised the same day after an interview with Chad (decisions
-below are his). Each architectural item gets a numbered design doc (0021+; 0020 is Phase 0)
+below are his). Each architectural item gets a numbered design doc (0020 is Phase 0; 0021 providers)
 approved before code, per AGENTS.md. Numbers are provisional.
 
 Legend: 🔴 on the go-live floor · 🟡 soon after / during the trial · ⚪ later.
@@ -116,7 +116,7 @@ pi/claude adapters (exact pins, together; AGENTS.md pairing rule), then
 typecheck/lint/test and a live pi + claude smoke. Required before Cursor;
 safe to do first.
 
-**1.2 Providers and routes (doc 0020).** Provider registry (GLM, Gloo,
+**1.2 Providers and routes (doc 0021, drafted 2026-10-07).** Provider registry (GLM, Gloo,
 OpenRouter; each key in env now, secrets later). Route value
 `{harness, provider, model}` with the layered override chain. Chat model picker
 shows every provider; per-project default route. Harness stages take a route
@@ -126,7 +126,7 @@ anything, since claude today speaks only the Anthropic Messages surface. Model
 catalogs: gloo's list is in dsh's settings; OpenRouter has its own. Open
 design point: how routes appear in the run snapshot.
 
-**1.3 Async runs with auto-wake (doc 0021).** `start_machine` and the
+**1.3 Async runs with auto-wake (doc 0022).** `start_machine` and the
 pi/claude tools return a handle immediately; the conversation gets a new turn
 (a user-role "[run finished]" message, same mechanism as the 0015 viewing note)
 when the run completes, fails, parks or needs input. Tools: start (async),
@@ -151,7 +151,7 @@ against the live endpoint before building; fallback to Brave/Exa if the plan's
 quota is unusable. Available in chats and agent stages; harness tools bring
 their own.
 
-**1.6 Machine catalog (doc 0022).** Rework `ticket` (project test command in
+**1.6 Machine catalog (doc 0023).** Rework `ticket` (project test command in
 verify, branch naming, publish), add `bugfix` (reproduce red → fix → verify →
 PR, matching systematic-debugging), `review` (read-only fresh reviewer returning
 pass/fix with findings), keep `think`. Each uses routes (planning cheap,
@@ -163,28 +163,28 @@ Phase 2/3 ordering.
 
 ## Phase 2 — Foundations of the "just chat to set it up" world 🟡
 
-**2.1 Fallbacks and run overrides (doc 0023).** Static chain on the stage's
+**2.1 Fallbacks and run overrides (doc 0024).** Static chain on the stage's
 route; a failure classifier (credit/quota/auth/rate limit); banner on the run;
 snapshot records the route actually used and why. Overrides at start
 (`startRun({overrides})`: global and per-stage) across composer picker, API,
 `start_machine`, plus "retry this stage with…" on a parked/failed run. Visits
 are fresh by design (0009), so handoff means restarting the visit.
 
-**2.2 Secrets (doc 0024).** As decided above. Sidebar page, store with
+**2.2 Secrets (doc 0025).** As decided above. Sidebar page, store with
 encryption, grants on projects, per-command env delivery in the sandbox exec
 seam (`SandboxHandle.run` already takes env), file-at-path option, redaction
 in `harness_events`/messages, tools that manage secrets with value-blind
 shape and approval. Stretch: per-stage grants (least privilege); folding git
 credentials in.
 
-**2.3 Skills (doc 0025).** `skills/` directory in the repo, a loader, grants to
+**2.3 Skills (doc 0026).** `skills/` directory in the repo, a loader, grants to
 projects and machines, mounting a granted skill into the sandbox where the
 harness looks for skills (check each harness: pi, claude, cursor each have
 their own skill/rules convention), agent tools to read and (with a commit)
 edit them. Decide what ships in the repo first (design, systematic-debugging,
 refactor-checklist, forgejo-pr are the proven set).
 
-**2.4 Tool audit (doc 0026).** After 2.2 and 2.3 and 1.4 exist so the new
+**2.4 Tool audit (doc 0027).** After 2.2 and 2.3 and 1.4 exist so the new
 entities are covered. Enumerate every mutating route/store function, mark which
 have an agent tool, and close the gaps: projects (create/rename/delete, repos),
 sandbox configs, secrets, skills grants, sandbox lifecycle (stop/destroy),
@@ -193,7 +193,7 @@ UI and tools call the same core function (the 0015 pattern). Check existing
 tools for value-shaped errors, conflict handling, approvals on destructive
 ops, and tests.
 
-**2.5 Hindsight integration (design session → doc 0027).** One bank per
+**2.5 Hindsight integration (design session → doc 0028).** One bank per
 project shared with dsh, a global bank, retain from chats/run stage outputs/
 finished-run summaries (stable document ids, never blocking a turn, secret-
 scrubbed), recall by tool and/or injected at turn/stage start, mock client for
@@ -203,7 +203,7 @@ recalled memory is shown in transcripts. Retain can ship before recall.
 
 ## Phase 3 — Delivery tooling, VMs, more harnesses ⚪/🟡
 
-**3.1 Artifacts and review tooling (design session → doc 0028).** Chad's
+**3.1 Artifacts and review tooling (design session → doc 0029).** Chad's
 framing: a structured tool for agents to write static content (a file or a
 folder) that sweatshop serves at a URL, like Claude artifacts, so an agent
 can say "take a look at this" with nice HTML explanations, diagrams or
@@ -222,7 +222,7 @@ image). The adapter installs the Cursor CLI in the sandbox with Cursor's
 installer (needs network, one exposed TCP port), so consider baking the CLI
 into the image. Needs 1.1 first.
 
-**3.3 BoxLite VM sandboxes (spike → doc 0029).** `/dev/kvm` is present on bee
+**3.3 BoxLite VM sandboxes (spike → doc 0030).** `/dev/kvm` is present on bee
 and bees; BoxLite is an embedded Rust runtime with a Node SDK, OCI images,
 persistent per-box disk, clone, egress allow-list and secret injection. Spike
 questions (it would replace podman networking assumptions): reaching the claude
