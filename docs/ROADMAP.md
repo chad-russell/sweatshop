@@ -29,7 +29,8 @@ Legend: 🔴 on the go-live floor · 🟡 soon after / during the trial · ⚪ l
   (fresh context per visit is already the behavior).
 - **No generic subagents.** Only machine runs and harness calls (pi / claude /
   cursor) can be started in the background from a chat. Completion **auto-wakes
-  the chat with a new turn**; a status tool also exists for explicit waits.
+  the chat with a new turn**; `inspect` covers explicit check-ins (0022 chose
+  no separate wait/status tool — the wake is the wait).
 - **Catalog** for go-live: Ticket (reworked), Bugfix, Independent review,
   Think-it-through. Not now: research, chore/dependency, factory orchestrator
   (the async work makes the orchestrator possible later).
@@ -114,16 +115,16 @@ staticPaths; NAS snapshot `fdbd05e2` (00:03 that night) contains
 sweatshop.db + WAL, the workflow-data tree (508 files), and
 backups/nightly.db — contents checked, not exit codes.
 
-## Simplification pass (doc 0031, approved 2026-10-08)
+## Simplification pass (doc 0031) — done 2026-10-08
 
-Runs alongside Phase 1 (one PR, sequenced commits — Chad's call over the
-per-phase sketch): drop
+Shipped as one PR with sequenced commits (#31): dropped
 0011 per-call attribution (bindings answer it), fold `sandbox_configs`
 into `projects.image_ref` (simplifies 1.4), collapse reaper windows to
 one pair, dedup the two provisioning paths and the two harness-turn
 engines, demote the machine canvas to a read-only viewer (editing =
-JSON tab + agent tools). Net ≈ −1,200 to −1,900 lines. Keep list and
-details in 0031.
+JSON tab + agent tools). Keep list and details in 0031. Follow-on: doc
+0032 (eve remnants — the `conversation_events` mirror, its importers, the
+eve-era inbox fold) — done 2026-10-07.
 
 ## Phase 1 — The floor 🔴
 
@@ -160,11 +161,12 @@ plus a polled status): the turn's durable stream now spans the whole turn
 run and background-harness cards poll their child's status, and
 `create_machine` is approval-gated. pi/claude stay project-chat-only and
 there are no inline (unsaved) machine definitions — the agent picks an
-existing machine or calls a harness directly.
+existing machine or calls a harness directly. Also shipped: the harness
+session page shows the task each turn was given.
 
-**1.4 Sandbox image in settings.** Sandbox configs already hold `image_ref`;
-this item is making it settable in the UI and by agent tool (creation is
-`db:seed` only today), validating the image is pullable/present, and showing
+**1.4 Sandbox image in settings.** Partly landed via 0031: the image is
+`projects.image_ref`, editable on the project page. Remaining: an agent
+tool for it, validating the image is pullable/present, and showing
 which image a sandbox ran. Check that harness bridges (claude's `pnpm install`
 bootstrap, non-root `sandbox` user, `bash`) still work on arbitrary images and
 document the image contract in `Containerfile.sandbox`. Ship example images
