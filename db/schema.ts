@@ -451,6 +451,17 @@ export const machineRuns = sqliteTable(
     /** 0012: Unix ms the run last entered a settled status (waiting,
      *  needs-attention, completed, failed) — its "unread" moment. */
     settledAt: integer("settled_at"),
+    /** 0022: the chat whose start_machine created this run — the wake
+     *  target when the run settles. Null (UI/API starts) = never wakes;
+     *  a deleted parent goes null and wakes stop. */
+    parentConversationId: text("parent_conversation_id").references(
+      (): AnySQLiteColumn => conversations.id,
+      { onDelete: "set null" },
+    ),
+    /** 0022: the run's latest settled_at already delivered to its parent
+     *  (wake-once-per-settle idempotency; the tick sweep re-fires
+     *  anything older — crash, restart). */
+    wokenSettledAt: integer("woken_settled_at"),
     /** 0012: the Workflow SDK run executing this machine run (cancel). */
     workflowRunId: text("workflow_run_id"),
     /** 0021: JSON RunOverrides (`startRun({ overrides })`) — null = none. */
@@ -462,6 +473,42 @@ export const machineRuns = sqliteTable(
 );
 
 export type MachineRun = typeof machineRuns.$inferSelect;
+
+/**
+ * 0022 cut 2: one row per background harness call (the chat pi/claude
+ * tools). The call's identity for inspect/cancel; its execution is a
+ * `harnessCall` workflow run. Agent-stage harness calls (inside machine
+ * runs) are synchronous and have no row.
+ */
+export const harnessCalls = sqliteTable(
+  "harness_calls",
+  {
+    /** hc_… */
+    id: text("id").primaryKey(),
+    /** The chat that started the call — also its wake target and the
+     *  harness session id (cross-call continuity, 0010). */
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    /** pi | claude */
+    kind: text("kind").notNull(),
+    task: text("task").notNull(),
+    /** running | completed | failed | cancelled */
+    status: text("status").notNull(),
+    /** Clipped final text (completed) — the wake's detail. */
+    result: text("result"),
+    error: text("error"),
+    /** 0012/0022: the Workflow SDK run executing the call (cancel). */
+    workflowRunId: text("workflow_run_id"),
+    settledAt: integer("settled_at"),
+    wokenSettledAt: integer("woken_settled_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("harness_calls_conversation_idx").on(table.conversationId)],
+);
+
+export type HarnessCall = typeof harnessCalls.$inferSelect;
 
 /**
  * One row per stage visit (0009). `sessionId` is the stage's

@@ -1,6 +1,6 @@
 import { start } from "workflow/api";
 import { db } from "@/db";
-import { getConversation, setActiveRun } from "@/db/chat";
+import { getConversation, setActiveRun, type RunEventMeta } from "@/db/chat";
 import { getConversationBinding } from "@/db/sandboxes";
 import type { ViewingContext } from "@/lib/page-context";
 import { chatTurn } from "@/workflows/chat/turn";
@@ -10,13 +10,15 @@ export const ACTIVE_RUN_STATUSES = new Set(["pending", "running"]);
 
 /**
  * Start one chat turn workflow for an existing conversation (the chat
- * route's send path, and 0016's server-started "Fix it" chats). The
- * caller has already checked no turn is live.
+ * route's send path, 0016's server-started "Fix it" chats, and 0022's
+ * wake). The caller has already checked no turn is live.
  */
 export async function startChatTurn(
   conversationId: string,
   text: string,
   viewing?: ViewingContext,
+  /** 0022: marks the row as a wake message (transcript chip). */
+  runEvent?: RunEventMeta,
 ): Promise<{ runId: string }> {
   const conversation = getConversation(db(), conversationId);
   if (!conversation) throw new Error(`no conversation ${conversationId}`);
@@ -27,6 +29,7 @@ export async function startChatTurn(
       hasSandbox: getConversationBinding(db(), conversationId)?.kind !== "none",
       hasProject: !!conversation.projectId,
       ...(viewing ? { viewing } : {}),
+      ...(runEvent ? { runEvent } : {}),
     },
   ]);
   // The run may complete before this write lands (fast turns); the next

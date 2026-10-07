@@ -1,6 +1,6 @@
 import { runOverridesSchema, type RunOverrides } from "../lib/providers/route";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import type { BoundSandbox } from "./sandboxes";
 import { conversations, machineRuns, machines, machineStageRuns, projects } from "./schema";
@@ -175,6 +175,9 @@ export function createRun(
     inherit?: BoundSandbox;
     /** 0021: route overrides for this run (whole-run and per stage). */
     overrides?: unknown;
+    /** 0022: the chat that started this run (start_machine) — woken
+     *  when the run settles. UI/API starts pass nothing. */
+    parentConversationId?: unknown;
   },
   now = Date.now(),
 ): RunView {
@@ -211,6 +214,10 @@ export function createRun(
   }
   const id = `mr_${now.toString(36)}${randomUUID().replace(/-/g, "").slice(0, 6)}`;
   const prompt = input.prompt.trim().slice(0, 50_000);
+  const parentConversationId =
+    typeof input.parentConversationId === "string" && input.parentConversationId
+      ? input.parentConversationId
+      : null;
   db.transaction((tx) => {
     tx.insert(machineRuns)
       .values({
@@ -221,6 +228,7 @@ export function createRun(
         definition: JSON.stringify(machine.definition),
         projectId,
         prompt,
+        ...(parentConversationId ? { parentConversationId } : {}),
         ...(overrides ? { overrides: JSON.stringify(overrides) } : {}),
         ...(input.inherit
           ? {
@@ -323,6 +331,44 @@ export function updateRun(
   if (changed && set.status !== undefined) {
     db.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, id)).run();
   }
+}
+
+/**
+ * Mark a run's parent as woken through `settledAt` (0022). Stamped after
+ * the wake fires, so a crash in between at worst duplicates the message
+ * (the sweep re-fires); stamping first could lose one instead.
+ */
+export function markRunWoken(db: Db, id: string, settledAt: number): void {
+  db.update(machineRuns)
+    .set({ wokenSettledAt: settledAt })
+    .where(eq(machineRuns.id, id))
+    .run();
+}
+
+/**
+ * 0022: settled runs with a parent whose latest settle has not been
+ * delivered — the wake triggers' shared due-list (also the tick sweep's
+ * scan; catches wakes lost to a crash or restart).
+ */
+export function listWakableRuns(db: Db): RunView[] {
+  return db
+    .select()
+    .from(machineRuns)
+    .where(
+      and(
+        isNotNull(machineRuns.parentConversationId),
+        isNotNull(machineRuns.settledAt),
+        inArray(machineRuns.status, [...SETTLED_STATUSES]),
+        or(
+          isNull(machineRuns.wokenSettledAt),
+          sql`${machineRuns.wokenSettledAt} < ${machineRuns.settledAt}`,
+        ),
+      ),
+    )
+    .orderBy(machineRuns.settledAt)
+    .limit(50)
+    .all()
+    .map(hydrateRun);
 }
 
 /**

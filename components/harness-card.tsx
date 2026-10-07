@@ -23,6 +23,20 @@ interface HarnessResult {
   toolCalls?: number;
 }
 
+/** 0022: the async starter's result — the handle, not the outcome. */
+interface HarnessBackground {
+  ok: true;
+  callId: string;
+  eventsUrl: string;
+  note: string;
+}
+
+interface HarnessBusyError {
+  ok: false;
+  code: string;
+  message: string;
+}
+
 const POLL_MS = 2000;
 
 /** While a delegation runs, peek at the harness's newest events. */
@@ -182,7 +196,6 @@ export function HarnessCard({
   task,
   output,
   errorText,
-  toolCallId,
   conversationId,
 }: {
   kind: string;
@@ -190,23 +203,31 @@ export function HarnessCard({
   task?: string;
   output?: unknown;
   errorText?: string;
-  toolCallId: string;
   conversationId: string | null;
 }) {
   const running = state === "input-streaming" || state === "input-available" || state === "approval-responded";
   const failed = state === "output-error" || state === "output-denied";
-  const result = (output && typeof output === "object" ? output : undefined) as HarnessResult | undefined;
+  const result = (output && typeof output === "object" ? output : undefined) as
+    | HarnessResult
+    | HarnessBackground
+    | HarnessBusyError
+    | undefined;
+  // 0022: the tool returning means the call STARTED (or could not) — the
+  // outcome arrives later as the wake message; /h/… is the live view.
+  const background = result && "callId" in result ? result : undefined;
+  const busyError = result && "code" in result ? result : undefined;
   const url = conversationId ? `/h/${kind}/${conversationId}` : null;
   const label = HARNESS_LABEL[kind] ?? kind;
-  const summary = result?.text?.trim();
+  const summary = result && "text" in result ? result.text?.trim() : undefined;
 
-  const calls = result?.toolCalls;
+  const calls = result && "toolCalls" in result ? result.toolCalls : undefined;
+  const showFailed = failed || busyError != null;
 
   return (
     <div
       className={cn(
         "my-1 overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm",
-        failed ? "border-destructive/40" : "border-border",
+        showFailed ? "border-destructive/40" : "border-border",
       )}
     >
       {/* Header */}
@@ -214,10 +235,16 @@ export function HarnessCard({
         <HarnessLogo kind={kind} />
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium">{label}</span>
-          <StatusPill
-            tone={failed ? "fail" : running ? "running" : "ok"}
-            label={state === "output-denied" ? "denied" : failed ? "failed" : running ? "working" : "done"}
-          />
+          {background ? (
+            <StatusPill tone="running" label="in background" />
+          ) : (
+            <StatusPill
+              tone={showFailed ? "fail" : running ? "running" : "ok"}
+              label={
+                state === "output-denied" ? "denied" : showFailed ? "failed" : running ? "working" : "done"
+              }
+            />
+          )}
           <SandboxChip />
         </div>
         {url && (
@@ -238,25 +265,34 @@ export function HarnessCard({
         </div>
       )}
 
-      {/* Live: what it is doing now */}
-      <HarnessLiveLine conversationId={conversationId} kind={kind} active={running} />
+      {/* Live: what it is doing now (synchronous stage calls; the chat's
+       * background calls live on the session page instead — 0022). */}
+      <HarnessLiveLine conversationId={conversationId} kind={kind} active={running && !background} />
+
+      {/* Background: the handle and what happens next */}
+      {background && (
+        <div className="border-t border-border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+          <span className="text-foreground">{background.callId}</span> — the result arrives in this
+          conversation when it finishes; the Session link above is the live view.
+        </div>
+      )}
 
       {/* Done: its summary */}
-      {!running && !failed && summary && (
+      {!running && !showFailed && summary && (
         <div className="border-t border-border px-3 py-2.5">
           <HarnessSummary>{summary}</HarnessSummary>
         </div>
       )}
-      {!running && !failed && (calls ?? 0) > 0 && (
+      {!running && !showFailed && (calls ?? 0) > 0 && (
         <div className="border-t border-border bg-muted/30 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
           {plural(calls ?? 0, "tool call")}
         </div>
       )}
 
       {/* Failed */}
-      {failed && (
+      {showFailed && (
         <p className="border-t border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-[11px] text-destructive">
-          {errorText ?? "harness call failed"}
+          {busyError?.message ?? errorText ?? "harness call failed"}
         </p>
       )}
     </div>

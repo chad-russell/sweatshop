@@ -29,6 +29,8 @@ export async function startRun(input: {
   inherit?: BoundSandbox;
   /** 0021: route overrides — `{ route?, stages?: { [stageId]: route } }`. */
   overrides?: unknown;
+  /** 0022: the chat that started this run — woken when it settles. */
+  parentConversationId?: unknown;
 }): Promise<RunView> {
   const run = createRun(db(), input);
   // 0021: an override that cannot run (missing key, forbidden by the

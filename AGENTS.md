@@ -53,6 +53,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the browser bundle). Approvals are `defineHook` suspensions answered
   via `/api/x/input`; the model instance crosses step boundaries through
   `SerializableChatModel` (@workflow/serde class protocol).
+- Wakes (0022): when a child settles — a machine run
+  (waiting/needs-attention/completed/failed) or a background harness
+  call (completed/failed) — the chat that started it is nudged through
+  exactly the path a human send takes (`lib/chat/wake.ts`): mid-turn
+  the message queues as steer, idle `startChatTurn` starts a turn. The
+  wake is a user row with `metadata.runEvent`, rendered as a transcript
+  chip, never as Chad's words. Idempotency is `woken_settled_at`
+  (stamped after delivery — duplicates over losses); the 30 s sweep in
+  `instrumentation-node.ts` re-fires anything the in-run wake missed
+  (`WAKE_SWEEP=off` disables). Cancelled children never wake; trashed
+  parents are marked woken and skipped. `cancel_run` (agent tool)
+  stops `mr_…` runs and `hc_…` calls, keeping sandboxes and work.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
   `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
   TSX; themes `clickhouse` (default), `cal`, `nova`.
@@ -103,8 +115,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   migrations in `drizzle/`, apply with `npm run db:migrate`): a
   `conversations` index; chat history as `messages` rows carrying a
   serialized ModelMessage (`db/chat.ts`, plus `steer_queue`,
-  `conversations.active_run_id`); and the sandbox lease registry
-  (`sandboxes` + `sandbox_attachments`, `db/sandboxes.ts`). The eve-era
+  `conversations.active_run_id`); background harness calls
+  (`harness_calls`, `db/harness-calls.ts`, 0022); and the sandbox lease
+  registry (`sandboxes` + `sandbox_attachments`, `db/sandboxes.ts`). The eve-era
   `conversation_events` mirror is GONE (0010 Phase 6 retired it; 0032
   dropped the table, `db/mirror.ts`, and the one-time importers —
   history in docs/0010 and docs/0032; 0002's dual-write invariants are
@@ -207,7 +220,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   records `workflow_run_id`; `cancelRun` cancels the workflow, marks
   the run cancelled — final, later status writes are ignored; the
   sandbox stays); trashing a live run cancels it, purge removes the run
-  and its visit sessions (and destroys its own sandbox). Triggers: the fresh composer's
+  and its visit sessions (and destroys its own sandbox). 0022: a run
+  started by `start_machine` records its parent
+  (`machine_runs.parent_conversation_id`; UI/API starts have none) and
+  its settle steps (`markRun`, `beginVisit`'s human-gate waiting) wake
+  that chat — see the Wakes bullet. Triggers: the fresh composer's
   target picker (`?machine=<id>` and `?project=<id>` preselect; `/`,
   0018), Run
   on `/machines/<id>`, ⌘K "Run …", `POST /api/machine-runs`, the
@@ -268,15 +285,33 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   id) and the panel re-mounts only for New or a reopened stored
   conversation (hydrated before mount; initialMessages/activeRunId are
   init-only props).
-- Harness agents (0005/0006 + 0010 Phase 3): project conversations
-  have `pi` and `claude` tools — separate coding harnesses on the
-  conversation's sandbox (0010 lease seam; `harnessToolStep` in
-  `workflows/chat/harness-step.ts` is ONE `"use step"` per tool call:
-  acquire sandbox, claim the one-run-per-sandbox slot, advance the
-  harness turn by semantic steps via `runHarnessAgentStep` +
-  `isStepCount(1)`; cross-call continuity is durable — the terminal
-  state's `resumeFrom` handle persists in `chat_harness_state` and
-  seeds the next call). pi (`@ai-sdk/harness-pi`) runs in-process on
+- Harness agents (0005/0006 + 0010 Phase 3 + 0022): project
+  conversations have `pi` and `claude` tools — separate coding harnesses
+  on the conversation's sandbox (0010 lease seam). CHAT calls are
+  BACKGROUND work (0022 cut 2): the tool step
+  (`startHarnessCallStep` → core `lib/chat/harness-call-start.ts`)
+  validates the route (0021 resolution), claims the one-per-session
+  slot, inserts a `harness_calls` row (`hc_…`, store
+  `db/harness-calls.ts`), and starts ONE `harnessCall` workflow
+  (`workflows/chat/harness-call.ts`) — the tool returns the handle
+  immediately (value-shaped errors: no-project / not-configured /
+  busy / start-failed). The worker advances the harness turn ONE
+  semantic step per `"use step"` (`harnessAdvanceStep` — sandbox,
+  sink into `harness_events`, `runHarnessAgentStep` + the shared
+  harness-agent builder) and settles via `harnessSettleStep`: persist
+  the `resumeFrom` handle (natural completion only — cross-call
+  continuity stays durable in `chat_harness_state`), settle the row,
+  release the slot, and WAKE the conversation with the clipped final
+  text (0022 cut 1's primitive). The slot is held for the call's whole
+  life — a second call errors busy, and the running row is what keeps
+  the sandbox in the reaper's busy set. Cancelling (`cancel_run` with
+  the `hc_…` id) cancels the workflow, settles the row cancelled (no
+  wake), releases the slot; settles are running-only writes so the
+  first final write wins. AGENT-STAGE pi/claude calls (inside machine
+  runs) stay SYNCHRONOUS — `harnessToolStep` (same file) is one
+  `"use step"` per tool call advancing to completion in the run's
+  inherited binding; a run's stage is already async from every chat.
+  pi (`@ai-sdk/harness-pi`) runs in-process on
   GLM via the Z.AI coding plan's Anthropic Messages surface
   (`https://api.z.ai/api/anthropic`), through the shared AI SDK adapter
   (`toSandboxSession`). claude (`@ai-sdk/harness-claude-code`, pinned

@@ -27,6 +27,17 @@ export interface MessageRowMetadata {
   /** 0021: on a turn's first assistant row — what ran it, and which
    *  layer the route resolved from. */
   route?: { route: ChatRoute; layer: RouteLayer };
+  /** 0022: on a wake message — the child that settled (rendered as a
+   *  transcript chip, never read back as model input; the text IS the
+   *  model input). */
+  runEvent?: RunEventMeta;
+}
+
+/** 0022: what woke a conversation (machine run or harness call). */
+export interface RunEventMeta {
+  kind: "machine" | "harness";
+  id: string;
+  status: string;
 }
 
 export interface NewMessageRow {
@@ -65,12 +76,15 @@ export function getConversation(
   projectId: string | null;
   /** 0021: the conversation's own route (null = project / global default). */
   route: ChatRoute | null;
+  /** 0007: set while the conversation sits in Trash (0022: no wakes). */
+  trashedAt: number | null;
 } | null {
   const row = db
     .select({
       id: conversations.id,
       projectId: conversations.projectId,
       route: conversations.route,
+      trashedAt: conversations.trashedAt,
     })
     .from(conversations)
     .where(eq(conversations.id, id))

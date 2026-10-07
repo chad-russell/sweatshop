@@ -479,6 +479,19 @@ function ViewingChip({ viewing }: { viewing: ViewingContext }) {
   );
 }
 
+/** The "[run finished]" chip on a wake message (0022) — marks the user
+ * row as machine-delivered, never Chad's own words. */
+function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; status: string } }) {
+  return (
+    <span className="mb-1 inline-flex max-w-full items-center gap-1 self-start rounded-full border bg-muted/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+      <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden />
+      <span className="truncate">
+        {runEvent.kind === "machine" ? "run" : runEvent.id.split("_")[0]} {runEvent.status} · {runEvent.id}
+      </span>
+    </span>
+  );
+}
+
 /** Render one message with the AI Elements kit (memoized per message). */
 export const ChatMessageView = memo(function ChatMessageView({
   message,
@@ -504,10 +517,14 @@ export const ChatMessageView = memo(function ChatMessageView({
   const mounted = useMounted();
   const showTime = timeText !== "" && mounted;
   const viewing = (message.metadata as { viewing?: ViewingContext } | undefined)?.viewing;
+  const runEvent = (
+    message.metadata as { runEvent?: { kind: string; id: string; status: string } } | undefined
+  )?.runEvent;
 
   return (
     <Message from={message.role}>
       {viewing && message.role === "user" && <ViewingChip viewing={viewing} />}
+      {runEvent && message.role === "user" && <RunEventChip runEvent={runEvent} />}
       <MessageContent>
         {message.parts.map((part, i) => {
           if (part.type === "text") {
@@ -526,7 +543,6 @@ export const ChatMessageView = memo(function ChatMessageView({
                   task={typeof task === "string" ? task : undefined}
                   output={toolPart.state === "output-available" ? toolPart.output : undefined}
                   errorText={toolPart.state === "output-error" ? toolPart.errorText : undefined}
-                  toolCallId={toolPart.toolCallId}
                   conversationId={conversationId ?? null}
                 />
               );

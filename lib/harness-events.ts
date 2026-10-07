@@ -166,7 +166,7 @@ export function recordHarnessRunEnd(
   sessionId: string,
   harness: HarnessKind,
   toolCalls: number,
-  status: "completed" | "failed",
+  status: "completed" | "failed" | "cancelled",
   error?: string,
 ): void {
   const now = Date.now();

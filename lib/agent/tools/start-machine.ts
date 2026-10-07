@@ -78,6 +78,7 @@ export async function startMachineRun(input: {
     machineId: input.machineId,
     prompt: input.prompt,
     projectId,
+    parentConversationId: input.conversationId,
     ...(inherit ? { inherit } : {}),
     ...(input.overrides ? { overrides: input.overrides } : {}),
   });

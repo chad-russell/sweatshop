@@ -42,6 +42,9 @@ export interface ChatTurnInput {
   hasProject?: boolean;
   /** 0015: the page the send came from — "this" for the agent. */
   viewing?: ViewingContext;
+  /** 0022: this send is a wake (a child settled) — marks the user row
+   *  so the transcript renders it as a chip, never Chad's own words. */
+  runEvent?: import("../../db/chat").RunEventMeta;
 }
 
 const INSTRUCTIONS = `You are sweatshop's agent (new chat runtime spike). Be concise.
@@ -53,7 +56,7 @@ export async function chatTurn(input: ChatTurnInput) {
   const { conversationId, userText } = input;
 
   const history = await loadTurnHistory(conversationId);
-  await recordUserMessage(conversationId, userText, history.length, input.viewing);
+  await recordUserMessage(conversationId, userText, history.length, input.viewing, input.runEvent);
 
   // 0021: resolved per turn (a picker change or a /settings swap takes
   // effect on the next turn); recorded on the turn's assistant row.
