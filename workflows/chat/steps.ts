@@ -216,6 +216,17 @@ export async function getMachineStep(id: string): Promise<unknown> {
   return getMachineTool(id);
 }
 
+/** Validate a would-be machine and summarize it for Chad's approval. */
+export async function createMachinePreviewStep(input: {
+  id?: string;
+  name: string;
+  definition: unknown;
+}): Promise<unknown> {
+  "use step";
+  const { previewCreateMachine } = await import("../../lib/agent/tools/machines");
+  return previewCreateMachine(input);
+}
+
 export async function createMachineStep(input: {
   id?: string;
   name: string;

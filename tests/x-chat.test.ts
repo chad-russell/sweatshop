@@ -264,6 +264,51 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "create-machine: Chad approves before a machine exists; a denial creates nothing",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "create-machine";
+      const { getMachine } = await import("../db/machines");
+      const exists = (id: string) => {
+        try {
+          getMachine(db(), id);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      for (const [approved, machineId] of [
+        [false, "m-mock-create-no"],
+        [true, "m-mock-create-yes"],
+      ] as const) {
+        process.env.SWEATSHOP_CHAT_MOCK_MACHINE = machineId;
+        const id = conv(`create_${approved}`);
+        const run = await turn(id, "make me a machine");
+        const token = `call_create_${machineId}`;
+        await waitFor(async () => {
+          try {
+            return (await getHookByToken(token)) != null;
+          } catch {
+            return false;
+          }
+        }, "create_machine approval hook");
+        // Suspended on the approval: Chad sees a pending ask, and nothing
+        // has been written yet.
+        expect(listPendingInputs(db(), id).map((p) => p.id)).toContain(token);
+        expect(exists(machineId)).toBe(false);
+
+        await chatApprovalHook.resume(token, { kind: "approval", approved });
+        resolvePendingInput(db(), token, { approved });
+        expect((await run.returnValue).finishReason).toBe("stop");
+        expect(exists(machineId)).toBe(approved);
+        expect(serialized(id)).toContain(approved ? '"ok":true' : "Chad declined to create machine");
+      }
+      delete process.env.SWEATSHOP_CHAT_MOCK_MACHINE;
+    },
+  );
+
+  it(
     "viewing: the send's page context becomes a system note, rides as row metadata, and survives into later turns (0015)",
     { timeout: 30_000 },
     async () => {

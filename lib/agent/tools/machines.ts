@@ -126,6 +126,46 @@ export function getMachineTool(
 
 // --- write -------------------------------------------------------------------
 
+/**
+ * The approval preview for create_machine: validates WITHOUT writing, so
+ * Chad is only asked about a machine that would actually be created (a
+ * generation mistake comes straight back to the model to repair). The
+ * write re-validates — this is a courtesy, not the guard.
+ */
+export function previewCreateMachine(input: {
+  id?: string;
+  name: string;
+  definition: unknown;
+}): { ok: true; summary: string } | MachineToolError {
+  const parsed = parseDefinition(input.definition);
+  if (!parsed.ok) return invalidDefinition(parsed.errors);
+  if (input.id) {
+    try {
+      getMachine(db(), input.id);
+      return { ok: false, code: "conflict", message: `machine ${input.id} already exists — edit it with edit_machine instead` };
+    } catch (error) {
+      if (!(error instanceof MachineError && error.code === "not-found")) return asError(error);
+    }
+  }
+  const stages = Object.values(parsed.definition.stages);
+  const kinds = stages.map((s) => (s.kind === "harness" ? s.harness : s.kind)).join(" → ");
+  return {
+    ok: true,
+    summary:
+      `Create machine "${input.name}"${input.id ? ` (${input.id})` : ""} — ${stages.length} ` +
+      `${stages.length === 1 ? "stage" : "stages"}: ${kinds}; workspace ${parsed.definition.workspace}?`,
+  };
+}
+
+function invalidDefinition(errors: string[]): MachineToolError {
+  return {
+    ok: false,
+    code: "invalid",
+    message: "the definition does not validate; nothing was created",
+    issues: { stages: {}, transitions: {}, general: errors },
+  };
+}
+
 export function createMachineTool(input: {
   id?: string;
   name: string;
@@ -136,14 +176,7 @@ export function createMachineTool(input: {
   // issues (by-element placement needs a definition-shaped draft, which
   // a generated one may not be).
   const parsed = parseDefinition(input.definition);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      code: "invalid",
-      message: "the definition does not validate; nothing was created",
-      issues: { stages: {}, transitions: {}, general: parsed.errors },
-    };
-  }
+  if (!parsed.ok) return invalidDefinition(parsed.errors);
   try {
     const m = createMachine(db(), { ...input, definition: parsed.definition });
     return { ok: true, machine: { ...summarize(m), definition: m.definition } };

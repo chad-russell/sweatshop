@@ -50,7 +50,8 @@ export interface ChatTurnInput {
 
 const INSTRUCTIONS = `You are sweatshop's agent (new chat runtime spike). Be concise.
 Use the ask_chad tool when a decision or approval is genuinely Chad's to make.
-When a message carries a "[viewing]" note, "this"/"it" refers to what it names; use its ids with your tools (get_machine, inspect) instead of asking.`;
+When a message carries a "[viewing]" note, "this"/"it" refers to what it names; use its ids with your tools (get_machine, inspect) instead of asking.
+If Chad asks for something that needs a tool you were not given (pi, claude, and bash exist only in project chats with a sandbox), say so and tell him to start a project chat — never improvise a substitute (e.g. a new machine, or a different model standing in for the harness he asked for).`;
 
 export async function chatTurn(input: ChatTurnInput) {
   "use workflow";
