@@ -52,6 +52,8 @@ export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
   const meta = (row: StoredRow) => ({
     at: new Date(row.at).toISOString(),
     ...(row.metadata?.viewing ? { viewing: row.metadata.viewing } : {}),
+    // 0022: a wake row's chip ("[pi finished]" is not Chad's words).
+    ...(row.metadata?.runEvent ? { runEvent: row.metadata.runEvent } : {}),
   });
 
   for (const row of rows) {
@@ -129,4 +131,25 @@ export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
     }
   }
   return out;
+}
+
+/** Tools whose successful result is a background child that will wake
+ *  this chat when it settles (0022). */
+const BACKGROUND_TOOLS = new Set(["start_machine", "pi", "claude"]);
+
+/** Whether the transcript shows background work that has not yet woken
+ *  it: a started child (run or harness handle) after the latest wake. A
+ *  wake for an earlier child is fine — this only gates a cheap poll. */
+export function hasBackgroundChild(messages: UIMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "user" && (m.metadata as { runEvent?: unknown } | undefined)?.runEvent) return false;
+    for (const p of m.parts) {
+      if (!p.type.startsWith("tool-") || !BACKGROUND_TOOLS.has(p.type.slice(5))) continue;
+      const part = p as { state?: string; output?: unknown };
+      const out = part.state === "output-available" ? (part.output as { runId?: unknown; callId?: unknown } | undefined) : undefined;
+      if (typeof out?.runId === "string" || typeof out?.callId === "string") return true;
+    }
+  }
+  return false;
 }

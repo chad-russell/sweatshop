@@ -53,6 +53,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ToolState } from "@/lib/machine-tool-view";
 import type { ViewingContext } from "@/lib/page-context";
+import { hasBackgroundChild, rowsToUIMessages, type StoredRow } from "@/lib/chat-ui";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -82,6 +83,10 @@ import {
 
 /** localStorage prefix for per-conversation composer drafts. */
 const DRAFT_PREFIX = "sweatshop.draft.";
+
+/** How often an idle chat with background work out checks for its wake. */
+const WAKE_POLL_MS = 5000;
+
 
 /** A running sandbox the composer can attach to (0013 picker). */
 export interface SandboxOption {
@@ -685,6 +690,7 @@ export function ChatSession({
     pageContextRef.current = pageContext;
   }, [route, routeTouched, sandboxChoice, conversationId, projectId, pageContext]);
 
+  const resumeRunRef = useRef<string | null>(null);
   // The callback runs at send time (never during render) and must see
   // the current knobs.
   const [transport] = useState(
@@ -715,6 +721,11 @@ export function ChatSession({
             },
           };
         },
+        // A wake attach (below) resumes a turn this page never started:
+        // point the reconnect at THAT run's stream (the chat id is the
+        // conversation's, and the mount-time resume already used its own).
+        prepareReconnectToStreamRequest: ({ api }) =>
+          resumeRunRef.current ? { api: `/api/x/chat/${encodeURIComponent(resumeRunRef.current)}/stream` } : { api },
       }),
   );
 
@@ -728,6 +739,50 @@ export function ChatSession({
   const status = mounted ? chat.status : "ready";
   const isBusy = status === "submitted" || status === "streaming";
   const messages = chat.messages;
+
+  // 0022: a settled child wakes this chat by starting a turn SERVER-side
+  // (or steering a live one) — the open page never sent it. While idle
+  // with background work out, watch for that turn and attach to it: the
+  // stored transcript (with the wake row) is swapped in, then the live
+  // turn streams in like any other.
+  const awaitingWake = (adopted || selfAdopted) && !isBusy && hasBackgroundChild(messages);
+  const chatRef = useRef(chat);
+  useEffect(() => {
+    chatRef.current = chat;
+  });
+  useEffect(() => {
+    if (!awaitingWake) return;
+    let stop = false;
+    const check = async () => {
+      if (stop || document.visibilityState !== "visible") return;
+      try {
+        const res = await fetch(`/api/x/chat?conversationId=${encodeURIComponent(conversationId)}`, { cache: "no-store" });
+        if (!res.ok || stop) return;
+        const body = (await res.json()) as { messages: StoredRow[]; activeRunId: string | null };
+        const c = chatRef.current;
+        if (stop || c.status === "submitted" || c.status === "streaming") return;
+        const stored = rowsToUIMessages(body.messages ?? []);
+        const known = new Set(c.messages.map((m) => m.id));
+        // Only act on something new: a turn in flight, or rows this
+        // session has not seen (a wake turn that already finished).
+        if (!body.activeRunId && stored.every((m) => known.has(m.id))) return;
+        c.setMessages(stored);
+        if (body.activeRunId) {
+          resumeRunRef.current = body.activeRunId;
+          void c.resumeStream();
+        }
+      } catch {
+        /* transient — the next tick retries */
+      }
+    };
+    const timer = setInterval(() => void check(), WAKE_POLL_MS);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [awaitingWake, conversationId]);
 
   // 0011: the sandbox read-model — which sandbox each sandboxed call ran
   // in and where the next one would. The call rows are written by the

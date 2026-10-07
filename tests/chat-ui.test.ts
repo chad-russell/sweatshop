@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import { rowsToUIMessages, type StoredRow } from "../lib/chat-ui";
+import { hasBackgroundChild, rowsToUIMessages, type StoredRow } from "../lib/chat-ui";
 import { parseViewingContext, viewingNote } from "../lib/page-context";
 
 let n = 0;
@@ -84,6 +84,14 @@ describe("rowsToUIMessages", () => {
     expect(ui[0].metadata).toMatchObject({ viewing: { kind: "machine", id: "ticket" } });
     expect(ui[2].metadata).not.toHaveProperty("viewing");
   });
+
+  it("carries a wake row's runEvent so it renders as a chip, not Chad's words (0022)", () => {
+    const runEvent = { kind: "harness" as const, id: "hc_1", status: "completed" };
+    const ui = rowsToUIMessages([
+      { id: "w1", role: "user", text: "[pi finished] — /h/pi/c", at: 1, modelMessage: { role: "user", content: "[pi finished] — /h/pi/c" }, metadata: { runEvent } },
+    ]);
+    expect(ui[0].metadata).toMatchObject({ runEvent });
+  });
 });
 
 describe("viewing note (0015)", () => {
@@ -114,5 +122,25 @@ describe("viewing note (0015)", () => {
     expect(parseViewingContext({ kind: "nope" })).toBeNull();
     expect(parseViewingContext({ kind: "chat", extra: true })).toBeNull();
     expect(parseViewingContext(null)).toBeNull();
+  });
+});
+
+describe("hasBackgroundChild (0022 wake watch)", () => {
+  const started = (tool: string, output: unknown): import("ai").UIMessage => ({
+    id: `a_${tool}`,
+    role: "assistant",
+    parts: [{ type: `tool-${tool}`, toolCallId: "t", state: "output-available", input: {}, output } as never],
+  });
+  const wake: import("ai").UIMessage = { id: "w", role: "user", parts: [{ type: "text", text: "[pi finished]" }], metadata: { runEvent: { kind: "harness", id: "hc_1", status: "completed" } } };
+
+  it("is true while a started run or harness call has not woken the chat yet", () => {
+    expect(hasBackgroundChild([started("pi", { ok: true, callId: "hc_1" })])).toBe(true);
+    expect(hasBackgroundChild([started("start_machine", { runId: "mr_1", url: "/r/mr_1" })])).toBe(true);
+  });
+  it("is false with nothing started, a listing, a failed start, or after the wake", () => {
+    expect(hasBackgroundChild([])).toBe(false);
+    expect(hasBackgroundChild([started("start_machine", { machines: [] })])).toBe(false);
+    expect(hasBackgroundChild([started("pi", { ok: false, code: "busy" })])).toBe(false);
+    expect(hasBackgroundChild([started("pi", { ok: true, callId: "hc_1" }), wake])).toBe(false);
   });
 });
