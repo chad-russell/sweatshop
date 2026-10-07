@@ -1,10 +1,18 @@
 # 0032 — Eve remnants retirement
 
-Status: **draft — awaiting Chad's approval.** Scope expanded 2026-10-07
+Status: **approved 2026-10-07; implemented the same day as one PR with
+sequenced commits** (`refactor(attention)` / `test(search)` /
+`refactor(store)` / `chore(scripts)` / `docs`). This doc records the
+decisions. Scope expanded 2026-10-07
 per Chad: "anything that is purely historical data can be deleted; this
 is only a prototype so far and we don't need any backward
 compatibility." This supersedes 0010 Phase 6's "db/mirror.ts stays as
 the ingest utility" decision.
+
+As-delivered notes: the migration also drops `conversations.event_count`
+(a mirror-only counter with zero remaining readers);
+`tests/runs-as-conversations.test.ts` needed no rewrite; the search
+tests lost their mirror-extraction describe with the mirror itself.
 
 ## Why
 
