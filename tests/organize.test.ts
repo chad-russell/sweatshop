@@ -17,7 +17,6 @@ import {
   setTrashed,
 } from "../db/organize";
 import {
-  conversationEvents,
   conversations,
   folders,
   harnessRuns,
@@ -178,11 +177,8 @@ describe("rename, archive, trash", () => {
     expect(row()?.archivedAt).toBeNull();
   });
 
-  it("delete-forever removes the mirror, messages and harness rows", () => {
+  it("delete-forever removes messages and harness rows", () => {
     const c = convo(null);
-    tdb.insert(conversationEvents).values({
-      id: `evt_${c}`, conversationId: c, type: "x", event: "{}", at: 1,
-    }).run();
     tdb.insert(messages).values({
       id: `evt_m_${c}`, conversationId: c, role: "user", text: "purgeable zebra", at: 1,
     }).run();
