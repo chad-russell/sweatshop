@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "./hooks";
-import { harnessToolStep } from "./harness-step";
+import { startHarnessCallStep } from "./harness-step";
 import { runOverridesSchema } from "../../lib/providers/route";
 import {
   bashStep,
@@ -263,26 +263,30 @@ export function buildChatTools(
     ...(hasSandbox && hasProject && {
       pi: tool({
         description:
-          "Hand a coding task to the pi harness, which works in this conversation's sandbox " +
-          "(repos under the work root) with its own read/write/edit/bash tools and keeps context " +
-          "across calls. Use for non-trivial code changes; use plain bash for quick commands. " +
-          "The repo state is shared — pi's edits are immediately visible to bash.",
+          "Hand a coding task to the pi harness — it runs in the BACKGROUND in this conversation's " +
+          "sandbox (repos under the work root) with its own read/write/edit/bash tools. Returns a " +
+          "handle immediately; this conversation gets a \"[pi finished]\" message with the result when " +
+          "it ends. pi keeps context across calls (a new call continues the same session). Check " +
+          "progress with inspect (hc_… id); stop it with cancel_run. Use for non-trivial code changes; " +
+          "use plain bash for quick commands — the repo state is shared.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
-        execute: ({ task }) => harnessToolStep({ conversationId, kind: "pi", task }),
+        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "pi", task }),
       }),
 
       claude: tool({
         description:
-          "Hand a coding task to the Claude Code harness, which works in this conversation's " +
-          "sandbox with its own read/edit/bash tools and keeps context across calls. Prefer for " +
-          "deep refactors or nuanced code review; use pi for quick edits and plain bash for " +
-          "one-off commands. The repo state is shared with bash and pi.",
+          "Hand a coding task to the Claude Code harness — it runs in the BACKGROUND in this " +
+          "conversation's sandbox with its own read/edit/bash tools. Returns a handle immediately; " +
+          "this conversation gets a \"[claude finished]\" message with the result when it ends. " +
+          "claude keeps context across calls. Prefer for deep refactors or nuanced code review; use " +
+          "pi for quick edits and plain bash for one-off commands. inspect (hc_…) checks progress; " +
+          "cancel_run stops it.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
-        execute: ({ task }) => harnessToolStep({ conversationId, kind: "claude", task }),
+        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "claude", task }),
       }),
     }),
 

@@ -7,7 +7,7 @@ import {
   getLease,
   type BoundSandbox,
 } from "@/db/sandboxes";
-import { conversations, harnessEvents, harnessRuns, machineRuns } from "@/db/schema";
+import { conversations, harnessCalls, harnessEvents, harnessRuns, machineRuns } from "@/db/schema";
 import { clipOutput } from "@/lib/agent/tools/bash";
 import { openSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
@@ -90,6 +90,28 @@ export type InspectResult = Record<string, unknown>;
  * stage visit `mr_…_<seq>`. Read-only.
  */
 export function inspectTarget(id: string): InspectResult {
+  // 0022: a background harness call — status, its task, and where it runs.
+  if (id.startsWith("hc_")) {
+    const call = db().select().from(harnessCalls).where(eq(harnessCalls.id, id)).get();
+    if (!call) throw new Error(`no harness call "${id}"`);
+    const binding = getConversationBinding(db(), call.conversationId);
+    const events = harnessActivity(call.conversationId);
+    return {
+      kind: "harness-call",
+      id,
+      harness: call.kind,
+      status: call.status,
+      task: clip(call.task, 1_000),
+      ...(call.error ? { error: clip(call.error, 500) } : {}),
+      ...(call.result ? { result: clip(call.result, 1_500) } : {}),
+      conversation: call.conversationId,
+      eventsUrl: `/h/${call.kind}/${call.conversationId}`,
+      sandbox: binding?.kind === "bound" ? sandboxSummary(binding) : null,
+      ...(events ? { recentEvents: events.recentEvents } : {}),
+      hint: "cancel_run stops it; the conversation is woken when it settles.",
+    };
+  }
+
   const row = db()
     .select({ id: conversations.id, kind: conversations.kind, title: conversations.title, projectId: conversations.projectId, activeRunId: conversations.activeRunId })
     .from(conversations)
