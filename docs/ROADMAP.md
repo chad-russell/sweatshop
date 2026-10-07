@@ -116,15 +116,12 @@ pi/claude adapters (exact pins, together; AGENTS.md pairing rule), then
 typecheck/lint/test and a live pi + claude smoke. Required before Cursor;
 safe to do first.
 
-**1.2 Providers and routes (doc 0021, drafted 2026-10-07).** Provider registry (GLM, Gloo,
-OpenRouter; each key in env now, secrets later). Route value
-`{harness, provider, model}` with the layered override chain. Chat model picker
-shows every provider; per-project default route. Harness stages take a route
-(pi on any provider the adapter supports; claude via the gloo Anthropic route
-for employer work). Verify what pi and claude can be pointed at before promising
-anything, since claude today speaks only the Anthropic Messages surface. Model
-catalogs: gloo's list is in dsh's settings; OpenRouter has its own. Open
-design point: how routes appear in the run snapshot.
+**1.2 Providers and routes (doc 0021, drafted 2026-10-07).** GLM, Gloo,
+OpenRouter as providers for chats, agent stages and pi; one route value
+resolved run → stage → conversation → project → global; per-surface
+defaults on a new `/settings` page (swap test vs real models in one
+place). claude and cursor run only on Chad's subscriptions (ToS) and are
+never provider-routed; everything else defaults to pi.
 
 **1.3 Async runs with auto-wake (doc 0022).** `start_machine` and the
 pi/claude tools return a handle immediately; the conversation gets a new turn

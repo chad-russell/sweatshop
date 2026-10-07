@@ -1,7 +1,22 @@
 # 0021 — Providers and routes
 
-Status: **draft — awaiting Chad's approval.** Roadmap item 1.2 (go-live
-floor).
+Status: **draft, revised 2026-10-07 after Chad's answers — awaiting
+approval.** Roadmap item 1.2 (go-live floor).
+
+## Decisions (Chad, 2026-10-07)
+
+1. **claude and cursor exist only to use Chad's own subscriptions in a way
+   that meets each vendor's terms of service.** They always run on their
+   subscription (claude: `CLAUDE_CODE_OAUTH_TOKEN`; cursor: its own login),
+   never repointed at another provider's endpoint. **Everything else runs on
+   pi** (harness work) or the in-process agent (chats, agent stages), and
+   those are the only surfaces that take a provider.
+2. Gloo and OpenRouter keys are copied from agenix into the service's
+   `.env.local` for now (`GLOO_API_KEY`, `OPENROUTER_API_KEY`; done
+   2026-10-07); the Secrets entity takes over later.
+3. The default chat model stays `glm-5.3-flash`, and it is **a setting**,
+   easy to swap (e.g. a cheap model while testing, a strong one for real
+   work), not a constant.
 
 ## Goal
 
@@ -31,16 +46,13 @@ resolution order. It doesn't build fallbacks.
   any number of providers, each with a `baseUrl`, `apiKey` and `api`.
   The `api` kinds include `openai-completions` and `anthropic-messages`.
   So pi can run on all three providers (Gloo via `openai-completions`).
-- **claude** (`@ai-sdk/harness-claude-code`) is the Claude Agent SDK. It
-  speaks only the Anthropic Messages protocol. Endpoint and credentials come
-  from env passed through `env:` (`ANTHROPIC_BASE_URL`, plus
-  `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`; today
-  `CLAUDE_CODE_OAUTH_TOKEN`). So claude can run on its **own subscription**
-  (today), **OpenRouter** (Anthropic surface verified), or **GLM's**
-  Anthropic surface. It can't run on **Gloo** because Gloo has no Anthropic
-  surface. Employer claude work therefore means claude on OpenRouter or the
-  subscription, or Gloo's Anthropic models through **pi** instead.
-- **cursor** (roadmap 3.2) brings its own account; not a provider route.
+- **claude** (`@ai-sdk/harness-claude-code`) is the Claude Agent SDK and
+  speaks only Anthropic Messages. It *could* be repointed through `env:`
+  (`ANTHROPIC_BASE_URL` at OpenRouter or GLM). Per decision 1 it never is:
+  it runs only on Chad's subscription token, exactly as today. (Gloo has no
+  Anthropic surface anyway.) Claude *models* on any provider are reached
+  through **pi**.
+- **cursor** (roadmap 3.2) likewise runs only on its own login.
 
 **Current consumers** of a model choice, all hard-wired to Z.AI:
 `lib/model.ts` (`zaiModel`, `CHAT_MODELS`, `resolveChatModel`),
@@ -73,23 +85,24 @@ interface ProviderDef {
   label: string;                 // "GLM (Z.AI)", "Gloo", "OpenRouter"
   keyEnv: string;                // ZAI_API_KEY | GLOO_API_KEY | OPENROUTER_API_KEY
   chat: (modelId: string) => LanguageModel;  // AI SDK model for chats/agent stages
-  pi?: PiProviderConfig;         // how pi reaches it (baseUrl + api kind)
-  claude?: { baseUrl?: string; authEnv: "ANTHROPIC_API_KEY" | "ANTHROPIC_AUTH_TOKEN" };
+  pi: PiProviderConfig;          // how pi reaches it (baseUrl + api kind)
   models: () => Promise<ModelInfo[]> | ModelInfo[];
 }
 ```
 
 - **GLM**: chat via the existing `zhipu-ai-provider`; pi via the Anthropic
-  surface (today's wiring); claude via `api.z.ai/api/anthropic`.
-- **Gloo**: chat via `createOpenAICompatible`; pi via `openai-completions`;
-  **no claude entry**. A request transform fills an empty tool
-  `description` with the tool name, so the 422 never happens (the AI SDK
-  omits the field when a tool has none).
+  surface (today's wiring).
+- **Gloo**: chat via `createOpenAICompatible`; pi via `openai-completions`.
+  A request transform fills an empty tool `description` with the tool
+  name, so the 422 never happens (the AI SDK omits the field when a tool
+  has none). The same transform applies to pi's requests (a pi
+  `onPayload`-style hook, or `streamSimple` wrapper if pi has no hook,
+  checked in phase 3).
 - **OpenRouter**: chat via `createOpenAICompatible`; pi via
-  `openai-completions`; claude via `openrouter.ai/api` + `ANTHROPIC_AUTH_TOKEN`.
-- **claude's own subscription** stays as a fourth claude-only credential
-  (`CLAUDE_CODE_OAUTH_TOKEN`, today's path), represented as the
-  pseudo-provider `anthropic-sub`, valid only with `harness: "claude"`.
+  `openai-completions`.
+
+The registry has no claude/cursor entries: those harnesses are not
+provider-routed (decision 1).
 
 Providers are fixed in code because each needs code (protocol quirks,
 transforms). Adding one is a small PR, not a settings form. A provider
@@ -116,20 +129,24 @@ the model string.
 
 ### 3. The route value
 
+A route is a discriminated union. Provider-routed surfaces carry a
+provider; subscription harnesses carry only what their subscription
+offers:
+
 ```ts
-type Route = {
-  harness?: "pi" | "claude";   // absent = in-process AI SDK agent (chats, agent stages)
-  provider: ProviderId | "anthropic-sub";
-  model: string;
-  thinking?: "off" | "low" | "medium" | "high";  // harness-specific mapping
-};
+type Route =
+  | { harness?: undefined; provider: ProviderId; model: string }           // in-process agent: chats, agent stages
+  | { harness: "pi"; provider: ProviderId; model: string; thinking?: Thinking }
+  | { harness: "claude"; model?: string; effort?: "low" | "medium" | "high" | "xhigh" | "max" } // subscription only
+  | { harness: "cursor"; model?: string };                                  // roadmap 3.2, subscription only
 ```
 
 One zod schema (`lib/providers/route.ts`), `parseRoute`, and
-`validateRoute(route, { surface })`, which checks the combination:
-provider available, `claude` only with an Anthropic-capable provider,
-`anthropic-sub` only with `claude`, model in the provider's catalog
-(OpenRouter: in the cached list). Errors are value-shaped
+`validateRoute(route)`, which checks: provider available (key present),
+model in the provider's catalog (OpenRouter: the cached list), claude
+only when `CLAUDE_CODE_OAUTH_TOKEN` is set. The schema has nowhere to
+put a provider on claude/cursor, so the ToS rule holds by construction
+rather than by validation. Errors are value-shaped
 (`{ ok:false, issues:[…] }`) so agent tools can repair them, the same
 convention as machine edits (0015).
 
@@ -149,14 +166,18 @@ Layered, most specific wins:
    swapped in).
 4. **Project default**: `projects.default_route`. This is how "open-bible
    uses Gloo" is said once.
-5. **Global default**: `settings.default_route` (a one-row `settings`
-   table): GLM `glm-5.3-flash` for chat, pi on GLM for harness calls,
-   claude on `anthropic-sub` for claude calls.
+5. **Global default**: the `settings` table (decision 3) holds one
+   default per surface: **chat** (GLM `glm-5.3-flash`), **agent stage**
+   (same), **pi** (GLM `glm-5.3-flash`, today's `PI_MODEL` default) and
+   **claude** (model unset = the subscription's default). Swapping "the
+   model we use" is changing one row on `/settings`, effective on the next
+   turn.
 
-Harness surfaces resolve per harness. A stage of `harness: "claude"` takes
-the first layer that has a **claude-valid** route. If a project's
-default is Gloo (no claude), a claude stage falls through to the global
-claude default rather than failing. The resolved route and **which layer
+Layers resolve per surface. A conversation or project route is a
+chat/pi route (provider + model); a claude or cursor stage never inherits
+it. It takes its own stage setting, else the global claude default. A
+project saying "use Gloo" therefore moves chats, agent stages and pi onto
+Gloo, while claude stays on the subscription. The resolved route and **which layer
 it came from** are recorded on every stage visit and chat turn
 (`machine_stage_runs.route`, and a `route` on the turn's assistant message
 metadata), so "what actually ran" is always answerable. Fallbacks (2.1)
@@ -171,8 +192,8 @@ extend exactly this record.
 - **pi**: `buildHarnessAgent` registers just the route's provider in
   `createPi({ providers })` and passes `model: "<provider>/<model>"`. The
   `PI_MODEL` env goes away (the global default replaces it).
-- **claude**: `env` carries `ANTHROPIC_BASE_URL` + the route's auth var, or
-  `CLAUDE_CODE_OAUTH_TOKEN` for `anthropic-sub`; `model` passes through.
+- **claude**: unchanged auth (`CLAUDE_CODE_OAUTH_TOKEN`, `auth: "direct"`);
+  the route only contributes `model` / `effort`.
 - **Titles**: stay on GLM Flash (cheap, personal subscription). No route.
 
 ### 6. UI
@@ -185,8 +206,10 @@ extend exactly this record.
 - **Machine editor**: the stage inspector's harness/model fields become
   one route picker. `edit.ts` gets a `setStageRoute` op (agent tools get
   it for free through `applyOps`).
-- **`/settings`** (new, minimal): global defaults, provider availability
-  (key present or not, never the value), "Refresh OpenRouter models".
+- **`/settings`** (new, minimal, part of phase 2 so the default is
+  swappable from the start): the per-surface defaults, provider
+  availability (key present or not, never the value), "Refresh OpenRouter
+  models". The chat picker shows which entry is the current default.
 
 ### 7. Migration
 
@@ -196,12 +219,13 @@ One drizzle migration:
   0019 rule).
 - `projects.default_route`, `machine_stage_runs.route`, `settings`,
   `provider_models`.
-- Machine definitions: a data migration rewrites stored definitions,
-  harness stages `{harness, model?, thinking?}` → `route: {harness,
-  provider:"glm"|"anthropic-sub", model, thinking}`, agent stages
-  `model` → `route`. The live rows set no models, so this is mostly
-  structural. Seeds updated to match. The `definition.ts` schema drops the
-  old fields.
+- Machine definitions: a data migration rewrites stored definitions.
+  pi stages `{harness:"pi", model?, thinking?}` → `route: {harness:"pi",
+  provider:"glm", model, thinking}`; claude stages → `route:
+  {harness:"claude", model?}`; agent stages `model` → `route: {provider:
+  "glm", model}`. The live rows set no models, so this is mostly
+  structural. Seeds are updated to match; the `definition.ts` schema drops
+  the old fields.
 - Run snapshots (`machine_runs.definition`) are history. They're read
   through a tolerant mapper that understands the old shape for display only.
   No run is resumed across this migration (none are live).
@@ -212,18 +236,21 @@ One drizzle migration:
    `@ai-sdk/openai-compatible@3.0.59` (exact pin, with the provider pair),
    Gloo tool-description transform, store for `provider_models`/`settings`,
    unit tests (validation matrix, resolution layers, Gloo transform).
-2. **Chats**: `conversations.route` migration + backfill + drop `model_id`,
-   `SerializableChatModel` on routes, the picker. Live check: one chat turn
-   per provider, including a tool call on Gloo.
-3. **Harnesses**: pi on all three providers and claude on `anthropic-sub` /
-   OpenRouter through the route. The chat's `pi`/`claude` tools inherit the
-   conversation route. Live check: a pi turn on Gloo, a claude turn on
-   OpenRouter (bounded, opt-in like the existing claude spike).
+2. **Chats + settings**: `conversations.route` migration + backfill + drop
+   `model_id`, `SerializableChatModel` on routes, the grouped picker, and
+   `/settings` with the per-surface defaults. Live check: one chat turn per
+   provider, including a tool call on Gloo, and a default swap on
+   `/settings` taking effect on the next new chat.
+3. **Harnesses**: pi on all three providers through the route (incl. the
+   Gloo tool-description fix on pi's requests); claude keeps its
+   subscription auth and takes only model/effort from the route. The
+   chat's `pi` tool inherits the conversation route. Live check: a pi turn
+   on Gloo with a tool call, a pi turn on OpenRouter, a bounded claude turn
+   (the existing opt-in spike) still green.
 4. **Machines**: definition migration, stage `route`, resolution with the
    recorded layer, editor route picker, `setStageRoute` op, run-override
    shape on `startRun`.
-5. **Project default + `/settings`**: project page field, settings page,
-   OpenRouter refresh.
+5. **Project default**: project page field; OpenRouter refresh.
 
 Each phase is its own PR with the gate green.
 
@@ -237,13 +264,5 @@ Each phase is its own PR with the gate green.
 
 ## Questions for Chad
 
-1. **claude for employer work**: Gloo has no Anthropic surface, so claude
-   can't run on Gloo. For employer projects, is claude on your personal
-   subscription (today) or OpenRouter acceptable, or should employer
-   projects use **pi on Gloo's Claude models** instead of the claude
-   harness?
-2. **Gloo key**: OK to add `GLOO_API_KEY` and `OPENROUTER_API_KEY` to the
-   sweatshop service's `.env.local`, copied from the existing agenix
-   secrets (`gloo-api-key`, `openrouter-api-key`)? (Secrets entity later.)
-3. **Global default chat model**: stay on GLM `glm-5.3-flash`, or
-   `glm-5.3`?
+None outstanding. The three from the first draft are answered in
+"Decisions".
