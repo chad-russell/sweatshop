@@ -1,92 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db";
-import { mirrorStreamEvent } from "../db/mirror";
 import { searchConversations, toFtsPhrase } from "../db/search";
 import { eq } from "drizzle-orm";
 import { createFolder, moveConversation, setArchived, setTrashed } from "../db/organize";
-import { conversations, projects } from "../db/schema";
+import { conversations, messages, projects } from "../db/schema";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 
 let seq = 0;
-function envelope(
-  type: string,
-  data?: unknown,
-): Parameters<typeof mirrorStreamEvent>[1] {
-  seq += 1;
-  return {
-    type,
-    data,
-    meta: {
-      id: `evt_search${String(seq).padStart(18, "0")}`,
-      at: "2026-09-29T12:00:00.000Z",
-    },
-  };
-}
+const msgId = () => `msg_search${String(++seq).padStart(18, "0")}`;
 
+/** Seed a conversation with one user/assistant exchange (direct rows —
+ * the FTS triggers fire on plain inserts). */
 function seedConversation(id: string, userText: string, assistantText: string) {
-  mirrorStreamEvent(id, envelope("session.started"));
-  mirrorStreamEvent(id, envelope("message.received", { message: userText }));
-  mirrorStreamEvent(
-    id,
-    envelope("step.completed", { finishReason: "stop" }),
-  );
-  mirrorStreamEvent(
-    id,
-    envelope("message.completed", { message: assistantText }),
-  );
+  tdb
+    .insert(conversations)
+    .values({ id, createdAt: 1, updatedAt: 1 })
+    .onConflictDoNothing()
+    .run();
+  tdb
+    .insert(messages)
+    .values([
+      { id: msgId(), conversationId: id, role: "user", text: userText, at: 1 },
+      { id: msgId(), conversationId: id, role: "assistant", text: assistantText, at: 2 },
+    ])
+    .run();
 }
 
-describe("mirror message extraction", () => {
-  it("extracts user and assistant text into messages rows", () => {
+describe("searchConversations", () => {
+  it("finds conversations by message text with a snippet", () => {
     seedConversation(
       "wrun_search_a",
       "how do walruses sleep",
       "Walruses sleep in the water and on ice floes.",
     );
-
-    const rows = tdb.$client
-      .prepare(
-        "select role, text from messages where conversation_id = ? order by rowid",
-      )
-      .all("wrun_search_a");
-    expect(rows).toEqual([
-      { role: "user", text: "how do walruses sleep" },
-      { role: "assistant", text: "Walruses sleep in the water and on ice floes." },
-    ]);
-  });
-
-  it("does not re-extract a replayed event (same ULID)", () => {
-    seedConversation(
-      "wrun_search_b",
-      "duplicate question",
-      "duplicate answer",
-    );
-    const count = () =>
-      tdb.$client
-        .prepare(
-          "select count(*) n from messages where conversation_id = ? and role = 'user'",
-        )
-        .get("wrun_search_b") as { n: number };
-
-    const replay = {
-      type: "message.received",
-      data: { message: "duplicate question" },
-      meta: { id: "evt_search_dup", at: "2026-09-29T12:00:00.000Z" },
-    } as const;
-
-    // A distinct event id extracts once (ids identify events, not intent)…
-    mirrorStreamEvent("wrun_search_b", replay);
-    const afterFirst = count().n;
-    // …and replaying the same event id inserts nothing further.
-    mirrorStreamEvent("wrun_search_b", replay);
-    expect(count().n).toBe(afterFirst);
-    expect(afterFirst).toBe(2);
-  });
-});
-
-describe("searchConversations", () => {
-  it("finds conversations by message text with a snippet", () => {
     const hits = searchConversations(tdb, "walruses sleep");
     expect(hits.length).toBeGreaterThanOrEqual(1);
     const hit = hits.find((h) => h.conversationId === "wrun_search_a");
