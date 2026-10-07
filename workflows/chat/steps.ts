@@ -80,6 +80,29 @@ export async function drainSteerStep(conversationId: string): Promise<string[]> 
 }
 
 /**
+ * End the turn's durable stream: one UI `finish`, then close. The turn
+ * streams every slice with `preventClose` + `sendFinish: false` (the
+ * vendored ChatSessionModeling pattern) — the default closes the stream
+ * after the FIRST slice, so the browser saw one slice of a long turn and
+ * the rest only on reload (2026-10-07). A step because only step bodies
+ * may write to a stream.
+ */
+export async function finishTurnStream(
+  writable: WritableStream<import("@ai-sdk/workflow").ModelCallStreamPart>,
+): Promise<void> {
+  "use step";
+  const writer = writable.getWriter();
+  try {
+    // Not a ModelCallStreamPart member: the SDK's own closeStream writes
+    // this same bare chunk, which the UI transform passes through.
+    await writer.write({ type: "finish" } as unknown as import("@ai-sdk/workflow").ModelCallStreamPart);
+  } finally {
+    writer.releaseLock();
+  }
+  await writable.close();
+}
+
+/**
  * 0010 Phase 3: run a bash command in the conversation's dedicated
  * sandbox (created on first use). Output is clipped by the tool core
  * (step results serialize into the run log).

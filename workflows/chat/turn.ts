@@ -7,6 +7,7 @@ import { buildTurnModel } from "./model";
 import { buildChatTools } from "./tools";
 import {
   drainSteerStep,
+  finishTurnStream,
   loadTurnHistory,
   maybeTitleStep,
   persistTurn,
@@ -82,32 +83,41 @@ export async function chatTurn(input: ChatTurnInput) {
     { role: "user", content: userText },
   ];
   let finishReason: string = "stop";
-  for (let step = 0; step < MAX_STEPS; step += 1) {
-    if (step > 0) {
-      const queued = await drainSteerStep(conversationId);
-      if (queued.length > 0) {
-        messages = [
-          ...messages,
-          ...queued.map((text) => ({ role: "user" as const, content: text })),
-        ];
+  // One durable stream per TURN, not per slice: every slice leaves it
+  // open and unfinished; finishTurnStream ends it exactly once — also
+  // when a slice throws, so a reconnected browser is never left hanging.
+  try {
+    for (let step = 0; step < MAX_STEPS; step += 1) {
+      if (step > 0) {
+        const queued = await drainSteerStep(conversationId);
+        if (queued.length > 0) {
+          messages = [
+            ...messages,
+            ...queued.map((text) => ({ role: "user" as const, content: text })),
+          ];
+        }
       }
+
+      const result = await agent.stream({
+        messages,
+        writable,
+        stopWhen: isStepCount(1),
+        preventClose: true,
+        sendFinish: false,
+      });
+      messages = stripLeadingSystem(result.messages);
+      finishReason = result.finishReason;
+
+      // The turn ends when the latest assistant message asks for no tools.
+      const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+      const wantsTools =
+        lastAssistant != null &&
+        Array.isArray(lastAssistant.content) &&
+        lastAssistant.content.some((part) => part.type === "tool-call");
+      if (!wantsTools) break;
     }
-
-    const result = await agent.stream({
-      messages,
-      writable,
-      stopWhen: isStepCount(1),
-    });
-    messages = stripLeadingSystem(result.messages);
-    finishReason = result.finishReason;
-
-    // The turn ends when the latest assistant message asks for no tools.
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-    const wantsTools =
-      lastAssistant != null &&
-      Array.isArray(lastAssistant.content) &&
-      lastAssistant.content.some((part) => part.type === "tool-call");
-    if (!wantsTools) break;
+  } finally {
+    await finishTurnStream(writable);
   }
 
   // skip = everything already persisted (loaded history + this turn's

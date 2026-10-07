@@ -64,6 +64,17 @@ async function resumeWhenReady(token: string, approved: boolean, comment?: strin
   });
 }
 
+/** Every part of a run's durable stream (what the reconnect route serves). */
+async function readAll(runId: string): Promise<unknown[]> {
+  const reader = getRun(runId).getReadable({ startIndex: 0 }).getReader();
+  const parts: unknown[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return parts;
+    parts.push(value);
+  }
+}
+
 function serialized(conversationId: string): string {
   return JSON.stringify(listModelMessages(db(), conversationId));
 }
@@ -202,6 +213,17 @@ describe("0010 spike: chat turn workflow", () => {
       const history = serialized(id);
       expect(history).toContain("STEER_MARKER"); // injected user message persisted
       expect(history).toContain("mock-steer-saw:STEER_MARKER"); // the model saw it
+
+      // The durable stream spans the WHOLE turn: a slice must not close
+      // it (live-caught 2026-10-07 — the browser saw only the first
+      // slice and the rest of a 12-slice turn appeared only on reload).
+      // Both slices are readable, and exactly one finish ends the turn.
+      const parts = await readAll(run.runId);
+      const types = parts.map((p) => (p as { type: string }).type);
+      expect(JSON.stringify(parts)).toContain("mock-steer-saw:STEER_MARKER");
+      expect(types.filter((t) => t === "model-call-start")).toHaveLength(2);
+      expect(types.filter((t) => t === "finish")).toHaveLength(1);
+      expect(types.at(-1)).toBe("finish");
     },
   );
 
