@@ -71,7 +71,9 @@ case "${1:-}" in
   exec)
     shift
     [[ "${1:-}" == "--" ]] && shift
-    exec podman run --rm "${common_args[@]}" "$IMAGE" "$@"
+    # DEV_EXEC_NAME names the container so a caller can remove it
+    # (scripts/deploy.sh stops a build that will not exit).
+    exec podman run --rm ${DEV_EXEC_NAME:+--name "$DEV_EXEC_NAME"} "${common_args[@]}" "$IMAGE" "$@"
     ;;
   shell)
     exec podman run --rm -it "${common_args[@]}" "$IMAGE" bash
