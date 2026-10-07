@@ -45,6 +45,7 @@ import {
   StartMachineCard,
 } from "@/components/ai-elements/agent-cards";
 import { PreviewToolCard } from "@/components/previews/preview-card";
+import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { HarnessCard } from "@/components/harness-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
@@ -563,6 +564,17 @@ export const ChatMessageView = memo(function ChatMessageView({
             }
             if (toolPart.type === "tool-create_pr") {
               return <PullRequestToolCard key={i} part={toolPart} />;
+            }
+            if (toolPart.type === "tool-web_search" || toolPart.type === "tool-web_fetch") {
+              const input = toolPart.state === "input-streaming" ? undefined : toolPart.input;
+              const output = toolPart.state === "output-available" ? toolPart.output : undefined;
+              const errorText =
+                toolPart.state === "output-error" ? (toolPart.errorText ?? "tool failed") : undefined;
+              return toolPart.type === "tool-web_search" ? (
+                <WebSearchCard key={i} state={toolPart.state} input={input} output={output} errorText={errorText} />
+              ) : (
+                <WebFetchCard key={i} state={toolPart.state} input={input} output={output} errorText={errorText} />
+              );
             }
             const agentCard = agentToolCard(toolPart);
             if (agentCard) return <Fragment key={i}>{agentCard}</Fragment>;

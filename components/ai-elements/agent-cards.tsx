@@ -51,7 +51,7 @@ import { cn } from "@/lib/utils";
 
 type Tone = "running" | "ok" | "fail" | "warn" | "neutral";
 
-function Pill({ tone, label }: { tone: Tone; label: string }) {
+export function Pill({ tone, label }: { tone: Tone; label: string }) {
   return (
     <span
       className={cn(
@@ -71,7 +71,7 @@ function Pill({ tone, label }: { tone: Tone; label: string }) {
 
 /** The shared look: header (icon · title · subtitle · pill · extra), optional
  *  collapsible body, optional failure strip. */
-function Card({
+export function Card({
   icon: Icon,
   title,
   subtitle,
@@ -154,7 +154,7 @@ function Card({
   );
 }
 
-const statePill = (state: ToolState, failed: boolean): { tone: Tone; pill: string } =>
+export const statePill = (state: ToolState, failed: boolean): { tone: Tone; pill: string } =>
   failed ? { tone: "fail", pill: "failed" } : state === "running" ? { tone: "running", pill: "running" } : { tone: "ok", pill: "done" };
 
 /** The pill for a background child's own status (0022 runs / calls). */
@@ -195,7 +195,7 @@ export function ChildMeta({ status }: { status: ChildStatus }) {
 }
 
 /** Failure lines for a card: the tool's own `ok:false` (with its issues) or a thrown error. */
-function failureLines(output: unknown, errorText?: string): string[] | undefined {
+export function failureLines(output: unknown, errorText?: string): string[] | undefined {
   const f = failureOf(output);
   if (f) return [f.message, ...f.issues];
   return errorText ? [errorText] : undefined;

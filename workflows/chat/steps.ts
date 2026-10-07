@@ -138,6 +138,23 @@ export async function createPrStep(
   return openProjectPR({ projectId, ...input });
 }
 
+/** 1.5 (roadmap): fetch one web page — plain HTTP, capped, HTML stripped. */
+export async function webFetchStep(url: string): Promise<unknown> {
+  "use step";
+  const { fetchWebPage } = await import("../../lib/agent/tools/web");
+  return fetchWebPage(url);
+}
+
+/** 1.5 (roadmap): search the web through Z.AI's coding-plan MCP tool. */
+export async function webSearchStep(
+  query: string,
+  opts: { recency?: import("../../lib/agent/tools/web-search").Recency; domain?: string },
+): Promise<unknown> {
+  "use step";
+  const { searchWeb } = await import("../../lib/agent/tools/web-search");
+  return searchWeb(query, opts);
+}
+
 /** 0010 Phase 3: machines available in this conversation (0009). */
 export async function listMachinesStep(
   conversationId: string,

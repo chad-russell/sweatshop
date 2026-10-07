@@ -170,13 +170,20 @@ bootstrap, non-root `sandbox` user, `bash`) still work on arbitrary images and
 document the image contract in `Containerfile.sandbox`. Ship example images
 for nix (hod), rust, flutter.
 
-**1.5 Web search and fetch (small, can be first).** `web_fetch` is plain HTTP
-with a size cap and untrusted-content framing. `web_search` via Z.AI's search
-MCP tool (`web_search_prime`; the coding plan includes it per search results,
-and the oh-my-pi changelog notes a Streamable-HTTP session init quirk) — verify
-against the live endpoint before building; fallback to Brave/Exa if the plan's
-quota is unusable. Available in chats and agent stages; harness tools bring
-their own.
+**1.5 Web search and fetch (small, can be first) — implemented 2026-10-08.**
+`web_fetch`: plain HTTP GET, redirects followed, 2 MiB download cap and
+a 60 k character context clip, HTML stripped to readable text by regex
+(title kept), textual content types only, value-shaped errors.
+`web_search`: Z.AI's coding-plan MCP tool, verified live before
+building — endpoint `https://api.z.ai/api/mcp/web_search_prime/mcp`
+(Bearer `ZAI_API_KEY`; initialize returns an `mcp-session-id`, responses
+are always SSE, the payload is a JSON string of the hits array parsed
+twice). Hand-rolled two-call JSON-RPC over `fetch` — no SDK dependency,
+so no Brave/Exa fallback needed. Both tools live in every chat and in
+agent stages (`harness tools bring their own` holds — pi/claude are
+untouched); failures are values; descriptions and the turn instructions
+frame web content as untrusted; designed transcript cards
+(`components/ai-elements/web-cards.tsx`) like the machine tools.
 
 **1.6 Machine catalog (doc 0023).** Rework `ticket` (project test command in
 verify, branch naming, publish), add `bugfix` (reproduce red → fix → verify →
