@@ -1,6 +1,6 @@
 # 0020 — Production run mode and backups
 
-Status: **approved 2026-10-07 (Chad); building.** Phase 0 of `docs/ROADMAP.md`.
+Status: **approved 2026-10-07 (Chad); phases 1–3 shipped 2026-10-07, phase 4 (first nightly restic check) pending.** Phase 0 of `docs/ROADMAP.md`.
 
 ## Goal
 
@@ -170,3 +170,27 @@ service stopped. That's the whole recovery path dsh would follow.
 - Automatic deploy on merge (deploys stay deliberate).
 - A separate production image.
 - Auth: still LAN/Nebula only (hard rule unchanged).
+
+## Shipped (2026-10-07)
+
+- Phase 1: ac56c21. Phase 2: cn PR #67 (merged; bee's deploy started the
+  unit at once, serving the build already in `.next`, because quadlet's
+  `[Install]` wiring starts a newly generated unit on daemon-reload).
+- Cut-over: the first `scripts/deploy.sh` took the service DOWN for
+  ~2 min — `npm ci` wiped node_modules, then npm's synthesized
+  `node-gyp rebuild` for better-sqlite3 (it ships a `binding.gyp` beside its
+  bundled prebuilds) failed on an image with no python/g++, and the
+  rollback rebuild failed identically. Restored by hand with
+  `npm ci --ignore-scripts` + targeted `npm rebuild`; the script now does
+  exactly that (PR #27), and the unused eve-era `just-bash` (pulling the
+  prebuild-less `node-liblzma`) is gone.
+- Verified on the live service: pages and `/api/attention` 200; a `think`
+  run went draft → critique → parked at `decide`, its state written to
+  `data/workflow-data/`; the service was restarted while parked and the
+  gate answered afterwards completed the run (gates survive restarts);
+  the run and its sandbox were then purged. The nightly snapshot unit
+  ran once by hand (`data/backups/nightly.db`); the preview proxy answers
+  on 10.10.0.12:3301; the reaper started clean.
+- Cosmetic: `npx` logs `npm error signal SIGTERM` on every stop. Harmless;
+  swap the entrypoint to `node node_modules/next/dist/bin/next` if it
+  becomes noise.

@@ -46,8 +46,19 @@ fi
 short="$(git rev-parse --short "$target")"
 say "deploying $short (from $(git rev-parse --short "$previous"))"
 
+# npm ci runs with --ignore-scripts: npm synthesizes `node-gyp rebuild`
+# for any package shipping a binding.gyp, and better-sqlite3 13 ships one
+# beside its bundled prebuilds/*.node, so a plain `npm ci` tries to compile
+# it — and the image has no python/g++ (the first deploy failed exactly so,
+# 2026-10-07). Then rebuild only the packages whose install scripts fetch a
+# platform binary. Keep this list in sync with `npm install-scripts ls`.
+NATIVE_REBUILD="esbuild @swc/core unrs-resolver @mongodb-js/zstd cbor-extract protobufjs"
+
 build() {
-  ./dev exec -- sh -lc 'npm ci --no-audit --no-fund && npx next build && npm run db:migrate'
+  ./dev exec -- sh -lc "npm ci --no-audit --no-fund --ignore-scripts \
+    && npm rebuild $NATIVE_REBUILD \
+    && node -e 'new (require(\"better-sqlite3\"))(\":memory:\")' \
+    && npx next build && npm run db:migrate"
 }
 
 wait_healthy() {
@@ -63,12 +74,16 @@ wait_healthy() {
 say "stopping $UNIT"
 user_systemctl stop "$UNIT" || true
 
-git checkout --quiet --detach "$target"
+if [[ $# -ge 1 ]]; then
+  git checkout --quiet --detach "$target"
+else
+  git checkout --quiet main && git merge --quiet --ff-only "$target"
+fi
 
 if ! build; then
   say "build or migrate failed — restoring $(git rev-parse --short "$previous")"
   git checkout --quiet --detach "$previous"
-  build || die "rebuild of the previous commit failed too — the service is DOWN; see above"
+  build || die "rebuild of the previous commit failed too — the service is DOWN; fix the build, then: systemctl --user start $UNIT"
   user_systemctl start "$UNIT"
   wait_healthy || die "previous version did not come back healthy — the service is DOWN"
   die "deploy of $short failed; $(git rev-parse --short "$previous") is serving again (if a migration ran, restore data/backups/pre-$short.db)"

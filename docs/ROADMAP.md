@@ -102,12 +102,10 @@ bad runs triaged (all 2026-10-01, before `bcb73df`; no action); `smoke`
 deleted; the test executor's 1.2 GB leak fixed (a73f8e3); a dev reaper
 stuck on a pre-migration module found and restarted.
 
-Remaining: **production run mode + backups**, design in
-`docs/0020-production-run-mode.md` (awaiting approval). One instance
-only, no dev environment (Chad, 2026-10-07): sweatshop develops itself
-via PRs to a Forgejo remote and ships by redeploying, with dsh as the
-emergency path. Nothing of sweatshop is in restic today, and the
-workflow state lives inside `.next/`.
+Production run mode + backups (0020): **live 2026-10-07.** One
+`sweatshop` service on bee serving a production build; deploys via
+`scripts/deploy.sh`; state in `data/` (restic + 23:00 snapshot). Phase 4,
+confirming `data/` in the first nightly restic snapshot, is pending.
 
 ## Phase 1 — The floor 🔴
 
