@@ -126,10 +126,13 @@ details in 0031.
 
 Order matters: 1.1 → 1.2 feeds 1.3 and 1.6; 1.4 and 1.5 are independent.
 
-**1.1 Harness upgrade (prep).** One verified bump of `@ai-sdk/harness` and the
-pi/claude adapters (exact pins, together; AGENTS.md pairing rule), then
-typecheck/lint/test and a live pi + claude smoke. Required before Cursor;
-safe to do first.
+**1.1 Harness upgrade (prep) — done 2026-10-08.** The bump widened into a
+full AI SDK stack alignment (harness 1.0.141 pins provider-utils 5.0.56 /
+ai 7.0.130 exactly, forcing the line): workflow 2.0.62 ↔ ai 7.0.130 ↔
+provider-utils 5.0.56, harness 1.0.141, harness-pi 1.0.143,
+harness-claude-code 1.0.145, pi-coding-agent 0.85.1 (still latest). Gate
+green; live pi smokes on glm/gloo/openrouter and a live claude turn
+passed. Ready for Cursor whenever a key exists.
 
 **1.2 Providers and routes (doc 0021) — implemented 2026-10-08.** GLM, Gloo,
 OpenRouter as providers for chats, agent stages and pi; one route value
