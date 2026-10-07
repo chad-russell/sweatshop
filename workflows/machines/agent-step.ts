@@ -58,6 +58,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     { END },
     web,
     webSearch,
+    docs,
   ] = await Promise.all([
     import("@ai-sdk/workflow"),
     import("workflow"),
@@ -71,6 +72,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     import("../../lib/machines/definition"),
     import("../../lib/agent/tools/web"),
     import("../../lib/agent/tools/web-search"),
+    import("../../lib/agent/tools/docs"),
   ]);
 
   const stage: Stage | undefined = input.definition.stages[input.stageId];
@@ -90,7 +92,18 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
   // one step, so the cores are called directly (the preview-tools
   // pattern). web_fetch needs no key; web_search follows claude's
   // env-gating (a stage's toolset is fixed at visit start).
+  // system_docs: the same capability docs the chat agent reads.
   const tools: ToolSet = {
+    system_docs: tool({
+      description:
+        "Read a capability doc about this system (projects, previews, machines, sandboxes, " +
+        "models). Omit topic to list what exists.",
+      inputSchema: z.object({ topic: z.string().optional() }),
+      execute: async ({ topic }): Promise<unknown> =>
+        topic === undefined || topic === ""
+          ? { ok: true as const, topics: await docs.listDocTopics() }
+          : docs.readDoc(topic),
+    }),
     web_fetch: tool({
       description:
         "Fetch one web page by its absolute http(s) URL and return its readable text (HTML " +

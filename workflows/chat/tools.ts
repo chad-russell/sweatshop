@@ -20,6 +20,7 @@ import {
   previewToolStep,
   sandboxExecStep,
   startMachineStep,
+  systemDocsStep,
   webFetchStep,
   webSearchStep,
 } from "./steps";
@@ -197,6 +198,19 @@ export function buildChatTools(
         url: z.string().describe("The absolute http(s) URL to fetch"),
       }),
       execute: ({ url }) => webFetchStep(url),
+    }),
+
+    // Capability docs (the skills-pattern v1): succinct instructions
+    // point here; the depth is pulled on demand from docs/agent/.
+    system_docs: tool({
+      description:
+        "Read a capability doc: how this system's pieces work and how to drive them — " +
+        "projects, previews, machines, sandboxes, models. Call it before setting one up, " +
+        "explaining one to Chad, or when a capability behaves unexpectedly. Omit topic to list what exists.",
+      inputSchema: z.object({
+        topic: z.string().optional().describe("The doc to read (e.g. \"machines\"); omit to list topics"),
+      }),
+      execute: ({ topic }) => systemDocsStep(topic),
     }),
 
     // 0015 Part A: machine-definition tools — every chat, no sandbox or
