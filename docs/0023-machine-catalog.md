@@ -1,6 +1,8 @@
 # 0023 — The machine catalog
 
-Status: **draft 2026-10-08 — awaiting Chad's approval.** Roadmap item
+Status: **approved 2026-10-08 (chat — PR #42).** All four open
+questions answered the same day; the revisions they caused (ticket
+revise loop, branch naming) are folded in below. Roadmap item
 1.6, the last substantive piece of the go-live floor. Everything here
 follows the 2026-10-06 interview decisions (ROADMAP "Machines and
 async"): no fan-out, no reviewer stage kind, no generic subagents —
@@ -32,17 +34,35 @@ branch naming, publish.**
 
 | stage | kind | route | notes |
 | --- | --- | --- | --- |
-| plan | pi | pinned `{harness:"pi", provider:"glm", model:"glm-5.3-flash"}` | read-only repo inspection; markdown plan; FIRST line `BRANCH: glen/<type>-<slug>` |
-| approve | human | — | approve the plan (and its branch name) or end the run |
+| plan | pi | pinned `{harness:"pi", provider:"glm", model:"glm-5.3-flash"}` | read-only repo inspection; markdown plan; FIRST line `BRANCH: <branch>` (naming below); a re-plan visit incorporates the gate comment (the brief's "# Feedback from Chad") |
+| approve | human | — | **Approve** the plan (and its branch name) / **Revise** with a comment → back to plan / **Reject** → end the run |
 | implement | claude | default (subscription) | create the branch, follow the plan, commit; no push |
 | verify | pi | pinned flash | run the project's test command (brief's "# Project" section), confirm the planned changes exist and are committed; loop to implement on failure, `maxVisits: 3` |
 | publish | pi | pinned flash | push the branch, open the PR with `create_pr`, reply with the URL |
 
-Branch naming is now part of the contract: the plan stage names the
-branch `glen/<type>-<slug>` (the prefix every agent branch in this
-repo already uses; `<type>` = ticket/bugfix/etc., `<slug>` = kebab-case
-topic). Later stages read it from the brief's "# Earlier stages" — the
-`BRANCH:` first line stays machine-readable.
+The revise loop is NOT new functionality — it is the shape `think`
+already runs: the gate card's comment box becomes the next visit's
+"# Feedback from Chad" (`GateAnswer` → run-machine feedback →
+`buildBrief`), and a transition back to `plan` is an ordinary edge.
+No loop bound on plan↔approve: Chad is the bound (he approves or
+rejects eventually; a bad plan costs one flash-stage visit).
+
+**Branch naming** (revised per Chad, 2026-10-08 — no `glen/` prefix:
+some machines run on employer repos). Three layers, first match wins:
+
+1. **The task names it** — if the prompt carries a ticket/issue key
+   (e.g. `ENG-1234`) or an explicit branch, the plan stage MUST use
+   it: `<KEY>-<slug>` or the named branch verbatim. This is the Linear
+   path — Linear's git integration matches PRs to issues by the key
+   in the branch name, and the key rides the run prompt.
+2. **The project sets a standing prefix** (`projects.branch_prefix`,
+   nullable — e.g. `eng` or `cr`): branches are `<prefix>/<slug>`.
+3. **Neither** — generic best practice: `<type>/<slug>` with the
+   machine's type (`ticket/…`, `bugfix/…`), kebab-case slug from the
+   task.
+
+Later stages read the branch from the brief's "# Earlier stages" —
+the `BRANCH:` first line stays machine-readable.
 
 ### `bugfix` — new, mirroring the systematic-debugging skill
 
@@ -82,22 +102,25 @@ the one catalog machine where model quality should track the project.
 
 ## Substrate changes
 
-**1. `projects.test_command`** (migration 0041, text, nullable).
-Set on the project page (the 0018 work-surfaces card, beside the
-sandbox image). Semantics: one shell command, run from a repo root,
-that must exit 0 — the project's definition of "done". Unset is legal:
+**1. Two project fields** (migration 0041, both text, nullable):
+`projects.test_command` and `projects.branch_prefix`. Set on the
+project page (the 0018 work-surfaces card, beside the sandbox image).
+Test command semantics: one shell command, run from a repo root, that
+must exit 0 — the project's definition of "done". Unset is legal:
 verify's instructions then fall back to the repo's own test script
-(package.json / Makefile / Cargo) and must SAY which it ran. No
-per-repo granularity in v1 — multi-repo projects pick the command that
-matters (usually the primary repo's gate).
+(package.json / Makefile / Cargo) and must SAY which it ran. Branch
+prefix semantics: layer 2 of the naming rules above (layer 1 — a key
+in the prompt — needs no configuration). No per-repo granularity in
+v1 — multi-repo projects pick the command that matters (usually the
+primary repo's gate).
 
 **2. Brief plumbing.** `runMachine` already passes `workspaceRoot`
-into `buildBrief`; it gains the project's test command the same way,
-rendered as a `# Project` section (test command, unset noted). Harness
-and agent stages read it from the brief — machine definitions stay
-project-agnostic, exactly like the workspace note today. This is the
-whole mechanism behind "project test command in verify": no tool, no
-lookup, the brief carries it.
+into `buildBrief`; it gains the project's test command and branch
+prefix the same way, rendered as a `# Project` section (each present
+or noted unset). Harness and agent stages read it from the brief —
+machine definitions stay project-agnostic, exactly like the workspace
+note today. This is the whole mechanism behind "project test command
+in verify": no tool, no lookup, the brief carries it.
 
 **3. Seed replacement.** Seeds stay insert-only by default; `seed.mjs`
 gains `--replace`: delete the seed ids present in `lib/machines/seeds/`
@@ -130,10 +153,10 @@ project default, `think` untouched. Pins are ordinary stage routes —
 
 ## Phases
 
-1. **Substrate** — migration 0041 (`projects.test_command`),
-   project-page field, `buildBrief` "# Project" section + run-machine
-   wiring; tests: brief carries the command (set and unset), project
-   round-trip.
+1. **Substrate** — migration 0041 (`projects.test_command`,
+   `projects.branch_prefix`), project-page fields, `buildBrief`
+   "# Project" section + run-machine wiring; tests: brief carries the
+   command and prefix (set and unset), project round-trip.
 2. **Seeds** — rewrite `ticket.json`, add `bugfix.json` and
    `review.json`, `seed.mjs --replace` (+ npm script passthrough);
    tests: new seeds parse through `parseDefinition`, `--replace` is
@@ -143,12 +166,20 @@ project default, `think` untouched. Pins are ordinary stage routes —
    show in `machine_stage_runs.route` and the wake returns the review
    verdict.
 
-## Open questions (for approval)
+## Decisions recorded (Chad, 2026-10-08)
 
-1. `--replace` reset: OK to delete + reseed `think`/`ticket` once?
-   (No user edits exist on either row today.)
-2. Branch prefix `glen/<type>-<slug>` — confirm, or prefer another
-   shape for machine-authored branches?
-3. Bugfix's human gate after diagnosis (not after reproduce, not
-   after fix) — confirm.
-4. Review's read-only is instructions-only — acceptable?
+The four draft questions, answered in chat:
+
+1. **`--replace` reset** — approved: delete + reseed `think`/`ticket`
+   once (neither row has user edits).
+2. **Branch naming** — no `glen/` prefix (employer repos run these
+   too). Specifiable per Chad so it plays nice with Linear: a
+   ticket/issue key in the prompt wins (layer 1), else the project's
+   `branch_prefix` (layer 2), else generic `<type>/<slug>` best
+   practice (layer 3). Folded in above.
+3. **Bugfix's gate** — after diagnosis, as drafted.
+4. **Review's read-only** — instructions-only, as drafted.
+
+Plus one addition from the same chat: the ticket approve gate gains
+the **Revise-with-comment → re-plan** transition (existing
+functionality — see the ticket section).
