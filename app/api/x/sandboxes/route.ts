@@ -26,7 +26,7 @@ export async function GET() {
       projectId: s.projectId,
       projectName: s.projectName,
       lastUsedAt: s.lastUsedAt,
-      calls: s.calls,
+      chats: s.chats,
       ref: s.ref,
     })),
   });

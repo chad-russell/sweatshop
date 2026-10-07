@@ -232,6 +232,20 @@
       "when": 1791134265434,
       "tag": "0032_preview_migrate",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1791344756185,
+      "tag": "0033_drop_sandbox_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1791345047087,
+      "tag": "0034_project_image",
+      "breakpoints": true
     }
   ]
 }

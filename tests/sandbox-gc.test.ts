@@ -2,7 +2,7 @@ import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import { ensureConversation, setActiveRun } from "../db/chat";
-import { getLease, listCallsForSandbox } from "../db/sandboxes";
+import { getLease } from "../db/sandboxes";
 import { createMachine, createRun, bindRun } from "../db/machines";
 import { projects } from "../db/schema";
 import { claimHarnessRun } from "../lib/harness-events";
@@ -17,11 +17,11 @@ import {
 import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 
 /**
- * 0013 — the one sandbox reaper (timer, "Run cleanup now",
+ * 0013/0031 — the one sandbox reaper (timer, "Run cleanup now",
  * `npm run sandbox:gc`) and the manual Stop / Destroy, against a fake
- * provider: windows per owner kind (runs 10 min / 3 days, chats 30 min /
- * 14 days), destroyed rows are MARKED (calls keep their target), busy
- * sandboxes are never touched, and dry runs change nothing.
+ * provider: ONE window for every owner kind (stop 30 min / destroy
+ * 7 days), destroyed rows are MARKED, busy sandboxes are never
+ * touched, and dry runs change nothing.
  */
 
 const MIN = 60_000;
@@ -84,51 +84,45 @@ createMachine(db(), {
 });
 
 describe("0013 sandbox reaper", () => {
-  it("reaps runs on the short window and chats on the long one", async () => {
+  it("one window for every owner kind: idle 30m stops, idle 7d destroys", async () => {
     const provider = new FakeProvider();
     const ids = {
       runFresh: lease("machine_run", "running", 5 * MIN),
-      runIdle: lease("machine_run", "running", 15 * MIN),
-      runOld: lease("machine_run", "stopped", 4 * DAY),
+      runIdle: lease("machine_run", "running", 45 * MIN),
+      run4d: lease("machine_run", "stopped", 4 * DAY),
+      run8d: lease("machine_run", "stopped", 8 * DAY),
       chat15: lease("conversation", "running", 15 * MIN),
       chat45: lease("conversation", "running", 45 * MIN),
       chat4d: lease("conversation", "stopped", 4 * DAY),
-      chatOld: lease("conversation", "stopped", 15 * DAY),
+      chat8d: lease("conversation", "stopped", 8 * DAY),
     };
     await reap({ apply: true, provider });
     expect(Object.fromEntries(Object.entries(ids).map(([k, id]) => [k, status(id)]))).toEqual({
       runFresh: "running",
       runIdle: "stopped",
-      runOld: "destroyed",
+      run4d: "stopped",
+      run8d: "destroyed",
       chat15: "running",
       chat45: "stopped",
       chat4d: "stopped",
-      chatOld: "destroyed",
+      chat8d: "destroyed",
     });
     expect(provider.log).toEqual(
-      expect.arrayContaining([`stop ref-${ids.runIdle}`, `destroy ref-${ids.runOld}`, `destroy ref-${ids.chatOld}`]),
+      expect.arrayContaining([`stop ref-${ids.runIdle}`, `destroy ref-${ids.run8d}`, `destroy ref-${ids.chat8d}`]),
     );
     expect(provider.log.join(" ")).not.toContain(ids.chat4d);
   });
 
-  it("marks destroyed rows and keeps their call history", async () => {
+  it("marks destroyed rows and keeps them as history", async () => {
     const provider = new FakeProvider();
     const id = lease("conversation", "stopped", 20 * DAY, "c_gc_hist");
-    ensureConversation(db(), "c_gc_hist");
-    db().$client
-      .prepare(
-        "insert into sandbox_calls (tool_call_id, sandbox_id, conversation_id, tool, via, workdir, at) " +
-          "values ('gc_call', ?, 'c_gc_hist', 'bash', 'dedicated', '/work/c_gc_hist', 0)",
-      )
-      .run(id);
     await reap({ apply: true, provider });
     expect(getLease(db(), id)).toMatchObject({ status: "destroyed", destroyedAt: expect.any(Number) });
-    expect(listCallsForSandbox(db(), id)).toHaveLength(1);
   });
 
   it("a dry run changes nothing", async () => {
     const provider = new FakeProvider();
-    const id = lease("machine_run", "running", 4 * DAY);
+    const id = lease("machine_run", "running", 8 * DAY);
     const report = await reap({ apply: false, provider });
     expect(report.actions).toContainEqual(expect.objectContaining({ sandboxId: id, action: "destroy" }));
     expect(status(id)).toBe("running");

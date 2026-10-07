@@ -33,13 +33,8 @@ export async function runBash(
   conversationId: string,
   command: string,
   provider?: SandboxProvider,
-  toolCallId?: string,
 ): Promise<BashResult> {
-  const { handle } = await openConversationSandbox(
-    conversationId,
-    provider,
-    toolCallId ? { toolCallId, tool: "bash" } : undefined,
-  );
+  const { handle } = await openConversationSandbox(conversationId, provider);
   const result = await handle.run(command);
   return {
     exitCode: result.exitCode,
@@ -56,15 +51,9 @@ export async function runBashIn(
   binding: BoundSandbox,
   command: string,
   provider?: SandboxProvider,
-  toolCallId?: string,
 ): Promise<BashResult> {
-  const { handle } = await openInheritedSandbox(
-    sessionId,
-    binding,
-    provider,
-    toolCallId ? { toolCallId, tool: "bash" } : undefined,
-  );
-  const result = await handle.run(command);
+  const { handle } = await openInheritedSandbox(binding, provider);
+  const result = await handle.run(command, undefined, binding.workDir);
   return {
     exitCode: result.exitCode,
     stdout: clipOutput(result.stdout),

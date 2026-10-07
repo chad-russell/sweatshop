@@ -3,7 +3,6 @@ import {
   bindConversation,
   getConversationBinding,
   getLease,
-  recordSandboxCall,
   touchLease,
   updateLease,
   upsertAttachment,
@@ -65,27 +64,14 @@ export async function openSandbox(
 
 /**
  * Open an inherited binding on behalf of a session that does not own a
- * stored binding (a machine agent stage's visit conversation) and record
- * the call against it (0011 attribution).
+ * stored binding (a machine agent stage's visit conversation). Same
+ * open, never binds or changes lifecycle.
  */
 export async function openInheritedSandbox(
-  sessionId: string,
   binding: BoundSandbox,
   provider: SandboxProvider = sandboxProvider(),
-  attribution?: CallAttribution,
 ): Promise<OpenedSandbox> {
-  const opened = await openSandbox(binding, provider);
-  if (attribution) {
-    recordSandboxCall(db(), {
-      toolCallId: attribution.toolCallId,
-      sandboxId: opened.sandboxId,
-      conversationId: sessionId,
-      tool: attribution.tool,
-      via: "attached",
-      workdir: binding.workDir,
-    });
-  }
-  return opened;
+  return openSandbox(binding, provider);
 }
 
 /** The copy an attacher or child gets: same sandbox, same directory. */
@@ -108,35 +94,17 @@ export function ownerBinding(sandboxId: string): BoundSandbox {
   return { kind: "bound", sandboxId: lease.id, workDir: sandboxWorkRoot(lease.ownerId), owner: true };
 }
 
-/** 0011: identifies the tool call to attribute to the sandbox it lands in. */
-export interface CallAttribution {
-  toolCallId: string;
-  tool: "bash" | "pi" | "claude";
-}
-
 /**
  * The conversation's sandbox, bound on first use: a pending project chat
  * creates its own sandbox (once — later calls reuse the stored binding),
- * a bound one opens what it is bound to, and "none" refuses. Records the
- * call (0011) once the sandbox is in hand.
+ * a bound one opens what it is bound to, and "none" refuses.
  */
 export async function openConversationSandbox(
   conversationId: string,
   provider: SandboxProvider = sandboxProvider(),
-  attribution?: CallAttribution,
 ): Promise<OpenedSandbox & { binding: BoundSandbox }> {
   const binding = await bindOnFirstUse(conversationId, provider);
   const opened = await openSandbox(binding, provider);
-  if (attribution) {
-    recordSandboxCall(db(), {
-      toolCallId: attribution.toolCallId,
-      sandboxId: opened.sandboxId,
-      conversationId,
-      tool: attribution.tool,
-      via: binding.owner ? "dedicated" : "attached",
-      workdir: binding.workDir,
-    });
-  }
   return { ...opened, binding };
 }
 

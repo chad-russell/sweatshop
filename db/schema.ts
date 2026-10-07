@@ -306,64 +306,20 @@ export const sandboxAttachments = sqliteTable(
 );
 
 /**
- * 0011: which sandbox each sandboxed tool call actually ran in, keyed by
- * the AI SDK toolCallId. Written when the call acquires its sandbox, so
- * it records what happened, not what the conversation's pref said.
- */
-export const sandboxCalls = sqliteTable(
-  "sandbox_calls",
-  {
-    toolCallId: text("tool_call_id").primaryKey(),
-    sandboxId: text("sandbox_id")
-      .notNull()
-      .references(() => sandboxes.id),
-    conversationId: text("conversation_id")
-      .notNull()
-      .references(() => conversations.id),
-    /** "bash" | "pi" | "claude". */
-    tool: text("tool").notNull(),
-    /** "dedicated" | "attached". */
-    via: text("via").notNull(),
-    /** Workdir inside the sandbox: /work/<conversationId>. */
-    workdir: text("workdir").notNull(),
-    at: integer("at").notNull(),
-  },
-  (table) => [
-    index("sandbox_calls_sandbox_idx").on(table.sandboxId),
-    index("sandbox_calls_conversation_idx").on(table.conversationId),
-  ],
-);
-
-/**
  * 0004 — projects & sandboxes. Projects break up types of work; a
- * project is defined by one or more git repos, references a shareable
- * sandbox config, and its repos' remotes resolve credentials by host.
- * Ids are human-readable slugs (seed-script-managed for now).
+ * project is defined by one or more git repos, and its repos' remotes
+ * resolve credentials by host. Ids are human-readable slugs
+ * (seed-script-managed for now).
  */
-export const sandboxConfigs = sqliteTable("sandbox_configs", {
-  /** Slug, e.g. "default". */
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  /** Sandbox provider, e.g. "docker". */
-  provider: text("provider").notNull().default("docker"),
-  /** Image the project's sandboxes run (0013 — passed to the provider);
-   *  unset = the provider default, `localhost/sweatshop-sandbox`. */
-  imageRef: text("image_ref"),
-  /** Coarse egress policy for live sandbox containers. */
-  networkPolicy: text("network_policy").notNull().default("allow-all"),
-  notes: text("notes"),
-  createdAt: integer("created_at").notNull(),
-});
-
 export const projects = sqliteTable("projects", {
   /** Slug, e.g. "sweatshop". */
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
-  /** FK sandbox_configs.id; null = the "default" config. */
-  sandboxConfigId: text("sandbox_config_id").references(
-    () => sandboxConfigs.id,
-  ),
+  /** 0031: the image this project's sandboxes run (was a shareable
+   *  sandbox_configs entity — never actually shared); unset = the
+   *  provider default, `localhost/sweatshop-sandbox`. */
+  imageRef: text("image_ref"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -402,7 +358,6 @@ export const gitCredentials = sqliteTable("git_credentials", {
   createdAt: integer("created_at").notNull(),
 });
 
-export type SandboxConfig = typeof sandboxConfigs.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectRepo = typeof projectRepos.$inferSelect;
 export type GitCredential = typeof gitCredentials.$inferSelect;

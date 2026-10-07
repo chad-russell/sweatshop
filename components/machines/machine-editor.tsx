@@ -1,15 +1,9 @@
 "use client";
 
-import { Bot, Braces, CircleHelp, Hand, Loader2, Network, Plus, Terminal, Trash2, X } from "lucide-react";
+import { Braces, CircleHelp, Loader2, Network, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -20,14 +14,12 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
-import { useElementSize } from "@/lib/use-element-size";
 import { parseDefinition, type MachineDefinition } from "@/lib/machines/definition";
 import * as edit from "@/lib/machines/edit";
 import { edgeId } from "@/lib/machines/layout";
 import { cn } from "@/lib/utils";
 import { usePageContext } from "@/components/page-context";
 import { LazyMachineGraph } from "./machine-graph-lazy";
-import { StagePanel, TransitionPanel } from "./stage-panel";
 import { useMachineVersionSync, type MachineSnapshot } from "./use-machine-version-sync";
 
 interface Draft {
@@ -41,12 +33,11 @@ interface Draft {
 type Selection = { kind: "stage"; id: string } | { kind: "edge"; source: string; target: string } | null;
 
 /**
- * The machine editor (0014): one draft definition, three views — the
- * graph (connect by dragging, select to edit), the side panel (the
- * selected stage or transition), and a JSON tab. Every change is an
- * edit operation (lib/machines/edit) applied to the draft, which is then
- * validated with the same schema the store enforces; issues are drawn on
- * the stage or edge they name. Save is enabled once the draft is valid.
+ * The machine page (0014 → 0031): one draft definition, two views — the
+ * read-only graph and the JSON tab. Editing is the JSON tab (and the
+ * agent's edit_machine tool, which works on the same ops); the canvas
+ * is a viewer with issues drawn on the stage or edge they name. Save is
+ * enabled once the draft is valid.
  */
 export function MachineEditor({
   initial,
@@ -65,9 +56,6 @@ export function MachineEditor({
   const [draft, setDraft] = useState<MachineDefinition>(initial.definition as MachineDefinition);
   const [selection, setSelection] = useState<Selection>(null);
   const [view, setView] = useState<"graph" | "json">("graph");
-  // The graph + inspector area's own width decides the dock (not the
-  // viewport): the sidebar and agent panel eat width the viewport can't see.
-  const [bodyRef, bodySize] = useElementSize<HTMLDivElement>();
   // The JSON tab's text while it doesn't parse (otherwise derived from the draft).
   const [jsonText, setJsonText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -110,39 +98,6 @@ export function MachineEditor({
     dirty: dirty || jsonText !== null,
     onAdopt: adopt,
   });
-
-  /** Apply an edit operation; refused operations surface as a notice. */
-  const apply = (op: (def: MachineDefinition) => MachineDefinition): boolean => {
-    try {
-      setDraft(op(draft));
-      setJsonText(null);
-      setNotice(null);
-      return true;
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
-      return false;
-    }
-  };
-
-  const addStage = (kind: edit.StageKind) => {
-    try {
-      const { definition, id: added } = edit.addStage(draft, { kind });
-      setDraft(definition);
-      setJsonText(null);
-      setSelection({ kind: "stage", id: added });
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const removeSelected = (target: Selection) => {
-    if (!target) return;
-    if (target.kind === "stage") {
-      if (apply((d) => edit.removeStage(d, target.id))) setSelection(null);
-    } else if (apply((d) => edit.disconnect(d, target.source, target.target))) {
-      setSelection(null);
-    }
-  };
 
   const save = async () => {
     if (!check.ok || !name.trim()) return;
@@ -207,9 +162,6 @@ export function MachineEditor({
     selection?.kind === "edge" && draft.stages[selection.source]?.next.some((t) => t.to === selection.target)
       ? selection
       : null;
-
-  // Below this width the inspector is a bottom sheet instead of a right dock.
-  const sheet = bodySize !== null && bodySize.width < 760;
 
   // 0015: what the panel's "this" resolves to on this page — the machine
   // plus the selected stage or transition. Re-registers on every render,
@@ -299,45 +251,23 @@ export function MachineEditor({
             </button>
           ))}
         </div>
-        {view === "graph" && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline">
-                <Plus /> Stage
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onSelect={() => addStage("agent")}>
-                <Bot /> Agent — an AI turn
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => addStage("harness")} disabled={draft.workspace !== "project"}>
-                <Terminal /> Harness — pi / claude coding
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => addStage("human")}>
-                <Hand /> Human — a gate for you
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        {view === "graph" && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button size="sm" variant="ghost" aria-label="Editor help">
-                <CircleHelp />
-                <span className="text-xs font-normal text-muted-foreground">
-                  {Object.keys(draft.stages).length} stages ·{" "}
-                  <span className={check.ok ? "text-success" : "text-destructive"}>{check.ok ? "valid" : "has issues"}</span>
-                </span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-80">
-              <EditorHelp />
-            </PopoverContent>
-          </Popover>
-        )}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="ghost" aria-label="Machine help">
+              <CircleHelp />
+              <span className="text-xs font-normal text-muted-foreground">
+                {Object.keys(draft.stages).length} stages ·{" "}
+                <span className={check.ok ? "text-success" : "text-destructive"}>{check.ok ? "valid" : "has issues"}</span>
+              </span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-80">
+            <EditorHelp />
+          </PopoverContent>
+        </Popover>
         <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           Workspace
-          <Select value={draft.workspace} onValueChange={(v) => apply((d) => edit.setWorkspace(d, v as MachineDefinition["workspace"]))}>
+          <Select value={draft.workspace} onValueChange={(v) => setDraft((d) => edit.setWorkspace(d, v as MachineDefinition["workspace"]))}>
             <SelectTrigger size="sm" className="w-36">
               <SelectValue />
             </SelectTrigger>
@@ -374,84 +304,20 @@ export function MachineEditor({
         </div>
       )}
 
-      <div ref={bodyRef} className={cn("flex min-h-0 flex-1", sheet && view === "graph" ? "flex-col" : "flex-row")}>
+      <div className="flex min-h-0 flex-1 flex-col">
         {view === "graph" ? (
-          <>
-            <div className="min-h-0 min-w-0 flex-1">
-              <LazyMachineGraph
-                definition={draft}
-                issues={issues ?? undefined}
-                editable
-                selection={{
-                  node: selectedStage,
-                  edge: selectedEdge ? edgeId(selectedEdge.source, selectedEdge.target) : null,
-                }}
-                onSelectNode={(nid) => setSelection(nid ? { kind: "stage", id: nid } : null)}
-                onSelectEdge={(e) => setSelection(e ? { kind: "edge", source: e.source, target: e.target } : null)}
-                onConnect={(source, target) => {
-                  if (apply((d) => edit.connect(d, source, target))) setSelection({ kind: "edge", source, target });
-                }}
-                onDelete={(t) =>
-                  removeSelected(t.node ? { kind: "stage", id: t.node } : t.edge ? { kind: "edge", ...t.edge } : null)
-                }
-              />
-            </div>
-            {/* The inspector only exists while something is selected, so the
-                graph gets the whole width otherwise. Wide: a right dock;
-                narrow: a bottom sheet under the graph. */}
-            {(selectedStage || selectedEdge) && (
-              <aside
-                className={cn(
-                  "relative shrink-0 overflow-y-auto border-border p-4",
-                  sheet ? "max-h-[45%] min-h-40 border-t" : "w-[min(24rem,40vw)] border-l",
-                )}
-              >
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label="Close inspector"
-                  className="absolute top-2 right-2 z-10"
-                  onClick={() => setSelection(null)}
-                >
-                  <X />
-                </Button>
-                {selectedStage ? (
-                  <StagePanel
-                    key={selectedStage}
-                    definition={draft}
-                    id={selectedStage}
-                    issues={issues?.nodes.get(selectedStage) ?? []}
-                    onPatch={(patch) => apply((d) => edit.updateStage(d, selectedStage, patch))}
-                    onKind={(kind) => apply((d) => edit.setKind(d, selectedStage, kind))}
-                    onRename={(to) => {
-                      try {
-                        setDraft(edit.renameStage(draft, selectedStage, to));
-                        setJsonText(null);
-                        setSelection({ kind: "stage", id: to });
-                        return null;
-                      } catch (err) {
-                        return err instanceof Error ? err.message : String(err);
-                      }
-                    }}
-                    onStart={() => apply((d) => edit.setStart(d, selectedStage))}
-                    onRemove={() => removeSelected({ kind: "stage", id: selectedStage })}
-                    onSelectEdge={(target) => setSelection({ kind: "edge", source: selectedStage, target })}
-                  />
-                ) : selectedEdge ? (
-                  <TransitionPanel
-                    key={edgeId(selectedEdge.source, selectedEdge.target)}
-                    definition={draft}
-                    source={selectedEdge.source}
-                    target={selectedEdge.target}
-                    issues={issues?.edges.get(edgeId(selectedEdge.source, selectedEdge.target)) ?? []}
-                    onWhen={(when) => apply((d) => edit.updateTransition(d, selectedEdge.source, selectedEdge.target, when))}
-                    onRemove={() => removeSelected(selectedEdge)}
-                    onSelectStage={(sid) => setSelection({ kind: "stage", id: sid })}
-                  />
-                ) : null}
-              </aside>
-            )}
-          </>
+          <div className="min-h-0 min-w-0 flex-1">
+            <LazyMachineGraph
+              definition={draft}
+              issues={issues ?? undefined}
+              selection={{
+                node: selectedStage,
+                edge: selectedEdge ? edgeId(selectedEdge.source, selectedEdge.target) : null,
+              }}
+              onSelectNode={(nid) => setSelection(nid ? { kind: "stage", id: nid } : null)}
+              onSelectEdge={(e) => setSelection(e ? { kind: "edge", source: e.source, target: e.target } : null)}
+            />
+          </div>
         ) : (
           <div className="flex min-w-0 flex-1 flex-col gap-2 p-4">
             <Textarea
@@ -460,9 +326,9 @@ export function MachineEditor({
                 const text = e.target.value;
                 setJsonText(text);
                 try {
-                  // Parsed JSON becomes the draft (validity is checked like
-                  // any edit) — if it is at least graph-shaped, so the graph
-                  // and the edit operations can walk it.
+                  // Parsed JSON becomes the draft (validity is checked
+                  // separately) — if it is at least graph-shaped, so the
+                  // graph can walk it.
                   const parsed: unknown = JSON.parse(text);
                   if (isGraphShaped(parsed)) setDraft(parsed);
                 } catch {
@@ -493,7 +359,7 @@ export function MachineEditor({
   );
 }
 
-/** Enough structure to draw and edit: an object of stages with `next`
+/** Enough structure to draw: an object of stages with `next`
  *  arrays. Anything finer is the validator's job. */
 function isGraphShaped(value: unknown): value is MachineDefinition {
   if (!value || typeof value !== "object") return false;
@@ -511,9 +377,8 @@ function isGraphShaped(value: unknown): value is MachineDefinition {
 function EditorHelp() {
   return (
     <ul className="flex list-disc flex-col gap-1.5 pl-4 text-xs text-muted-foreground">
-      <li>Select a stage or a transition to edit it.</li>
-      <li>Drag from a stage’s outgoing handle to another stage (or end) to add a transition.</li>
-      <li>Delete or Backspace removes the selection.</li>
+      <li>The canvas is a read-only view (0031). Edit the JSON, or ask the agent panel to edit this machine.</li>
+      <li>Selecting a stage or transition sets the panel&rsquo;s &ldquo;viewing&rdquo; context.</li>
       <li>A stage with no transitions ends the run (dashed line to end).</li>
       <li>Problems show in red on the stage or transition they belong to.</li>
     </ul>

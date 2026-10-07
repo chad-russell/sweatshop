@@ -65,7 +65,7 @@ async function open(caller: PreviewCaller, provider?: SandboxProvider): Promise<
       startedBy: caller.conversationId,
     };
   }
-  const opened = await openInheritedSandbox(caller.sessionId, caller.binding, provider);
+  const opened = await openInheritedSandbox(caller.binding, provider);
   return { ...opened, projectId: caller.projectId, startedBy: caller.sessionId };
 }
 

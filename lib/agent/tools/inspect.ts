@@ -5,7 +5,6 @@ import { getRunBinding, listStageRuns } from "@/db/machines";
 import {
   getConversationBinding,
   getLease,
-  listCallsForConversation,
   type BoundSandbox,
 } from "@/db/sandboxes";
 import { conversations, harnessEvents, harnessRuns, machineRuns } from "@/db/schema";
@@ -19,8 +18,8 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
  * requires joining its sandbox:
  *
  *   inspect       read-only: a chat's, run's, or stage visit's
- *                 transcript tail, harness activity, sandbox binding,
- *                 and 0011's per-call sandbox attribution.
+ *                 transcript tail, harness activity, and sandbox binding
+ *                 (the binding is the record of where calls ran — 0031).
  *   sandbox_exec  one command in a named sandbox without binding to it
  *                 (resumes a stopped one; never stops or destroys).
  *                 Starting an agent inside it is a new chat that
@@ -128,7 +127,6 @@ export function inspectTarget(id: string): InspectResult {
   }
 
   const binding = getConversationBinding(db(), id);
-  const calls = listCallsForConversation(db(), id);
   const base = {
     kind: row.kind,
     id,
@@ -137,7 +135,6 @@ export function inspectTarget(id: string): InspectResult {
     busy: Boolean(row.activeRunId),
     ...transcriptTail(id),
     harness: harnessActivity(id),
-    sandboxCalls: calls.slice(-20).map((c) => ({ tool: c.tool, sandboxId: c.sandboxId, via: c.via, workdir: c.workdir })),
   };
   if (row.kind === "stage") {
     const runId = id.replace(/_\d+$/, "");

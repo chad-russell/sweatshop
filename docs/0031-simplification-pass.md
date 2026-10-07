@@ -1,7 +1,8 @@
 # 0031 — Simplification pass
 
-Status: **approved in chat 2026-10-08** (items 1–6 below, plus the
-step-deps helper); this doc records the decisions and the plan.
+Status: **approved in chat 2026-10-08; implemented the same day as one
+PR with sequenced commits** (`refactor(sandboxes)`/`refactor(projects)`/
+`refactor(machines)` per cut). This doc records the decisions.
 
 ## Why
 
@@ -132,7 +133,29 @@ destroyed rows stay (cheaper than nulling bindings); stage kinds
 harness/agent/human; transition-tool branching; `maxVisits`; runs as
 conversations (0012); stage-visit conversations hidden.
 
-## Phases (each its own PR, gate green)
+## Delivery
+
+One PR (Chad's call, overriding the phase-per-PR sketch below), one
+commit per cut, the gate green at every commit. Delivered cuts, in
+order: attribution drop → configs fold → reaper window → provisioning
+dedup → harness dedup + deps helpers → editor demotion.
+
+Migration notes that ship with it: migrations now apply with FKs OFF
+(sqlite's documented schema-change posture — drizzle's migrator wraps
+everything in one transaction where the pragma cannot be toggled, and
+0007's trailing `PRAGMA foreign_keys=ON` taught us the replay harnesses
+need the same posture); `scripts/migrate.mjs` and `tests/setup.ts`
+assert `PRAGMA foreign_key_check` is clean afterwards. Dropping
+`sandbox_configs` recreates `projects` (the `__new` table pattern from
+0007 — renaming the old table would rewrite every child's FK clause).
+
+Behavior notes beyond pure deletion: the shared harness sink filters
+`fileChange`/`compaction` synthetic events for machine stages too
+(previously only chats did); `/sandboxes` and its detail page show
+bound chats and last activity instead of call counts; the machine
+canvas no longer edits.
+
+## Phases (original sketch — superseded by the one-PR delivery)
 
 1. **Attribution drop** — migration, `binding.ts`, `db/sandbox-view.ts`,
    `inspect`, tests (`inspect`, `projects`, `sandbox-gc`).

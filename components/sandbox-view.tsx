@@ -7,9 +7,10 @@ import { shortSandboxId } from "@/lib/sandbox-id";
 import { cn } from "@/lib/utils";
 
 /**
- * 0011 phase 2: the chat's sandbox read-model (db/sandbox-view.ts via
- * GET /api/conversations/[id]/sandbox), shared with the tool cards so each
- * sandboxed call can say which sandbox it ran in.
+ * The chat's sandbox read-model (db/sandbox-view.ts via
+ * GET /api/conversations/[id]/sandbox), shared with the tool cards.
+ * 0031: per-call attribution is gone — the conversation's binding is
+ * the record, so every sandboxed tool card shows the same chip.
  */
 
 export interface SandboxRefView {
@@ -30,7 +31,6 @@ export type SandboxStateView =
 
 export interface ConversationSandboxViewData {
   state: SandboxStateView;
-  calls: Record<string, { sandboxId: string; via: "dedicated" | "attached"; changed: boolean }>;
   sandboxes: Record<string, SandboxRefView>;
 }
 
@@ -54,43 +54,29 @@ export function useSandboxView(): ConversationSandboxViewData | null {
 export const SANDBOXED_TOOLS = new Set(["bash", "pi", "claude"]);
 
 /**
- * Which sandbox one tool call ran in; links to its /sandboxes page.
- * Renders nothing for calls with no record (made before 0011, or not yet
- * recorded).
+ * The sandbox this conversation's sandboxed calls run in (its binding),
+ * linking to the sandbox page. Renders nothing without a bound sandbox.
  */
-export function SandboxChip({
-  toolCallId,
-  className,
-}: {
-  toolCallId: string;
-  className?: string;
-}) {
+export function SandboxChip({ className }: { className?: string }) {
   const view = useSandboxView();
-  const call = view?.calls[toolCallId];
-  if (!view || !call) return null;
-  const sandbox = view.sandboxes[call.sandboxId];
+  const state = view?.state;
+  if (!view || !state || (state.kind !== "own" && state.kind !== "attached")) return null;
+  const sandbox = view.sandboxes[state.sandboxId];
   const gone = sandbox?.status === "destroyed";
   const where =
-    call.via === "attached"
+    state.kind === "attached"
       ? `attached · ${sandbox?.ownerLabel ?? "another sandbox"}`
       : "own sandbox";
 
   return (
     <Link
-      href={`/sandboxes/${call.sandboxId}`}
-      title={[
-        `Ran in sandbox ${call.sandboxId}`,
-        where,
-        gone ? "(since destroyed)" : null,
-        call.changed ? "Different sandbox than the previous call" : null,
-      ]
+      href={`/sandboxes/${state.sandboxId}`}
+      title={[`Runs in sandbox ${state.sandboxId}`, where, gone ? "(since destroyed)" : null]
         .filter(Boolean)
         .join(" — ")}
       className={cn(
         "inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-4",
-        call.changed
-          ? "border-warning/50 bg-warning/10 text-warning"
-          : "border-border bg-muted/50 text-muted-foreground",
+        "border-border bg-muted/50 text-muted-foreground",
         "transition-colors hover:border-ring hover:text-foreground",
         gone && "opacity-60",
         className,
@@ -98,10 +84,9 @@ export function SandboxChip({
     >
       <Box className="size-3 shrink-0" aria-hidden />
       <span className={cn("truncate", gone && "line-through")}>
-        {shortSandboxId(call.sandboxId)}
+        {shortSandboxId(state.sandboxId)}
       </span>
-      {call.via === "attached" && <span aria-hidden>↗</span>}
-      {call.changed && <span className="font-sans">switched</span>}
+      {state.kind === "attached" && <span aria-hidden>↗</span>}
     </Link>
   );
 }

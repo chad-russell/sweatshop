@@ -7,8 +7,6 @@ import {
   getConversationBinding,
   getLease,
   getLeaseByOwner,
-  listCallsForConversation,
-  listCallsForSandbox,
 } from "../db/sandboxes";
 import {
   getSandboxDetail,
@@ -149,44 +147,37 @@ describe("0010 chat tool cores", () => {
     expect(getHarnessResumeState(db(), "c_harness", "pi")).toEqual(updated);
   });
 
-  describe("0011 sandbox attribution", () => {
-    it("records the sandbox a bash call actually ran in", async () => {
+  describe("0013 bindings (0031: the binding is the record)", () => {
+    it("a bash call binds the chat to the sandbox it created", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_attr", "p_tools");
-      await runBash("c_attr", "pwd", provider, "call_1");
-      await runBash("c_attr", "ls", provider, "call_2");
+      await runBash("c_attr", "pwd", provider);
+      await runBash("c_attr", "ls", provider);
 
       const lease = getLeaseByOwner(db(), "conversation", "c_attr")!;
-      const calls = listCallsForConversation(db(), "c_attr");
-      expect(calls.map((c) => c.toolCallId)).toEqual(["call_1", "call_2"]);
-      expect(calls.every((c) => c.sandboxId === lease.id && c.via === "dedicated")).toBe(true);
-      expect(calls[0]).toMatchObject({ tool: "bash", workdir: "/work/c_attr" });
-      expect(listCallsForSandbox(db(), lease.id)).toHaveLength(2);
-    });
-
-    it("re-recording the same toolCallId (step retry) keeps one row", async () => {
-      provider = new FakeProvider();
-      ensureConversation(db(), "c_retry", "p_tools");
-      await runBash("c_retry", "pwd", provider, "call_r");
-      await runBash("c_retry", "pwd", provider, "call_r");
-      expect(listCallsForConversation(db(), "c_retry")).toHaveLength(1);
+      expect(getConversationBinding(db(), "c_attr")).toEqual({
+        kind: "bound",
+        sandboxId: lease.id,
+        workDir: "/work/c_attr",
+        owner: true,
+      });
     });
 
     it("attaching makes the next bash land in the target's sandbox and directory", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_owner2", "p_tools");
-      await runBash("c_owner2", "pwd", provider, "own_1");
+      await runBash("c_owner2", "pwd", provider);
       const owner = getLeaseByOwner(db(), "conversation", "c_owner2")!;
 
       ensureConversation(db(), "c_att2", "p_tools");
       await attachConversationSandbox("c_att2", { sandboxId: owner.id }, provider);
       provider.commands = [];
-      await runBash("c_att2", "pwd", provider, "att_1");
+      await runBash("c_att2", "pwd", provider);
 
-      expect(listCallsForConversation(db(), "c_att2")[0]).toMatchObject({
+      expect(getConversationBinding(db(), "c_att2")).toMatchObject({
         sandboxId: owner.id,
-        via: "attached",
-        workdir: "/work/c_owner2",
+        workDir: "/work/c_owner2",
+        owner: false,
       });
       // no new sandbox for the attacher
       expect(provider.commands.filter((c) => c.startsWith("create"))).toEqual([]);
@@ -201,14 +192,14 @@ describe("0010 chat tool cores", () => {
         provider,
       );
       await attachConversationSandbox("c_plain_att", { sandboxId: owner.sandboxId }, provider);
-      const result = await runBash("c_plain_att", "pwd", provider, "plain_1");
+      const result = await runBash("c_plain_att", "pwd", provider);
       expect(result.exitCode).toBe(0);
     });
 
     it("a destroyed sandbox stays as history; its bound chat is told to start fresh", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_gone", "p_tools");
-      await runBash("c_gone", "pwd", provider, "gone_1");
+      await runBash("c_gone", "pwd", provider);
       const old = getLeaseByOwner(db(), "conversation", "c_gone")!;
 
       await destroySandbox(old.id, provider);
@@ -216,10 +207,9 @@ describe("0010 chat tool cores", () => {
       const row = getLease(db(), old.id)!;
       expect(row.status).toBe("destroyed");
       expect(row.destroyedAt).not.toBeNull();
-      expect(listCallsForSandbox(db(), old.id)).toHaveLength(1);
 
       // 0013: the binding never changes — no silent replacement sandbox
-      await expect(runBash("c_gone", "pwd", provider, "gone_2")).rejects.toThrow(
+      await expect(runBash("c_gone", "pwd", provider)).rejects.toThrow(
         /was destroyed.*start a new chat/,
       );
       expect(getLeaseByOwner(db(), "conversation", "c_gone")).toBeNull();
@@ -240,20 +230,18 @@ describe("0010 chat tool cores", () => {
   });
 
   describe("0011 sandbox view", () => {
-    it("maps calls to sandboxes and reports the binding", async () => {
+    it("maps the binding to its sandbox", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_view", "p_tools");
       const view0 = loadConversationSandboxView(db(), "c_view");
       expect(view0.state).toEqual({ kind: "pending" });
-      expect(view0.calls).toEqual({});
+      expect(view0.sandboxes).toEqual({});
 
-      await runBash("c_view", "pwd", provider, "v_1");
-      await runBash("c_view", "pwd", provider, "v_2");
+      await runBash("c_view", "pwd", provider);
+      await runBash("c_view", "pwd", provider);
       const own = getLeaseByOwner(db(), "conversation", "c_view")!;
       const view1 = loadConversationSandboxView(db(), "c_view");
       expect(view1.state).toEqual({ kind: "own", sandboxId: own.id, workDir: "/work/c_view" });
-      expect(view1.calls.v_1).toEqual({ sandboxId: own.id, via: "dedicated", changed: false });
-      expect(view1.calls.v_2).toMatchObject({ changed: false });
       expect(view1.sandboxes[own.id]).toMatchObject({ own: true, status: "running" });
 
       const other = await acquireSandbox(
@@ -262,10 +250,9 @@ describe("0010 chat tool cores", () => {
       );
       ensureConversation(db(), "c_view_att");
       await attachConversationSandbox("c_view_att", { sandboxId: other.sandboxId }, provider);
-      await runBash("c_view_att", "pwd", provider, "v_3");
+      await runBash("c_view_att", "pwd", provider);
       const view2 = loadConversationSandboxView(db(), "c_view_att");
       expect(view2.state).toEqual({ kind: "attached", sandboxId: other.sandboxId, workDir: "/work/run_view" });
-      expect(view2.calls.v_3).toMatchObject({ via: "attached", changed: false });
       expect(view2.sandboxes[other.sandboxId]).toMatchObject({ own: false, ownerKind: "machine_run" });
 
       ensureConversation(db(), "c_view_none", "p_tools");
@@ -278,61 +265,59 @@ describe("0010 chat tool cores", () => {
       expect(loadConversationSandboxView(db(), "c_view_plain").state).toEqual({ kind: "unavailable" });
     });
 
-    it("keeps destroyed sandboxes resolvable for past calls", async () => {
+    it("keeps destroyed sandboxes resolvable for the binding", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_view_gone", "p_tools");
-      await runBash("c_view_gone", "pwd", provider, "g_1");
+      await runBash("c_view_gone", "pwd", provider);
       const old = getLeaseByOwner(db(), "conversation", "c_view_gone")!;
       await destroySandbox(old.id, provider);
 
       const view = loadConversationSandboxView(db(), "c_view_gone");
       expect(view.sandboxes[old.id]).toMatchObject({ status: "destroyed" });
-      expect(view.calls.g_1!.sandboxId).toBe(old.id);
       // still bound to it (0013); the sandbox ref says it is gone
       expect(view.state).toMatchObject({ kind: "own", sandboxId: old.id });
     });
   });
 
   describe("0011 sandbox pages", () => {
-    it("summarises owners, call counts and chats; detail lists users and calls", async () => {
+    it("summarises owners and bound chats; detail lists users", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_pg_owner", "p_tools");
       ensureConversation(db(), "c_pg_guest");
-      await runBash("c_pg_owner", "pwd", provider, "pg_1");
-      await runBash("c_pg_owner", "ls", provider, "pg_2");
+      await runBash("c_pg_owner", "pwd", provider);
+      await runBash("c_pg_owner", "ls", provider);
       const lease = getLeaseByOwner(db(), "conversation", "c_pg_owner")!;
 
       // a guest that attached but has not run anything yet still counts
       await attachConversationSandbox("c_pg_guest", { sandboxId: lease.id }, provider);
       let summary = listSandboxSummaries(db()).find((s) => s.id === lease.id)!;
-      expect(summary).toMatchObject({ calls: 2, chats: 2, ownerHref: "/c/c_pg_owner", status: "running" });
+      expect(summary).toMatchObject({ chats: 2, ownerHref: "/c/c_pg_owner", status: "running" });
 
-      await runBash("c_pg_guest", "echo hi", provider, "pg_3");
+      await runBash("c_pg_guest", "echo hi", provider);
       summary = listSandboxSummaries(db()).find((s) => s.id === lease.id)!;
-      expect(summary).toMatchObject({ calls: 3, chats: 2 });
+      expect(summary).toMatchObject({ chats: 2 });
 
       const detail = getSandboxDetail(db(), lease.id)!;
-      expect(detail.users.map((u) => [u.conversationId, u.owner, u.calls])).toEqual([
-        ["c_pg_owner", true, 2],
-        ["c_pg_guest", false, 1],
+      expect(detail.users.map((u) => [u.conversationId, u.owner])).toEqual([
+        ["c_pg_owner", true],
+        ["c_pg_guest", false],
       ]);
-      expect(detail.recentCalls.map((c) => c.toolCallId)).toEqual(["pg_3", "pg_2", "pg_1"]);
       expect(getSandboxDetail(db(), "sbx_missing")).toBeNull();
     });
 
     it("lists destroyed sandboxes after live ones", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_pg_old", "p_tools");
-      await runBash("c_pg_old", "pwd", provider, "old_1");
+      await runBash("c_pg_old", "pwd", provider);
       const old = getLeaseByOwner(db(), "conversation", "c_pg_old")!;
       await destroySandbox(old.id, provider);
       ensureConversation(db(), "c_pg_new", "p_tools");
-      await runBash("c_pg_new", "pwd", provider, "new_1");
+      await runBash("c_pg_new", "pwd", provider);
 
       const all = listSandboxSummaries(db());
       const firstDestroyed = all.findIndex((s) => s.status === "destroyed");
       expect(all.slice(firstDestroyed).every((s) => s.status === "destroyed")).toBe(true);
-      expect(all.find((s) => s.id === old.id)).toMatchObject({ status: "destroyed", calls: 1 });
+      expect(all.find((s) => s.id === old.id)).toMatchObject({ status: "destroyed" });
     });
   });
 
@@ -344,25 +329,19 @@ describe("0010 chat tool cores", () => {
         provider,
       );
       expect(sandboxForMachineRun(db(), "mr_link1")).toMatchObject({ id: owner.sandboxId, status: "running" });
-      expect(sandboxForHarnessSession(db(), "mr_link1_3", "pi")).toMatchObject({ id: owner.sandboxId });
+      expect(sandboxForHarnessSession(db(), "mr_link1_3")).toMatchObject({ id: owner.sandboxId });
       expect(sandboxForMachineRun(db(), "mr_nothing")).toBeNull();
-      expect(sandboxForHarnessSession(db(), "mr_nothing_0", "pi")).toBeNull();
+      expect(sandboxForHarnessSession(db(), "mr_nothing_0")).toBeNull();
     });
 
-    it("a chat's harness session resolves via its recorded pi/claude calls, per harness", async () => {
+    it("a chat's harness session resolves via its binding (0031)", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_link_chat", "p_tools");
-      // bash and pi both acquire through the same seam; record a pi call
-      const { sandboxId } = await openConversationSandbox("c_link_chat", provider, {
-        toolCallId: "link_pi_1",
-        tool: "pi",
-      });
-      expect(sandboxForHarnessSession(db(), "c_link_chat", "pi")).toMatchObject({
+      const { sandboxId } = await openConversationSandbox("c_link_chat", provider);
+      expect(sandboxForHarnessSession(db(), "c_link_chat")).toMatchObject({
         id: sandboxId,
         note: "own sandbox",
       });
-      // no claude call was ever recorded for this chat
-      expect(sandboxForHarnessSession(db(), "c_link_chat", "claude")).toBeNull();
     });
 
     it("keeps pointing at a destroyed sandbox, flagged as such", async () => {

@@ -95,7 +95,7 @@ export interface SandboxOption {
   projectId: string | null;
   projectName: string | null;
   lastUsedAt: number;
-  calls: number;
+  chats: number;
   ref: string;
 }
 
@@ -406,7 +406,7 @@ const ToolCallView = ({ part }: { part: ToolUIPart }) => {
         input={input}
         output={output}
         errorText={errorText}
-        extra={<SandboxChip toolCallId={part.toolCallId} />}
+        extra={<SandboxChip />}
       />
     );
   }
@@ -418,7 +418,7 @@ const ToolCallView = ({ part }: { part: ToolUIPart }) => {
         toolName={part.type.replace(/^tool-/, "")}
         extra={
           SANDBOXED_TOOLS.has(part.type.replace(/^tool-/, "")) ? (
-            <SandboxChip toolCallId={part.toolCallId} />
+            <SandboxChip />
           ) : undefined
         }
       />

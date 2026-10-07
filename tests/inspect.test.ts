@@ -66,12 +66,12 @@ createMachine(db(), {
 });
 
 describe("0013 inspect", () => {
-  it("reports a chat's transcript tail, binding, calls, and harness activity", async () => {
+  it("reports a chat's transcript tail, binding, and harness activity", async () => {
     const provider = new FakeProvider();
     ensureConversation(db(), "c_insp_target", "p_insp");
     say("c_insp_target", "user", "fix the bug");
     say("c_insp_target", "assistant", "done — see the diff");
-    const box = await openConversationSandbox("c_insp_target", provider, { toolCallId: "insp_call", tool: "bash" });
+    const box = await openConversationSandbox("c_insp_target", provider);
     claimHarnessRun("c_insp_target", "pi");
     recordHarnessEvent("c_insp_target", "pi", { kind: "tool-start", toolName: "edit", input: "x" });
 
@@ -80,7 +80,6 @@ describe("0013 inspect", () => {
       kind: "chat",
       totalMessages: 2,
       sandbox: { sandboxId: box.sandboxId, workDir: "/work/c_insp_target", owner: true, status: "running" },
-      sandboxCalls: [{ tool: "bash", sandboxId: box.sandboxId, via: "dedicated" }],
       harness: { runs: [{ harness: "pi", status: "running" }] },
     });
     expect((result.tail as { text: string }[]).map((m) => m.text)).toEqual(["fix the bug", "done — see the diff"]);

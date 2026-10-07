@@ -2,6 +2,7 @@ import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "@/lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { MachineDefinition } from "@/lib/machines/definition";
 import type { BoundSandbox } from "@/db/sandboxes";
+import { harnessEventSink } from "../shared/harness-sink";
 
 /**
  * 0009: the ONE workflow step a harness stage repeats — rebuild the
@@ -40,11 +41,8 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     { runHarnessAgentStep },
     { openSandbox },
     { toNetworkSandboxSession },
-    { buildHarnessAgent, transitionTool },
+    { buildHarnessAgent, transitionTool, createPrTool },
     { recordHarnessEvent, clipHarnessText, claimHarnessRun },
-    { openProjectPR },
-    { tool },
-    { z },
     { getWritable },
   ] = await Promise.all([
     import("@ai-sdk/workflow-harness"),
@@ -52,9 +50,6 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     import("@/lib/sandboxes/ai-sdk-adapter"),
     import("./harness-agent"),
     import("@/lib/harness-events"),
-    import("@/lib/git-hosts/open-pr"),
-    import("ai"),
-    import("zod"),
     import("workflow"),
   ]);
   const { stageSessionId } = await import("@/db/machines");
@@ -75,19 +70,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   const projectId = input.projectId;
   const tools = {
     ...(stage.next.length > 1 ? { transition: transitionTool(stage) } : {}),
-    create_pr: tool({
-      description:
-        "Open a pull request for a pushed branch of one of this project's repos " +
-        "(repo = directory name under /workspace). Push the branch first.",
-      inputSchema: z.object({
-        repo: z.string(),
-        head: z.string(),
-        base: z.string().optional(),
-        title: z.string().min(1),
-        body: z.string().optional(),
-      }),
-      execute: async (args) => openProjectPR({ projectId, ...args }),
-    }),
+    create_pr: createPrTool(projectId),
   };
 
   // /h/<harness>/<sessionId> needs a harness_runs row; claim on entry.
@@ -102,56 +85,24 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     thinking: stage.thinking,
   });
 
-  // Tee the UI chunks: forward to the run's output stream, mirror the
-  // useful ones into harness_events, and watch for the transition result.
+  // Tee the UI chunks through the shared harness sink (0031): events
+  // into harness_events, the chunks to the run's output stream, and
+  // the transition proposal watched from tool results.
   const out = getWritable<Record<string, unknown>>();
   const writer = out.getWriter();
-  let text = "";
   let proposed: string | null = null;
-  const toolNames = new Map<string, string>();
-  const sink = new WritableStream<Record<string, unknown>>({
-    async write(chunk) {
-      switch (chunk.type) {
-        case "text-delta":
-          text += String(chunk.delta ?? "");
-          break;
-        case "tool-input-available": {
-          const name = String(chunk.toolName ?? "");
-          toolNames.set(String(chunk.toolCallId), name);
-          recordHarnessEvent(sessionId, kind, {
-            kind: "tool-start",
-            toolName: name,
-            toolCallId: String(chunk.toolCallId),
-            input: clipHarnessText(chunk.input, HARNESS_INPUT_CLIP),
-          });
-          break;
-        }
-        case "tool-output-available": {
-          const name = toolNames.get(String(chunk.toolCallId)) ?? "tool";
-          recordHarnessEvent(sessionId, kind, {
-            kind: "tool-end",
-            toolName: name,
-            toolCallId: String(chunk.toolCallId),
-            output: clipHarnessText(chunk.output, HARNESS_OUTPUT_CLIP),
-          });
-          const output = chunk.output as { ok?: unknown; to?: unknown } | undefined;
-          if (name === "transition" && output?.ok === true && typeof output.to === "string") {
-            proposed = output.to;
-          }
-          break;
-        }
-        case "tool-output-error": {
-          const name = toolNames.get(String(chunk.toolCallId)) ?? "tool";
-          recordHarnessEvent(sessionId, kind, {
-            kind: "tool-error",
-            toolName: name,
-            toolCallId: String(chunk.toolCallId),
-            output: clipHarnessText(chunk.errorText, HARNESS_OUTPUT_CLIP),
-          });
-          break;
-        }
+  const { sink, text } = harnessEventSink({
+    recordEvent: (event) => recordHarnessEvent(sessionId, kind, event),
+    clip: clipHarnessText,
+    inputClip: HARNESS_INPUT_CLIP,
+    outputClip: HARNESS_OUTPUT_CLIP,
+    writer,
+    envelope: { machineRun: input.runId, machineSeq: input.seq },
+    onToolResult: (name, output) => {
+      const result = output as { ok?: unknown; to?: unknown } | undefined;
+      if (name === "transition" && result?.ok === true && typeof result.to === "string") {
+        proposed = result.to;
       }
-      await writer.write({ ...chunk, machineRun: input.runId, machineSeq: input.seq });
     },
   });
 
@@ -164,11 +115,11 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     });
     recordHarnessEvent(sessionId, kind, {
       kind: "step-end",
-      text: clipHarnessText(text, 500),
+      text: clipHarnessText(text(), 500),
     });
     return {
       state: JSON.parse(JSON.stringify(next)) as HarnessWorkflowState,
-      text,
+      text: text(),
       proposed,
     };
   } finally {

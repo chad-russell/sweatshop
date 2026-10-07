@@ -218,7 +218,7 @@ export function HarnessCard({
             tone={failed ? "fail" : running ? "running" : "ok"}
             label={state === "output-denied" ? "denied" : failed ? "failed" : running ? "working" : "done"}
           />
-          <SandboxChip toolCallId={toolCallId} />
+          <SandboxChip />
         </div>
         {url && (
           <Link

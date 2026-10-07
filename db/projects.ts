@@ -10,9 +10,7 @@ import {
   previewSetups,
   projects,
   projectRepos,
-  sandboxCalls,
   sandboxAttachments,
-  sandboxConfigs,
   sandboxes,
 } from "./schema";
 import { getPreviewSetup } from "./preview-setups";
@@ -123,17 +121,10 @@ export function listProjectsWithRepos(db: Db): { id: string; name: string }[] {
 export function getProjectOverview(db: Db, projectId: string) {
   const project = getProject(db, projectId);
   if (!project) return null;
-  const configOptions = db.select().from(sandboxConfigs).all();
-  const config = project.sandboxConfigId
-    ? (configOptions.find((c) => c.id === project.sandboxConfigId) ?? null)
-    : null;
   return {
     project,
     repos: listProjectRepos(db, projectId),
     credentials: listGitCredentials(db),
-    configOptions,
-    config,
-    sharedWith: config ? countProjectsUsingConfig(db, config.id) : 0,
     setup: getPreviewSetup(db, projectId),
   };
 }
@@ -142,53 +133,17 @@ export function getProjectRepo(db: Db, repoId: string) {
   return db.select().from(projectRepos).where(eq(projectRepos.id, repoId)).get() ?? null;
 }
 
-export function countProjectsUsingConfig(db: Db, configId: string): number {
-  return db.select({ id: projects.id }).from(projects).where(eq(projects.sandboxConfigId, configId)).all().length;
-}
-
-export function setProjectSandboxConfig(
+/** 0031: set (or clear, with null/empty) the project's sandbox image. */
+export function setProjectImage(
   db: Db,
   projectId: string,
-  configId: string | null,
-): ProjectResult<{ configId: string | null }> {
+  imageRef: string | null,
+): ProjectResult<{ imageRef: string | null }> {
   const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
   if (!project) return fail("not-found", `no project ${projectId}`);
-  if (configId) {
-    const config = db.select().from(sandboxConfigs).where(eq(sandboxConfigs.id, configId)).get();
-    if (!config) return fail("not-found", `no sandbox config ${configId}`);
-  }
-  db.update(projects)
-    .set({ sandboxConfigId: configId })
-    .where(eq(projects.id, projectId))
-    .run();
-  return { ok: true, configId };
-}
-
-/** Edit a config's fields — shared: every project on it changes. */
-export function updateSandboxConfig(
-  db: Db,
-  configId: string,
-  fields: { imageRef?: string; networkPolicy?: string },
-): ProjectResult<{ sharedWith: number }> {
-  const config = db.select().from(sandboxConfigs).where(eq(sandboxConfigs.id, configId)).get();
-  if (!config) return fail("not-found", `no sandbox config ${configId}`);
-  const set: Partial<{ imageRef: string; networkPolicy: string }> = {};
-  if (fields.imageRef !== undefined) {
-    const imageRef = fields.imageRef.trim();
-    if (!imageRef) return fail("invalid", "image ref cannot be empty — clear the config from projects instead");
-    set.imageRef = imageRef;
-  }
-  if (fields.networkPolicy !== undefined) {
-    const policy = fields.networkPolicy.trim();
-    if (!/^(allow-all|offline)$/.test(policy)) {
-      return fail("invalid", "network policy must be allow-all or offline");
-    }
-    set.networkPolicy = policy;
-  }
-  if (Object.keys(set).length) {
-    db.update(sandboxConfigs).set(set).where(eq(sandboxConfigs.id, configId)).run();
-  }
-  return { ok: true, sharedWith: countProjectsUsingConfig(db, configId) };
+  const next = imageRef?.trim() ? imageRef.trim() : null;
+  db.update(projects).set({ imageRef: next }).where(eq(projects.id, projectId)).run();
+  return { ok: true, imageRef: next };
 }
 
 // ── the delete cascade's store half ─────────────────────────────────────
@@ -271,7 +226,6 @@ export function deleteProjectRows(db: Db, projectId: string): ProjectResult<{ co
     }
 
     if (sandboxIds.length) {
-      tx.delete(sandboxCalls).where(inArray(sandboxCalls.sandboxId, sandboxIds)).run();
       tx.delete(sandboxAttachments).where(inArray(sandboxAttachments.sandboxId, sandboxIds)).run();
       tx.delete(sandboxes).where(inArray(sandboxes.id, sandboxIds)).run();
     }

@@ -199,12 +199,11 @@ async function stageSandboxTools(
       inputSchema: z.object({
         task: z.string().min(1).describe("The coding task, with enough context to act on."),
       }),
-      execute: ({ task }, { toolCallId }) =>
+      execute: ({ task }) =>
         harnessToolStep({
           conversationId: sessionId,
           kind,
           task,
-          toolCallId,
           inherited: { binding, projectId },
         }),
     });
@@ -214,8 +213,7 @@ async function stageSandboxTools(
         `Run a bash command in this run's sandbox, in ${binding.workDir} — the same checkout ` +
         "every stage of the run works in.",
       inputSchema: z.object({ command: z.string().max(20_000).describe("The bash command to run.") }),
-      execute: ({ command }, { toolCallId }) =>
-        runBashIn(sessionId, binding, command, undefined, toolCallId),
+      execute: ({ command }) => runBashIn(sessionId, binding, command),
     }),
     ...previewTools((action, input) =>
       action === "start"

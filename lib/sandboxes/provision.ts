@@ -2,37 +2,23 @@ import { execFile, spawn as nodeSpawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import type { Experimental_SandboxSession } from "ai";
-import { setupProjectWorkspace, type ProjectPlan } from "@/lib/sandboxes/workspace";
 
 const exec = promisify(execFile);
 
 /**
- * Directly provisioned project sandbox containers (0004 Path B): a
- * `localhost/sweatshop-sandbox` container on host podman (via the docker
- * CLI + socket available inside the runtime container), set up with the
- * same workspace provisioning as eve session sandboxes. Lifecycle is the
- * caller's (the workflow provisions in a step and removes in finally).
+ * 0031: the podman substrate the SandboxProvider composes (0010 Phase
+ * 2) — container lifecycle primitives plus exec/spawn against a
+ * container name. ONE provisioning path: lib/sandboxes/provider.ts is
+ * the only creator (the old 0004 Path B direct API is gone).
  */
-export interface ProvisionedSandbox {
-  readonly containerName: string;
-  readonly plan: ProjectPlan | undefined;
-  run(
-    command: string,
-    env?: Record<string, string>,
-    workingDirectory?: string,
-  ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
-  /** Real long-lived process (0006 bridge harnesses need one). */
-  spawn: Experimental_SandboxSession["spawn"];
-  remove(): Promise<void>;
-}
 
 /** The image a sandbox runs when its project's config names none
- *  (built from Containerfile.sandbox). */
+ * (built from Containerfile.sandbox). */
 export const DEFAULT_SANDBOX_IMAGE = "localhost/sweatshop-sandbox";
 
 /** Container lifecycle primitives (0010 Phase 2): the podman provider
- *  composes these; `ref` is the container name. 0013: `image` is the
- *  project's sandbox config `image_ref` (default above). */
+ * composes these; `ref` is the container name. 0013: `image` is the
+ * project's `image_ref` (default above). */
 export async function createContainer(name: string, image: string = DEFAULT_SANDBOX_IMAGE): Promise<void> {
   await exec("docker", ["run", "-d", "--name", name, image]);
 }
@@ -56,31 +42,7 @@ export function sandboxWorkRoot(ownerId: string): string {
   return `/work/${ownerId}`;
 }
 
-function randomName(projectId: string): string {
-  const suffix = Math.random().toString(36).slice(2, 10);
-  return `sweatshop-wf-${projectId}-${suffix}`;
-}
-
-/**
- * Re-attach to an existing container by name (stateless wrappers).
- * `root` becomes the default working directory of every command — the
- * directory a harness resolves as its sandbox home via `pwd`.
- */
-export function attachSandbox(containerName: string, root?: string): ProvisionedSandbox {
-  return {
-    containerName,
-    plan: undefined,
-    run(command: string, env?: Record<string, string>, workingDirectory?: string) {
-      return execSandbox(containerName, command, env, workingDirectory ?? root);
-    },
-    spawn: spawnInSandbox(containerName, root),
-    async remove() {
-      await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
-    },
-  };
-}
-
-async function execSandbox(
+export async function execSandbox(
   containerName: string,
   command: string,
   env?: Record<string, string>,
@@ -149,42 +111,4 @@ export function spawnInSandbox(
       },
     };
   };
-}
-
-export async function provisionProjectSandbox(
-  projectId: string,
-  /** Clone root (default /workspace); 0009 machine runs pass a per-run one. */
-  root?: string,
-): Promise<ProvisionedSandbox> {
-  const containerName = randomName(projectId);
-  await exec("docker", [
-    "run",
-    "-d",
-    "--name",
-    containerName,
-    DEFAULT_SANDBOX_IMAGE,
-  ]);
-
-  const run = (
-    command: string,
-    env?: Record<string, string>,
-    workingDirectory?: string,
-  ) => execSandbox(containerName, command, env, workingDirectory ?? root);
-  const remove = async () => {
-    await exec("docker", ["rm", "-f", containerName]).catch(() => undefined);
-  };
-
-  let plan: ProjectPlan | undefined;
-  try {
-    // The root must exist before any command can use it as a cwd.
-    if (root) {
-      const made = await execSandbox(containerName, `mkdir -p ${JSON.stringify(root)}`);
-      if (made.exitCode !== 0) throw new Error(`could not create ${root}: ${made.stderr}`);
-    }
-    plan = await setupProjectWorkspace({ run }, projectId, root);
-  } catch (err) {
-    await remove();
-    throw err;
-  }
-  return { containerName, plan, run, spawn: spawnInSandbox(containerName, root), remove };
 }

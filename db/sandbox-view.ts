@@ -1,21 +1,19 @@
-import { and, count, countDistinct, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, countDistinct, desc, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "./index";
-import { getConversationBinding, listCallsForConversation } from "./sandboxes";
+import { getConversationBinding } from "./sandboxes";
 import {
   conversations,
   machineRuns,
   previews,
   projects,
-  sandboxAttachments,
-  sandboxCalls,
   sandboxes,
 } from "./schema";
 
 /**
- * 0011 phase 2: the chat's read-model of its sandboxes — what each
- * sandboxed tool call ran in, and where the NEXT one would run. Pure
- * reads over sandbox_calls / sandboxes / conversations; no invariants
- * live here (those are db/sandboxes.ts).
+ * The chat's read-model of its sandboxes (0011 → 0031): the
+ * conversation's BINDING is the record — where sandboxed calls ran and
+ * where the next one will. Pure reads over conversations / sandboxes;
+ * no invariants live here (those are db/sandboxes.ts).
  */
 
 export interface SandboxRef {
@@ -27,13 +25,6 @@ export interface SandboxRef {
   ownerId: string;
   /** True when this conversation owns it (vs. joined someone else's). */
   own: boolean;
-}
-
-export interface CallSandbox {
-  sandboxId: string;
-  via: "dedicated" | "attached";
-  /** The previous sandboxed call in this chat used a different sandbox. */
-  changed: boolean;
 }
 
 /** Where the conversation's sandboxed calls run (0013: its binding). */
@@ -48,9 +39,7 @@ export type SandboxState =
 
 export interface ConversationSandboxView {
   state: SandboxState;
-  /** toolCallId → the sandbox that call ran in. */
-  calls: Record<string, CallSandbox>;
-  /** Every sandbox referenced by `calls` or `state`, by id. */
+  /** Every sandbox the state references, by id. */
   sandboxes: Record<string, SandboxRef>;
 }
 
@@ -81,18 +70,6 @@ export function loadConversationSandboxView(
   conversationId: string,
 ): ConversationSandboxView {
   const binding = getConversationBinding(db, conversationId);
-  const calls = listCallsForConversation(db, conversationId);
-
-  const callMap: Record<string, CallSandbox> = {};
-  let previous: string | null = null;
-  for (const call of calls) {
-    callMap[call.toolCallId] = {
-      sandboxId: call.sandboxId,
-      via: call.via,
-      changed: previous !== null && previous !== call.sandboxId,
-    };
-    previous = call.sandboxId;
-  }
 
   // 0013: the state IS the binding (fixed once bound).
   const state: SandboxState =
@@ -106,8 +83,7 @@ export function loadConversationSandboxView(
           ? { kind: "own", sandboxId: binding.sandboxId, workDir: binding.workDir }
           : { kind: "attached", sandboxId: binding.sandboxId, workDir: binding.workDir };
 
-  const ids = new Set(Object.values(callMap).map((c) => c.sandboxId));
-  if (state.kind === "own" || state.kind === "attached") ids.add(state.sandboxId);
+  const ids = new Set(state.kind === "own" || state.kind === "attached" ? [state.sandboxId] : []);
 
   const refs: Record<string, SandboxRef> = {};
   if (ids.size > 0) {
@@ -128,7 +104,7 @@ export function loadConversationSandboxView(
     }
   }
 
-  return { state, calls: callMap, sandboxes: refs };
+  return { state, sandboxes: refs };
 }
 
 // ── /sandboxes (0011 phase 3) ────────────────────────────────────────────
@@ -148,9 +124,7 @@ export interface SandboxSummary {
   createdAt: number;
   lastUsedAt: number;
   destroyedAt: number | null;
-  /** Recorded sandboxed tool calls that ran here. */
-  calls: number;
-  /** Distinct chats that ran calls here or are attached to it. */
+  /** Distinct chats bound to it (owning or attached). */
   chats: number;
 }
 
@@ -159,71 +133,46 @@ export interface SandboxUser {
   title: string | null;
   /** Owner (own dedicated sandbox) vs. joined someone else's. */
   owner: boolean;
-  calls: number;
   lastAt: number | null;
-}
-
-export interface SandboxCallEntry {
-  toolCallId: string;
-  tool: string;
-  via: string;
-  conversationId: string;
-  conversationTitle: string | null;
-  at: number;
 }
 
 export interface SandboxDetail extends SandboxSummary {
   users: SandboxUser[];
-  /** Newest first, capped. */
-  recentCalls: SandboxCallEntry[];
 }
-
-const RECENT_CALLS = 50;
 
 function ownerHref(ownerKind: string, ownerId: string): string {
   if (ownerKind === "preview") return `/previews?id=${ownerId}`;
   return ownerKind === "machine_run" ? `/r/${ownerId}` : `/c/${ownerId}`;
 }
 
+/** Chats bound to each sandbox: `conversations.sandbox_id` (0031: the
+ *  binding is the record — owner and attached both set the column). */
+function boundChats(db: Db, ids: string[]): Map<string, { conversationId: string; lastAt: number }[]> {
+  const map = new Map<string, { conversationId: string; lastAt: number }[]>();
+  if (ids.length === 0) return map;
+  const rows = db
+    .select({
+      sandboxId: conversations.sandboxId,
+      conversationId: conversations.id,
+      updatedAt: conversations.updatedAt,
+    })
+    .from(conversations)
+    .where(inArray(conversations.sandboxId, ids))
+    .all();
+  for (const row of rows) {
+    const list = map.get(row.sandboxId!) ?? map.set(row.sandboxId!, []).get(row.sandboxId!)!;
+    list.push({ conversationId: row.conversationId, lastAt: row.updatedAt });
+  }
+  return map;
+}
+
 function summarize(db: Db, rows: (typeof sandboxes.$inferSelect)[]): SandboxSummary[] {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
-  const callStats = new Map(
-    db
-      .select({
-        sandboxId: sandboxCalls.sandboxId,
-        calls: count(),
-        chats: countDistinct(sandboxCalls.conversationId),
-      })
-      .from(sandboxCalls)
-      .where(inArray(sandboxCalls.sandboxId, ids))
-      .groupBy(sandboxCalls.sandboxId)
-      .all()
-      .map((r) => [r.sandboxId, r]),
-  );
-  // Attached chats that have not (yet) run a call still use the sandbox.
-  const attached = db
-    .select({
-      sandboxId: sandboxAttachments.sandboxId,
-      conversationId: sandboxAttachments.conversationId,
-    })
-    .from(sandboxAttachments)
-    .where(inArray(sandboxAttachments.sandboxId, ids))
-    .all();
-  const calledBy = new Map<string, Set<string>>();
-  for (const r of db
-    .select({ s: sandboxCalls.sandboxId, c: sandboxCalls.conversationId })
-    .from(sandboxCalls)
-    .where(inArray(sandboxCalls.sandboxId, ids))
-    .groupBy(sandboxCalls.sandboxId, sandboxCalls.conversationId)
-    .all()) {
-    (calledBy.get(r.s) ?? calledBy.set(r.s, new Set()).get(r.s)!).add(r.c);
-  }
-  const extraChats = new Map<string, number>();
-  for (const a of attached) {
-    if (!calledBy.get(a.sandboxId)?.has(a.conversationId)) {
-      extraChats.set(a.sandboxId, (extraChats.get(a.sandboxId) ?? 0) + 1);
-    }
+  const chats = boundChats(db, ids);
+  const distinct = new Map<string, Set<string>>();
+  for (const [sandboxId, list] of chats) {
+    distinct.set(sandboxId, new Set(list.map((c) => c.conversationId)));
   }
 
   const projectIds = [...new Set(rows.flatMap((r) => (r.projectId ? [r.projectId] : [])))];
@@ -252,8 +201,7 @@ function summarize(db: Db, rows: (typeof sandboxes.$inferSelect)[]): SandboxSumm
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt,
     destroyedAt: row.destroyedAt,
-    calls: callStats.get(row.id)?.calls ?? 0,
-    chats: (callStats.get(row.id)?.chats ?? 0) + (extraChats.get(row.id) ?? 0),
+    chats: distinct.get(row.id)?.size ?? 0,
   }));
 }
 
@@ -272,64 +220,24 @@ export function getSandboxDetail(db: Db, id: string): SandboxDetail | null {
   if (!row) return null;
   const [summary] = summarize(db, [row]);
 
-  const perChat = db
-    .select({
-      conversationId: sandboxCalls.conversationId,
-      calls: count(),
-      lastAt: max(sandboxCalls.at),
-    })
-    .from(sandboxCalls)
-    .where(eq(sandboxCalls.sandboxId, id))
-    .groupBy(sandboxCalls.conversationId)
-    .all();
-  const attached = db
-    .select({ conversationId: sandboxAttachments.conversationId })
-    .from(sandboxAttachments)
-    .where(eq(sandboxAttachments.sandboxId, id))
-    .all();
-
-  const chatIds = new Set([
-    ...perChat.map((c) => c.conversationId),
-    ...attached.map((a) => a.conversationId),
-  ]);
   const titles = new Map(
-    chatIds.size === 0
-      ? []
-      : db
-          .select({ id: conversations.id, title: conversations.title })
-          .from(conversations)
-          .where(inArray(conversations.id, [...chatIds]))
-          .all()
-          .map((c) => [c.id, c.title]),
+    db
+      .select({ id: conversations.id, title: conversations.title, updatedAt: conversations.updatedAt })
+      .from(conversations)
+      .where(and(eq(conversations.sandboxId, id), ne(conversations.kind, "run")))
+      .all()
+      .map((c) => [c.id, c]),
   );
 
-  const stats = new Map(perChat.map((c) => [c.conversationId, c]));
-  const users: SandboxUser[] = [...chatIds].map((conversationId) => ({
-    conversationId,
-    title: titles.get(conversationId) ?? null,
-    owner: row.ownerKind === "conversation" && row.ownerId === conversationId,
-    calls: stats.get(conversationId)?.calls ?? 0,
-    lastAt: stats.get(conversationId)?.lastAt ?? null,
+  const users: SandboxUser[] = [...titles.values()].map((c) => ({
+    conversationId: c.id,
+    title: c.title,
+    owner: row.ownerKind === "conversation" && row.ownerId === c.id,
+    lastAt: c.updatedAt,
   }));
   users.sort((a, b) => Number(b.owner) - Number(a.owner) || (b.lastAt ?? 0) - (a.lastAt ?? 0));
 
-  const recentCalls = db
-    .select()
-    .from(sandboxCalls)
-    .where(eq(sandboxCalls.sandboxId, id))
-    .orderBy(desc(sandboxCalls.at), desc(sql`rowid`))
-    .limit(RECENT_CALLS)
-    .all()
-    .map((c) => ({
-      toolCallId: c.toolCallId,
-      tool: c.tool,
-      via: c.via,
-      conversationId: c.conversationId,
-      conversationTitle: titles.get(c.conversationId) ?? null,
-      at: c.at,
-    }));
-
-  return { ...summary!, users, recentCalls };
+  return { ...summary!, users };
 }
 
 // ── Which sandbox does this session / run live in? ───────────────────────
@@ -363,25 +271,20 @@ export function sandboxForMachineRun(db: Db, runId: string): SandboxLink | null 
 }
 
 /**
- * The sandbox behind a harness session page. A session id is either a
- * chat's conversation id (the chat's recorded pi/claude calls say where
- * they ran) or a machine stage `<runId>_<seq>` (the run's sandbox).
+ * The sandbox behind a harness session page. 0031: the binding answers
+ * it — a session id is either a conversation id (chat or stage visit,
+ * with a stored binding or its run's) or a machine run id.
  */
-export function sandboxForHarnessSession(
-  db: Db,
-  sessionId: string,
-  harness: string,
-): SandboxLink | null {
-  const call = db
-    .select({ sandboxId: sandboxCalls.sandboxId, via: sandboxCalls.via })
-    .from(sandboxCalls)
-    .where(and(eq(sandboxCalls.conversationId, sessionId), eq(sandboxCalls.tool, harness)))
-    .orderBy(desc(sandboxCalls.at), desc(sql`rowid`))
-    .limit(1)
-    .get();
-  if (call) {
-    return linkFor(db, call.sandboxId, call.via === "attached" ? "attached sandbox" : "own sandbox");
-  }
+export function sandboxForHarnessSession(db: Db, sessionId: string): SandboxLink | null {
   const run = sessionId.match(/^(mr_.+)_\d+$/);
-  return run ? sandboxForMachineRun(db, run[1]!) : null;
+  if (run) return sandboxForMachineRun(db, run[1]!);
+  const binding = getConversationBinding(db, sessionId);
+  if (binding?.kind === "bound") {
+    return linkFor(db, binding.sandboxId, binding.owner ? "own sandbox" : "attached sandbox");
+  }
+  if (binding) {
+    // a run conversation (kind "run"): its machine_runs binding
+    return sandboxForMachineRun(db, sessionId);
+  }
+  return null;
 }

@@ -14,7 +14,7 @@ import { boundToSandbox } from "@/lib/sandboxes/reaper";
 
 export const dynamic = "force-dynamic";
 
-/** One sandbox (0011): owner, who is using it, and the calls that ran in it. */
+/** One sandbox (0011): owner, who is using it, and what is running in it. */
 export default async function SandboxPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const sandbox = getSandboxDetail(db(), id);
@@ -123,8 +123,8 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
           {sandbox.users.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {sandbox.ownerKind === "machine_run"
-                ? "No chats have run calls here. A machine run's stages run inside it directly."
-                : "No recorded calls yet."}
+                ? "No chats are attached. A machine run's stages run inside it directly."
+                : "No chats bound to it."}
             </p>
           ) : (
             <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
@@ -138,49 +138,12 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
                     <span className="shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
                       {u.owner ? "owner" : "attached"}
                     </span>
-                    <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">
-                      {u.calls} call{u.calls === 1 ? "" : "s"}
-                    </span>
                     {u.lastAt && (
                       <LocalTime
                         ms={u.lastAt}
                         className="w-16 shrink-0 text-right font-mono text-[10px] text-muted-foreground"
                       />
                     )}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="flex flex-col gap-2">
-          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Recent calls
-          </h2>
-          {sandbox.recentCalls.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nothing recorded. Calls made before sandbox tracking shipped are not attributed.
-            </p>
-          ) : (
-            <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
-              {sandbox.recentCalls.map((c) => (
-                <li key={c.toolCallId}>
-                  <Link
-                    href={`/c/${c.conversationId}`}
-                    className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-accent"
-                  >
-                    <span className="w-14 shrink-0 font-mono text-xs">{c.tool}</span>
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                      {c.conversationTitle ?? c.conversationId}
-                    </span>
-                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                      {c.via === "attached" ? "attached" : "own"}
-                    </span>
-                    <LocalTime
-                      ms={c.at}
-                      className="w-16 shrink-0 text-right font-mono text-[10px] text-muted-foreground"
-                    />
                   </Link>
                 </li>
               ))}

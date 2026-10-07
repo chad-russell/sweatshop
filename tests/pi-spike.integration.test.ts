@@ -17,16 +17,15 @@ run("pi harness spike (0005 Phase A)", () => {
       const apiKey = process.env.ZAI_API_KEY;
       expect(apiKey, "ZAI_API_KEY must be set").toBeTruthy();
 
-      const { provisionProjectSandbox } = await import(
-        "../lib/sandboxes/provision"
-      );
+      const { podmanProvider } = await import("../lib/sandboxes/provider");
       const { toSandboxSession } = await import(
         "../lib/sandboxes/ai-sdk-adapter"
       );
       const { HarnessAgent } = await import("@ai-sdk/harness/agent");
       const { createPi } = await import("@ai-sdk/harness-pi");
 
-      const sb = await provisionProjectSandbox("spike");
+      const provider = podmanProvider;
+      const sb = await provider.create({ projectId: "spike", namePrefix: "pi-spike" });
       const sandboxSession = toSandboxSession(sb);
 
       const pi = createPi({
@@ -68,7 +67,7 @@ run("pi harness spike (0005 Phase A)", () => {
         expect(check.stdout).toContain("pi harness verified");
       } finally {
         await session.destroy();
-        await sb.remove();
+        await provider.destroy(sb.ref);
       }
     },
     600_000,

@@ -4,10 +4,10 @@ import { db } from "../db";
 import {
   addProjectRepo,
   deleteProjectRows,
+  getProject,
   renameProject,
   removeProjectRepo,
-  setProjectSandboxConfig,
-  updateSandboxConfig,
+  setProjectImage,
 } from "../db/projects";
 import { savePreviewSetup } from "../db/preview-setups";
 import { insertPreview } from "../db/previews";
@@ -19,7 +19,6 @@ import {
   previewSetups,
   projects,
   projectRepos,
-  sandboxConfigs,
   sandboxes,
 } from "../db/schema";
 
@@ -137,25 +136,17 @@ describe("0018 phase 3: rename + repos", () => {
   });
 });
 
-describe("0018 phase 3: sandbox config", () => {
-  it("picks none/existing and edits fields with a shared count", () => {
-    db()
-      .insert(sandboxConfigs)
-      .values({ id: "cfg_a", name: "default", imageRef: null, networkPolicy: "allow-all", createdAt: now })
-      .onConflictDoNothing()
-      .run();
-    expect(setProjectSandboxConfig(db(), "p_crud", "cfg_a")).toMatchObject({ ok: true, configId: "cfg_a" });
-    expect(setProjectSandboxConfig(db(), "p_other", "cfg_a")).toMatchObject({ ok: true });
-    expect(updateSandboxConfig(db(), "cfg_a", { imageRef: "localhost/custom", networkPolicy: "offline" })).toMatchObject({
+describe("0018/0031: project image", () => {
+  it("sets and clears the project's sandbox image", () => {
+    expect(setProjectImage(db(), "p_crud", "localhost/custom:2")).toMatchObject({
       ok: true,
-      sharedWith: 2,
+      imageRef: "localhost/custom:2",
     });
-    expect(updateSandboxConfig(db(), "cfg_a", { networkPolicy: "nonsense" })).toMatchObject({ ok: false, code: "invalid" });
-    expect(updateSandboxConfig(db(), "cfg_missing", { networkPolicy: "offline" })).toMatchObject({
-      ok: false,
-      code: "not-found",
-    });
-    expect(setProjectSandboxConfig(db(), "p_crud", null)).toMatchObject({ ok: true, configId: null });
+    expect(getProject(db(), "p_crud")?.imageRef).toBe("localhost/custom:2");
+    // blank clears to the provider default
+    expect(setProjectImage(db(), "p_crud", "  ")).toMatchObject({ ok: true, imageRef: null });
+    expect(getProject(db(), "p_crud")?.imageRef).toBeNull();
+    expect(setProjectImage(db(), "p_missing", "x")).toMatchObject({ ok: false, code: "not-found" });
   });
 });
 
@@ -192,12 +183,6 @@ describe("0018 phase 3: the delete cascade", () => {
     fixtureSandbox(sandboxId, "p_del");
     const previewId = `pv_del${Math.floor(Math.random() * 1e6)}`;
     fixturePreview(previewId, sandboxId, repoId);
-    db()
-      .$client.prepare(
-        "insert into sandbox_calls (tool_call_id, sandbox_id, conversation_id, tool, via, workdir, at) " +
-          "values (?, ?, 'c_crud_chat', 'bash', 'dedicated', '/w', ?)",
-      )
-      .run(`tc_del${Math.floor(Math.random() * 1e6)}`, sandboxId, now);
     savePreviewSetup(db(), "p_del", {
       repo: repoId,
       workDir: ".",
@@ -224,7 +209,6 @@ describe("0018 phase 3: the delete cascade", () => {
     expect(rows("previews", "id", previewId)).toBe(0);
     expect(rows("preview_events", "preview_id", previewId)).toBe(0);
     expect(rows("sandboxes", "id", sandboxId)).toBe(0);
-    expect(rows("sandbox_calls", "sandbox_id", sandboxId)).toBe(0);
     expect(rows("projects", "id", "p_del")).toBe(0);
 
     // untouched: the other project's world

@@ -4,7 +4,6 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
-  Handle,
   MarkerType,
   Position,
   type Edge as FlowEdge,
@@ -32,12 +31,13 @@ import { HarnessMark } from "@/components/harness-logo";
 import { cn } from "@/lib/utils";
 
 /**
- * 0014: a machine definition drawn as a graph — the machine page's
- * editor canvas and the run view's progress strip. Positions come from
- * the automatic layout (lib/machines/layout); nothing is stored. Nodes
- * are not draggable. Everything else (selection, connecting, the run
- * overlay, issues) is passed in, so this stays a pure view of the
- * definition plus decorations.
+ * 0014/0031: a machine definition drawn as a graph — the machine page's
+ * READ-ONLY canvas and the run view's progress strip. Positions come
+ * from the automatic layout (lib/machines/layout); nothing is stored.
+ * Nodes are not draggable and nothing here edits the definition
+ * (0031: editing is the JSON tab and the agent tools); selection is
+ * observational (the page's "[viewing]" context), the run overlay and
+ * issue decorations are passed in.
  */
 
 /** Per-stage run progress (the run view's overlay). */
@@ -72,7 +72,6 @@ interface StageData extends Record<string, unknown> {
   current: boolean;
   waiting: boolean;
   issues?: readonly string[];
-  connectable: boolean;
   vertical: boolean;
 }
 
@@ -93,14 +92,6 @@ function firstLine(text: string): string {
 
 const StageNode = memo(function StageNode({ data, selected }: NodeProps<FlowNode<StageData>>) {
   const { stage, id } = data;
-  const handles = (
-    <>
-      <Handle type="target" position={data.vertical ? Position.Top : Position.Left} isConnectable={data.connectable} className="size-2! border-border! bg-muted-foreground!" />
-      {stage && (
-        <Handle type="source" position={data.vertical ? Position.Bottom : Position.Right} isConnectable={data.connectable} className="size-2! border-border! bg-muted-foreground!" />
-      )}
-    </>
-  );
 
   if (!stage) {
     return (
@@ -108,7 +99,6 @@ const StageNode = memo(function StageNode({ data, selected }: NodeProps<FlowNode
         style={{ width: END_WIDTH, height: NODE_HEIGHT }}
         className="flex items-center justify-center gap-1.5 rounded-full border border-dashed border-border bg-card font-mono text-xs text-muted-foreground"
       >
-        {handles}
         <Flag className="size-3.5" aria-hidden />
         end
       </div>
@@ -137,7 +127,6 @@ const StageNode = memo(function StageNode({ data, selected }: NodeProps<FlowNode
       )}
       title={data.issues?.join("\n")}
     >
-      {handles}
       <div className="flex items-center gap-1.5">
         {stage.kind === "harness" ? (
           <HarnessMark kind={stage.harness} tint={false} className={cn("size-3.5", tone)} />
@@ -264,14 +253,10 @@ export interface MachineGraphProps {
   definition: MachineDefinition;
   overlay?: GraphOverlay;
   issues?: GraphIssues;
+  /** Observational selection (the page's "[viewing]" context). */
   selection?: { node?: string | null; edge?: string | null };
-  /** Allow dragging new connections between stages (the editor). */
-  editable?: boolean;
   onSelectNode?: (id: string | null) => void;
   onSelectEdge?: (edge: { id: string; source: string; target: string } | null) => void;
-  onConnect?: (source: string, target: string) => void;
-  /** Delete key on the current selection (editor). */
-  onDelete?: (target: { node?: string; edge?: { source: string; target: string } }) => void;
   /** Hide the zoom controls (short strips, e.g. the run view). */
   compact?: boolean;
   /** Flow direction; "auto" (default) picks whichever fits the container better. */
@@ -284,11 +269,8 @@ export function MachineGraph({
   overlay,
   issues,
   selection,
-  editable = false,
   onSelectNode,
   onSelectEdge,
-  onConnect,
-  onDelete,
   compact = false,
   direction = "auto",
   className,
@@ -352,11 +334,10 @@ export function MachineGraph({
           current: overlay?.current === n.id,
           waiting: Boolean(overlay?.waiting && overlay.current === n.id),
           issues: issues?.nodes.get(n.id),
-          connectable: editable,
           vertical,
         },
       })),
-    [layout, definition, overlay, issues, selection?.node, editable, onSelectNode, vertical],
+    [layout, definition, overlay, issues, selection?.node, onSelectNode, vertical],
   );
 
   const edges = useMemo<FlowEdge<TransitionData>[]>(
@@ -403,11 +384,11 @@ export function MachineGraph({
         fitViewOptions={fitOptions}
         minZoom={0.3}
         nodesDraggable={false}
-        nodesConnectable={editable}
+        nodesConnectable={false}
         elementsSelectable={Boolean(onSelectNode || onSelectEdge)}
         selectionOnDrag={false}
         panOnDrag
-        deleteKeyCode={editable ? ["Backspace", "Delete"] : null}
+        deleteKeyCode={null}
         proOptions={{ hideAttribution: true }}
         onInit={(instance) => {
           flow.current = instance;
@@ -423,17 +404,6 @@ export function MachineGraph({
         onPaneClick={() => {
           onSelectNode?.(null);
           onSelectEdge?.(null);
-        }}
-        onConnect={(c) => {
-          if (c.source && c.target && c.source !== END) onConnect?.(c.source, c.target);
-        }}
-        onBeforeDelete={async ({ nodes: n, edges: e }) => {
-          // Deletion is a definition edit, never a flow-state one.
-          const node = n.find((x) => x.id !== END);
-          const edge = e.find((x) => !(x.data as TransitionData | undefined)?.edge.implicit);
-          if (node) onDelete?.({ node: node.id });
-          else if (edge) onDelete?.({ edge: { source: edge.source, target: edge.target } });
-          return false;
         }}
       >
         {!compact && (
