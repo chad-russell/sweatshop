@@ -178,12 +178,15 @@ export async function wakeRunIfDue(
 }
 
 /**
- * Deliver every unwoken settle (the tick's sweep; also the restart
- * recovery). Errors are contained per run — one bad parent must not
- * starve the rest.
+ * Deliver every unwoken settle — machine runs and harness calls (the
+ * tick's sweep; also the restart recovery). Errors are contained per
+ * child — one bad parent must not starve the rest.
  */
 export async function sweepWakes(deps: WakeDeps = {}): Promise<number> {
-  const { listWakableRuns } = await import("@/db/machines");
+  const [{ listWakableRuns }, { listWakableCalls }] = await Promise.all([
+    import("@/db/machines"),
+    import("@/db/harness-calls"),
+  ]);
   let woke = 0;
   for (const run of listWakableRuns(db())) {
     try {
@@ -192,5 +195,39 @@ export async function sweepWakes(deps: WakeDeps = {}): Promise<number> {
       console.error(`[wake-sweep] ${run.id}:`, err);
     }
   }
+  for (const call of listWakableCalls(db())) {
+    try {
+      if ((await wakeCallIfDue(call, deps)) === "woke") woke += 1;
+    } catch (err) {
+      console.error(`[wake-sweep] ${call.id}:`, err);
+    }
+  }
   return woke;
+}
+
+/**
+ * 0022 cut 2: wake a harness call's conversation if its settle is
+ * undelivered. The call's conversation is its parent by construction.
+ */
+export async function wakeCallIfDue(
+  call: { id: string; conversationId: string; kind: string; status: string; settledAt: number | null; wokenSettledAt: number | null; result: string | null; error: string | null },
+  deps: WakeDeps = {},
+): Promise<"woke" | "skipped" | "none"> {
+  const { CALL_SETTLED_STATUSES, markCallWoken } = await import("@/db/harness-calls");
+  if (call.settledAt == null || !CALL_SETTLED_STATUSES.has(call.status)) return "none";
+  if ((call.wokenSettledAt ?? -1) >= call.settledAt) return "skipped";
+  const outcome = await wakeConversation(
+    call.conversationId,
+    {
+      kind: "harness",
+      id: call.id,
+      name: call.kind,
+      status: call.status,
+      detail: call.status === "failed" ? (call.error ?? null) : call.result,
+      url: `/h/${call.kind}/${call.conversationId}`,
+    },
+    deps,
+  );
+  markCallWoken(db(), call.id, call.settledAt);
+  return outcome === "gone" ? "skipped" : "woke";
 }
