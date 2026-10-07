@@ -358,6 +358,13 @@ const AGENT_TOOLS = new Set([
   "stop_preview",
 ]);
 
+/** A start_machine call that lists instead of starting (no machineId). */
+function isMachineListing(part: ToolUIPart): boolean {
+  if (part.state === "input-streaming") return false;
+  const input = part.input as { machineId?: unknown } | undefined;
+  return typeof input?.machineId !== "string" || input.machineId === "";
+}
+
 /** The designed card for a machine / run / inspect tool call, if it has one. */
 function agentToolCard(part: ToolUIPart): ReactNode {
   const name = part.type.replace(/^tool-/, "");
@@ -378,7 +385,9 @@ function agentToolCard(part: ToolUIPart): ReactNode {
     case "edit_machine":
       return <EditMachineCard {...shared} />;
     case "start_machine":
-      return <StartMachineCard {...shared} />;
+      // Called with no machineId it only LISTS machines — draw that as
+      // the machine list, never as a "Started run" with nothing behind it.
+      return isMachineListing(part) ? <MachineCard tool="list_machines" {...shared} /> : <StartMachineCard {...shared} />;
     case "inspect":
       return <InspectCard {...shared} />;
     case "sandbox_exec":
