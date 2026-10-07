@@ -6,7 +6,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { MessageResponse } from "@/components/ai-elements/message";
 import { HARNESS_LABEL, HarnessLogo } from "@/components/harness-logo";
 import { SandboxChip } from "@/components/sandbox-view";
+import { ChildMeta } from "@/components/ai-elements/agent-cards";
 import { summarizeActivity, type HarnessActivity, type TimelineEvent } from "@/lib/harness-timeline";
+import { useChildStatus } from "@/lib/use-child-status";
 import { cn } from "@/lib/utils";
 
 export type HarnessCardState =
@@ -65,7 +67,7 @@ function useLiveActivity(conversationId: string | null, kind: string, active: bo
   return activity;
 }
 
-function StatusPill({ tone, label }: { tone: "running" | "ok" | "fail"; label: string }) {
+function StatusPill({ tone, label }: { tone: "running" | "ok" | "fail" | "neutral"; label: string }) {
   return (
     <span
       className={cn(
@@ -73,6 +75,7 @@ function StatusPill({ tone, label }: { tone: "running" | "ok" | "fail"; label: s
         tone === "running" && "border-info/30 bg-info/10 text-info",
         tone === "ok" && "border-success/30 bg-success/10 text-success",
         tone === "fail" && "border-destructive/30 bg-destructive/10 text-destructive",
+        tone === "neutral" && "border-border bg-muted/50 text-muted-foreground",
       )}
     >
       <span aria-hidden className={cn("size-1.5 rounded-full bg-current", tone === "running" && "animate-pulse")} />
@@ -221,7 +224,10 @@ export function HarnessCard({
   const summary = result && "text" in result ? result.text?.trim() : undefined;
 
   const calls = result && "toolCalls" in result ? result.toolCalls : undefined;
-  const showFailed = failed || busyError != null;
+  // 0022: a background call's pill follows the call itself (polled while
+  // it runs) — "in background" alone never said whether it was done.
+  const live = useChildStatus(background?.callId ?? null);
+  const showFailed = failed || busyError != null || live?.status === "failed";
 
   return (
     <div
@@ -236,7 +242,13 @@ export function HarnessCard({
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium">{label}</span>
           {background ? (
-            <StatusPill tone="running" label="in background" />
+            <>
+              <StatusPill
+                tone={!live || live.live ? "running" : live.status === "completed" ? "ok" : live.status === "failed" ? "fail" : "neutral"}
+                label={!live ? "in background" : live.status === "running" ? "running" : live.status}
+              />
+              {live && <ChildMeta status={live} />}
+            </>
           ) : (
             <StatusPill
               tone={showFailed ? "fail" : running ? "running" : "ok"}
@@ -272,8 +284,12 @@ export function HarnessCard({
       {/* Background: the handle and what happens next */}
       {background && (
         <div className="border-t border-border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">
-          <span className="text-foreground">{background.callId}</span> — the result arrives in this
-          conversation when it finishes; the Session link above is the live view.
+          <span className="text-foreground">{background.callId}</span>
+          {!live || live.live
+            ? " — the result arrives in this conversation when it finishes; the Session link above is the live view."
+            : live.status === "cancelled"
+              ? " — cancelled."
+              : " — finished; its result is in the conversation below."}
         </div>
       )}
 
@@ -292,7 +308,7 @@ export function HarnessCard({
       {/* Failed */}
       {showFailed && (
         <p className="border-t border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-[11px] text-destructive">
-          {busyError?.message ?? errorText ?? "harness call failed"}
+          {busyError?.message ?? errorText ?? live?.error ?? "harness call failed"}
         </p>
       )}
     </div>

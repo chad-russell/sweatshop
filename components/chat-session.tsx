@@ -53,6 +53,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ToolState } from "@/lib/machine-tool-view";
 import type { ViewingContext } from "@/lib/page-context";
+import { hasBackgroundChild, rowsToUIMessages, type StoredRow } from "@/lib/chat-ui";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -82,6 +83,10 @@ import {
 
 /** localStorage prefix for per-conversation composer drafts. */
 const DRAFT_PREFIX = "sweatshop.draft.";
+
+/** How often an idle chat with background work out checks for its wake. */
+const WAKE_POLL_MS = 5000;
+
 
 /** A running sandbox the composer can attach to (0013 picker). */
 export interface SandboxOption {
@@ -358,6 +363,13 @@ const AGENT_TOOLS = new Set([
   "stop_preview",
 ]);
 
+/** A start_machine call that lists instead of starting (no machineId). */
+function isMachineListing(part: ToolUIPart): boolean {
+  if (part.state === "input-streaming") return false;
+  const input = part.input as { machineId?: unknown } | undefined;
+  return typeof input?.machineId !== "string" || input.machineId === "";
+}
+
 /** The designed card for a machine / run / inspect tool call, if it has one. */
 function agentToolCard(part: ToolUIPart): ReactNode {
   const name = part.type.replace(/^tool-/, "");
@@ -378,7 +390,9 @@ function agentToolCard(part: ToolUIPart): ReactNode {
     case "edit_machine":
       return <EditMachineCard {...shared} />;
     case "start_machine":
-      return <StartMachineCard {...shared} />;
+      // Called with no machineId it only LISTS machines — draw that as
+      // the machine list, never as a "Started run" with nothing behind it.
+      return isMachineListing(part) ? <MachineCard tool="list_machines" {...shared} /> : <StartMachineCard {...shared} />;
     case "inspect":
       return <InspectCard {...shared} />;
     case "sandbox_exec":
@@ -594,6 +608,7 @@ export function ChatSession({
   header,
   freshComposer,
   onAdopted,
+  onAddressable,
   pageContext,
   className,
   ref,
@@ -610,8 +625,13 @@ export function ChatSession({
   header?: (state: ChatSessionState) => ReactNode;
   /** The frame's takeover of the fresh composer (the machine target). */
   freshComposer?: (state: ChatSessionState) => FreshComposerMode | undefined;
-  /** Fired once when a send adopts the client-generated conversation id. */
+  /** Fired once when a send adopts the client-generated conversation id
+   *  (the turn may still be live — do not move to another route here). */
   onAdopted?: (conversationId: string) => void;
+  /** Fired once, after the creating turn settles: the server now holds
+   *  the whole turn, so a frame may navigate to the conversation's own
+   *  address (a remount there loses nothing). */
+  onAddressable?: (conversationId: string) => void;
   /** 0015: the page this chat is drawn on, read at send time — each send
    *  carries it as the turn's viewing note ("this"). Absent = no note. */
   pageContext?: () => ViewingContext | null;
@@ -670,6 +690,7 @@ export function ChatSession({
     pageContextRef.current = pageContext;
   }, [route, routeTouched, sandboxChoice, conversationId, projectId, pageContext]);
 
+  const resumeRunRef = useRef<string | null>(null);
   // The callback runs at send time (never during render) and must see
   // the current knobs.
   const [transport] = useState(
@@ -700,6 +721,11 @@ export function ChatSession({
             },
           };
         },
+        // A wake attach (below) resumes a turn this page never started:
+        // point the reconnect at THAT run's stream (the chat id is the
+        // conversation's, and the mount-time resume already used its own).
+        prepareReconnectToStreamRequest: ({ api }) =>
+          resumeRunRef.current ? { api: `/api/x/chat/${encodeURIComponent(resumeRunRef.current)}/stream` } : { api },
       }),
   );
 
@@ -713,6 +739,50 @@ export function ChatSession({
   const status = mounted ? chat.status : "ready";
   const isBusy = status === "submitted" || status === "streaming";
   const messages = chat.messages;
+
+  // 0022: a settled child wakes this chat by starting a turn SERVER-side
+  // (or steering a live one) — the open page never sent it. While idle
+  // with background work out, watch for that turn and attach to it: the
+  // stored transcript (with the wake row) is swapped in, then the live
+  // turn streams in like any other.
+  const awaitingWake = (adopted || selfAdopted) && !isBusy && hasBackgroundChild(messages);
+  const chatRef = useRef(chat);
+  useEffect(() => {
+    chatRef.current = chat;
+  });
+  useEffect(() => {
+    if (!awaitingWake) return;
+    let stop = false;
+    const check = async () => {
+      if (stop || document.visibilityState !== "visible") return;
+      try {
+        const res = await fetch(`/api/x/chat?conversationId=${encodeURIComponent(conversationId)}`, { cache: "no-store" });
+        if (!res.ok || stop) return;
+        const body = (await res.json()) as { messages: StoredRow[]; activeRunId: string | null };
+        const c = chatRef.current;
+        if (stop || c.status === "submitted" || c.status === "streaming") return;
+        const stored = rowsToUIMessages(body.messages ?? []);
+        const known = new Set(c.messages.map((m) => m.id));
+        // Only act on something new: a turn in flight, or rows this
+        // session has not seen (a wake turn that already finished).
+        if (!body.activeRunId && stored.every((m) => known.has(m.id))) return;
+        c.setMessages(stored);
+        if (body.activeRunId) {
+          resumeRunRef.current = body.activeRunId;
+          void c.resumeStream();
+        }
+      } catch {
+        /* transient — the next tick retries */
+      }
+    };
+    const timer = setInterval(() => void check(), WAKE_POLL_MS);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [awaitingWake, conversationId]);
 
   // 0011: the sandbox read-model — which sandbox each sandboxed call ran
   // in and where the next one would. The call rows are written by the
@@ -766,6 +836,23 @@ export function ChatSession({
     setSelfAdopted(true);
     onAdoptedRef.current?.(conversationId);
   }, [adopted, conversationId, messages.length]);
+
+  // ...and, separately, once that creating turn has SETTLED: only then may
+  // the frame give the session its durable address. A frame whose address
+  // is a different route (the page frame's / → /c/<id>) remounts on the
+  // next router.refresh(); mid-turn that drops the live stream and mounts
+  // a snapshot taken before the turn wrote anything — the blank "new
+  // chat" Chad saw after a first send (2026-10-07).
+  const addressedRef = useRef(false);
+  const onAddressableRef = useRef(onAddressable);
+  useEffect(() => {
+    onAddressableRef.current = onAddressable;
+  }, [onAddressable]);
+  useEffect(() => {
+    if (adopted || !selfAdopted || isBusy || addressedRef.current) return;
+    addressedRef.current = true;
+    onAddressableRef.current?.(conversationId);
+  }, [adopted, selfAdopted, isBusy, conversationId]);
 
   // Opening a thread marks it read (visible + focused only) — including
   // a fresh session after its first send created the conversation.

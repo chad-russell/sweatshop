@@ -7,6 +7,7 @@ import { buildTurnModel } from "./model";
 import { buildChatTools } from "./tools";
 import {
   drainSteerStep,
+  finishTurnStream,
   loadTurnHistory,
   maybeTitleStep,
   persistTurn,
@@ -49,7 +50,8 @@ export interface ChatTurnInput {
 
 const INSTRUCTIONS = `You are sweatshop's agent (new chat runtime spike). Be concise.
 Use the ask_chad tool when a decision or approval is genuinely Chad's to make.
-When a message carries a "[viewing]" note, "this"/"it" refers to what it names; use its ids with your tools (get_machine, inspect) instead of asking.`;
+When a message carries a "[viewing]" note, "this"/"it" refers to what it names; use its ids with your tools (get_machine, inspect) instead of asking.
+If Chad asks for something that needs a tool you were not given (pi, claude, and bash exist only in project chats with a sandbox), say so and tell him to start a project chat — never improvise a substitute (e.g. a new machine, or a different model standing in for the harness he asked for).`;
 
 export async function chatTurn(input: ChatTurnInput) {
   "use workflow";
@@ -82,39 +84,52 @@ export async function chatTurn(input: ChatTurnInput) {
     { role: "user", content: userText },
   ];
   let finishReason: string = "stop";
-  for (let step = 0; step < MAX_STEPS; step += 1) {
-    if (step > 0) {
-      const queued = await drainSteerStep(conversationId);
-      if (queued.length > 0) {
-        messages = [
-          ...messages,
-          ...queued.map((text) => ({ role: "user" as const, content: text })),
-        ];
+  let stored = 0;
+  // One durable stream per TURN, not per slice: every slice leaves it
+  // open and unfinished; finishTurnStream ends it exactly once — also
+  // when a slice throws, so a reconnected browser is never left hanging.
+  // It ends AFTER persistTurn: a browser that sees `finish` may reload
+  // the conversation from sqlite (the fresh page's /c adoption does) and
+  // must find the whole turn there.
+  try {
+    for (let step = 0; step < MAX_STEPS; step += 1) {
+      if (step > 0) {
+        const queued = await drainSteerStep(conversationId);
+        if (queued.length > 0) {
+          messages = [
+            ...messages,
+            ...queued.map((text) => ({ role: "user" as const, content: text })),
+          ];
+        }
       }
+
+      const result = await agent.stream({
+        messages,
+        writable,
+        stopWhen: isStepCount(1),
+        preventClose: true,
+        sendFinish: false,
+      });
+      messages = stripLeadingSystem(result.messages);
+      finishReason = result.finishReason;
+
+      // The turn ends when the latest assistant message asks for no tools.
+      const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+      const wantsTools =
+        lastAssistant != null &&
+        Array.isArray(lastAssistant.content) &&
+        lastAssistant.content.some((part) => part.type === "tool-call");
+      if (!wantsTools) break;
     }
 
-    const result = await agent.stream({
-      messages,
-      writable,
-      stopWhen: isStepCount(1),
-    });
-    messages = stripLeadingSystem(result.messages);
-    finishReason = result.finishReason;
-
-    // The turn ends when the latest assistant message asks for no tools.
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-    const wantsTools =
-      lastAssistant != null &&
-      Array.isArray(lastAssistant.content) &&
-      lastAssistant.content.some((part) => part.type === "tool-call");
-    if (!wantsTools) break;
+    // skip = everything already persisted (loaded history + this turn's
+    // user message) plus the injected note, which sits right before it —
+    // persistTurn stores only the new tail.
+    const skip = history.length + (input.viewing ? 1 : 0) + 1;
+    stored = await persistTurn(conversationId, messages, skip, resolved);
+  } finally {
+    await finishTurnStream(writable);
   }
-
-  // skip = everything already persisted (loaded history + this turn's
-  // user message) plus the injected note, which sits right before it —
-  // persistTurn stores only the new tail.
-  const skip = history.length + (input.viewing ? 1 : 0) + 1;
-  const stored = await persistTurn(conversationId, messages, skip, resolved);
   // Generated titles (0007) — skipped under the scripted mock so tests
   // never wait on (or pay for) a real title call.
   if (!(process.env.SWEATSHOP_CHAT_MOCK && process.env.NODE_ENV === "test")) {

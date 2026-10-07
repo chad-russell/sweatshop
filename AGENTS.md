@@ -46,6 +46,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 - Chat runtime (0010): one WorkflowAgent workflow run per turn
   (`workflows/chat/turn.ts` — one model step per slice via
   `stopWhen: isStepCount(1)`; steer messages drain between slices).
+  ONE durable stream per turn: slices stream with `preventClose` +
+  `sendFinish: false` and `finishTurnStream` emits the single `finish`
+  and closes it AFTER `persistTurn` (the default closes after the first
+  slice — the browser then saw one slice of a long turn). A fresh page
+  stays on `/` while its creating turn is live and moves to `/c/<id>`
+  only once it settles (`onAddressable`): a refresh on `/c/<id>` renders
+  the conversation page and remounts the session mid-turn.
   sqlite is the source of truth (`messages.model_message` rows); the
   browser uses `useChat` + `WorkflowChatTransport` against
   `/api/x/chat/*` (client imports MUST come from
@@ -65,6 +72,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`WAKE_SWEEP=off` disables). Cancelled children never wake; trashed
   parents are marked woken and skipped. `cancel_run` (agent tool)
   stops `mr_…` runs and `hc_…` calls, keeping sandboxes and work.
+  Transcript cards show the child's live status: `GET /api/x/status/<id>`
+  (`lib/child-status.ts`, both kinds) polled by `useChildStatus` every
+  5 s while the child is live and the tab visible, never once settled.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
   `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
   TSX; themes `clickhouse` (default), `cal`, `nova`.
@@ -258,7 +268,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   package.json on purpose — a caret range would let a routine install
   break a load-bearing pairing; bump them deliberately, together.
 - Agent everywhere (0015): every chat has machine tools —
-  `list_machines`, `get_machine`, `create_machine` (full definition),
+  `list_machines`, `get_machine`, `create_machine` (full definition;
+  validated, then approval-gated through the ask_chad hook — machines
+  are reusable pipelines, never a workaround),
   `edit_machine` (a batch of `edit.ts` ops applied in order,
   all-or-nothing against `baseVersion`; an invalid batch returns issues
   by stage/transition plus the draft shape and saves nothing, a stale

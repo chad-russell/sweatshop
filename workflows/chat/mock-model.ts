@@ -12,7 +12,7 @@ import type { LanguageModel } from "ai";
  * the workflow serializes the model across step boundaries, so instance
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
- * "hang" | "edit-machine") is read at call time so a test file can
+ * "hang" | "edit-machine" | "create-machine" | "viewing") is read at call time so a test file can
  * switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
@@ -142,6 +142,28 @@ export function scriptedChatModel(): LanguageModel {
                 { op: "add_stage", kind: "human", title: "Approve" },
                 { op: "connect", source: "draft", target: "approve", when: "Ready" },
               ],
+            }),
+          );
+        }
+        const toolMessage = options.prompt.find((m) => m.role === "tool");
+        return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
+      }
+
+      // create_machine is approval-gated: the call suspends on Chad's
+      // answer (token = the tool call id) before anything is written.
+      if (script === "create-machine") {
+        if (!sawToolResult) {
+          return result(
+            // The call id doubles as the approval token and the pending
+            // row's key — derive it from the machine id so passes differ.
+            toolCallPart(`call_create_${process.env.SWEATSHOP_CHAT_MOCK_MACHINE ?? "m-mock-create"}`, "create_machine", {
+              id: process.env.SWEATSHOP_CHAT_MOCK_MACHINE ?? "m-mock-create",
+              name: "Mock create",
+              definition: {
+                workspace: "none",
+                start: "draft",
+                stages: { draft: { kind: "agent", title: "Draft", instructions: "d", next: [] } },
+              },
             }),
           );
         }

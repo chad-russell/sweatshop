@@ -44,13 +44,16 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
   let text = "";
   let toolCalls = 0;
   let steps = 0;
-  while (state.status === "ready_for_next_step" && steps < MAX_STEPS) {
+  // do…while: the fresh state is "not_started", so a plain while never
+  // ran the harness at all and every call "completed" in 0 s with no
+  // output (caught live 2026-10-07). Same shape as run-machine's loop.
+  do {
     const r = await harnessAdvanceStep({ callId, conversationId, kind, route, state });
     state = r.state;
     if (r.text) text += (text ? "\n\n" : "") + r.text;
     toolCalls += r.toolCalls;
     steps += 1;
-  }
+  } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
 
   if (state.status === "failed") {
     await harnessSettleStep({

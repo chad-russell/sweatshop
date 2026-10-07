@@ -397,9 +397,15 @@ export function ChatSurface({
   };
 
   // ── URL behaviour: adopt /c/<id>, new chat (⌘⇧O) ───────────────────────
-  const handleAdopted = (id: string) => {
-    window.history.replaceState(null, "", `/c/${id}`);
+  // The URL stays on / while the creating turn is live: a refresh (this
+  // one, or the attention poll's) re-renders the SAME page segment and the
+  // session survives. Swapping to /c/<id> first made every refresh render
+  // the /c page instead — a remount that dropped the live stream.
+  const handleAdopted = () => {
     router.refresh(); // the sidebar gains the conversation
+  };
+  const handleAddressable = (id: string) => {
+    window.history.replaceState(null, "", `/c/${id}`);
   };
 
   const handleNewChat = () => {
@@ -440,6 +446,7 @@ export function ChatSurface({
       initialRoute={initialRoute}
       className="mx-auto h-dvh max-w-3xl"
       onAdopted={handleAdopted}
+      onAddressable={handleAddressable}
       freshComposer={freshComposer}
       header={(s) => (
         <AppHeader

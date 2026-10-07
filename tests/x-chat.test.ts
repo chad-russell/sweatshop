@@ -64,6 +64,17 @@ async function resumeWhenReady(token: string, approved: boolean, comment?: strin
   });
 }
 
+/** Every part of a run's durable stream (what the reconnect route serves). */
+async function readAll(runId: string): Promise<unknown[]> {
+  const reader = getRun(runId).getReadable({ startIndex: 0 }).getReader();
+  const parts: unknown[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return parts;
+    parts.push(value);
+  }
+}
+
 function serialized(conversationId: string): string {
   return JSON.stringify(listModelMessages(db(), conversationId));
 }
@@ -202,6 +213,17 @@ describe("0010 spike: chat turn workflow", () => {
       const history = serialized(id);
       expect(history).toContain("STEER_MARKER"); // injected user message persisted
       expect(history).toContain("mock-steer-saw:STEER_MARKER"); // the model saw it
+
+      // The durable stream spans the WHOLE turn: a slice must not close
+      // it (live-caught 2026-10-07 — the browser saw only the first
+      // slice and the rest of a 12-slice turn appeared only on reload).
+      // Both slices are readable, and exactly one finish ends the turn.
+      const parts = await readAll(run.runId);
+      const types = parts.map((p) => (p as { type: string }).type);
+      expect(JSON.stringify(parts)).toContain("mock-steer-saw:STEER_MARKER");
+      expect(types.filter((t) => t === "model-call-start")).toHaveLength(2);
+      expect(types.filter((t) => t === "finish")).toHaveLength(1);
+      expect(types.at(-1)).toBe("finish");
     },
   );
 
@@ -238,6 +260,51 @@ describe("0010 spike: chat turn workflow", () => {
       const history = serialized(id);
       expect(history).toContain("mock-after:");
       expect(history).toContain("edit_machine");
+    },
+  );
+
+  it(
+    "create-machine: Chad approves before a machine exists; a denial creates nothing",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "create-machine";
+      const { getMachine } = await import("../db/machines");
+      const exists = (id: string) => {
+        try {
+          getMachine(db(), id);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      for (const [approved, machineId] of [
+        [false, "m-mock-create-no"],
+        [true, "m-mock-create-yes"],
+      ] as const) {
+        process.env.SWEATSHOP_CHAT_MOCK_MACHINE = machineId;
+        const id = conv(`create_${approved}`);
+        const run = await turn(id, "make me a machine");
+        const token = `call_create_${machineId}`;
+        await waitFor(async () => {
+          try {
+            return (await getHookByToken(token)) != null;
+          } catch {
+            return false;
+          }
+        }, "create_machine approval hook");
+        // Suspended on the approval: Chad sees a pending ask, and nothing
+        // has been written yet.
+        expect(listPendingInputs(db(), id).map((p) => p.id)).toContain(token);
+        expect(exists(machineId)).toBe(false);
+
+        await chatApprovalHook.resume(token, { kind: "approval", approved });
+        resolvePendingInput(db(), token, { approved });
+        expect((await run.returnValue).finishReason).toBe("stop");
+        expect(exists(machineId)).toBe(approved);
+        expect(serialized(id)).toContain(approved ? '"ok":true' : "Chad declined to create machine");
+      }
+      delete process.env.SWEATSHOP_CHAT_MOCK_MACHINE;
     },
   );
 
@@ -292,6 +359,45 @@ describe("0010 spike: chat turn workflow", () => {
       ]);
       await third.returnValue;
       expect(JSON.stringify(listModelMessages(db(), id))).not.toContain("[viewing]");
+    },
+  );
+
+  it(
+    "background harness call: the worker advances the harness, settles with its text, and wakes the chat (0022)",
+    { timeout: 30_000 },
+    async () => {
+      // Scripted harness (two semantic steps); the wake starts a chat
+      // turn, answered by the plain mock.
+      process.env.SWEATSHOP_HARNESS_MOCK = "1";
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      try {
+        const { projects } = await import("../db/schema");
+        const { getHarnessCall } = await import("../db/harness-calls");
+        const { startHarnessCall } = await import("../lib/chat/harness-call-start");
+        db().insert(projects).values({ id: "p_xchat_hc", name: "HC", createdAt: 0 }).onConflictDoNothing().run();
+        const id = `c_test_hc_${Math.random().toString(36).slice(2, 8)}`;
+        ensureConversation(db(), id, "p_xchat_hc");
+
+        const started = await startHarnessCall({ conversationId: id, kind: "pi", task: "say hi" });
+        expect(started.ok).toBe(true);
+        if (!started.ok) return;
+
+        await waitFor(async () => getHarnessCall(db(), started.callId)?.status !== "running", "call to settle");
+        const call = getHarnessCall(db(), started.callId)!;
+        // It RAN: both scripted steps' text, not an empty instant "completed".
+        expect(call.status).toBe("completed");
+        expect(call.result).toContain("mock-harness-step:1");
+        expect(call.result).toContain("mock-harness-step:2");
+        // ...and woke the chat with that result.
+        await waitFor(
+          async () => listMessageTexts(db(), id).some((r) => r.role === "user" && r.text.startsWith("[pi finished]")),
+          "the wake message",
+        );
+        const wake = listMessageTexts(db(), id).find((r) => r.text.startsWith("[pi finished]"))!;
+        expect(wake.text).toContain("mock-harness-step:2");
+      } finally {
+        delete process.env.SWEATSHOP_HARNESS_MOCK;
+      }
     },
   );
 

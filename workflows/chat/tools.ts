@@ -6,6 +6,7 @@ import { runOverridesSchema } from "../../lib/providers/route";
 import {
   bashStep,
   cancelRunStep,
+  createMachinePreviewStep,
   createMachineStep,
   createPrStep,
   deleteMachineStep,
@@ -189,14 +190,35 @@ export function buildChatTools(
       description:
         "Create a new machine from a full definition you generate: { workspace, start, stages }, where " +
         "each stage is harness/agent/human with title, instructions, and next (transitions; to: \"end\" " +
-        "completes the run). Prefer building on an existing machine with edit_machine when one is close.",
+        "completes the run). Machines are durable, reusable pipelines: create one ONLY when Chad wants " +
+        "something reusable — never as a workaround for a one-off task or a tool this chat lacks. " +
+        "Prefer building on an existing machine with edit_machine when one is close. Chad is asked " +
+        "first — the turn waits for his answer.",
       inputSchema: z.object({
         id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/).optional().describe("Lowercase kebab-case id; omit to generate one"),
         name: z.string().min(1).max(80),
         description: z.string().max(500).optional(),
         definition: z.record(z.string(), z.unknown()).describe("The full machine definition object"),
       }),
-      execute: (input) => createMachineStep(input),
+      // Approval-gated (2026-10-07): a machine outlives the chat, so Chad
+      // decides. Invalid definitions return to the model without asking.
+      execute: async (input, { toolCallId }) => {
+        const preview = (await createMachinePreviewStep(input)) as
+          | { ok: true; summary: string }
+          | { ok: false; code: string; message: string };
+        if (!preview.ok) return preview;
+        await pendingStep(conversationId, toolCallId, preview.summary, "approval");
+        const answer = await chatApprovalHook.create({ token: toolCallId });
+        if (!(answer.kind === "approval" && answer.approved)) {
+          const why = answer.kind === "approval" && answer.comment ? ` (${answer.comment})` : "";
+          return {
+            ok: false,
+            code: "denied" as const,
+            message: `Chad declined to create machine "${input.name}"${why} — nothing was created`,
+          };
+        }
+        return createMachineStep(input);
+      },
     }),
 
     edit_machine: tool({

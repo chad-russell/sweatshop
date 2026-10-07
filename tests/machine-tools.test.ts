@@ -9,6 +9,7 @@ import {
   getMachineTool,
   listMachinesCatalog,
   machineDeletePreview,
+  previewCreateMachine,
 } from "../lib/agent/tools/machines";
 
 /**
@@ -65,6 +66,18 @@ describe("0015 machine tool cores", () => {
     if (bad.ok) return;
     expect(bad.issues!.general.join("\n")).toContain('start stage "ghost" does not exist');
     expect(listMachinesCatalog().machines.some((m) => m.name === "Bad")).toBe(false);
+  });
+
+  it("previews a create for Chad's approval without writing, and refuses taken ids", () => {
+    const preview = previewCreateMachine({ id: "m-preview", name: "Preview", definition: ticket });
+    expect(preview).toMatchObject({ ok: true });
+    if (!preview.ok) return;
+    expect(preview.summary).toContain('Create machine "Preview" (m-preview) — 2 stages: pi → pi; workspace project');
+    expect(getMachineTool("m-preview")).toMatchObject({ ok: false, code: "not-found" });
+
+    expect(previewCreateMachine({ name: "Bad", definition: { workspace: "none" } })).toMatchObject({ ok: false, code: "invalid" });
+    make("m-taken");
+    expect(previewCreateMachine({ id: "m-taken", name: "Taken", definition: ticket })).toMatchObject({ ok: false, code: "conflict" });
   });
 
   it("edits with a version bump; name/description ride along", () => {
