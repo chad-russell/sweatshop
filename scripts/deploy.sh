@@ -69,11 +69,57 @@ say "deploying $short (from $(git rev-parse --short "$previous"))"
 # platform binary. Keep this list in sync with `npm install-scripts ls`.
 NATIVE_REBUILD="esbuild @swc/core unrs-resolver @mongodb-js/zstd cbor-extract protobufjs"
 
+# `next build` can finish its work — summary printed, .next complete —
+# and then never exit: on 2026-10-07 its turbopack workers kept it alive
+# for 7+ minutes while the service sat stopped (not reproducible from a
+# fresh checkout, so the cause is unknown). So the build is never trusted
+# to exit: it runs under a hard ceiling, and once it prints the route
+# legend (the last thing a successful build writes) it gets a short
+# grace period, then its container is removed and the build is judged by
+# its output. .next is cleared first — no stale state (it had grown to
+# ~470 MB); a normal build is ~25 s.
+BUILD_TIMEOUT="${BUILD_TIMEOUT:-600}"
+BUILD_EXIT_GRACE=15
+BUILD_DONE_MARK="server-rendered on demand"
+
+next_build() {
+  local log name="sweatshop-build-$$" started=$SECONDS done_at="" rc=0 pid
+  log="$(mktemp "${TMPDIR:-/tmp}/sweatshop-build.XXXXXX")"
+  say "next build (ceiling ${BUILD_TIMEOUT}s)"
+  DEV_EXEC_NAME="$name" ./dev exec -- sh -c "rm -rf .next && exec npx next build" >"$log" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [[ -z "$done_at" ]] && grep -q "$BUILD_DONE_MARK" "$log"; then done_at=$SECONDS; fi
+    if [[ -n "$done_at" ]] && (( SECONDS - done_at >= BUILD_EXIT_GRACE )); then
+      say "build finished but did not exit within ${BUILD_EXIT_GRACE}s — removing its container"
+      break
+    fi
+    if (( SECONDS - started >= BUILD_TIMEOUT )); then
+      say "build exceeded ${BUILD_TIMEOUT}s — removing its container"
+      break
+    fi
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    podman rm -f "$name" >/dev/null 2>&1 || true
+    wait "$pid" 2>/dev/null || true
+  else
+    wait "$pid" || rc=$?
+  fi
+  tail -n 20 "$log"
+  # Judged by output: no route legend (or a failing exit) = failed.
+  grep -q "$BUILD_DONE_MARK" "$log" || rc=1
+  rm -f "$log"
+  (( rc == 0 )) && say "build ok in $((SECONDS - started))s"
+  return "$rc"
+}
+
 build() {
   ./dev exec -- sh -lc "npm ci --no-audit --no-fund --ignore-scripts \
     && npm rebuild $NATIVE_REBUILD \
-    && node -e 'new (require(\"better-sqlite3\"))(\":memory:\")' \
-    && npx next build && npm run db:migrate"
+    && node -e 'new (require(\"better-sqlite3\"))(\":memory:\")'" \
+    && next_build \
+    && ./dev exec -- npm run db:migrate
 }
 
 wait_healthy() {
