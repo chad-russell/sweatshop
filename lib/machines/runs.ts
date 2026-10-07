@@ -10,6 +10,7 @@ import {
   updateRun,
   type RunView,
 } from "@/db/machines";
+import { getProject } from "@/db/projects";
 import { getProjectModels } from "@/db/providers";
 import { validationContext } from "@/lib/providers/resolve";
 import { validateRoute } from "@/lib/providers/route";
@@ -42,6 +43,10 @@ export async function startRun(input: {
   }
   try {
     const { runMachine } = await import("@/workflows/machines/run-machine");
+    // 0023: the project's work defaults ride the workflow input as
+    // plain data (read here, before the run starts — the body stays
+    // Node-free) and land in every stage brief's "# Project" section.
+    const project = run.projectId ? getProject(db(), run.projectId) : null;
     const workflow = await start(runMachine, [
       {
         runId: run.id,
@@ -49,6 +54,9 @@ export async function startRun(input: {
         prompt: run.prompt,
         projectId: run.projectId,
         binding: getRunBinding(db(), run.id),
+        project: project
+          ? { testCommand: project.testCommand ?? null, branchPrefix: project.branchPrefix ?? null }
+          : null,
       },
     ]);
     updateRun(db(), run.id, { workflowRunId: workflow.runId });

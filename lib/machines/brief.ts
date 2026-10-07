@@ -19,6 +19,13 @@ export interface PriorVisit {
   transitionTo: string | null;
 }
 
+/** 0023: project facts a stage brief carries (fetched where the run
+ * starts — plain, serializable data). */
+export interface ProjectFacts {
+  testCommand: string | null;
+  branchPrefix: string | null;
+}
+
 /** Outcome text kept per prior visit in a brief. */
 export const OUTCOME_CLIP = 6000;
 
@@ -36,6 +43,9 @@ export function buildBrief(input: {
   feedback?: string | null;
   /** Repo checkout root for harness stages (project workspaces). */
   workspaceRoot?: string | null;
+  /** 0023: the project's work defaults (test command, branch prefix) —
+   * plain data fetched where the run starts; null = no project. */
+  project?: ProjectFacts | null;
 }): string {
   const stage = input.definition.stages[input.stageId]!;
   const parts: string[] = [];
@@ -54,6 +64,19 @@ export function buildBrief(input: {
     );
   }
   if (input.feedback) parts.push(`# Feedback from Chad\n\n${input.feedback}`);
+  if (input.project) {
+    const lines = [
+      input.project.testCommand
+        ? `- Test command (run from a repo root, must exit 0): \`${input.project.testCommand}\``
+        : "- Test command: not set — when a stage must verify work, run the repo's own test script and say which you ran",
+    ];
+    if (input.project.branchPrefix) {
+      lines.push(
+        `- Branch prefix: \`${input.project.branchPrefix}/\` — name machine branches \`<prefix>/<slug>\``,
+      );
+    }
+    parts.push(`# Project\n\n${lines.join("\n")}`);
+  }
   // 0013: agent stages also work in the run's sandbox (bash/pi/claude).
   if (input.workspaceRoot && (stage.kind === "harness" || stage.kind === "agent")) {
     parts.push(

@@ -227,4 +227,18 @@ describe("briefs and transitions", async () => {
     expect(at("review")).toContain("`/work/c_1/<repo>`");
     expect(at("gate")).not.toContain("# Workspace");
   });
+
+  it("carries the project's work defaults (0023)", () => {
+    const at = (project: Parameters<typeof buildBrief>[0]["project"]) =>
+      buildBrief({ prompt: "x", definition: coding, stageId: "plan", history: [], project });
+    const withBoth = at({ testCommand: "npm run typecheck && npm run test", branchPrefix: "eng" });
+    expect(withBoth).toContain("# Project");
+    expect(withBoth).toContain("- Test command (run from a repo root, must exit 0): `npm run typecheck && npm run test`");
+    expect(withBoth).toContain("- Branch prefix: `eng/` — name machine branches `<prefix>/<slug>`");
+    const unsetCommand = at({ testCommand: null, branchPrefix: "cr" });
+    expect(unsetCommand).toContain("Test command: not set");
+    expect(unsetCommand).toContain("- Branch prefix: `cr/`");
+    expect(at(null)).not.toContain("# Project");
+    expect(withBoth.indexOf("# Project")).toBeLessThan(withBoth.indexOf("# Your stage"));
+  });
 });
