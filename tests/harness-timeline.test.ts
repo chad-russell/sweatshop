@@ -5,6 +5,16 @@ let n = 0;
 const ev = (e: Omit<TimelineEvent, "id">): TimelineEvent => ({ id: ++n, ...e });
 
 describe("buildTimeline", () => {
+  it("carries the task a turn was given (older start rows have none)", () => {
+    const items = buildTimeline([
+      ev({ kind: "start", input: "Create post-deploy.txt" }),
+      ev({ kind: "end" }),
+      ev({ kind: "start" }),
+    ]);
+    expect(items[0]).toMatchObject({ type: "turn-start", task: "Create post-deploy.txt" });
+    expect(items[2]).toMatchObject({ type: "turn-start", task: null });
+  });
+
   it("folds start + end into one tool item by toolCallId", () => {
     const items = buildTimeline([
       ev({ kind: "tool-start", toolName: "bash", toolCallId: "a", input: "{}" }),

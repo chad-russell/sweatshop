@@ -21,7 +21,8 @@ export interface FileChange {
 }
 
 export type TimelineItem =
-  | { type: "turn-start"; id: number }
+  /** task: what the harness was asked (null on pre-2026-10-07 rows). */
+  | { type: "turn-start"; id: number; task: string | null }
   | { type: "turn-end"; id: number }
   | { type: "text"; id: number; text: string }
   | {
@@ -113,7 +114,7 @@ export function buildTimeline(events: readonly TimelineEvent[]): TimelineItem[] 
   for (const event of events) {
     switch (event.kind) {
       case "start":
-        items.push({ type: "turn-start", id: event.id });
+        items.push({ type: "turn-start", id: event.id, task: event.input || null });
         break;
       case "end":
         items.push({ type: "turn-end", id: event.id });

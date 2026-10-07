@@ -12,6 +12,7 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/componen
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
 import type { SandboxLink } from "@/db/sandbox-view";
+import { TaskQuote } from "@/components/harness-card";
 import { HARNESS_LABEL, HarnessMark } from "@/components/harness-logo";
 import { buildTimeline, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
 import { shortSandboxId } from "@/lib/sandbox-id";
@@ -164,12 +165,19 @@ export function HarnessEventLog({ events }: { events: readonly HarnessEvent[] })
           switch (item.type) {
             case "turn-start":
               return (
-                <p
-                  key={`s-${item.id}`}
-                  className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
-                >
-                  — turn —
-                </p>
+                <div key={`s-${item.id}`} className="space-y-2">
+                  <p className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+                    — turn —
+                  </p>
+                  {/* What the harness was asked — the same quote as its chat card. */}
+                  {item.task && (
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] rounded-lg bg-secondary px-3 py-2">
+                        <TaskQuote className="border-l-0 pl-0 text-foreground">{item.task}</TaskQuote>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             case "turn-end":
               return (
