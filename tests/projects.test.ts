@@ -21,6 +21,7 @@ import {
   projects,
   projectRepos,
   sandboxes,
+  sandboxServices,
 } from "../db/schema";
 
 /**
@@ -227,6 +228,16 @@ describe("0018 phase 3: the delete cascade", () => {
       .run();
     const sandboxId = `sbx_del${Math.floor(Math.random() * 1e6)}`;
     fixtureSandbox(sandboxId, "p_del");
+    // 2026-10-08: a sandbox with declared services must not block the
+    // cascade's sandbox delete (FK hole found with the spike project).
+    db()
+      .insert(sandboxServices)
+      .values({
+        id: `ssvc_${sandboxId}`, sandboxId, name: "db", image: "postgres:16", port: 5432,
+        createdAt: now, updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
     const previewId = `pv_del${Math.floor(Math.random() * 1e6)}`;
     fixturePreview(previewId, sandboxId, repoId);
     savePreviewSetup(db(), "p_del", {

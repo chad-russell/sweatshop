@@ -11,6 +11,7 @@ import {
   projects,
   projectRepos,
   sandboxAttachments,
+  sandboxServices,
   sandboxes,
 } from "./schema";
 import { getPreviewSetup } from "./preview-setups";
@@ -261,6 +262,9 @@ export function deleteProjectRows(db: Db, projectId: string): ProjectResult<{ co
 
     if (sandboxIds.length) {
       tx.delete(sandboxAttachments).where(inArray(sandboxAttachments.sandboxId, sandboxIds)).run();
+      // 0017 services FK the sandbox — they die with it (same class as
+      // the conversation-teardown FK hole, found 2026-10-08).
+      tx.delete(sandboxServices).where(inArray(sandboxServices.sandboxId, sandboxIds)).run();
       tx.delete(sandboxes).where(inArray(sandboxes.id, sandboxIds)).run();
     }
 
