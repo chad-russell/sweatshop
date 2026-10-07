@@ -543,7 +543,6 @@ export const ChatMessageView = memo(function ChatMessageView({
                   task={typeof task === "string" ? task : undefined}
                   output={toolPart.state === "output-available" ? toolPart.output : undefined}
                   errorText={toolPart.state === "output-error" ? toolPart.errorText : undefined}
-                  toolCallId={toolPart.toolCallId}
                   conversationId={conversationId ?? null}
                 />
               );
