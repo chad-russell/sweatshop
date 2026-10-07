@@ -15,6 +15,7 @@ import {
   setConversationRoute,
 } from "@/db/chat";
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
+import { getProject } from "@/db/projects";
 import { getProjectModels } from "@/db/providers";
 import { validationContext } from "@/lib/providers/resolve";
 import { chatRouteSchema, parseRouteAs, validateRoute } from "@/lib/providers/route";
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
      *  (inherit the project / global default); absent = unchanged. */
     route?: unknown;
     /** Conversation-creation binding (landing pages). */
-    projectId?: string;
+    projectId?: unknown;
     /** 0013, creation only: "none" | "attached:<sandboxId>" | null (own). */
     sandbox?: string | null;
     /** 0015: the page the send came from (the agent panel's viewing note). */
@@ -85,7 +86,18 @@ export async function POST(request: Request) {
   // 0021: validate a picked route against the conversation's project
   // BEFORE creating anything — a rejected route sends nothing.
   const existing = getConversation(db(), body.conversationId);
-  const projectId = existing ? existing.projectId : (body.projectId ?? null);
+  // The creating send binds the project (0004/0013: once, for life) — it
+  // must name a real one, or the insert dies on the foreign key. Later
+  // sends' projectId is ignored (the binding never switches).
+  if (!existing && body.projectId != null) {
+    if (typeof body.projectId !== "string" || !body.projectId) {
+      return NextResponse.json({ error: "projectId must be a project id string" }, { status: 400 });
+    }
+    if (!getProject(db(), body.projectId)) {
+      return NextResponse.json({ error: `project ${body.projectId} not found` }, { status: 404 });
+    }
+  }
+  const projectId = existing ? existing.projectId : ((body.projectId as string | undefined) ?? null);
   let pickedRoute: import("@/lib/providers/route").ChatRoute | null | undefined;
   if (body.route !== undefined) {
     if (body.route === null) {
@@ -102,7 +114,7 @@ export async function POST(request: Request) {
     }
   }
   if (!existing) {
-    ensureConversation(db(), body.conversationId, body.projectId ?? null);
+    ensureConversation(db(), body.conversationId, projectId);
     if (body.sandbox === "none") {
       disableConversationSandbox(db(), body.conversationId);
     } else if (body.sandbox?.startsWith("attached:")) {
