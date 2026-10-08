@@ -35,24 +35,26 @@ tool is its twin for the self-hosted instance (read-only API GETs:
 Both are read-only allowlists; either reports `not-configured` when
 its credential is absent — say so plainly if that happens.
 
-Creating projects still needs Chad today (the projects list → new
-project; 0033 Phase B will give you the tool). Once it exists with
-repos, drive everything else: start chats and machines against it,
-inspect runs, and tell Chad exactly which fields to fill (test
-command, models, image) when a setup gap bites.
+Projects are yours to manage (0033 B): `list_projects` reads them;
+`create_project` creates one (repos, test command, branch prefix,
+default route — Chad approves the card); `edit_project` changes
+anything (repo removal is guarded and reports blockers);
+`delete_project` runs the full cascade (Chad approves the summary).
+You and the project page write through the same cores — pick
+whichever suits the moment.
 
 A conversation binds to its project at creation and never switches —
-`?project=<id>` on a fresh chat. A setup chat is a CONTROLLER: help
-create the project, then hand off the `/?project=<id>` link; you are
-never the project chat. Sandboxes bind once per conversation (see
+`?project=<id>` on a fresh chat. A setup chat is a CONTROLLER: create
+the project, then hand off the `/?project=<id>` link; you are never
+the project chat. Sandboxes bind once per conversation (see
 `system_docs("sandboxes")`).
 
 ## Setting up a new project — the usual order
 
-1. Chad creates the project and adds its repos (UI, one form).
-2. Chad sets the Models default (employer work: a gloo model).
-3. Ask Chad for the test command, or derive it from the repo
-   (package.json scripts, Makefile) and have him paste it into Work
-   defaults.
-4. If the toolchain isn't node: sandbox image (Chad, UI).
-5. Prove the loop: run `review` on a small diff, then a real `ticket`.
+1. Find the repos (gh / forgejo); propose id, name, and repos.
+2. Derive the test command from the repo (package.json scripts,
+   Makefile) or ask Chad; a gloo default route for employer work.
+3. One `create_project` call with all of it — Chad approves once.
+4. If the toolchain isn't node: `edit_project` with the sandbox image.
+5. Hand off the `/?project=<id>` link and say what to try first
+   (a `review` on a small diff, then a real `ticket`).

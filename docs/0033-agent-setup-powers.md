@@ -71,7 +71,7 @@ the implementation, which is the versioned truth. Agent stages keep
 the omit-not-configure posture only where the toolset is frozen at
 visit start; presence there follows the same credential rule.
 
-## Phase B — project-management tools (awaiting approval)
+## Phase B — project-management tools (implemented 2026-10-08)
 
 The first slice of the 2.4 tool audit. UI and tools call the same core
 functions (the 0015 pattern):
