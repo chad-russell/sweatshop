@@ -200,7 +200,11 @@ page "Work defaults" card, stage briefs' "# Project" section) and
 
 **Trial week.** Chad works in sweatshop on an employer project (open-bible or
 qr-codes), with dsh as the escape hatch. Record friction in a file; it drives
-Phase 2/3 ordering.
+Phase 2/3 ordering. Underway 2026-10-08 on GPL (TangoGroup); its first
+frictions already shipped fixes: 0033 agent setup powers — gh + forgejo
+repo discovery on the stored credentials, project tools
+(create/edit/list/delete_project), and the New-project UI (sidebar +
+⌘K) — all sharing the createProject core.
 
 ## Phase 2 — Foundations of the "just chat to set it up" world 🟡
 
