@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, MonitorPlay, Workflow } from "lucide-react";
+import { Archive, FolderPlus, MonitorPlay, Workflow } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -12,6 +12,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { NEW_PROJECT_EVENT } from "@/components/project/new-project";
 import { Snippet, whereLabel } from "./search-results";
 import { useConversationSearch } from "./use-search";
 import { conversationHref } from "@/lib/conversation-href";
@@ -135,6 +136,21 @@ export function CommandPalette() {
                   <span className="ml-auto truncate font-mono text-xs text-muted-foreground">{p.host}</span>
                 </CommandItem>
               ))}
+            </CommandGroup>
+          )}
+          {/* 0033 B-UI: opens the sidebar's New-project dialog. */}
+          {(!needle || "new project".includes(needle)) && (
+            <CommandGroup heading="Create">
+              <CommandItem
+                value="new-project"
+                onSelect={() => {
+                  close();
+                  window.dispatchEvent(new CustomEvent(NEW_PROJECT_EVENT));
+                }}
+              >
+                <FolderPlus className="text-muted-foreground" />
+                <span className="truncate">New project</span>
+              </CommandItem>
             </CommandGroup>
           )}
           {runnable.length > 0 && (

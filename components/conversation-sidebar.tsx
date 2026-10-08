@@ -11,6 +11,7 @@ import { SidebarContext } from "@/components/sidebar/context";
 import { GroupSection } from "@/components/sidebar/group-section";
 import { SearchResults } from "@/components/sidebar/search-results";
 import { ShelfView } from "@/components/sidebar/shelf-view";
+import { NewProjectButton } from "@/components/project/new-project";
 import {
   allItems,
   type Drag,
@@ -255,6 +256,9 @@ export function ConversationSidebar({
             <MonitorPlay className="size-4 shrink-0 text-sidebar-foreground/60" />
             <span className="flex-1">Previews</span>
           </Link>
+          {/* 0033 B-UI: the creation half of the createProject core
+              (the agent's create_project is the other). */}
+          <NewProjectButton />
           {/* 0021: default model routes, provider availability. */}
           <Link
             href="/settings"
