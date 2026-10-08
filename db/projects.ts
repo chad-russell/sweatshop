@@ -28,6 +28,66 @@ export type ProjectResult<T> = ({ ok: true } & T) | { ok: false; code: string; m
 
 const fail = (code: string, message: string) => ({ ok: false as const, code, message });
 
+// ── create (0033 Phase B — the agent tool is the first creation path;
+// no UI form exists) ──────────────────────────────────────────────────
+
+/** Everything `createProject` validates, without inserting — the
+ * approval preview runs this, the approved call inserts. */
+export function checkNewProject(
+  db: Db,
+  input: { id: string; name: string; repos?: { name: string; url: string }[] },
+): { ok: true; id: string; repos: string[] } | { ok: false; code: string; message: string } {
+  const id = input.id.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id)) {
+    return fail("invalid", "project id is lowercase kebab-case-ish (letters, digits, -), 40 chars max");
+  }
+  if (!input.name?.trim()) return fail("invalid", "name is required");
+  if (input.name.trim().length > 120) return fail("invalid", "name must be at most 120 characters");
+  if (db.select().from(projects).where(eq(projects.id, id)).get()) {
+    return fail("conflict", `project ${id} already exists`);
+  }
+  const seen: string[] = [];
+  for (const r of input.repos ?? []) {
+    const name = r.name.trim();
+    const url = r.url.trim().replace(/\.git$/, "");
+    if (!name || !/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
+      return fail("invalid", `repo name "${r.name}" must look like a directory (letters, digits, . _ -)`);
+    }
+    if (!/^https?:\/\//.test(url)) return fail("invalid", `repo url "${r.url}" must be http(s)`);
+    if (seen.includes(name)) return fail("invalid", `repo name ${name} given twice`);
+    seen.push(name);
+  }
+  return { ok: true, id, repos: seen };
+}
+
+/** Create a project with its repos, atomically. */
+export function createProject(
+  db: Db,
+  input: { id: string; name: string; description?: string | null; repos?: { name: string; url: string }[] },
+): ProjectResult<{ project: { id: string; name: string }; repos: string[] }> {
+  const checked = checkNewProject(db, input);
+  if (!checked.ok) return checked;
+  const name = input.name.trim();
+  const now = Date.now();
+  db.transaction((tx) => {
+    tx.insert(projects)
+      .values({ id: checked.id, name, description: input.description?.trim() || null, createdAt: now })
+      .run();
+    for (const r of input.repos ?? []) {
+      tx.insert(projectRepos)
+        .values({
+          id: `${checked.id}/${r.name.trim()}`,
+          projectId: checked.id,
+          name: r.name.trim(),
+          url: r.url.trim().replace(/\.git$/, ""),
+          createdAt: now,
+        })
+        .run();
+    }
+  });
+  return { ok: true, project: { id: checked.id, name }, repos: checked.repos };
+}
+
 // ── rename ───────────────────────────────────────────────────────────────
 
 export function renameProject(db: Db, projectId: string, name: string): ProjectResult<{ name: string }> {
