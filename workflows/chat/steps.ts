@@ -138,6 +138,23 @@ export async function createPrStep(
   return openProjectPR({ projectId, ...input });
 }
 
+/** 0034 Phase A: validate a create_pr proposal and build the approval
+ *  card text (commits + diffstat from the sandbox when bound). */
+export async function createPrPreviewStep(
+  conversationId: string,
+  input: {
+    repo: string;
+    head: string;
+    base?: string;
+    title: string;
+    body?: string;
+  },
+): Promise<unknown> {
+  "use step";
+  const { buildChatPRPreview } = await import("../../lib/agent/tools/pr-preview");
+  return buildChatPRPreview(conversationId, input);
+}
+
 /** 1.5 (roadmap): fetch one web page — plain HTTP, capped, HTML stripped. */
 export async function webFetchStep(url: string): Promise<unknown> {
   "use step";

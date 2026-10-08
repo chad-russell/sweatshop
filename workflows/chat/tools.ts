@@ -8,6 +8,7 @@ import {
   cancelRunStep,
   createMachinePreviewStep,
   createMachineStep,
+  createPrPreviewStep,
   createPrStep,
   deleteMachineStep,
   editMachineStep,
@@ -93,7 +94,8 @@ export function buildChatTools(
     create_pr: tool({
       description:
         "Open a pull request for a branch of one of this project's repos (github or forgejo). " +
-        "Push the branch first (git push in the sandbox).",
+        "Push the branch first (git push in the sandbox). Chad approves every PR — the turn waits " +
+        "on his answer (the card shows the commits and diffstat) and the PR opens only when he accepts.",
       inputSchema: z.object({
         repo: z.string().describe("Repo directory name under the work root"),
         head: z.string().describe("Branch containing the work"),
@@ -101,7 +103,25 @@ export function buildChatTools(
         title: z.string().min(1),
         body: z.string().optional(),
       }),
-      execute: (input) => createPrStep(conversationId, input),
+      // 0034 Phase A: approval-gated like create_machine — never a
+      // silent PR. Invalid proposals return to the model without asking.
+      execute: async (input, { toolCallId }) => {
+        const preview = (await createPrPreviewStep(conversationId, input)) as
+          | { ok: true; summary: string }
+          | { ok: false; code: string; message: string };
+        if (!preview.ok) return preview;
+        await pendingStep(conversationId, toolCallId, preview.summary, "approval");
+        const answer = await chatApprovalHook.create({ token: toolCallId });
+        if (!(answer.kind === "approval" && answer.approved)) {
+          const why = answer.kind === "approval" && answer.comment ? ` (${answer.comment})` : "";
+          return {
+            ok: false,
+            code: "denied" as const,
+            message: `Chad declined the PR${why} — nothing was opened`,
+          };
+        }
+        return createPrStep(conversationId, input);
+      },
     }),
 
     start_machine: tool({
