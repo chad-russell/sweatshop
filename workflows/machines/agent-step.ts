@@ -149,7 +149,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
       }),
     }),
     ...(input.binding && input.projectId
-      ? await stageSandboxTools(sessionId, input.binding, input.projectId)
+      ? await stageSandboxTools(sessionId, runId, input.binding, input.projectId)
       : {}),
     ...(targets.length > 1
       ? {
@@ -241,16 +241,20 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
 /** 0013: bash / pi / claude (+ 0016 previews) for an agent stage, in the run's binding. */
 async function stageSandboxTools(
   sessionId: string,
+  runId: string,
   binding: BoundSandbox,
   projectId: string,
 ): Promise<ToolSet> {
-  const [{ tool }, { z }, { runBashIn }, { harnessToolStep }, { previewTools }, previews] = await Promise.all([
+  const [{ tool }, { z }, { runBashIn }, { harnessToolStep }, { previewTools }, previews, { proposePrTool }, { runGitSummary }, { openInheritedSandbox }] = await Promise.all([
     import("ai"),
     import("zod"),
     import("../../lib/agent/tools/bash"),
     import("../chat/harness-step"),
     import("../chat/preview-tools"),
     import("../../lib/agent/tools/previews"),
+    import("./harness-agent"),
+    import("../../lib/agent/tools/pr-preview"),
+    import("../../lib/sandboxes/binding"),
   ]);
   // 0016: previews in the run's sandbox. This whole function runs inside
   // the stage's one step, so the cores are called directly.
@@ -269,11 +273,18 @@ async function stageSandboxTools(
       execute: ({ task }) =>
         harnessToolStep({
           conversationId: sessionId,
+          runId,
           kind,
           task,
           inherited: { binding, projectId },
         }),
     });
+  // 0034 A: agent stages propose PRs like harness stages — the run's
+  // gate approves, the publish stage executes.
+  const summarize = (repo: string, head: string, base?: string) =>
+    openInheritedSandbox(binding).then(({ handle, workDir }) =>
+      runGitSummary((command) => handle.run(command, undefined, workDir), repo, head, base),
+    );
   return {
     bash: tool({
       description:
@@ -293,6 +304,7 @@ async function stageSandboxTools(
               ? previews.savePreviewSetupTool(caller, input as { definition: unknown })
               : previews.stopPreviewTool(caller, input as { id: string }),
     ),
+    propose_pr: proposePrTool(projectId, runId, summarize),
     pi: harness("pi"),
     ...(process.env.CLAUDE_CODE_OAUTH_TOKEN ? { claude: harness("claude") } : {}),
   };

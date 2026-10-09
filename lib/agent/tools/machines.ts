@@ -185,6 +185,79 @@ export function createMachineTool(input: {
   }
 }
 
+/** 0034 A: the approval preview for edit_machine — the stage graph is
+ *  policy (gates and publish stages gate what a run may do), so edits
+ *  are Chad's call. Validates the batch exactly like the edit, without
+ *  saving, and summarizes what would change. */
+export function editMachinePreview(input: {
+  id: string;
+  baseVersion: number;
+  ops: EditOp[];
+  name?: string;
+  description?: string;
+}): { ok: true; summary: string } | MachineToolError {
+  let machine: Machine;
+  try {
+    machine = getMachine(db(), input.id);
+  } catch (error) {
+    return asError(error);
+  }
+  if (machine.version !== input.baseVersion) {
+    return {
+      ok: false,
+      code: "conflict",
+      message:
+        `machine ${input.id} is at version ${machine.version}, not the baseVersion ${input.baseVersion} ` +
+        "these ops were planned against. Re-read it with get_machine and retry against the new version.",
+      currentVersion: machine.version,
+    };
+  }
+  let draft: Machine["definition"];
+  try {
+    draft = applyOps(machine.definition, input.ops);
+  } catch (error) {
+    return {
+      ok: false,
+      code: "invalid",
+      message:
+        `an op cannot apply: ${error instanceof Error ? error.message : String(error)}. Nothing was asked.`,
+      issues: { stages: {}, transitions: {}, general: [] },
+    };
+  }
+  const parsed = parseDefinition(draft);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      code: "invalid",
+      message: `applying the ops would leave ${input.id} invalid; nothing was asked`,
+      issues: elementIssues(draft, parsed.errors),
+      draft: shapeOf(draft),
+    };
+  }
+  const opList = input.ops.map((op) => summarizeOp(op)).join("; ");
+  const renames = [
+    ...(input.name !== undefined ? [`name → "${input.name}"`] : []),
+    ...(input.description !== undefined ? ["description"] : []),
+  ];
+  return {
+    ok: true,
+    summary:
+      `Edit machine "${machine.name}" (${input.id}, v${machine.version} → v${machine.version + 1}): ` +
+      `${input.ops.length} op${input.ops.length === 1 ? "" : "s"} — ${opList}` +
+      (renames.length ? `; ${renames.join(", ")}` : ""),
+  };
+}
+
+function summarizeOp(op: EditOp): string {
+  const detail =
+    "id" in op && typeof op.id === "string"
+      ? op.id
+      : "source" in op && "target" in op
+        ? `${String(op.source)}→${String(op.target)}`
+        : "";
+  return `${op.op}${detail ? ` ${detail}` : ""}`;
+}
+
 export function editMachineTool(input: {
   id: string;
   /** The version the ops were planned against; a mismatch is a conflict. */

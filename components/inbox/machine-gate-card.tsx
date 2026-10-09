@@ -34,6 +34,19 @@ export function MachineGateCard({
               <MessageResponse>{gate.lastOutcome}</MessageResponse>
             </div>
           )}
+          {gate.prProposal && (
+            <div className="max-h-72 space-y-1 overflow-auto rounded-md border border-primary/40 p-2">
+              <p className="text-xs font-medium text-primary">
+                PR — {gate.prProposal.head} → {gate.prProposal.base ?? "main"} on {gate.prProposal.repo}
+              </p>
+              <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">
+                {gate.prProposal.summary}
+              </pre>
+              <p className="text-xs text-muted-foreground">
+                Approving sends this to the run&apos;s Publish stage: it pushes the branch and opens the PR.
+              </p>
+            </div>
+          )}
         </div>
       </div>
       <GateAnswer runId={gate.runId} seq={gate.seq} targets={gate.targets} onAnswered={() => onAnswered(gate.id)} />

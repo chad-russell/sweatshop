@@ -10,8 +10,9 @@ import {
   markUnread,
 } from "../db/attention";
 import { loadSidebar } from "../db/organize";
-import { conversations, folders, machineRuns, machineStageRuns, messages, projects } from "../db/schema";
+import { conversations, folders, machineRuns, machineStageRuns, messages, prProposals, projects } from "../db/schema";
 import { recordPendingInput, resolvePendingInput } from "../db/chat";
+import { resolvePRProposal } from "../db/pr-proposals";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 
@@ -179,6 +180,44 @@ describe("needs you", () => {
     tdb.update(machineRuns).set({ status: "running" }).where(eq(machineRuns.id, "mr_att1")).run();
     expect(loadInbox(tdb).needsYou.some((n) => n.kind === "machine" && n.id === "mr_att1:1")).toBe(false);
     expect(loadAttention(tdb).signature).not.toBe(before);
+  });
+
+  it("the gate card carries the run's pending PR proposal (0034 A)", () => {
+    tdb.insert(projects).values({ id: "att-t", name: "Att T", createdAt: 1 }).onConflictDoNothing().run();
+    const definition = {
+      workspace: "project",
+      start: "work",
+      stages: {
+        work: { kind: "harness", harness: "pi", title: "Work", instructions: "", next: [{ to: "gate" }] },
+        gate: { kind: "human", title: "Approve PR", instructions: "ok?", next: [{ to: "end", when: "Approve" }] },
+      },
+    };
+    tdb.insert(machineRuns).values({
+      id: "mr_attpr", machineName: "M", machineVersion: 1, definition: JSON.stringify(definition),
+      projectId: "att-t", prompt: "ship it", status: "waiting", createdAt: 1, updatedAt: 2,
+    }).run();
+    tdb.insert(machineStageRuns).values([
+      { runId: "mr_attpr", seq: 0, stageId: "work", kind: "harness", status: "completed", outcome: "done", startedAt: 1 },
+      { runId: "mr_attpr", seq: 1, stageId: "gate", kind: "human", status: "waiting", startedAt: 2 },
+    ]).run();
+    tdb.insert(prProposals).values({
+      id: "prp_att1", runId: "mr_attpr", projectId: "att-t", repo: "r", head: "feat/x",
+      base: null, title: "T", body: null, summary: "Open a pull request on \"r\": T\nfeat/x → main",
+      status: "pending", createdAt: 3, resolvedAt: null,
+    }).run();
+
+    const gate = loadInbox(tdb).needsYou.find((n) => n.kind === "machine" && n.id === "mr_attpr:1") as
+      | { prProposal: { head: string; summary: string } | null }
+      | undefined;
+    expect(gate?.prProposal).toMatchObject({ repo: "r", head: "feat/x" });
+    expect(gate?.prProposal?.summary).toContain("feat/x → main");
+
+    // Resolved proposals disappear from the card (superseded or acted on).
+    resolvePRProposal(tdb, "prp_att1", { status: "denied" });
+    const after = loadInbox(tdb).needsYou.find((n) => n.kind === "machine" && n.id === "mr_attpr:1") as
+      | { prProposal: { head: string } | null }
+      | undefined;
+    expect(after?.prProposal).toBeNull();
   });
 });
 

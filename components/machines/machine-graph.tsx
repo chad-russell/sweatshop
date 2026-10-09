@@ -12,7 +12,7 @@ import {
   type NodeProps,
   type ReactFlowInstance,
 } from "@xyflow/react";
-import { AlertTriangle, Bot, Flag, Hand, Play, Terminal } from "lucide-react";
+import { AlertTriangle, Bot, Flag, Hand, Play, Rocket, Terminal } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { Canvas } from "@/components/ai-elements/canvas";
 import { Controls } from "@/components/ai-elements/controls";
@@ -84,7 +84,7 @@ interface TransitionData extends Record<string, unknown> {
   issues?: readonly string[];
 }
 
-const KIND_ICON = { harness: Terminal, agent: Bot, human: Hand } as const;
+const KIND_ICON = { harness: Terminal, agent: Bot, human: Hand, publish: Rocket } as const;
 
 function firstLine(text: string): string {
   return text.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
@@ -146,7 +146,7 @@ const StageNode = memo(function StageNode({ data, selected }: NodeProps<FlowNode
           </span>
         )}
       </div>
-      <p className="truncate text-xs text-muted-foreground">{firstLine(stage.instructions) || "—"}</p>
+      <p className="truncate text-xs text-muted-foreground">{firstLine(stage.instructions ?? "") || "—"}</p>
     </div>
   );
 });
