@@ -271,8 +271,7 @@ function PullRequestToolCard({ part }: { part: ToolUIPart }) {
   );
 }
 
-/** An ask_chad call awaiting Chad: approvals get Approve/Deny, questions
- *  get a freeform answer box — matching what the tool asked for. */
+/** An ask_chad call awaiting Chad: approvals get Approve/Deny, questions *  get a freeform answer box — matching what the tool asked for. */
 function AskChadCard({ part }: { part: ToolUIPart }) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
@@ -345,6 +344,72 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
       ) : (
         <p className="mt-1 text-xs text-muted-foreground">
           {part.state === "output-available" ? String(part.output) : "no answer recorded"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Tools whose execute asks Chad first (the ask_chad pattern inside a
+ * tool): while the part is unresolved, the transcript shows the
+ * approval buttons right there — same POST as the inbox card. */
+const GATED_TOOLS = new Set(["create_machine", "delete_machine", "create_project", "delete_project"]);
+
+/** One gated tool call awaiting Chad's approval, in the transcript. */
+function GatedApprovalCard({ part }: { part: ToolUIPart }) {
+  const [busy, setBusy] = useState(false);
+  const name = part.type.replace(/^tool-/, "");
+  const input = part.state === "input-streaming" ? undefined : (part.input as Record<string, unknown> | undefined);
+  const str = (key: string) => (typeof input?.[key] === "string" ? (input[key] as string) : undefined);
+  const headline =
+    name === "create_project"
+      ? `Create project ${str("id") ?? "?"}${str("name") ? ` ("${str("name")}")` : ""}`
+      : name === "delete_project"
+        ? `Delete project ${str("id") ?? "?"} — and everything it owns`
+        : name === "create_machine"
+          ? `Create machine "${str("name") ?? "?"}"`
+          : `Delete machine ${str("id") ?? "?"}`;
+  const answered = part.state === "output-available" || part.state === "output-error";
+
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      <p className="text-sm font-medium">{headline}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">The agent is waiting for your approval.</p>
+      {!answered ? (
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
+          >
+            Deny
+          </button>
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {part.state === "output-available" ? String(part.output).slice(0, 300) : "no answer recorded"}
         </p>
       )}
     </div>
@@ -564,6 +629,16 @@ export const ChatMessageView = memo(function ChatMessageView({
             }
             if (toolPart.type === "tool-create_pr") {
               return <PullRequestToolCard key={i} part={toolPart} />;
+            }
+            // Gated tools (0033): the approval buttons live in the
+            // transcript while the call awaits Chad; once answered the
+            // normal card renders the outcome.
+            if (
+              GATED_TOOLS.has(toolPart.type.replace(/^tool-/, "")) &&
+              toolPart.state !== "output-available" &&
+              toolPart.state !== "output-error"
+            ) {
+              return <GatedApprovalCard key={i} part={toolPart} />;
             }
             if (toolPart.type === "tool-web_search" || toolPart.type === "tool-web_fetch") {
               const input = toolPart.state === "input-streaming" ? undefined : toolPart.input;

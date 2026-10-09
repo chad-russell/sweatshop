@@ -310,6 +310,14 @@ extras (0017); harness SSE; usage/cost visibility per provider/run.
 - **Route in run snapshots** and how claude is pointed at the gloo Anthropic
   route (1.2 spike).
 - **How skills reach each harness** (2.3 spike).
+- **A default sandbox for every chat** (Chad, 2026-10-08): the
+  has-sandbox/has-project tool split has bitten repeatedly (plain chats
+  lack bash; the gh-vs-bash reasoning; preview tools). Explore giving
+  top-level chats a default sandbox (no repos — an empty workspace) so
+  the sandboxed toolset always exists and the split becomes "project
+  repos or not". Questions: per-chat containers vs one shared scratch
+  sandbox; reaper/lifecycle pressure; the 0013 binding model and the
+  explicit "no sandbox" choice; cost on bee.
 
 ## Parity audit (2026-10-06)
 

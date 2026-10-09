@@ -19,6 +19,11 @@ Format: `- [date] surface — what frictions; (what you did instead)`
   repo (no gh/credential powers) or create the project (no tool); the
   agent asked correctly via ask_chad but offloaded UI work + ids to
   Chad. → 0033: gh discovery (Phase A) + project tools (Phase B).
+- [2026-10-08] GPL setup, take 2 — create_project's approval existed
+  only in /inbox; the transcript card had no buttons and looked
+  stalled. → in-transcript approval cards for gated tools. Related
+  backlog (Chad): a default sandbox for every chat, so the
+  sandbox/no-sandbox tool split stops biting.
 - [2026-10-08] git — no PR gate: create_pr executed silently; worse,
   sandboxes held the full PAT, so bash could push main/develop with no
   backstop. → 0034: gated create_pr, read-scoped sandbox creds,
