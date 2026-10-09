@@ -93,7 +93,7 @@ export function inspectTarget(id: string): InspectResult {
   // 0022: a background harness call — status, its task, and where it runs.
   if (id.startsWith("hc_")) {
     const call = db().select().from(harnessCalls).where(eq(harnessCalls.id, id)).get();
-    if (!call) throw new Error(`no harness call "${id}"`);
+    if (!call) return { kind: "error", code: "unknown-id", message: `no harness call "${id}"` };
     const binding = getConversationBinding(db(), call.conversationId);
     const events = harnessActivity(call.conversationId);
     return {
@@ -142,12 +142,15 @@ export function inspectTarget(id: string): InspectResult {
         };
       }
     }
-    throw new Error(`nothing to inspect: no chat or run "${id}"`);
+    // 2026-10-09 post-mortem: unknown ids are a VALUE, not a throw — a
+    // typo'd id in a live turn retried 4x uselessly and killed the whole
+    // wake turn; the model self-corrects on the shaped error.
+    return { kind: "error", code: "unknown-id", message: `nothing to inspect: no chat or run "${id}"` };
   }
 
   if (row.kind === "run") {
     const run = db().select().from(machineRuns).where(eq(machineRuns.id, id)).get();
-    if (!run) throw new Error(`run ${id} has no run record`);
+    if (!run) return { kind: "error", code: "unknown-id", message: `run ${id} has no run record` };
     const visits = listStageRuns(db(), id).map((v) => ({
       seq: v.seq,
       stage: v.stageId,

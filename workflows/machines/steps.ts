@@ -1,4 +1,5 @@
-import type { MachineStageRun } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
+import { harnessEvents, type MachineStageRun } from "@/db/schema";
 import type { BoundSandbox } from "@/db/sandboxes";
 import { machineStore } from "./deps";
 
@@ -230,6 +231,47 @@ export async function loadHistory(runId: string): Promise<MachineStageRun[]> {
   "use step";
   const { db, m } = await machineStore();
   return m.listStageRuns(db, runId);
+}
+
+/**
+ * 2026-10-09 post-mortem: the attachments each prior harness visit
+ * produced (attach_screenshot tool results), keyed by seq — evidence
+ * the next stage reviews instead of re-deriving the work.
+ */
+export async function loadEvidence(
+  runId: string,
+): Promise<Record<number, { label?: string; url: string }[]>> {
+  "use step";
+  const [{ db }, { listStageRuns }] = await Promise.all([
+    import("@/db"),
+    import("@/db/machines"),
+  ]);
+  const out: Record<number, { label?: string; url: string }[]> = {};
+  for (const v of listStageRuns(db(), runId)) {
+    if (!v.sessionId || v.kind !== "harness") continue;
+    const rows = db()
+      .select({ output: harnessEvents.output })
+      .from(harnessEvents)
+      .where(
+        and(
+          eq(harnessEvents.sessionId, v.sessionId),
+          eq(harnessEvents.kind, "tool-end"),
+          eq(harnessEvents.toolName, "attach_screenshot"),
+        ),
+      )
+      .all();
+    const found: { label?: string; url: string }[] = [];
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(row.output ?? "") as { ok?: boolean; url?: string };
+        if (parsed.ok === true && parsed.url) found.push({ url: parsed.url });
+      } catch {
+        // clipped or non-JSON output — skip
+      }
+    }
+    if (found.length > 0) out[v.seq] = found;
+  }
+  return out;
 }
 
 /**

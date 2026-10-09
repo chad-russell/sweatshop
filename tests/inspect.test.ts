@@ -124,11 +124,12 @@ describe("0013 inspect", () => {
       harness: { runs: [{ harness: "pi", status: "running" }] },
     });
     // a session id with no matching visit row is still unknown
-    expect(() => inspectTarget(`${run.id}_7`)).toThrow(/nothing to inspect/);
+    expect(inspectTarget(`${run.id}_7`)).toMatchObject({ kind: "error", code: "unknown-id" });
   });
 
-  it("explains unknown ids", () => {
-    expect(() => inspectTarget("c_nope")).toThrow(/nothing to inspect/);
+  it("explains unknown ids as values, not throws (a typo'd id must not kill the turn)", () => {
+    expect(inspectTarget("c_nope")).toMatchObject({ kind: "error", code: "unknown-id" });
+    expect(inspectTarget("mr_typo_9")).toMatchObject({ kind: "error", code: "unknown-id" });
   });
 });
 

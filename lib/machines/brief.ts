@@ -17,6 +17,10 @@ export interface PriorVisit {
   title: string;
   outcome: string | null;
   transitionTo: string | null;
+  /** 2026-10-09 post-mortem: screenshots this visit attached — the next
+   *  stage reviews them instead of re-deriving the work (evidence, not
+   *  prose, crosses stages). */
+  evidence?: { label?: string; url: string }[];
 }
 
 /** 0023: project facts a stage brief carries (fetched where the run
@@ -61,7 +65,10 @@ export function buildBrief(input: {
             (v, i) =>
               `## ${i + 1}. ${v.title} (${v.stageId})` +
               (v.transitionTo ? ` → ${v.transitionTo}` : "") +
-              `\n\n${clipText(v.outcome, OUTCOME_CLIP) || "(no output)"}`,
+              `\n\n${clipText(v.outcome, OUTCOME_CLIP) || "(no output)"}` +
+              (v.evidence && v.evidence.length > 0
+                ? `\n\nAttachments: ${v.evidence.map((e) => `[${e.label ?? "screenshot"}](${e.url})`).join(" · ")} — review these; do not re-take them`
+                : ""),
           )
           .join("\n\n"),
     );
@@ -91,7 +98,9 @@ export function buildBrief(input: {
   if (input.workspaceRoot && (stage.kind === "harness" || stage.kind === "agent")) {
     parts.push(
       `# Workspace\n\nThe project's git repos are cloned under \`${input.workspaceRoot}/<repo>\` ` +
-        "(your working directory). Earlier stages worked in the same checkout.",
+        "(your working directory). Earlier stages worked in the same checkout. File tools are " +
+        "workspace-scoped: write under this root (a scratch dir is fine) — paths outside it, /tmp " +
+        "included, are rejected, and rejections do not create anything.",
     );
   }
   parts.push(`# Your stage: ${stage.title}\n\n${stage.instructions}`);
