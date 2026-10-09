@@ -24,3 +24,10 @@ Format: `- [date] surface — what frictions; (what you did instead)`
   stalled. → in-transcript approval cards for gated tools. Related
   backlog (Chad): a default sandbox for every chat, so the
   sandbox/no-sandbox tool split stops biting.
+- [2026-10-08] git — no PR gate: create_pr executed silently; worse,
+  sandboxes held the full PAT, so bash could push main/develop with no
+  backstop. → 0034: gated create_pr, read-scoped sandbox creds,
+  brokered git_push, host branch protection.
+- [2026-10-08] QA — no browser: verifying UI work meant Chad opening
+  previews himself; nothing to screenshot and attach. → 0035:
+  agent-browser + chromium in sandbox images, screenshot attach.

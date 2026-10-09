@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import http from "node:http";
+import { eq } from "drizzle-orm";
 import { getHookByToken, getRun, start } from "workflow/api";
 import { db } from "../db";
 import {
@@ -228,7 +230,7 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "edit-machine: a scripted edit_machine call changes the machine row (0015)",
+    "edit-machine: a scripted edit_machine call changes the machine row — Chad approves first (0034 A)",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_CHAT_MOCK = "edit-machine";
@@ -247,6 +249,19 @@ describe("0010 spike: chat turn workflow", () => {
       const id = conv("edit_machine");
 
       const run = await turn(id, "add an approval step");
+      // 0034 A: the stage graph is policy — the edit suspends on Chad.
+      await waitFor(async () => {
+        try {
+          return (await getHookByToken("call_edit_1")) != null;
+        } catch {
+          return false;
+        }
+      }, "edit_machine approval hook");
+      expect(listPendingInputs(db(), id).map((p) => p.id)).toContain("call_edit_1");
+      expect(getMachine(db(), "m-mock-edit").version).toBe(1);
+      await chatApprovalHook.resume("call_edit_1", { kind: "approval", approved: true });
+      resolvePendingInput(db(), "call_edit_1", { approved: true });
+
       const result = await run.returnValue;
       expect(result.finishReason).toBe("stop");
 
@@ -305,6 +320,87 @@ describe("0010 spike: chat turn workflow", () => {
         expect(serialized(id)).toContain(approved ? '"ok":true' : "Chad declined to create machine");
       }
       delete process.env.SWEATSHOP_CHAT_MOCK_MACHINE;
+    },
+  );
+
+  it(
+    "create-pr: Chad approves before the host is hit; a denial opens nothing (0034 A)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "create-pr";
+      const { createProject } = await import("../db/projects");
+      const { conversations, gitCredentials, messages, pendingInputs, projectRepos, projects, steerQueue } =
+        await import("../db/schema");
+
+      // A local forgejo stub: createPR POSTs here on approval. Nothing
+      // may reach it before Chad answers.
+      const requests: { path: string; body: { head?: string } | null }[] = [];
+      const server = http.createServer((req, res) => {
+        let data = "";
+        req.on("data", (chunk) => (data += chunk));
+        req.on("end", () => {
+          requests.push({ path: req.url ?? "", body: data ? JSON.parse(data) : null });
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ html_url: "http://git.test/chad/r/pulls/9", number: 9 }));
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = (server.address() as import("node:net").AddressInfo).port;
+      const baseUrl = `http://127.0.0.1:${port}`;
+
+      try {
+        for (const approved of [false, true] as const) {
+          const pid = `prgate-${approved ? "yes" : "no"}-${Math.random().toString(36).slice(2, 6)}`;
+          expect(createProject(db(), {
+            id: pid,
+            name: "PR gate",
+            repos: [{ name: "r", url: `${baseUrl}/chad/r` }],
+          }).ok).toBe(true);
+          const credId = `cred-${pid}`;
+          db().insert(gitCredentials).values({
+            id: credId, kind: "forgejo", label: "test", username: "chad",
+            secret: "s", baseUrl, createdAt: Date.now(),
+          }).run();
+          const id = `c_test_prgate_${Math.random().toString(36).slice(2, 8)}`;
+          ensureConversation(db(), id, pid);
+
+          const before = requests.length;
+          const run = await turn(id, "open the pr");
+          await waitFor(async () => {
+            try {
+              return (await getHookByToken("call_pr_1")) != null;
+            } catch {
+              return false;
+            }
+          }, "create_pr approval hook");
+          // Suspended on the approval: the card exists, the host untouched.
+          expect(listPendingInputs(db(), id).map((p) => p.id)).toContain("call_pr_1");
+          expect(requests.length).toBe(before);
+
+          await chatApprovalHook.resume("call_pr_1", { kind: "approval", approved });
+          resolvePendingInput(db(), "call_pr_1", { approved });
+          expect((await run.returnValue).finishReason).toBe("stop");
+
+          if (approved) {
+            expect(requests.length).toBe(before + 1);
+            expect(requests.at(-1)?.path).toBe("/api/v1/repos/chad/r/pulls");
+            expect(requests.at(-1)?.body?.head).toBe("feat/trial");
+            expect(serialized(id)).toContain("pulls/9");
+          } else {
+            expect(requests.length).toBe(before);
+            expect(serialized(id)).toContain("Chad declined the PR");
+          }
+          db().delete(messages).where(eq(messages.conversationId, id)).run();
+          db().delete(pendingInputs).where(eq(pendingInputs.conversationId, id)).run();
+          db().delete(steerQueue).where(eq(steerQueue.conversationId, id)).run();
+          db().delete(conversations).where(eq(conversations.id, id)).run();
+          db().delete(gitCredentials).where(eq(gitCredentials.id, credId)).run();
+          db().delete(projectRepos).where(eq(projectRepos.projectId, pid)).run();
+          db().delete(projects).where(eq(projects.id, pid)).run();
+        }
+      } finally {
+        server.close();
+      }
     },
   );
 

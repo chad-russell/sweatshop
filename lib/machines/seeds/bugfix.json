@@ -46,19 +46,27 @@
         "harness": "pi",
         "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
         "title": "Verify",
-        "instructions": "You are the QA stage. Confirm: the reproduction stage's RED command now passes; the project's test command from the brief's \"# Project\" section passes (or, when unset, the repo's own test script — say which you ran); and the diff contains only the planned fix plus its failing test. If all three hold, transition to publish; otherwise transition back to fix and explain exactly what failed.",
+        "instructions": "You are the QA stage. Confirm: the reproduction stage's RED command now passes; the project's test command from the brief's \"# Project\" section passes (or, when unset, the repo's own test script — say which you ran); and the diff contains only the planned fix plus its failing test. When all three hold, declare the PR with the propose_pr tool (repo = the repo's directory name, head = the work branch, title = one line summarizing the fix; the body states the root cause, the red command, and the red→green evidence), then transition to the approval gate; otherwise transition back to fix and explain exactly what failed.",
         "next": [
-          { "to": "publish", "when": "Red is green and the gate passes" },
+          { "to": "pr-approve", "when": "Red is green and the gate passes (PR declared)" },
           { "to": "fix", "when": "The fix needs work (explain exactly what)" }
         ],
         "maxVisits": 3
       },
+      "pr-approve": {
+        "kind": "human",
+        "title": "Approve PR",
+        "instructions": "The PR proposal recorded by the previous stage is shown on the card (branch, commits, diffstat). Approve it to push the branch and open the PR, send it back with a comment for changes, or reject to end the run.",
+        "next": [
+          { "to": "publish", "when": "Approve the PR" },
+          { "to": "fix", "when": "Request changes (add a comment for the fixer)" },
+          { "to": "end", "when": "Reject" }
+        ]
+      },
       "publish": {
-        "kind": "harness",
-        "harness": "pi",
-        "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
+        "kind": "publish",
         "title": "Publish",
-        "instructions": "You are the publish stage. Push the work branch to origin with git (credentials are installed), then open a pull request with the create_pr tool (repo = the repo's directory name). The PR body states the root cause, the red command, and the red→green evidence. Reply with the PR URL.",
+        "instructions": "Deterministic: pushes the approved branch and opens the approved PR.",
         "next": []
       }
     }

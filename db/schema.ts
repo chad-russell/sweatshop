@@ -249,6 +249,42 @@ export const pendingInputs = sqliteTable(
 );
 
 /**
+ * 0034 Phase A: PR proposals inside machine runs. A stage visit (harness
+ * or agent) declares the PR it wants with the propose_pr host tool —
+ * local commits only, harnesses never push — and the run's human gate
+ * shows the recorded summary; Chad's transition choice IS the approval.
+ * The deterministic `publish` stage then pushes the branch and opens the
+ * PR through the GitHost seam, resolving the row with the outcome.
+ */
+export const prProposals = sqliteTable(
+  "pr_proposals",
+  {
+    /** The proposing tool call's id (idempotency key on step retries). */
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => machineRuns.id),
+    projectId: text("project_id").notNull(),
+    repo: text("repo").notNull(),
+    head: text("head").notNull(),
+    base: text("base"),
+    title: text("title").notNull(),
+    body: text("body"),
+    /** Rendered at propose time (commits + diffstat) — what the gate
+     *  card shows and the approval covers. */
+    summary: text("summary").notNull(),
+    /** pending | opened | denied | failed. */
+    status: text("status").notNull().default("pending"),
+    resultUrl: text("result_url"),
+    resultNumber: integer("result_number"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    resolvedAt: integer("resolved_at"),
+  },
+  (table) => [index("pr_proposals_run_idx").on(table.runId)],
+);
+
+/**
  * 0010 Phase 2: a conversation attached to a sandbox it does not own
  * (explicit "join" from the composer dropdown or an agent tool). The
  * attacher works in its own workdir but shares ports and processes.

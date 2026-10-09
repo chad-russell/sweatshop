@@ -102,15 +102,29 @@ export function transitionTool(stage: Stage) {
 }
 
 /**
- * The create_pr host tool every harness surface offers (0004 D; 0031:
- * shared by the chat harness step and machine harness stages — one
- * definition instead of two verbatim copies).
+ * 0034 A: the propose_pr host tool for machine stage visits (harness
+ * stages and agent-stage pi/claude calls). It never pushes and never
+ * opens anything — tool executes run inside workflow steps, where the
+ * approval hook may not be created, so publishing is split across the
+ * run's own boundaries: this records the proposal, the run's human gate
+ * shows its summary (Chad's transition choice IS the approval), and the
+ * deterministic publish stage pushes and opens it. Chats publish with
+ * their own gated create_pr instead — no harness there gets git powers.
  */
-export function createPrTool(projectId: string) {
+export function proposePrTool(
+  projectId: string,
+  runId: string,
+  /** Optional branch summary from the live sandbox handle. */
+  summarize?: (repo: string, head: string, base?: string) => Promise<
+    { log?: string; stat?: string; note?: string } | null
+  >,
+) {
   return tool({
     description:
-      "Open a pull request for a pushed branch of one of this project's repos " +
-      "(repo = directory name under the work root). Push the branch first.",
+      "Declare the pull request this run should open: repo (directory name under the work root), " +
+      "the branch with its commits already made locally, a one-line title, optional body. Nothing " +
+      "is pushed — Chad approves the proposal at the run's gate and the Publish stage pushes and " +
+      "opens it. Call it again to supersede (e.g. after a fix loop).",
     inputSchema: z.object({
       repo: z.string(),
       head: z.string(),
@@ -118,15 +132,54 @@ export function createPrTool(projectId: string) {
       title: z.string().min(1),
       body: z.string().optional(),
     }),
-    execute: async (args: {
-      repo: string;
-      head: string;
-      base?: string;
-      title: string;
-      body?: string;
-    }) => {
-      const { openProjectPR } = await import("@/lib/git-hosts/open-pr");
-      return openProjectPR({ projectId, ...args });
+    execute: async (
+      args: {
+        repo: string;
+        head: string;
+        base?: string;
+        title: string;
+        body?: string;
+      },
+      { toolCallId },
+    ) => {
+      const [{ db }, { resolveProjectRepo }, { formatPRSummary }, store, { isSafeRefName }] =
+        await Promise.all([
+          import("@/db"),
+          import("@/lib/git-hosts/open-pr"),
+          import("@/lib/agent/tools/pr-preview"),
+          import("@/db/pr-proposals"),
+          import("@/lib/git-hosts/refs"),
+        ]);
+
+      for (const name of [args.repo, args.head, ...(args.base ? [args.base] : [])]) {
+        if (!isSafeRefName(name)) {
+          return { ok: false as const, code: "invalid-name" as const, message: `"${name}" is not a safe ref/repo name` };
+        }
+      }
+      const resolved = resolveProjectRepo(projectId, args.repo);
+      if (!resolved.ok) {
+        return { ok: false as const, code: resolved.code, message: resolved.message };
+      }
+
+      const git = summarize ? await summarize(args.repo, args.head, args.base) : null;
+      const row = store.recordPRProposal(db(), {
+        id: toolCallId,
+        runId,
+        projectId,
+        repo: args.repo,
+        head: args.head,
+        base: args.base ?? null,
+        title: args.title,
+        body: args.body ?? null,
+        summary: formatPRSummary(args, git ?? undefined),
+      });
+      return {
+        ok: true as const,
+        state: "recorded" as const,
+        id: row.id,
+        note: "PR proposal recorded. The run's Approve gate shows it to Chad; the Publish stage " +
+          "pushes the branch and opens the PR once he approves.",
+      };
     },
   });
 }

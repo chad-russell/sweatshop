@@ -191,7 +191,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   hosts, sandbox image, work defaults, preview-setup editor,
   work-surface links) and
   project conversations start on `/` with `?project=<id>`; `create_pr`
-  is the agent's PR tool.
+  is the agent's PR tool — approval-gated EVERYWHERE (0034 A), one
+  mechanism per surface: the CHAT tool suspends on the ask_chad hook
+  with a commits + diffstat card; in MACHINE runs stages only
+  `propose_pr` (a run-scoped `pr_proposals` row, `db/pr-proposals.ts`
+  — harnesses hold no git write powers at all; chat harness calls get
+  no git tool), the run's HUMAN gate card renders the pending proposal
+  (the transition choice is the approval), and a deterministic
+  `publish` stage kind pushes the branch and opens the PR.
 - Machines (0009): user-editable stage machines — sqlite `machines`
   rows holding a zod-validated JSON definition (`lib/machines/
   definition.ts`; seeds in `lib/machines/seeds/*.json`, insert-only via
@@ -208,7 +215,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   stage session id; branching stages choose via a side-effect-free
   `transition` tool, single-target ones advance on completion; was
   `eve` in 0009), `human` (a `defineHook`
-  gate shown in `/inbox`). A project run has ONE sandbox binding
+  gate shown in `/inbox`; its card renders the run's pending PR
+  proposal when one exists — 0034 A), and `publish` (0034 A:
+  deterministic — `publishStep` pushes the run's gate-approved PR
+  proposal and opens it; no model, protected refs refused; project
+  machines only). A project run has ONE sandbox binding
   (0013, `machine_runs.sandbox_id`/`sandbox_work_dir`/`sandbox_owner`):
   inherited from the chat that started it via `start_machine` (same
   sandbox and directory; `fresh: true` opts out), or its own dedicated
@@ -290,7 +301,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `edit_machine` (a batch of `edit.ts` ops applied in order,
   all-or-nothing against `baseVersion`; an invalid batch returns issues
   by stage/transition plus the draft shape and saves nothing, a stale
-  `baseVersion` is a conflict) and `delete_machine` (asks through the
+  `baseVersion` is a conflict; 0034 A: approval-gated — the stage graph
+  is policy) and `delete_machine` (asks through the
   ask_chad hook) — cores in `lib/agent/tools/machines.ts`, errors
   value-shaped so the model repairs them. Page context: pages register
   what they are (`components/page-context.tsx` provider in the root
