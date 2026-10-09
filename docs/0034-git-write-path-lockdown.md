@@ -1,8 +1,48 @@
 # 0034 — Git write path: brokered push, gated PRs
 
-Status: **draft 2026-10-08 — decisions confirmed by Chad in chat (trial
-week); implementation not started.** Born from the trial findings in
-docs/TRIAL-FRICTION.md.
+Status: **2026-10-08 — Phase A implemented in the approved final shape
+(chat gate; propose_pr → human gate → deterministic publish stage;
+edit_machine gated); phases B–E pending.** Born from the trial findings
+in docs/TRIAL-FRICTION.md.
+
+## Phase A as built — approval at each surface's native boundary
+
+The rule that fell out of the design discussion: **approval happens
+where the runtime can natively suspend.** For a chat turn that is
+mid-turn (the ask_chad hook — the only agent context whose tool
+executes run in workflow context). For a machine run it is the stage
+edge (the human gate, 0009). Hooks may not be created inside workflow
+steps (vendored HumanInTheLoop.md — steps are atomic journaled units;
+only the body re-runs deterministically to an await), and every harness
+or agent-stage tool executes inside a step — so no machine-context tool
+can wait for Chad, and none needs to:
+
+- **Harnesses hold no git write powers at all.** pi/claude in machine
+  stages and agent-stage calls get `propose_pr` (records a run-scoped
+  `pr_proposals` row with a summary rendered at propose time — commits
+  + diffstat); chat harness calls get no git tool (the chat agent
+  publishes with its own gated `create_pr` after the wake). Local git
+  stays in sandboxes — status/diff/log is how coding agents read a
+  repo; the boundary that matters is remote writes, enforced by phase
+  B's read-scoped tokens.
+- **The human gate is the PR gate.** A waiting gate's inbox card
+  renders the run's pending proposal; Chad's transition choice IS the
+  approval. No mechanism changes to gateHook — only card data.
+- **`publish` is a new deterministic stage kind.** No model runs in
+  it: one step reads the run's proposal (immutable between gate and
+  publish — what was approved is what opens), refuses protected refs
+  (hard deny list always; the checkout's origin/HEAD with the push),
+  pushes the branch, opens the PR, and folds the url into the visit
+  outcome and wake. ticket/bugfix reshaped: verify proposes, a
+  `pr-approve` human gate decides, `publish` executes (reseed
+  `--replace` at deploy).
+- **The stage graph is policy, so `edit_machine` is approval-gated**
+  like create_machine (it was the only ungated machine write — an
+  agent could otherwise rewire a machine to skip its gates).
+
+Known seam for the future: the harness SDK's `awaiting_tool_approval`
+state is the designed path for native mid-turn harness approvals
+(roadmap 3.5) — not hooks in steps.
 
 ## Why
 
@@ -83,9 +123,8 @@ acceptable window, called out at deploy.
 
 ## Phases
 
-- **A — Gate `create_pr`** (chats + machine stages). Smallest, immediate
-  trial value. The mock-model ask_chad flow (tests/x-chat.test.ts) is
-  the test pattern.
+- **A — Gate `create_pr`** *(done, in the shape above)*: chat hook
+  gate; propose_pr + gate card + publish stage; edit_machine gated.
 - **B — Credential split + `git_push`** — `purpose` migration, read
   tokens installed at provisioning, the tool + deny list, re-provision
   note. Tests: deny list, purpose resolution, value-shaped errors.

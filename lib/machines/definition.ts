@@ -8,9 +8,10 @@ import { chatRouteSchema, harnessRouteSchema } from "../providers/route";
  *
  * Validation enforces the doc's structural rules beyond the zod shape:
  * `start` and every `next.to` name a real stage (or the reserved
- * terminal `end`); `harness` stages require `workspace: "project"`.
- * A stage with no `next` ends the run after it; `{ to: "end" }` lets a
- * branching stage (e.g. a human gate's "accept") end it explicitly.
+ * terminal `end`); `harness` and `publish` stages require
+ * `workspace: "project"`. A stage with no `next` ends the run after
+ * it; `{ to: "end" }` lets a branching stage (e.g. a human gate's
+ * "accept") end it explicitly.
  */
 
 /** Reserved transition target that completes the run. */
@@ -60,10 +61,23 @@ const humanStage = z.object({
   ...common,
 });
 
+/** 0034 A: deterministic — pushes the run's approved PR proposal and
+ *  opens it. No model runs here; the human gate upstream was the
+ *  approval. Instructions optional (nothing executes them — a note for
+ *  the graph reader). */
+const publishStage = z.object({
+  kind: z.literal("publish"),
+  title: z.string().min(1).max(80),
+  instructions: z.string().max(20_000).optional(),
+  next: z.array(transition).max(8),
+  maxVisits: z.number().int().min(1).max(20).optional(),
+});
+
 export const stageSchema = z.discriminatedUnion("kind", [
   harnessStage,
   agentStage,
   humanStage,
+  publishStage,
 ]);
 
 export const machineDefinitionSchema = z
@@ -115,11 +129,11 @@ export const machineDefinitionSchema = z
           message: `route harness "${stage.route.harness}" does not match the stage's harness "${stage.harness}"`,
         });
       }
-      if (stage.kind === "harness" && def.workspace !== "project") {
+      if ((stage.kind === "harness" || stage.kind === "publish") && def.workspace !== "project") {
         ctx.addIssue({
           code: "custom",
           path: ["stages", id, "kind"],
-          message: "harness stages need workspace: project",
+          message: `${stage.kind} stages need workspace: project`,
         });
       }
     }

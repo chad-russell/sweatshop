@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateText } from "ai";
-import { chatLanguageModel, providerKey } from "../lib/providers/registry";
+import { chatLanguageModel } from "../lib/providers/registry";
 import type { ChatRoute } from "../lib/providers/route";
 
 /**

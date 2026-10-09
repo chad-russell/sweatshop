@@ -21,6 +21,7 @@ import {
   loadHistory,
   markRun,
   provisionWorkspace,
+  publishStep,
   recordSteps,
   resolveVisitRoute,
 } from "./steps";
@@ -160,6 +161,14 @@ export async function runMachine(input: RunMachineInput) {
             projectId: input.projectId,
           });
           result = { ok: true, outcome: visit.text, proposed: visit.proposed };
+        }
+      } else if (stage.kind === "publish") {
+        // 0034 A: deterministic — the human gate upstream approved the
+        // run's PR proposal; this pushes the branch and opens it.
+        if (!binding) {
+          result = { ok: false, parked: "publish stage without a project workspace (no sandbox to push from)" };
+        } else {
+          result = await publishStep({ runId, binding });
         }
       } else {
         using hook = gateHook.create({ token });

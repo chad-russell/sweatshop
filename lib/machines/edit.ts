@@ -108,7 +108,9 @@ export function updateStage(def: MachineDefinition, id: string, patch: StagePatc
  */
 export function setStageRoute(def: MachineDefinition, id: string, route: ChatRoute | HarnessRoute | null): MachineDefinition {
   const stage = stageOf(def, id);
-  if (stage.kind === "human") throw new EditError("human stages have no route");
+  if (stage.kind === "human" || stage.kind === "publish") {
+    throw new EditError("human and publish stages have no route");
+  }
   const next: Record<string, unknown> = { ...stage };
   if (route === null) {
     delete next.route;
@@ -133,15 +135,26 @@ export function setStageRoute(def: MachineDefinition, id: string, route: ChatRou
   return withStage(def, id, next as Stage);
 }
 
-/** Change a stage's kind, keeping title/instructions/next/maxVisits. */
+/** Change a stage's kind, keeping title/instructions/next/maxVisits
+ *  (instructions only where the target kind has them — publish's is
+ *  optional, a note for the graph reader). */
 export function setKind(def: MachineDefinition, id: string, kind: StageKind): MachineDefinition {
   const stage = stageOf(def, id);
   if (stage.kind === kind) return def;
   const { title, instructions, next, maxVisits } = stage;
-  const base = { title, instructions, next, ...(maxVisits !== undefined ? { maxVisits } : {}) };
-  // A route never survives a kind change (its shape is per kind).
-  const replaced: Stage =
-    kind === "harness" ? { kind, harness: "pi", ...base } : kind === "agent" ? { kind, ...base } : { kind, ...base };
+  if (instructions === undefined && (kind === "harness" || kind === "agent")) {
+    throw new EditError(`a ${kind} stage needs instructions — set them on the stage first (update_stage)`);
+  }
+  const base = {
+    title,
+    ...(instructions !== undefined ? { instructions } : {}),
+    next,
+    ...(maxVisits !== undefined ? { maxVisits } : {}),
+  };
+  // A route never survives a kind change (its shape is per kind). The
+  // guard above makes instructions present for harness/agent targets —
+  // the spread alone can't prove it to the union.
+  const replaced = (kind === "harness" ? { kind, harness: "pi", ...base } : { kind, ...base }) as Stage;
   return withStage(def, id, replaced);
 }
 

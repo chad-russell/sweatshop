@@ -9,6 +9,97 @@ import { machineStore } from "./deps";
  * orchestrates.
  */
 
+/**
+ * 0034 A: the deterministic publish stage — push the run's approved PR
+ * proposal and open it. One step, no model; the human gate upstream was
+ * the approval, so this executes exactly what that gate's card showed
+ * (the proposal row is immutable between the two). A protected head or
+ * a failed push/open parks the run with the reason.
+ */
+export async function publishStep(input: {
+  runId: string;
+  binding: BoundSandbox;
+}): Promise<{ ok: true; outcome: string; proposed: null } | { ok: false; parked: string }> {
+  "use step";
+  const [{ db }, store, { openProjectPR }, { openSandbox }, { isProtectedRef, isSafeRefName }] =
+    await Promise.all([
+      import("@/db"),
+      import("@/db/pr-proposals"),
+      import("@/lib/git-hosts/open-pr"),
+      import("@/lib/sandboxes/binding"),
+      import("@/lib/git-hosts/refs"),
+    ]);
+  const proposal = store.pendingRunProposal(db(), input.runId);
+  if (!proposal) {
+    return {
+      ok: false,
+      parked: "publish stage reached with no pending PR proposal — a prior stage must call propose_pr",
+    };
+  }
+  if (!isSafeRefName(proposal.head)) {
+    return { ok: false, parked: `proposal head "${proposal.head}" is not a safe ref name` };
+  }
+  // The hard deny list always applies; the checkout's default branch is
+  // checked with the push below (it needs the sandbox).
+  if (isProtectedRef(proposal.head)) {
+    store.resolvePRProposal(db(), proposal.id, {
+      status: "failed",
+      error: `refused to push protected branch "${proposal.head}"`,
+    });
+    return {
+      ok: false,
+      parked: `publish refused: "${proposal.head}" is a protected branch (0034)`,
+    };
+  }
+
+  // Tests (double-gated, like the harness mocks): skip the sandbox push.
+  if (!(process.env.SWEATSHOP_PUBLISH_MOCK && process.env.NODE_ENV === "test")) {
+    const { workDir, handle } = await openSandbox(input.binding);
+    let defaultBranch: string | null = null;
+    const head = await handle.run(
+      "git symbolic-ref --short refs/remotes/origin/HEAD",
+      undefined,
+      workDir,
+    );
+    if (head.exitCode === 0) {
+      defaultBranch = head.stdout.trim().replace(/^origin\//, "") || null;
+    }
+    if (isProtectedRef(proposal.head, defaultBranch)) {
+      store.resolvePRProposal(db(), proposal.id, {
+        status: "failed",
+        error: `refused to push protected branch "${proposal.head}"`,
+      });
+      return {
+        ok: false,
+        parked: `publish refused: "${proposal.head}" is a protected branch (0034)`,
+      };
+    }
+    const push = await handle.run(`git push origin ${proposal.head}`, undefined, workDir);
+    if (push.exitCode !== 0) {
+      const why = push.stderr.trim().split("\n")[0] ?? "git error";
+      store.resolvePRProposal(db(), proposal.id, { status: "failed", error: `push failed: ${why}` });
+      return { ok: false, parked: `pushing ${proposal.head} failed: ${why}` };
+    }
+  }
+
+  try {
+    const pr = await openProjectPR({
+      projectId: proposal.projectId,
+      repo: proposal.repo,
+      head: proposal.head,
+      base: proposal.base ?? undefined,
+      title: proposal.title,
+      body: proposal.body ?? undefined,
+    });
+    store.resolvePRProposal(db(), proposal.id, { status: "opened", url: pr.url, number: pr.number });
+    return { ok: true, outcome: `[pr] opened #${pr.number}: ${pr.url}`, proposed: null };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    store.resolvePRProposal(db(), proposal.id, { status: "failed", error });
+    return { ok: false, parked: `branch pushed but the PR could not be opened: ${error}` };
+  }
+}
+
 export async function markRun(
   runId: string,
   set: { status?: string; currentStage?: string | null; error?: string | null },
@@ -43,8 +134,7 @@ async function maybeWake(runId: string): Promise<void> {
   }
 }
 
-export async function provisionWorkspace(runId: string, projectId: string): Promise<BoundSandbox> {
-  "use step";
+export async function provisionWorkspace(runId: string, projectId: string): Promise<BoundSandbox> {  "use step";
   const [{ db }, { bindRun, runWorkspaceRoot }, { acquireSandbox }] = await Promise.all([
     import("@/db"),
     import("@/db/machines"),

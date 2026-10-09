@@ -13,6 +13,7 @@ import {
   projects,
 } from "./schema";
 import type { MachineDefinition } from "../lib/machines/definition";
+import { pendingRunProposal } from "./pr-proposals";
 
 /**
  * 0008 attention: what is waiting on the user.
@@ -293,6 +294,15 @@ export interface NeedsYouMachineGate {
   prompt: string;
   /** The previous stage's outcome — usually what Chad is judging. */
   lastOutcome: string | null;
+  /** 0034 A: the run's pending PR proposal — when present, this gate is
+   *  the PR approval (the summary was rendered at propose time). */
+  prProposal: {
+    repo: string;
+    head: string;
+    base: string | null;
+    title: string;
+    summary: string;
+  } | null;
   projectName: string | null;
   since: number;
 }
@@ -389,6 +399,7 @@ export function loadInbox(db: Conn): InboxData {
       .from(machineStageRuns)
       .where(and(eq(machineStageRuns.runId, g.runId), eq(machineStageRuns.seq, g.seq - 1)))
       .get();
+    const proposal = pendingRunProposal(db, g.runId);
     return {
       kind: "machine",
       id: g.token,
@@ -400,6 +411,15 @@ export function loadInbox(db: Conn): InboxData {
       targets: stage?.next ?? [],
       prompt: g.prompt,
       lastOutcome: previous?.outcome ?? null,
+      prProposal: proposal
+        ? {
+            repo: proposal.repo,
+            head: proposal.head,
+            base: proposal.base,
+            title: proposal.title,
+            summary: proposal.summary,
+          }
+        : null,
       projectName: g.projectId ? (projectName.get(g.projectId) ?? g.projectId) : null,
       since: g.startedAt,
     };

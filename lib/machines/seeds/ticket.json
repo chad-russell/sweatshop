@@ -1,7 +1,7 @@
 {
   "id": "ticket",
   "name": "Ticket",
-  "description": "Plan with pi, approve it (or send it back with a comment), implement with claude, verify with the project's test command, then push and open a PR.",
+  "description": "Plan with pi, approve it (or send it back with a comment), implement with claude, verify with the project's test command, then approve the PR and a deterministic publish stage pushes and opens it.",
   "definition": {
     "workspace": "project",
     "start": "plan",
@@ -36,19 +36,27 @@
         "harness": "pi",
         "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
         "title": "Verify",
-        "instructions": "You are the QA stage. Verify the work on the branch named in the earlier plan (its BRANCH line). Run the project's test command from the brief's \"# Project\" section — or, when it is not set, the repo's own test script, saying which you ran. At minimum confirm the planned changes are present and committed. If the work is correct, transition to publish; otherwise transition back to implement and explain exactly what is wrong.",
+        "instructions": "You are the QA stage. Verify the work on the branch named in the earlier plan (its BRANCH line). Run the project's test command from the brief's \"# Project\" section — or, when it is not set, the repo's own test script, saying which you ran. At minimum confirm the planned changes are present and committed. When the work is correct, declare the PR with the propose_pr tool (repo = the repo's directory name, head = that branch, title = one line summarizing the change), then transition to the approval gate; if it needs fixes, transition back to implement and explain exactly what is wrong.",
         "next": [
-          { "to": "publish", "when": "The work is correct and committed" },
+          { "to": "pr-approve", "when": "The work is correct and committed (PR declared)" },
           { "to": "implement", "when": "The work needs fixes (explain them)" }
         ],
         "maxVisits": 3
       },
+      "pr-approve": {
+        "kind": "human",
+        "title": "Approve PR",
+        "instructions": "The PR proposal recorded by the previous stage is shown on the card (branch, commits, diffstat). Approve it to push the branch and open the PR, send it back with a comment for changes, or reject to end the run.",
+        "next": [
+          { "to": "publish", "when": "Approve the PR" },
+          { "to": "implement", "when": "Request changes (add a comment for the implementer)" },
+          { "to": "end", "when": "Reject" }
+        ]
+      },
       "publish": {
-        "kind": "harness",
-        "harness": "pi",
-        "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
+        "kind": "publish",
         "title": "Publish",
-        "instructions": "You are the publish stage. Push the work branch to origin with git (credentials are installed), then open a pull request for it with the create_pr tool (repo = the repo's directory name), summarizing the change. Reply with the PR URL.",
+        "instructions": "Deterministic: pushes the approved branch and opens the approved PR.",
         "next": []
       }
     }

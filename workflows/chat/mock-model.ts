@@ -12,7 +12,7 @@ import type { LanguageModel } from "ai";
  * the workflow serializes the model across step boundaries, so instance
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
- * "hang" | "edit-machine" | "create-machine" | "viewing") is read at call time so a test file can
+ * "hang" | "edit-machine" | "create-machine" | "create-pr" | "viewing") is read at call time so a test file can
  * switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
@@ -164,6 +164,23 @@ export function scriptedChatModel(): LanguageModel {
                 start: "draft",
                 stages: { draft: { kind: "agent", title: "Draft", instructions: "d", next: [] } },
               },
+            }),
+          );
+        }
+        const toolMessage = options.prompt.find((m) => m.role === "tool");
+        return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
+      }
+
+      // 0034 Phase A: a scripted create_pr round trip — the call must
+      // suspend on Chad's approval (token = the tool call id) before the
+      // host is ever hit.
+      if (script === "create-pr") {
+        if (!sawToolResult) {
+          return result(
+            toolCallPart("call_pr_1", "create_pr", {
+              repo: "r",
+              head: "feat/trial",
+              title: "Trial PR",
             }),
           );
         }
