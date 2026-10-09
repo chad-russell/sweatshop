@@ -28,7 +28,7 @@
         "kind": "harness",
         "harness": "claude",
         "title": "Implement",
-        "instructions": "You are the implementation stage. Follow the approved plan from the earlier stage exactly: create its branch (the plan's BRANCH line), make the changes, and commit with clear messages. Do not push.",
+        "instructions": "You are the implementation stage. Follow the approved plan from the earlier stage exactly: create its branch (the plan's BRANCH line), make the changes, and commit with clear messages. Do not push.\n\nFor visual changes, serve your work before finishing: call start_preview (the project's saved setup defaults dir/command/port; first run on a setup-less project, save one with save_preview_setup) and confirm the app actually comes up at the preview URL. Never hand-build a QA environment — no apt installs, no ad-hoc databases, no background servers outside a preview.",
         "next": [{ "to": "verify" }]
       },
       "verify": {
@@ -36,7 +36,7 @@
         "harness": "pi",
         "route": { "harness": "pi", "provider": "glm", "model": "glm-5.3-flash" },
         "title": "Verify",
-        "instructions": "You are the QA stage. Verify the work on the branch named in the earlier plan (its BRANCH line). Run the project's test command from the brief's \"# Project\" section — or, when it is not set, the repo's own test script, saying which you ran. At minimum confirm the planned changes are present and committed. When the work is correct, declare the PR with the propose_pr tool (repo = the repo's directory name, head = that branch, title = one line summarizing the change), then transition to the approval gate; if it needs fixes, transition back to implement and explain exactly what is wrong.",
+        "instructions": "You are the QA stage. Verify the work on the branch named in the earlier plan (its BRANCH line). Run the project's test command from the brief's \"# Project\" section — or, when it is not set, the repo's own test script, saying which you ran. At minimum confirm the planned changes are present and committed. For visual changes, QA against a live preview: start_preview is idempotent per sandbox/directory/port, so calling it returns the same preview the implementer started — exercise the changed UI there (a browser tool, when the sandbox image has one; else fetch the pages and read the markup) and report what you actually saw, never a claim you did not check. When the work is correct, declare the PR with the propose_pr tool (repo = the repo's directory name, head = that branch, title = one line summarizing the change), then transition to the approval gate; if it needs fixes, transition back to implement and explain exactly what is wrong.",
         "next": [
           { "to": "pr-approve", "when": "The work is correct and committed (PR declared)" },
           { "to": "implement", "when": "The work needs fixes (explain them)" }
