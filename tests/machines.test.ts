@@ -246,4 +246,22 @@ describe("briefs and transitions", async () => {
     expect(saved).toContain("services: postgres");
     expect(withBoth).toContain("Preview setup: none saved — the first stage needing visual QA bootstraps one");
   });
+
+  it("carries prior visits' attached screenshots as reviewable evidence (run 2 post-mortem)", () => {
+    const brief = buildBrief({
+      prompt: "x",
+      definition: coding,
+      stageId: "gate",
+      history: [
+        {
+          stageId: "plan",
+          title: "Plan",
+          outcome: "planned it",
+          transitionTo: "gate",
+          evidence: [{ label: "before", url: "/api/attachments/att_a" }, { url: "/api/attachments/att_b" }],
+        },
+      ],
+    });
+    expect(brief).toContain("Attachments: [before](/api/attachments/att_a) · [screenshot](/api/attachments/att_b) — review these; do not re-take them");
+  });
 });

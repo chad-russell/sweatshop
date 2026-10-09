@@ -60,3 +60,17 @@ Format: `- [date] surface — what frictions; (what you did instead)`
   spike-verified but unmerged (#54), so to the user it "didn't exist";
   three PRs went stale during trial prep. → merge discipline: land
   small PRs the same day during trial weeks.
+- [2026-10-09] run 2 — the wake turn DIED on a typo'd inspect id
+  (thrown error retried 4x, then bubbled: no plan summary in the chat).
+  → inspect returns value-shaped unknown-id errors; ids come from the
+  runEvent metadata, never retyped.
+- [2026-10-09] run 2 — verify re-audited the whole environment for
+  1h42m because evidence doesn't cross stages (outcome text only).
+  → attachments ride the brief; verify scoped to diff + gate + one
+  spot-check; a cold preview restart IS the environment test.
+- [2026-10-09] run 2 — pi ground against the /tmp workspace rule (37+
+  rejected writes; the transcript looked frozen). → the rule is stated
+  in the brief's # Workspace section.
+- [2026-10-09] run 2 — 391 model round-trips; 53 were one
+  agent-browser subcommand each, learned via --help. → the CLI's skill
+  is baked into the sandbox image (refs + batch patterns).

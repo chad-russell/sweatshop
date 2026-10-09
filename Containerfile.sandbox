@@ -48,6 +48,10 @@ RUN mkdir -p /workspace /work && chown sandbox:sandbox /workspace /work
 # image build; bump the agent-browser pin above and rebuild to move.
 USER sandbox
 RUN agent-browser install
+# 0035 follow-up (2026-10-09 post-mortem): bake the CLI's own usage skill
+# where harnesses find it — run 2's implement learned agent-browser by
+# --help and one-subcommand-per-step; the skill teaches refs + batch.
+RUN mkdir -p /home/sandbox/.claude/skills/agent-browser   && agent-browser skills get core > /home/sandbox/.claude/skills/agent-browser/SKILL.md
 USER root
 
 WORKDIR /workspace

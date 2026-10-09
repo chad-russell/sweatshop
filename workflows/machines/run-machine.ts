@@ -19,6 +19,7 @@ import {
   endHarnessSession,
   endVisit,
   loadHistory,
+  loadEvidence,
   markRun,
   provisionWorkspace,
   publishStep,
@@ -105,6 +106,7 @@ export async function runMachine(input: RunMachineInput) {
         harness: stage.kind === "harness" ? stage.harness : null,
       });
       const history = await loadHistory(runId);
+      const evidence = await loadEvidence(runId);
       const prior: PriorVisit[] = history
         .filter((v) => v.seq < seq)
         .map((v) => ({
@@ -112,6 +114,7 @@ export async function runMachine(input: RunMachineInput) {
           title: definition.stages[v.stageId]?.title ?? v.stageId,
           outcome: v.outcome,
           transitionTo: v.transitionTo,
+          ...(evidence[v.seq]?.length ? { evidence: evidence[v.seq] } : {}),
         }));
       const brief = buildBrief({
         prompt,
