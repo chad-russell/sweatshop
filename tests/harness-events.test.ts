@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   claimHarnessRun,
+  countToolCalls,
   clipHarnessText,
   getActiveHarnessRun,
   getHarnessEvents,
@@ -115,5 +116,19 @@ describe("harness event store (0006)", () => {
     const clipped = clipHarnessText("y".repeat(3000), 100);
     expect(clipped?.length).toBeLessThanOrEqual(101);
     expect(clipHarnessText(undefined)).toBeUndefined();
+  });
+});
+
+describe("countToolCalls (machine-stage settle)", () => {
+  it("counts a session's tool-start events, not the claim's zero", () => {
+    claimHarnessRun("mr_cnt_0", "pi");
+    for (let i = 0; i < 3; i++) {
+      recordHarnessEvent("mr_cnt_0", "pi", { kind: "tool-start", toolName: "bash", input: "x" });
+      recordHarnessEvent("mr_cnt_0", "pi", { kind: "tool-end", toolName: "bash", output: "y" });
+    }
+    recordHarnessEvent("mr_cnt_0", "pi", { kind: "step-end" });
+    expect(countToolCalls("mr_cnt_0", "pi")).toBe(3);
+    recordHarnessRunEnd("mr_cnt_0", "pi", countToolCalls("mr_cnt_0", "pi"), "completed");
+    expect(getHarnessRun("mr_cnt_0", "pi")?.toolCalls).toBe(3);
   });
 });
