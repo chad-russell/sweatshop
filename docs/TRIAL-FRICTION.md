@@ -31,3 +31,32 @@ Format: `- [date] surface — what frictions; (what you did instead)`
 - [2026-10-08] QA — no browser: verifying UI work meant Chad opening
   previews himself; nothing to screenshot and attach. → 0035:
   agent-browser + chromium in sandbox images, screenshot attach.
+- [2026-10-09] first ticket (WYC-1589) — "do the work, push the branch,
+  no PR" is not a machine outcome: the chat improvised cancel-at-gate
+  + a manual bash push, so the run reads cancelled and the
+  pr_proposals row dangles pending forever. → deferred (Chad): gates
+  already wait indefinitely; revisit after preview-driven QA lands.
+- [2026-10-09] QA env — the implement stage built its own world (apt
+  postgres, hand-rolled S3 stub, playwright+chromium install, dev
+  server invisible to sweatshop): 5 of 6.5 implement minutes, no
+  reuse of the 0016/0017 substrate. → 0036 (to draft): QA stages run
+  through start_preview + the project's saved setup/services; iterate
+  from a chat attached to the preview's sandbox.
+- [2026-10-09] QA evidence — real before/after screenshots existed in
+  the sandbox /tmp; the conversation could only name their paths.
+  → 0035 attach path (inline image parts); artifacts long-term (3.1).
+- [2026-10-09] inspect — the run result's hint says "inspect a visit's
+  session id (mr_…_<seq>)" but inspect only knows conversations rows,
+  so harness stage sessions FatalError mid-turn (chat fell back to
+  bash+grep). → teach inspect stage session ids, or fix the hint.
+- [2026-10-09] harness_runs — tool_calls is always 0 on machine-stage
+  visits (endHarnessSession re-reads the zero claimHarnessRun wrote
+  instead of counting events). → count from harness_events.
+- [2026-10-09] chat context — a plain chat that start_machines on a
+  project gets bound to that project's sandbox for life (0013), and
+  the project itself had to be asked (50s ask_chad round-trip).
+  → composer project defaults; maybe warn on cross-project binding.
+- [2026-10-09] backlog — the thinking picker was finished and
+  spike-verified but unmerged (#54), so to the user it "didn't exist";
+  three PRs went stale during trial prep. → merge discipline: land
+  small PRs the same day during trial weeks.
