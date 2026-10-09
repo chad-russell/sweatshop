@@ -24,6 +24,9 @@ export interface PriorVisit {
 export interface ProjectFacts {
   testCommand: string | null;
   branchPrefix: string | null;
+  /** 2026-10-09 friction: preview readiness, so stages plan facts —
+   *  a saved setup means serving is one start_preview call. */
+  preview: { command: string; port: number; services: string[] } | null;
 }
 
 /** Outcome text kept per prior visit in a brief. */
@@ -75,6 +78,13 @@ export function buildBrief(input: {
         `- Branch prefix: \`${input.project.branchPrefix}/\` — name machine branches \`<prefix>/<slug>\``,
       );
     }
+    lines.push(
+      input.project.preview
+        ? `- Preview setup: saved — \`start_preview\` serves it with no bootstrap (command \`${input.project.preview.command}\`, port ${input.project.preview.port}` +
+          (input.project.preview.services.length > 0 ? `, services: ${input.project.preview.services.join(", ")}` : "") +
+          ")"
+        : "- Preview setup: none saved — the first stage needing visual QA bootstraps one (get_preview_setup / save_preview_setup); never hand-build a QA environment",
+    );
     parts.push(`# Project\n\n${lines.join("\n")}`);
   }
   // 0013: agent stages also work in the run's sandbox (bash/pi/claude).
