@@ -11,6 +11,7 @@ import {
   type RunView,
 } from "@/db/machines";
 import { getProject } from "@/db/projects";
+import { getPreviewSetupDefinition } from "@/db/preview-setups";
 import { getProjectModels } from "@/db/providers";
 import { validationContext } from "@/lib/providers/resolve";
 import { validateRoute } from "@/lib/providers/route";
@@ -47,6 +48,7 @@ export async function startRun(input: {
     // plain data (read here, before the run starts — the body stays
     // Node-free) and land in every stage brief's "# Project" section.
     const project = run.projectId ? getProject(db(), run.projectId) : null;
+    const setup = run.projectId ? getPreviewSetupDefinition(db(), run.projectId) : null;
     const workflow = await start(runMachine, [
       {
         runId: run.id,
@@ -55,7 +57,13 @@ export async function startRun(input: {
         projectId: run.projectId,
         binding: getRunBinding(db(), run.id),
         project: project
-          ? { testCommand: project.testCommand ?? null, branchPrefix: project.branchPrefix ?? null }
+          ? {
+              testCommand: project.testCommand ?? null,
+              branchPrefix: project.branchPrefix ?? null,
+              preview: setup
+                ? { command: setup.command, port: setup.port, services: setup.services.map((svc) => svc.name) }
+                : null,
+            }
           : null,
       },
     ]);

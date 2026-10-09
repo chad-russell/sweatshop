@@ -231,14 +231,19 @@ describe("briefs and transitions", async () => {
   it("carries the project's work defaults (0023)", () => {
     const at = (project: Parameters<typeof buildBrief>[0]["project"]) =>
       buildBrief({ prompt: "x", definition: coding, stageId: "plan", history: [], project });
-    const withBoth = at({ testCommand: "npm run typecheck && npm run test", branchPrefix: "eng" });
+    const withBoth = at({ testCommand: "npm run typecheck && npm run test", branchPrefix: "eng", preview: null });
     expect(withBoth).toContain("# Project");
     expect(withBoth).toContain("- Test command (run from a repo root, must exit 0): `npm run typecheck && npm run test`");
     expect(withBoth).toContain("- Branch prefix: `eng/` — name machine branches `<prefix>/<slug>`");
-    const unsetCommand = at({ testCommand: null, branchPrefix: "cr" });
+    const unsetCommand = at({ testCommand: null, branchPrefix: "cr", preview: null });
     expect(unsetCommand).toContain("Test command: not set");
     expect(unsetCommand).toContain("- Branch prefix: `cr/`");
     expect(at(null)).not.toContain("# Project");
     expect(withBoth.indexOf("# Project")).toBeLessThan(withBoth.indexOf("# Your stage"));
+    // 2026-10-09 friction: preview readiness is a fact, not a guess
+    const saved = at({ testCommand: null, branchPrefix: null, preview: { command: "next dev -p $PORT", port: 3006, services: ["postgres"] } });
+    expect(saved).toContain("- Preview setup: saved — `start_preview` serves it with no bootstrap");
+    expect(saved).toContain("services: postgres");
+    expect(withBoth).toContain("Preview setup: none saved — the first stage needing visual QA bootstraps one");
   });
 });
