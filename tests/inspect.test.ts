@@ -105,6 +105,28 @@ describe("0013 inspect", () => {
     });
   });
 
+  it("serves a harness stage visit by its session id (the run hint's pointer)", () => {
+    const run = createRun(db(), { machineId: "insp-m", prompt: "qa it", projectId: "p_insp" });
+    beginStageRun(db(), { runId: run.id, seq: 0, stageId: "plan", kind: "harness", harness: "pi" });
+    updateStageRun(db(), run.id, 0, { status: "completed", outcome: "planned", steps: 9 });
+    claimHarnessRun(`${run.id}_0`, "pi");
+    recordHarnessEvent(`${run.id}_0`, "pi", { kind: "tool-start", toolName: "bash", input: "ls" });
+
+    const result = inspectTarget(`${run.id}_0`);
+    expect(result).toMatchObject({
+      kind: "visit",
+      run: run.id,
+      stage: "plan",
+      status: "completed",
+      steps: 9,
+      outcome: "planned",
+      eventsUrl: `/h/pi/${run.id}_0`,
+      harness: { runs: [{ harness: "pi", status: "running" }] },
+    });
+    // a session id with no matching visit row is still unknown
+    expect(() => inspectTarget(`${run.id}_7`)).toThrow(/nothing to inspect/);
+  });
+
   it("explains unknown ids", () => {
     expect(() => inspectTarget("c_nope")).toThrow(/nothing to inspect/);
   });

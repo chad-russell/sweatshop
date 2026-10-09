@@ -117,7 +117,33 @@ export function inspectTarget(id: string): InspectResult {
     .from(conversations)
     .where(eq(conversations.id, id))
     .get();
-  if (!row) throw new Error(`nothing to inspect: no chat or run "${id}"`);
+  if (!row) {
+    // 0036-era fix (friction 2026-10-09): a HARNESS stage visit's session
+    // id (mr_…_<seq>) has no conversation row, yet the run result's own
+    // hint points here — serve the visit from its machine_stage_runs row.
+    const visitId = /^mr_.+_(\d+)$/.exec(id);
+    if (visitId) {
+      const runId = id.replace(/_\d+$/, "");
+      const visit = listStageRuns(db(), runId).find((v) => v.seq === Number(visitId[1]));
+      if (visit) {
+        return {
+          kind: "visit",
+          id,
+          run: runId,
+          stage: visit.stageId,
+          status: visit.status,
+          steps: visit.steps,
+          ...(visit.outcome ? { outcome: clip(visit.outcome, 800) } : {}),
+          ...(visit.error ? { error: clip(visit.error, 500) } : {}),
+          ...(visit.route ? { route: visit.route } : {}),
+          sandbox: sandboxSummary(getRunBinding(db(), runId)),
+          harness: harnessActivity(id),
+          eventsUrl: visit.harness ? `/h/${visit.harness}/${id}` : undefined,
+        };
+      }
+    }
+    throw new Error(`nothing to inspect: no chat or run "${id}"`);
+  }
 
   if (row.kind === "run") {
     const run = db().select().from(machineRuns).where(eq(machineRuns.id, id)).get();
