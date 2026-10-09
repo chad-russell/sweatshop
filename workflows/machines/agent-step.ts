@@ -202,7 +202,7 @@ export async function agentStageStep(input: AgentStageInput): Promise<AgentStage
     },
   });
 
-  const model = chatLanguageModel(input.route.provider, input.route.model);
+  const model = chatLanguageModel(input.route);
   const agent = new WorkflowAgent({
     model,
     instructions: "You are a stage of a machine run. Follow the brief exactly.",

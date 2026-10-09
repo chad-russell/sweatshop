@@ -43,7 +43,7 @@ function buildInner(data: ChatModelData): AnyLanguageModel {
   if (data.kind === "mock") {
     return scriptedChatModel() as unknown as AnyLanguageModel;
   }
-  return chatLanguageModel(data.route.provider, data.route.model) as unknown as AnyLanguageModel;
+  return chatLanguageModel(data.route) as unknown as AnyLanguageModel;
 }
 
 export class SerializableChatModel {

@@ -46,7 +46,8 @@ export function shortRouteLabel(route: ChatRoute | null, view: ModelsView | null
   if (!route) return "Default";
   const provider = view?.providers.find((p) => p.id === route.provider);
   const model = provider?.models.find((m) => m.id === route.model);
-  return `${PROVIDER_LABELS[route.provider].split(" ")[0]} · ${model?.label ?? route.model}`;
+  const thinking = route.thinking ? ` · ${route.thinking}` : "";
+  return `${PROVIDER_LABELS[route.provider].split(" ")[0]} · ${model?.label ?? route.model}${thinking}`;
 }
 
 const sameRoute = (a: ChatRoute | null, b: ChatRoute | null) =>
@@ -71,23 +72,30 @@ export function RoutePicker({
   const [open, setOpen] = useState(false);
   const providers = (view?.providers ?? []).filter((p) => p.available && p.allowed);
   const label = value ? shortRouteLabel(value, view) : inheritLabel ? `Default · ${inheritLabel}` : "Pick a model";
+  // 0021 amendment: the thinking control appears only for models whose
+  // catalog entry declares a reasoning knob.
+  const modelInfo = value
+    ? view?.providers.find((p) => p.id === value.provider)?.models.find((m) => m.id === value.model)
+    : undefined;
+  const canThink = !!(value && modelInfo?.reasoning);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={ariaLabel}
-          title={value ? `${PROVIDER_LABELS[value.provider]} · ${value.model}` : label}
-          className={cn(
-            "inline-flex h-8 max-w-56 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-            className,
-          )}
-        >
-          <span className="truncate">{label}</span>
-          <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
-        </button>
-      </PopoverTrigger>
+    <span className="inline-flex items-center gap-1">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={ariaLabel}
+            title={value ? `${PROVIDER_LABELS[value.provider]} · ${value.model}` : label}
+            className={cn(
+              "inline-flex h-8 max-w-56 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+              className,
+            )}
+          >
+            <span className="truncate">{label}</span>
+            <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
+          </button>
+        </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0">
         <Command>
           <CommandInput placeholder="Search models…" />
@@ -137,6 +145,25 @@ export function RoutePicker({
           </CommandList>
         </Command>
       </PopoverContent>
-    </Popover>
+      </Popover>
+      {canThink && value && (
+        <select
+          aria-label="Thinking"
+          title="Thinking level (unset = the model's default)"
+          value={value.thinking ?? ""}
+          onChange={(event) => {
+            const thinking = event.target.value;
+            onChange({ provider: value.provider, model: value.model, ...(thinking ? { thinking: thinking as ChatRoute["thinking"] } : {}) });
+          }}
+          className="inline-flex h-8 items-center rounded-lg border border-border bg-transparent px-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <option value="">auto</option>
+          <option value="off">off</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+        </select>
+      )}
+    </span>
   );
 }

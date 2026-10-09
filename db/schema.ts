@@ -722,6 +722,8 @@ export const providerModels = sqliteTable(
     contextWindow: integer("context_window").notNull(),
     maxTokens: integer("max_tokens").notNull(),
     vision: integer("vision", { mode: "boolean" }).notNull().default(false),
+    /** 0021 amendment: the model's reasoning control (null = none). */
+    reasoning: text("reasoning"),
     fetchedAt: integer("fetched_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.provider, table.id] })],

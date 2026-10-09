@@ -295,6 +295,13 @@
       "when": 1791400692206,
       "tag": "0041_project_work_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1791507385986,
+      "tag": "0043_chat_thinking",
+      "breakpoints": true
     }
   ]
 }
