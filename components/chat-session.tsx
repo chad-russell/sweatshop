@@ -46,6 +46,7 @@ import {
 } from "@/components/ai-elements/agent-cards";
 import { PreviewToolCard } from "@/components/previews/preview-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
+import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { HarnessCard } from "@/components/harness-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
@@ -639,6 +640,17 @@ export const ChatMessageView = memo(function ChatMessageView({
               toolPart.state !== "output-error"
             ) {
               return <GatedApprovalCard key={i} part={toolPart} />;
+            }
+            if (toolPart.type === "tool-attach_screenshot") {
+              return (
+                <ScreenshotCard
+                  key={i}
+                  state={toolPart.state}
+                  input={toolPart.state === "input-streaming" ? undefined : toolPart.input}
+                  output={toolPart.state === "output-available" ? toolPart.output : undefined}
+                  errorText={toolPart.state === "output-error" ? (toolPart.errorText ?? "tool failed") : undefined}
+                />
+              );
             }
             if (toolPart.type === "tool-web_search" || toolPart.type === "tool-web_fetch") {
               const input = toolPart.state === "input-streaming" ? undefined : toolPart.input;

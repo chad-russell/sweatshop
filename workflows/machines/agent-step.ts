@@ -245,12 +245,14 @@ async function stageSandboxTools(
   binding: BoundSandbox,
   projectId: string,
 ): Promise<ToolSet> {
-  const [{ tool }, { z }, { runBashIn }, { harnessToolStep }, { previewTools }, previews, { proposePrTool }, { runGitSummary }, { openInheritedSandbox }] = await Promise.all([
+  const [{ tool }, { z }, { runBashIn }, { harnessToolStep }, { previewTools }, { screenshotTool: screenshotToolDef }, screenshots, previews, { proposePrTool }, { runGitSummary }, { openInheritedSandbox }] = await Promise.all([
     import("ai"),
     import("zod"),
     import("../../lib/agent/tools/bash"),
     import("../chat/harness-step"),
     import("../chat/preview-tools"),
+    import("../chat/screenshot-tool"),
+    import("../../lib/agent/tools/screenshot"),
     import("../../lib/agent/tools/previews"),
     import("./harness-agent"),
     import("../../lib/agent/tools/pr-preview"),
@@ -293,6 +295,10 @@ async function stageSandboxTools(
       inputSchema: z.object({ command: z.string().max(20_000).describe("The bash command to run.") }),
       execute: ({ command }) => runBashIn(sessionId, binding, command),
     }),
+    // 0035: QA evidence from an agent stage shows in the conversation.
+    attach_screenshot: screenshotToolDef((input) =>
+      screenshots.attachScreenshotIn(sessionId, binding, input),
+    ),
     ...previewTools((action, input) =>
       action === "start"
         ? previews.startPreviewTool(caller, input)

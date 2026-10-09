@@ -20,6 +20,7 @@ import {
   machinesCatalogStep,
   pendingStep,
   previewToolStep,
+  screenshotStep,
   sandboxExecStep,
   startMachineStep,
   systemDocsStep,
@@ -36,6 +37,7 @@ import {
 } from "./steps";
 import { editOpSchema } from "../../lib/machines/edit";
 import { previewTools } from "./preview-tools";
+import { screenshotTool } from "./screenshot-tool";
 
 /**
  * 0010 tool set for the new chat runtime. Built per conversation by
@@ -499,6 +501,8 @@ export function buildChatTools(
       }),
       // 0016: previews live in the sandbox, so they need one too.
       ...previewTools((action, input) => previewToolStep(conversationId, action, input)),
+      // 0035: QA evidence shows in the conversation.
+      attach_screenshot: screenshotTool((input) => screenshotStep(conversationId, input)),
     }),
     ...(hasSandbox && hasProject && {
       pi: tool({
