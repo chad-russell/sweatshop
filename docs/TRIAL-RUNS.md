@@ -40,9 +40,47 @@ are UTC, measured from the DB rows.
   minio bucket + seeded asset, screenshots attached. (Fill in the rest
   when the run settles.)
 
+### Run 2 (iteration 1) — 2026-10-09 17:50–21:43 (post-0035/0036, deployed 1f56204) — CANCELLED at verify
+
+- Chat `c_Wny2BY-RAJDUYCDM8-8fQ3dH`, run `mr_mv19qa6zdfce77`. Triggered by
+  Glen via the chat API; brief wrongly asserted "first run, bootstrap the
+  setup" (a gpl setup had existed since Oct 8 — only minio was missing)
+  → the plan carried a bootstrap section → the "# Project" preview
+  readiness line (PR #60).
+- Wall: 3h52m end-to-end, of which 1h38m was Chad's gate wait — **2h14m
+  of machine time**: chat→run 7m · plan 3m23s (13 steps) · implement
+  21m15s (171 steps) · verify **1h42m (220 steps, cancelled)**.
+- What worked: declared services (postgres+minio siblings, zero
+  hand-building); setup upgraded and SAVED (future runs one-shot); real
+  browser QA on a live preview; **3 screenshots attached** (before /
+  after / narrow viewport, served from /api/attachments); clean one-file
+  diff; test gate passed cached; high plan quality ($PORT, DEV_AUTO_LOGIN,
+  before-shot on unmodified code).
+- Why verify ran away: **evidence doesn't cross stages** — the brief
+  carries outcome text, not the screenshots, so verify re-audited the
+  whole environment (142 of 196 calls env/data checks; 37+ writes
+  rejected by pi's workspace rule — /tmp churn that read as "stuck").
+- Also found: one typo'd inspect id killed the entire wake turn
+  (thrown error, 4 useless retries, no plan summary in the chat);
+  179 implement round-trips at ~7s — 53 were one agent-browser
+  subcommand each, 3 were --help discovery.
+- Fixes in the post-mortem batch (this PR): evidence rides the brief;
+  verify scoped (diff + gate + ONE spot-check; cold preview restart =
+  the environment test); workspace rule in # Workspace; inspect
+  value-shaped errors; agent-browser skill baked into the image
+  (rebuild required).
+- Prediction for iteration 2: plan ~3m, implement ~8–10m, verify ~3–4m.
+
 ## Metrics to keep per run
 
 wall time · Chad's touches (count + minutes) · stage durations + steps ·
 QA method (preview vs hand-built) · evidence surfaced (screenshots in
 conversation? preview URL?) · deviations/improvisations · frictions
 logged.
+
+## Planned comparison
+
+Once the staged (machine) version is tuned, benchmark it against a
+simpler arm — a single session that calls harnesses as subagents at
+will (Chad, 2026-10-09) — on this same ticket, same metrics. "Simpler
+is better" is a hypothesis; the log is the experiment.
