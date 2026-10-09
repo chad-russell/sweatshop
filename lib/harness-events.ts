@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { harnessEvents, harnessRuns } from "@/db/schema";
 
@@ -160,6 +160,17 @@ export function claimHarnessRun(
       .run();
     return true;
   });
+}
+
+/** Tool calls a session actually made (its tool-start events) — the
+ *  counter machine-stage visits settle with (2026-10-09 friction fix:
+ *  the old code re-read the zero the claim had written). */
+export function countToolCalls(sessionId: string, harness: HarnessKind): number {
+  return db()
+    .select({ n: sql<number>`count(*)` })
+    .from(harnessEvents)
+    .where(and(eq(harnessEvents.sessionId, sessionId), eq(harnessEvents.harness, harness), eq(harnessEvents.kind, "tool-start")))
+    .get()?.n ?? 0;
 }
 
 export function recordHarnessRunEnd(

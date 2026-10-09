@@ -214,14 +214,15 @@ export async function endHarnessSession(input: {
   error?: string;
 }): Promise<void> {
   "use step";
-  const [{ recordHarnessEvent, recordHarnessRunEnd, getHarnessRun }, { stageSessionId }] = await Promise.all([
+  const [{ recordHarnessEvent, recordHarnessRunEnd, countToolCalls }, { stageSessionId }] = await Promise.all([
     import("@/lib/harness-events"),
     import("@/db/machines"),
   ]);
   const sessionId = stageSessionId(input.runId, input.seq);
   recordHarnessEvent(sessionId, input.harness, { kind: "end" });
-  const run = getHarnessRun(sessionId, input.harness);
-  recordHarnessRunEnd(sessionId, input.harness, run?.toolCalls ?? 0, input.status, input.error);
+  // 2026-10-09 friction: re-reading the row just returns the zero the
+  // claim wrote — count the session's own tool-start events instead.
+  recordHarnessRunEnd(sessionId, input.harness, countToolCalls(sessionId, input.harness), input.status, input.error);
 }
 
 /** Earlier visits for the brief (seq < current). */
