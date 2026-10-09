@@ -384,6 +384,19 @@ export async function editMachineStep(input: {
   return editMachineTool(input);
 }
 
+/** 0034 A: the approval preview for edit_machine (validates, no save). */
+export async function editMachinePreviewStep(input: {
+  id: string;
+  baseVersion: number;
+  ops: import("../../lib/machines/edit").EditOp[];
+  name?: string;
+  description?: string;
+}): Promise<unknown> {
+  "use step";
+  const { editMachinePreview } = await import("../../lib/agent/tools/machines");
+  return editMachinePreview(input);
+}
+
 /** The preview for the delete approval question (name, stages, version). */
 export async function machineDeletePreviewStep(id: string): Promise<unknown> {
   "use step";

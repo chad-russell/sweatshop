@@ -103,6 +103,8 @@ export interface HarnessToolStepInput {
    *  (`<runId>_<seq>`) — 0022: chat calls go through
    *  startHarnessCallStep instead. */
   conversationId: string;
+  /** 0034 A: the owning run — propose_pr records against it. */
+  runId: string;
   kind: "pi" | "claude";
   task: string;
   /** 0013: run in this binding (the run's) with this project. */
@@ -124,7 +126,7 @@ export async function harnessToolStep(
   const [
     { createHarnessWorkflowState, runHarnessAgentStep },
     { toNetworkSandboxSession },
-    { buildHarnessAgent, createPrTool },
+    { buildHarnessAgent, proposePrTool },
     { claimHarnessRun, clipHarnessText, getActiveHarnessRun, recordHarnessEvent, recordHarnessRunEnd },
     { db },
     { getConversation, getHarnessResumeState, saveHarnessResumeState },
@@ -206,7 +208,13 @@ export async function harnessToolStep(
       },
     });
 
-    const hostTools = { create_pr: createPrTool(projectId) };
+    // 0034 A: an agent stage's harness works in the run's checkout and
+    // may only PROPOSE a PR — the run's gate approves, publish executes.
+    const summarize = (repo: string, head: string, base?: string) =>
+      import("../../lib/agent/tools/pr-preview").then(({ runGitSummary }) =>
+        runGitSummary((command) => handle.run(command, undefined, workDir), repo, head, base),
+      );
+    const hostTools = { propose_pr: proposePrTool(projectId, input.runId, summarize) };
 
     recordHarnessEvent(conversationId, kind, { kind: "start", input: clipHarnessText(task, HARNESS_INPUT_CLIP) });
     try {
@@ -300,7 +308,7 @@ export async function harnessAdvanceStep(input: {
   const [
     { runHarnessAgentStep },
     { toNetworkSandboxSession },
-    { buildHarnessAgent, createPrTool },
+    { buildHarnessAgent },
     { recordHarnessEvent, clipHarnessText },
     { db },
     { getConversation },
@@ -346,10 +354,12 @@ export async function harnessAdvanceStep(input: {
 
     const projectId = getConversation(db(), input.conversationId)?.projectId;
     if (!projectId) throw new Error(`conversation ${input.conversationId} lost its project mid-call`);
+    // 0034 A: a CHAT harness call has no git tool at all — publishing
+    // is the chat agent's act (its gated create_pr) after the wake.
     const agent = buildHarnessAgent({
       route: input.route,
       sessionId: input.conversationId,
-      tools: { create_pr: createPrTool(projectId) },
+      tools: {},
       ...(input.route.harness === "pi"
         ? { modelInfo: getModelInfo(db(), input.route.provider, input.route.model) }
         : {}),

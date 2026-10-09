@@ -230,7 +230,7 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "edit-machine: a scripted edit_machine call changes the machine row (0015)",
+    "edit-machine: a scripted edit_machine call changes the machine row — Chad approves first (0034 A)",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_CHAT_MOCK = "edit-machine";
@@ -249,6 +249,19 @@ describe("0010 spike: chat turn workflow", () => {
       const id = conv("edit_machine");
 
       const run = await turn(id, "add an approval step");
+      // 0034 A: the stage graph is policy — the edit suspends on Chad.
+      await waitFor(async () => {
+        try {
+          return (await getHookByToken("call_edit_1")) != null;
+        } catch {
+          return false;
+        }
+      }, "edit_machine approval hook");
+      expect(listPendingInputs(db(), id).map((p) => p.id)).toContain("call_edit_1");
+      expect(getMachine(db(), "m-mock-edit").version).toBe(1);
+      await chatApprovalHook.resume("call_edit_1", { kind: "approval", approved: true });
+      resolvePendingInput(db(), "call_edit_1", { approved: true });
+
       const result = await run.returnValue;
       expect(result.finishReason).toBe("stop");
 

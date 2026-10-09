@@ -61,6 +61,37 @@ export function formatPRSummary(
   return lines.join("\n").slice(0, 3_500);
 }
 
+/** The summary gather over any command runner (a live sandbox handle) —
+ *  shared with the propose_pr tool's `summarize` closures. */
+export async function runGitSummary(
+  run: (command: string) => Promise<{ exitCode: number; stdout: string; stderr: string }>,
+  repo: string,
+  head: string,
+  base?: string,
+): Promise<{ log?: string; stat?: string; note?: string }> {
+  for (const name of [repo, head, base ?? "main"]) {
+    if (!SAFE_NAME.test(name)) {
+      return { note: `unusual name "${name}" — commit summary skipped` };
+    }
+  }
+  try {
+    const target = base ?? "main";
+    const log = await run(`git -C ${repo} log --oneline -16 ${target}..${head}`);
+    const stat = await run(`git -C ${repo} diff --stat ${target}...${head} | tail -16`);
+    if (log.exitCode !== 0 || stat.exitCode !== 0) {
+      const err = log.exitCode !== 0 ? log.stderr : stat.stderr;
+      return {
+        note: `commit summary unavailable (${err.trim().split("\n")[0] || "git error"})`,
+      };
+    }
+    return { log: log.stdout, stat: stat.stdout };
+  } catch (err) {
+    return {
+      note: `commit summary unavailable (${err instanceof Error ? err.message : String(err)})`,
+    };
+  }
+}
+
 /** Read the branch's commits + diffstat from the conversation's sandbox. */
 async function gatherGitSummary(
   conversationId: string,
@@ -74,32 +105,13 @@ async function gatherGitSummary(
   if (!binding || binding.kind !== "bound") {
     return { note: "no sandbox bound — commit summary unavailable" };
   }
-  for (const name of [input.repo, input.head, input.base ?? "main"]) {
-    if (!SAFE_NAME.test(name)) {
-      return { note: `unusual name "${name}" — commit summary skipped` };
-    }
-  }
-  try {
-    const { handle } = await openConversationSandbox(conversationId, provider);
-    const base = input.base ?? "main";
-    const log = await handle.run(
-      `git -C ${input.repo} log --oneline -16 ${base}..${input.head}`,
-    );
-    const stat = await handle.run(
-      `git -C ${input.repo} diff --stat ${base}...${input.head} | tail -16`,
-    );
-    if (log.exitCode !== 0 || stat.exitCode !== 0) {
-      const err = log.exitCode !== 0 ? log.stderr : stat.stderr;
-      return {
-        note: `commit summary unavailable (${err.trim().split("\n")[0] || "git error"})`,
-      };
-    }
-    return { log: log.stdout, stat: stat.stdout };
-  } catch (err) {
-    return {
-      note: `commit summary unavailable (${err instanceof Error ? err.message : String(err)})`,
-    };
-  }
+  return runGitSummary(
+    (command) =>
+      openConversationSandbox(conversationId, provider).then((opened) => opened.handle.run(command)),
+    input.repo,
+    input.head,
+    input.base,
+  );
 }
 
 /** Validate the proposal and build the approval card text. */

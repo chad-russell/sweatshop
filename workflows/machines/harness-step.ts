@@ -44,7 +44,7 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
     { runHarnessAgentStep },
     { openSandbox },
     { toNetworkSandboxSession },
-    { buildHarnessAgent, transitionTool, createPrTool },
+    { buildHarnessAgent, transitionTool, proposePrTool },
     { recordHarnessEvent, clipHarnessText, claimHarnessRun },
     { getWritable },
   ] = await Promise.all([
@@ -75,9 +75,15 @@ export async function harnessStep(input: HarnessStepInput): Promise<HarnessStepR
   const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
 
   const projectId = input.projectId;
+  // 0034 A: stage visits propose PRs; the run's gate approves, the
+  // publish stage executes. Summary gathered from the live checkout.
+  const summarize = (repo: string, head: string, base?: string) =>
+    import("@/lib/agent/tools/pr-preview").then(({ runGitSummary }) =>
+      runGitSummary((command) => handle.run(command, undefined, workDir), repo, head, base),
+    );
   const tools = {
     ...(stage.next.length > 1 ? { transition: transitionTool(stage) } : {}),
-    create_pr: createPrTool(projectId),
+    propose_pr: proposePrTool(projectId, input.runId, summarize),
   };
 
   // /h/<harness>/<sessionId> needs a harness_runs row; claim on entry.

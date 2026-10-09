@@ -41,7 +41,7 @@ describe("0023: the seed catalog", () => {
     const approve = def.stages.approve!;
     expect(approve.kind).toBe("human");
     expect(approve.next.map((t) => t.to).sort()).toEqual(["end", "implement", "plan"]);
-    for (const id of ["plan", "verify", "publish"]) {
+    for (const id of ["plan", "verify"]) {
       const stage = def.stages[id]!;
       expect(stage.kind).toBe("harness");
       if (stage.kind === "harness") {
@@ -50,6 +50,13 @@ describe("0023: the seed catalog", () => {
     }
     expect(def.stages.plan!.instructions).toContain("BRANCH:");
     expect(def.stages.verify!.instructions).toContain("# Project");
+    // 0034 A: verify declares the PR, the human gate approves it, and a
+    // deterministic publish stage pushes + opens it.
+    expect(def.stages.verify!.instructions).toContain("propose_pr");
+    const prApprove = def.stages["pr-approve"]!;
+    expect(prApprove.kind).toBe("human");
+    expect(prApprove.next.map((t) => t.to).sort()).toEqual(["end", "implement", "publish"]);
+    expect(def.stages.publish!.kind).toBe("publish");
   });
 
   it("bugfix: reproduce can end the run, the gate sits after diagnosis, claude fixes", () => {

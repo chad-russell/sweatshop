@@ -11,6 +11,7 @@ import {
   createPrPreviewStep,
   createPrStep,
   deleteMachineStep,
+  editMachinePreviewStep,
   editMachineStep,
   getMachineStep,
   inspectStep,
@@ -426,7 +427,7 @@ export function buildChatTools(
         "set_start, set_workspace. The batch is all-or-nothing — if the result would be invalid, nothing " +
         "is saved and you get the issues by stage/transition to fix your batch. baseVersion must be the " +
         "version you read (a mismatch means the machine changed: re-read and retry). Read the machine " +
-        "first with get_machine.",
+        "first with get_machine. The stage graph is policy, so Chad approves every edit — the turn waits.",
       inputSchema: z.object({
         id: z.string().min(1),
         baseVersion: z.number().int().min(1).describe("The version your ops were planned against (from get_machine)"),
@@ -434,7 +435,26 @@ export function buildChatTools(
         name: z.string().min(1).max(80).optional(),
         description: z.string().max(500).optional(),
       }),
-      execute: (input) => editMachineStep(input),
+      // 0034 A: approval-gated like create_machine — the stage graph
+      // (gates, publish stages) bounds what runs may do. Invalid
+      // batches return to the model without asking.
+      execute: async (input, { toolCallId }) => {
+        const preview = (await editMachinePreviewStep(input)) as
+          | { ok: true; summary: string }
+          | { ok: false; code: string; message: string };
+        if (!preview.ok) return preview;
+        await pendingStep(conversationId, toolCallId, preview.summary, "approval");
+        const answer = await chatApprovalHook.create({ token: toolCallId });
+        if (!(answer.kind === "approval" && answer.approved)) {
+          const why = answer.kind === "approval" && answer.comment ? ` (${answer.comment})` : "";
+          return {
+            ok: false,
+            code: "denied" as const,
+            message: `Chad declined the edit${why} — nothing was changed`,
+          };
+        }
+        return editMachineStep(input);
+      },
     }),
 
     delete_machine: tool({
