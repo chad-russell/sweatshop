@@ -348,3 +348,46 @@ Differences from the design:
   (`conversations.route` + backfill from `model_id`), `0038` (drop
   `model_id`). Checked against a copy of the live DB: 15 routes
   backfilled, 76 null.
+
+## Amendment — thinking on chat routes (2026-10-08)
+
+Non-harness chats (and agent stages — both carry ChatRoute) gained the
+pi vocabulary: `thinking?: "off" | "low" | "medium" | "high"` on
+`chatRouteSchema`. Not every model exposes a knob, and the knobs differ
+per family (verified against the installed packages):
+
+- **GLM** (zhipu-ai-provider): `thinking: {type}` switch (GLM-4.5+) plus
+  a leveled `reasoningEffort` (GLM-5.2+). "off" is a real disable.
+- **Gloo / OpenRouter** (openai-compatible): OpenAI-style
+  `reasoning_effort` in the request body, injected through the
+  `transformRequestBody` seam (per-level provider twins, cached).
+  "off" is NOT sent — effort-style models mostly have no true off, and
+  omitting keeps the model default.
+
+Decisions, Chad's (this chat):
+
+- **One vocabulary app-wide** (pi's THINKING_LEVELS); claude keeps its
+  own `effort` scale (xhigh/max are genuinely claude).
+- **Capability-gated, never silently sent**: `ModelInfo.reasoning`
+  ("switch" | "effort"; migration `0043` adds the column for the
+  OpenRouter cache, captured from `supported_parameters`) drives both
+  the picker's control and validation — a thinking level on a model
+  without a knob is rejected ("rejected, never swapped", §4 posture),
+  because a stray effort param hard-400s on non-reasoning models.
+  Unknown capability (unfetched dynamic catalog) passes, mirroring
+  hasModel. Static Gloo marks are conservative (gpt-6 family, DeepSeek
+  V4, GLM 5.2) until verified live; the spike below is the verifier.
+- **pi routes are exempt**: harness-pi owns its thinking knob end to end.
+- `chatLanguageModel` now takes the whole route (provider + model +
+  thinking) — the SerializableChatModel recipe already carried it.
+- Live check: `THINKING_SPIKE=1 npx vitest run
+  tests/thinking-spike.integration.test.ts` (inside the container) —
+  answers what the docs cannot: does the Z.AI coding surface honor
+  thinking, and which Gloo models accept `reasoning_effort`.
+
+Spike results (live, 2026-10-08): GLM coding surface honors the knob
+(`high` → 1 reasoning part, `off` → 0 — a real disable); Gloo
+`gpt-6-sol` accepts `reasoning_effort` and reports reasoning; Gloo
+claude models ACCEPT a stray `reasoning_effort` without erroring
+(inert) — the conservative static marks stand, and the knob is safe
+even where it does nothing.

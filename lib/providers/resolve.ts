@@ -3,6 +3,7 @@ import type { Db } from "../../db";
 import {
   catalogHas,
   getGlobalDefaults,
+  getModelInfo,
   getProjectModels,
   type ProjectModels,
 } from "../../db/providers";
@@ -31,6 +32,13 @@ export function validationContext(db: Db, project: ProjectModels | null): Valida
   return {
     availableProviders: availableProviders(),
     hasModel: (provider, model) => catalogHas(db, provider, model),
+    modelReasoning: (provider, model) => {
+      const info = getModelInfo(db, provider, model);
+      if (info) return info.reasoning ?? "none";
+      // A dynamic catalog never fetched cannot judge — accept (mirrors
+      // hasModel's "unknown").
+      return catalogHas(db, provider, model) === "unknown" ? "unknown" : "none";
+    },
     claudeConfigured: !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
     project: project
       ? { id: project.id, allowedProviders: project.allowedProviders, allowedHarnesses: project.allowedHarnesses }

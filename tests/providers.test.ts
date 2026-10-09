@@ -12,7 +12,7 @@ import {
 import { projects, providerModels, settings } from "../db/schema";
 import { GLM_MODELS, GLOO_MODELS } from "../lib/providers/catalog";
 import { ensureOpenRouterCatalog, parseOpenRouterModels } from "../lib/providers/openrouter";
-import { fillToolDescriptions } from "../lib/providers/registry";
+import { fillToolDescriptions, effortLevel, zhipuThinkingSettings } from "../lib/providers/registry";
 import { checkRoute } from "../lib/providers/resolve";
 import {
   BUILTIN_DEFAULTS,
@@ -183,8 +183,54 @@ describe("titleRoute", () => {
   });
 });
 
-describe("Gloo tool-description fix", () => {
-  it("fills a missing or blank description with the tool name", () => {
+describe("thinking on chat routes (0021 amendment)", () => {
+  const ctx = (over: Partial<ValidationContext> = {}): ValidationContext => ({
+    availableProviders: new Set(["glm", "gloo", "openrouter"]),
+    hasModel: () => true,
+    claudeConfigured: true,
+    project: null,
+    ...over,
+  });
+
+  it("the schema carries the pi vocabulary; garbage is a parse error", () => {
+    expect(parseRouteAs(routeSchema, { provider: "glm", model: "glm-5.3", thinking: "high" }).ok).toBe(true);
+    expect(parseRouteAs(routeSchema, { provider: "glm", model: "glm-5.3", thinking: "max" }).ok).toBe(false);
+  });
+
+  it("validation rejects a thinking level the model cannot honor, never silently sends it", () => {
+    const none = ctx({ modelReasoning: () => "none" });
+    expect(validateRoute({ provider: "gloo", model: "gloo-kimi-k3", thinking: "high" }, none).ok).toBe(false);
+    const effort = ctx({ modelReasoning: () => "effort" });
+    expect(validateRoute({ provider: "gloo", model: "gloo-openai-gpt-6-sol", thinking: "high" }, effort)).toEqual({ ok: true });
+    // Unknown capability (unfetched dynamic catalog) and a context
+    // without the hook (older callers) both pass — mirrors hasModel.
+    expect(validateRoute({ provider: "openrouter", model: "a/b", thinking: "low" }, ctx({ modelReasoning: () => "unknown" })).ok).toBe(true);
+    expect(validateRoute({ provider: "glm", model: "glm-5.3", thinking: "low" }, ctx()).ok).toBe(true);
+  });
+
+  it("pi's thinking stays exempt (harness-pi owns that knob)", () => {
+    expect(
+      validateRoute({ harness: "pi", provider: "glm", model: "glm-5.3", thinking: "high" }, ctx({ modelReasoning: () => "none" })).ok,
+    ).toBe(true);
+  });
+
+  it("zhipu settings: off disables, levels enable + set effort; openai-compatible omits off", () => {
+    expect(zhipuThinkingSettings(undefined)).toBeUndefined();
+    expect(zhipuThinkingSettings("off")).toEqual({ thinking: { type: "disabled" } });
+    expect(zhipuThinkingSettings("high")).toEqual({ thinking: { type: "enabled" }, reasoningEffort: "high" });
+    expect(effortLevel("off")).toBeNull();
+    expect(effortLevel(undefined)).toBeNull();
+    expect(effortLevel("medium")).toBe("medium");
+  });
+
+  it("the static catalogs mark the reasoning models", () => {
+    expect(GLM_MODELS.every((m) => m.reasoning === "effort")).toBe(true);
+    expect(GLOO_MODELS.find((m) => m.id === "gloo-openai-gpt-6-sol")?.reasoning).toBe("effort");
+    expect(GLOO_MODELS.find((m) => m.id === "gloo-anthropic-claude-sonnet-5.5")?.reasoning).toBeUndefined();
+  });
+});
+
+describe("Gloo tool-description fix", () => {  it("fills a missing or blank description with the tool name", () => {
     const body = {
       model: "m",
       tools: [
@@ -242,6 +288,32 @@ describe("catalogs", () => {
     expect(catalogHas(db(), "openrouter", "a/b")).toBe(true);
     expect(catalogHas(db(), "openrouter", "c/d")).toBe(false);
     expect(listProviderModels(db(), "openrouter").map((m) => m.id)).toEqual(["a/b"]);
+  });
+
+  it("OpenRouter reasoning capability comes from supported_parameters (0021 amendment)", () => {
+    const models = parseOpenRouterModels({
+      data: [
+        {
+          id: "openai/gpt-6",
+          name: "GPT-6",
+          context_length: 400_000,
+          supported_parameters: ["tools", "reasoning"],
+          architecture: { output_modalities: ["text"] },
+        },
+        {
+          id: "x/y",
+          name: "No Reasoning",
+          context_length: 100_000,
+          supported_parameters: ["tools"],
+          architecture: { output_modalities: ["text"] },
+        },
+      ],
+    });
+    expect(models.find((m) => m.id === "openai/gpt-6")?.reasoning).toBe("effort");
+    expect(models.find((m) => m.id === "x/y")?.reasoning).toBeUndefined();
+    // Round-trips through the cache column.
+    replaceProviderModels(db(), "openrouter", models);
+    expect(listProviderModels(db(), "openrouter").find((m) => m.id === "openai/gpt-6")?.reasoning).toBe("effort");
   });
 
   it("ensureOpenRouterCatalog skips a fresh cache", async () => {

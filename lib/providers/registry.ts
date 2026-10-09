@@ -9,6 +9,7 @@ import {
   type ModelInfo,
   type ProviderId,
 } from "./catalog";
+import type { ChatRoute, Thinking } from "./route";
 
 /**
  * 0021: providers are code, keys are env. One entry per provider: how
@@ -57,14 +58,41 @@ export function fillToolDescriptions<T>(body: T): T {
 let glm: ReturnType<typeof createZhipu> | null = null;
 let gloo: ReturnType<typeof createOpenAICompatible> | null = null;
 let openrouter: ReturnType<typeof createOpenAICompatible> | null = null;
+/** Effort-injected twins, one per (provider, level) — see chatLanguageModel. */
+const effortProviders = new Map<string, ReturnType<typeof createOpenAICompatible>>();
+
+/**
+ * 0021 amendment: a chat route's thinking level → the settings each
+ * provider family actually takes (verified against the installed
+ * packages, not memory):
+ *
+ * - GLM (zhipu-ai-provider): a `thinking: {type}` switch (GLM-4.5+) plus
+ *   a leveled `reasoningEffort` (GLM-5.2+). "off" is a real disable.
+ * - Gloo / OpenRouter (openai-compatible): OpenAI-style
+ *   `reasoning_effort` in the request body; "off" is NOT sent — most
+ *   effort-style models have no true off, and omitting keeps the
+ *   model's default.
+ */
+export function zhipuThinkingSettings(thinking: Thinking | undefined) {
+  if (!thinking) return undefined;
+  if (thinking === "off") return { thinking: { type: "disabled" as const } };
+  return { thinking: { type: "enabled" as const }, reasoningEffort: thinking };
+}
+
+/** The effort level an openai-compatible body carries (null = omit). */
+export function effortLevel(thinking: Thinking | undefined): "low" | "medium" | "high" | null {
+  return thinking === "low" || thinking === "medium" || thinking === "high" ? thinking : null;
+}
 
 /** The AI SDK model for chats, agent stages, and titles. */
-export function chatLanguageModel(provider: ProviderId, model: string): LanguageModel {
-  switch (provider) {
+export function chatLanguageModel(route: ChatRoute): LanguageModel {
+  const effort = effortLevel(route.thinking);
+  switch (route.provider) {
     case "glm":
       glm ??= createZhipu({ apiKey: providerKey("glm") ?? "", baseURL: GLM_OPENAI_BASE });
-      return glm(model);
+      return glm(route.model, zhipuThinkingSettings(route.thinking));
     case "gloo":
+      if (effort) return effortCompatible("gloo", effort).chatModel(route.model);
       gloo ??= createOpenAICompatible({
         name: "gloo",
         baseURL: GLOO_BASE,
@@ -72,8 +100,9 @@ export function chatLanguageModel(provider: ProviderId, model: string): Language
         includeUsage: true,
         transformRequestBody: fillToolDescriptions,
       });
-      return gloo.chatModel(model);
+      return gloo.chatModel(route.model);
     case "openrouter":
+      if (effort) return effortCompatible("openrouter", effort).chatModel(route.model);
       openrouter ??= createOpenAICompatible({
         name: "openrouter",
         baseURL: OPENROUTER_BASE,
@@ -81,8 +110,34 @@ export function chatLanguageModel(provider: ProviderId, model: string): Language
         includeUsage: true,
         headers: { "HTTP-Referer": "https://sweatshop.internal.crussell.io", "X-Title": "sweatshop" },
       });
-      return openrouter.chatModel(model);
+      return openrouter.chatModel(route.model);
   }
+}
+
+/** An openai-compatible twin whose bodies carry the effort level. */
+function effortCompatible(provider: "gloo" | "openrouter", effort: "low" | "medium" | "high") {
+  const key = `${provider}:${effort}`;
+  const cached = effortProviders.get(key);
+  if (cached) return cached;
+  const base = provider === "gloo" ? fillToolDescriptions : undefined;
+  const made = createOpenAICompatible({
+    name: provider,
+    baseURL: provider === "gloo" ? GLOO_BASE : OPENROUTER_BASE,
+    apiKey: providerKey(provider) ?? "",
+    includeUsage: true,
+    ...(provider === "openrouter"
+      ? { headers: { "HTTP-Referer": "https://sweatshop.internal.crussell.io", "X-Title": "sweatshop" } }
+      : {}),
+    // Body transform: compose the base (gloo's tool-description fill)
+    // with the effort injection. The injection happens first so the
+    // base transform still sees a plain body object.
+    transformRequestBody: ((body: unknown) => {
+      const injected = { ...(body as object), reasoning_effort: effort };
+      return (base ? base(injected) : injected) as typeof body;
+    }) as typeof base,
+  });
+  effortProviders.set(key, made);
+  return made;
 }
 
 /** Shape of a pi ProviderConfig we produce (the subset we use). */

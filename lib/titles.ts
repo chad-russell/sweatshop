@@ -52,7 +52,7 @@ export function titleRouteFor(db: Db, conversationId: string): ChatRoute | null 
 
 async function generateWithRoute(route: ChatRoute, transcript: string): Promise<string> {
   const { text } = await generateText({
-    model: chatLanguageModel(route.provider, route.model),
+    model: chatLanguageModel(route),
     system: INSTRUCTIONS,
     prompt: transcript,
     maxRetries: 1,

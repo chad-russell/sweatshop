@@ -92,6 +92,7 @@ export function listProviderModels(db: Db, provider: ProviderId): ModelInfo[] {
       contextWindow: r.contextWindow,
       maxTokens: r.maxTokens,
       ...(r.vision ? { vision: true } : {}),
+      ...(r.reasoning === "switch" || r.reasoning === "effort" ? { reasoning: r.reasoning } : {}),
     }));
 }
 
@@ -121,7 +122,14 @@ export function getModelInfo(db: Db, provider: ProviderId, model: string): Model
     .where(sql`${providerModels.provider} = ${provider} and ${providerModels.id} = ${model}`)
     .get();
   return r
-    ? { id: r.id, label: r.label, contextWindow: r.contextWindow, maxTokens: r.maxTokens, vision: r.vision }
+    ? {
+        id: r.id,
+        label: r.label,
+        contextWindow: r.contextWindow,
+        maxTokens: r.maxTokens,
+        vision: r.vision,
+        ...(r.reasoning === "switch" || r.reasoning === "effort" ? { reasoning: r.reasoning } : {}),
+      }
     : undefined;
 }
 
@@ -148,6 +156,7 @@ export function replaceProviderModels(db: Db, provider: ProviderId, models: Mode
           contextWindow: m.contextWindow,
           maxTokens: m.maxTokens,
           vision: !!m.vision,
+          ...(m.reasoning ? { reasoning: m.reasoning } : {}),
           fetchedAt: at,
         })
         .onConflictDoNothing()

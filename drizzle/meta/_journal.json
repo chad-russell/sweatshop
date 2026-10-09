@@ -302,6 +302,13 @@
       "when": 1791503518905,
       "tag": "0042_careful_luke_cage",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1791553433888,
+      "tag": "0043_chat_thinking",
+      "breakpoints": true
     }
   ]
 }

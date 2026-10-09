@@ -90,10 +90,19 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`lib/providers/catalog.ts`), OpenRouter fetched + cached in
   `provider_models` (tool-capable only, ≤ daily, "Refresh models" on
   `/settings`). One ROUTE value (`lib/providers/route.ts`, pure zod):
-  `{provider, model}` for chats/agent stages/titles, `{harness:"pi",
-  provider, model, thinking?}`, `{harness:"claude", model?, effort?}` —
-  claude has nowhere to put a provider (subscription-only, ToS by
-  construction). Resolution per surface (`resolveRoute`): chat =
+  `{provider, model, thinking?}` for chats/agent stages/titles,
+  `{harness:"pi", provider, model, thinking?}`, `{harness:"claude",
+  model?, effort?}` — claude has nowhere to put a provider
+  (subscription-only, ToS by construction). `thinking` on chat routes
+  (0021 amendment) is the pi vocabulary, mapped per family in
+  `chatLanguageModel(route)`: GLM `thinking.type` + `reasoningEffort`
+  (off = real disable), Gloo/OpenRouter `reasoning_effort` injected via
+  transformRequestBody (off = omit); capability-gated by
+  `ModelInfo.reasoning` (static catalogs + the `provider_models.reasoning`
+  column, from OpenRouter's `supported_parameters`) — rejected at
+  validation on models without a knob, never silently sent; pi routes
+  exempt (harness-pi owns its knob). Live check `THINKING_SPIKE=1`.
+  Resolution per surface (`resolveRoute`): chat =
   conversation > project > global; agent = run-stage > run > stage >
   project > global; pi = run-stage > run > stage > conversation >
   project > global; claude = run-stage > stage > global (never inherits

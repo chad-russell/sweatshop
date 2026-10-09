@@ -41,6 +41,8 @@ export function parseOpenRouterModels(payload: unknown): ModelInfo[] {
       contextWindow: context,
       maxTokens: typeof maxOut === "number" && maxOut > 0 ? maxOut : Math.min(32_000, context),
       ...(Array.isArray(inputs) && inputs.includes("image") ? { vision: true } : {}),
+      // OpenRouter declares per-model whether it takes reasoning params.
+      ...(params.includes("reasoning") ? { reasoning: "effort" as const } : {}),
     });
   }
   return out;

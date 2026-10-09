@@ -23,8 +23,14 @@ export type RouteHarness = (typeof ROUTE_HARNESSES)[number];
 const providerId = z.enum(PROVIDER_IDS);
 const modelId = z.string().min(1).max(200);
 
-/** In-process agent: chats, agent stages, titles. */
-export const chatRouteSchema = z.strictObject({ provider: providerId, model: modelId });
+/** In-process agent: chats, agent stages, titles. `thinking` follows
+ *  the model's capability — rejected by validateRoute when the catalog
+ *  says the model has none (0021 amendment). */
+export const chatRouteSchema = z.strictObject({
+  provider: providerId,
+  model: modelId,
+  thinking: z.enum(THINKING_LEVELS).optional(),
+});
 export const piRouteSchema = z.strictObject({
   harness: z.literal("pi"),
   provider: providerId,
@@ -161,6 +167,9 @@ export interface ValidationContext {
   availableProviders: ReadonlySet<ProviderId>;
   /** Whether the provider's catalog has the model ("unknown" = no catalog yet — accepted). */
   hasModel: (provider: ProviderId, model: string) => boolean | "unknown";
+  /** The model's reasoning control ("none" | "switch" | "effort";
+   *  "unknown" = dynamic catalog never fetched — accepted). */
+  modelReasoning?: (provider: ProviderId, model: string) => "none" | "switch" | "effort" | "unknown";
   claudeConfigured: boolean;
   project?: (ProjectRestrictions & { id: string }) | null;
 }
@@ -207,6 +216,16 @@ export function validateRoute(route: Route, ctx: ValidationContext): RouteCheck 
       issues.push(`model "${(route as ChatRoute).model}" is not in ${PROVIDER_LABELS[provider]}'s catalog`);
     }
   }
+  // 0021 amendment: a thinking level a model cannot honor is rejected,
+  // never silently sent (effort params 400 on non-reasoning models).
+  // pi's own thinking is exempt — harness-pi holds that knob.
+  if (!routeHarness(route) && (route as ChatRoute).thinking && provider && ctx.modelReasoning) {
+    if (ctx.modelReasoning(provider, (route as ChatRoute).model) === "none") {
+      issues.push(
+        `model "${(route as ChatRoute).model}" exposes no thinking/reasoning control — unset thinking`,
+      );
+    }
+  }
   if (routeHarness(route) === "claude" && !ctx.claudeConfigured) {
     issues.push("claude is not configured (CLAUDE_CODE_OAUTH_TOKEN is not set)");
   }
@@ -234,7 +253,8 @@ export function routeLabel(route: Route): string {
   if (isClaude(route)) return `claude${route.model ? ` · ${route.model}` : ""}${route.effort ? ` (${route.effort})` : ""}`;
   const r = route as ChatRoute | PiRoute;
   const prefix = isPi(r) ? "pi · " : "";
-  return `${prefix}${PROVIDER_LABELS[r.provider]} · ${r.model}`;
+  const thinking = r.thinking ? ` (${r.thinking})` : "";
+  return `${prefix}${PROVIDER_LABELS[r.provider]} · ${r.model}${thinking}`;
 }
 
 /**
