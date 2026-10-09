@@ -8,6 +8,9 @@ import type { ModelInfo } from "@/lib/providers/catalog";
 import { piProviderConfig } from "@/lib/providers/registry";
 import type { HarnessRoute } from "@/lib/providers/route";
 import { HARNESS_BRIDGE_PORT } from "@/lib/sandboxes/harness-bridge";
+import type { BoundSandbox } from "@/db/sandboxes";
+import type { SandboxHandle } from "@/lib/sandboxes/provider";
+import type { PreviewDeps } from "@/lib/previews/service";
 
 /**
  * 0009: build the HarnessAgent for one harness stage visit. Called fresh
@@ -182,4 +185,60 @@ export function proposePrTool(
       };
     },
   });
+}
+
+/**
+ * 0036: a harness stage's host tools — transition (branching stages
+ * only), propose_pr (0034 A), and the shared preview family, so every
+ * surface that works in a sandbox can serve and find previews the same
+ * way. Called inside the stage's step; the preview cores are imported
+ * dynamically here to keep this module's static graph harness-only.
+ * `previewDeps` is the test seam (fake provider/network); prod omits it.
+ */
+export async function harnessStageTools(opts: {
+  stage: HarnessStage;
+  /** Stage session id (mr_…_<seq>) — the previews' startedBy. */
+  sessionId: string;
+  runId: string;
+  projectId: string;
+  /** 0013: the run's binding (own or inherited). */
+  binding: BoundSandbox;
+  /** The opened binding's handle — propose_pr's git summary runs here. */
+  handle: SandboxHandle;
+  workDir: string;
+  previewDeps?: PreviewDeps;
+}): Promise<ToolSet> {
+  const [{ previewTools }, previews] = await Promise.all([
+    import("../chat/preview-tools"),
+    import("@/lib/agent/tools/previews"),
+  ]);
+  const summarize = (repo: string, head: string, base?: string) =>
+    import("@/lib/agent/tools/pr-preview").then(({ runGitSummary }) =>
+      runGitSummary((command) => opts.handle.run(command, undefined, opts.workDir), repo, head, base),
+    );
+  // 0016 caller: previews belong to the sandbox the run already holds —
+  // idempotent per (sandbox, dir, port), so a later stage (or a fresh
+  // visit) re-starts into the same preview instead of adding one.
+  const caller = {
+    kind: "inherited" as const,
+    sessionId: opts.sessionId,
+    binding: opts.binding,
+    projectId: opts.projectId,
+  };
+  const deps = opts.previewDeps ?? {};
+  return {
+    ...(opts.stage.next.length > 1 ? { transition: transitionTool(opts.stage) } : {}),
+    propose_pr: proposePrTool(opts.projectId, opts.runId, summarize),
+    ...previewTools((action, input) =>
+      action === "start"
+        ? previews.startPreviewTool(caller, input, deps)
+        : action === "status"
+          ? previews.previewStatusTool(caller, input as { id?: string; lines?: number }, deps)
+          : action === "get-setup"
+            ? previews.getPreviewSetupTool(caller)
+            : action === "save-setup"
+              ? previews.savePreviewSetupTool(caller, input as { definition: unknown })
+              : previews.stopPreviewTool(caller, input as { id: string }, deps),
+    ),
+  };
 }

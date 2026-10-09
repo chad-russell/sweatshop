@@ -1,4 +1,3 @@
-import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import {
