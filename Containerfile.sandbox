@@ -9,9 +9,27 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates sudo \
   && rm -rf /var/lib/apt/lists/*
 
+# 0035: browser tools baked in for general-purpose use — anything the
+# agent needs, not QA-only. The Chrome shared libraries are the list
+# agent-browser's own --with-deps would install (it shells `sudo apt`,
+# which this image only grants to the sandbox user, so they are explicit
+# here as root). A custom project image without this layer degrades to
+# agent-checkable: `command -v agent-browser` — never a tool gate.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    libxcb-shm0 libx11-xcb1 libx11-6 libxcb1 libxext6 libxrandr2 \
+    libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxi6 libgtk-3-0 \
+    libpangocairo-1.0-0 libpango-1.0-0 libatk1.0-0 libcairo-gobject2 \
+    libcairo2 libgdk-pixbuf-2.0-0 libxrender1 libasound2 libfreetype6 \
+    libfontconfig1 libdbus-1-3 libnss3 libnss3-tools libnspr4 \
+    libatk-bridge2.0-0 libdrm2 libxkbcommon0 libatspi2.0-0 libcups2 \
+    libxshmfence1 libgbm1 fonts-noto-color-emoji fonts-noto-cjk \
+    fonts-freefont-ttf \
+  && rm -rf /var/lib/apt/lists/*
+
 # Bridge-backed harnesses (claude) bootstrap their in-sandbox bridge with
 # `pnpm install`; pinned to the version eve's own sandbox image ships.
-RUN npm install -g pnpm@11.5.2 && npm cache clean --force
+RUN npm install -g pnpm@11.5.2 agent-browser@0.38.2 && npm cache clean --force
 
 # Non-root agent user with passwordless sudo — the same shape as eve's
 # own sandbox image (vercel-sandbox). Claude Code refuses to run its
@@ -24,6 +42,14 @@ RUN useradd -m -s /bin/bash sandbox \
 # /work/<runId> holds machine runs' repos (0009: a root that never
 # collides with the dev runtime's own /workspace mount).
 RUN mkdir -p /workspace /work && chown sandbox:sandbox /workspace /work
+
+# 0035: Chrome for Testing downloaded at BUILD time into the sandbox
+# user's ~/.agent-browser — nothing downloads at runtime. Pinned by the
+# image build; bump the agent-browser pin above and rebuild to move.
+USER sandbox
+RUN agent-browser install
+USER root
+
 WORKDIR /workspace
 USER sandbox
 
