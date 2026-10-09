@@ -52,7 +52,7 @@ describe("0036 harness-stage preview tools", () => {
     const { ref, binding } = runLease();
     const linear = await toolsFor(stage([{ to: "gate" }]), sbx, ref, binding);
     expect(Object.keys(linear).sort()).toEqual(
-      ["get_preview_setup", "preview_status", "propose_pr", "save_preview_setup", "start_preview", "stop_preview"],
+      ["attach_screenshot", "get_preview_setup", "preview_status", "propose_pr", "save_preview_setup", "start_preview", "stop_preview"],
     );
     const branching = await toolsFor(stage([{ to: "a", when: "ok" }, { to: "b", when: "no" }]), sbx, ref, binding);
     expect(Object.keys(branching)).toContain("transition");

@@ -138,6 +138,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `lib/agent/tools/web.ts` / `web-search.ts`, steps in
   `workflows/chat/steps.ts`, cards `components/ai-elements/web-cards.tsx`
   on the shared agent-cards shell, views `lib/web-tool-view.ts`.
+- Browser & screenshot evidence (0035): `Containerfile.sandbox` bakes
+  agent-browser (npm pin) + its Chrome-for-Testing shared libs and
+  binary (~/.agent-browser) at build — nothing downloads at runtime; a
+  custom `image_ref` without it degrades to agent-checkable
+  (`command -v agent-browser`), never a tool gate. Every surface with a
+  sandbox (chat, agent stage, harness stage — one shared definition,
+  `workflows/chat/screenshot-tool.ts`) gets `attach_screenshot`: copy a
+  PNG from the sandbox (any path, magic-checked, ≤ 10 MiB) to
+  `data/attachments/att_<hex>.png`, served immutably by
+  `/api/attachments/[id]` (`ATTACHMENTS_DIR` relocates the root); the
+  transcript renders it as an image card (click = full size). Core
+  `lib/agent/tools/screenshot.ts`.
 - Auth: LAN-only personal tool with no auth layer. **Hard rule: add a
   real verifier before any internet exposure.**
 - Persistence north star: SQLite (single db, or split where it makes

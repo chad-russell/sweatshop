@@ -208,9 +208,11 @@ export async function harnessStageTools(opts: {
   workDir: string;
   previewDeps?: PreviewDeps;
 }): Promise<ToolSet> {
-  const [{ previewTools }, previews] = await Promise.all([
+  const [{ previewTools }, previews, { screenshotTool }, screenshots] = await Promise.all([
     import("../chat/preview-tools"),
     import("@/lib/agent/tools/previews"),
+    import("../chat/screenshot-tool"),
+    import("@/lib/agent/tools/screenshot"),
   ]);
   const summarize = (repo: string, head: string, base?: string) =>
     import("@/lib/agent/tools/pr-preview").then(({ runGitSummary }) =>
@@ -229,6 +231,10 @@ export async function harnessStageTools(opts: {
   return {
     ...(opts.stage.next.length > 1 ? { transition: transitionTool(opts.stage) } : {}),
     propose_pr: proposePrTool(opts.projectId, opts.runId, summarize),
+    // 0035: QA evidence from a stage visit shows in the conversation.
+    attach_screenshot: screenshotTool((input) =>
+      screenshots.attachScreenshotIn(opts.sessionId, opts.binding, input),
+    ),
     ...previewTools((action, input) =>
       action === "start"
         ? previews.startPreviewTool(caller, input, deps)

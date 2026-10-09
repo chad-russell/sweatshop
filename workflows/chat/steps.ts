@@ -314,6 +314,16 @@ export async function previewToolStep(
   return tools.stopPreviewTool(caller, input as { id: string });
 }
 
+/** 0035: attach a sandbox PNG to the conversation. */
+export async function screenshotStep(
+  conversationId: string,
+  input: { path: string; label?: string },
+): Promise<unknown> {
+  "use step";
+  const tools = await import("../../lib/agent/tools/screenshot");
+  return tools.attachScreenshotTool(conversationId, input);
+}
+
 /** 0013 Phase 6: read-only look at another chat, run, or stage visit. */
 export async function inspectStep(id: string): Promise<unknown> {
   "use step";
