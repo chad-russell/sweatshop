@@ -14,7 +14,6 @@ import { bindConversation } from "../db/sandboxes";
 import { projectRepos, projects } from "../db/schema";
 import { previewStatusTool, startPreviewTool, stopPreviewTool } from "../lib/agent/tools/previews";
 import { slugFromHost } from "../lib/previews/network";
-import type { PreviewNetwork } from "../lib/previews/network";
 import { describeDir, discoverPreviewCandidates } from "../lib/previews/discover";
 import { savePreviewSetup } from "../db/preview-setups";
 import {
@@ -24,87 +23,16 @@ import {
 } from "../lib/previews/service";
 import { makeResolver } from "../lib/previews/runtime";
 import { busySandboxIds, destroySandboxNow, reap } from "../lib/sandboxes/reaper";
-import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
+import { FakeSandbox, fast, networkFor } from "./helpers/fake-sandbox";
 
 /**
  * 0016 previews: the registry, the lifecycle against a scripted sandbox
  * (no podman), reconcile, and the reaper's preview rules. The fake
- * sandbox models only what the service observes: a pid file per preview
- * that the launch script writes and the kill script removes, plus a
- * scripted "does it answer HTTP" per container.
+ * sandbox (tests/helpers/fake-sandbox.ts) models only what the service
+ * observes: a pid file per preview that the launch script writes and
+ * the kill script removes, plus a scripted "does it answer HTTP" per
+ * container.
  */
-
-class FakeSandbox implements SandboxProvider {
-  readonly kind = "podman";
-  /** preview id → alive */
-  alive = new Map<string, boolean>();
-  /** ref:port → answers HTTP */
-  answers = new Set<string>();
-  /** What a launch does: "serve" comes up, "die" exits at once, "hang" never answers. */
-  behavior: "serve" | "die" | "hang" = "serve";
-  scripts: { command: string; env?: Record<string, string> }[] = [];
-  files = new Map<string, string>();
-  log: string[] = [];
-  async create(): Promise<SandboxHandle> {
-    throw new Error("unused");
-  }
-  attach(ref: string): SandboxHandle {
-    return {
-      ref,
-      run: async (command, env) => {
-        this.scripts.push({ command, ...(env ? { env } : {}) });
-        const pidMatch = /\/work\/\.previews\/(pv_[A-Za-z0-9_-]+)\.pid/.exec(command);
-        const id = pidMatch?.[1];
-        if (command.includes("setsid nohup") && id) {
-          const port = env?.PORT ?? "0";
-          this.alive.set(id, this.behavior !== "die");
-          if (this.behavior === "serve") this.answers.add(`${ref}:${port}`);
-          else this.answers.delete(`${ref}:${port}`);
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (command.includes("kill -TERM") && id) {
-          this.alive.set(id, false);
-          return { exitCode: 0, stdout: "", stderr: "" };
-        }
-        if (command.includes("echo alive") && id) {
-          return { exitCode: 0, stdout: this.alive.get(id) ? "alive\n" : "", stderr: "" };
-        }
-        if (command.startsWith("tail -n")) return { exitCode: 0, stdout: "boom: missing module\n", stderr: "" };
-        if (command.includes("__ROOT__")) {
-          return { exitCode: 0, stdout: this.files.get("scan") ?? "", stderr: "" };
-        }
-        if (command.includes("cat package.json")) {
-          return { exitCode: 0, stdout: this.files.get("listing") ?? "", stderr: "" };
-        }
-        return { exitCode: 0, stdout: "", stderr: "" };
-      },
-      spawn: (() => {
-        throw new Error("unused");
-      }) as unknown as Experimental_SandboxSession["spawn"],
-    };
-  }
-  async stop(ref: string) {
-    this.log.push(`stop ${ref}`);
-  }
-  async resume(ref: string) {
-    this.log.push(`resume ${ref}`);
-  }
-  async destroy(ref: string) {
-    this.log.push(`destroy ${ref}`);
-  }
-}
-
-function networkFor(sbx: FakeSandbox): PreviewNetwork & { connected: string[] } {
-  const connected: string[] = [];
-  return {
-    connected,
-    async connect(ref) {
-      connected.push(ref);
-    },
-    target: (ref, port) => ({ host: ref, port }),
-    probe: async (ref, port) => sbx.answers.has(`${ref}:${port}`),
-  };
-}
 
 let n = 0;
 function lease(status = "running", ownerKind = "conversation", idleMs = 0, ownerId?: string) {
@@ -118,8 +46,6 @@ function lease(status = "running", ownerKind = "conversation", idleMs = 0, owner
     .run(id, `ref-${id}`, ownerKind, ownerId ?? `owner-${id}`, status, Date.now() - idleMs);
   return id;
 }
-
-const fast = { healthTimeoutMs: 30, pollMs: 1 };
 
 describe("0016 preview registry", () => {
   it("makes DNS-safe slugs that fit a label", () => {
