@@ -241,11 +241,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   never stops or destroys) — `lib/agent/tools/inspect.ts`.
   Entities are managed on the project page (0018 phase 3 + 0031 + 0023:
   rename, repos with guarded removal, the sandbox image field, the work
-  defaults (test command + branch prefix — carried into machine stage
-  briefs as a "# Project" section), and
-  delete-project — the approved cascade: cancel live runs, destroy live
-  sandboxes, then every project-owned row, conversations hard-deleted
-  via `deleteConversationForever`; machines and credentials untouched);
+  defaults — the create_pr card runs the test command, work branches
+  take the prefix — and
+  delete-project — the approved cascade: destroy live sandboxes, then
+  every project-owned row, conversations hard-deleted via
+  `deleteConversationForever`; credentials untouched);
   `/p/[projectId]` is the PROJECT PAGE (0018: repos + resolved git
   hosts, sandbox image, work defaults, preview-setup editor,
   work-surface links) and
