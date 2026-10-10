@@ -91,3 +91,15 @@ Format: `- [date] surface — what frictions; (what you did instead)`
   only at visit end: fine to run, blind to monitor. → wire the steps
   counter and consider incremental persistence or live-stream parity
   with harness stages.
+- [2026-10-10] run 5 follow-up — ROOT CAUSES found: (1) Next 16 dev
+  blocks `/_next/webpack-hmr` from non-localhost origins without
+  `allowedDevOrigins`, so the page renders but never hydrates (same
+  behaviour via the container IP; works at localhost); (2) gpl turns on
+  email/auto-login only when `BETTER_AUTH_URL` is localhost. → agents QA
+  at `http://localhost:$PORT` (ship playbook + docs/agent/previews.md);
+  the gpl setup keeps auth on localhost and passes
+  `ALLOWED_DEV_ORIGINS=${PREVIEW_HOST}` /
+  `BETTER_AUTH_TRUSTED_ORIGINS=${PREVIEW_URL}` (saved); Chad-facing
+  previews need the neutral gpl change (TangoGroup/360-gpl#45, draft).
+  Verified live: localhost hydrates + auto-logs-in on unpatched gpl
+  main; the preview URL does too with #45 applied.
