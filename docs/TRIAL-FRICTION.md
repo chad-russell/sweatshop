@@ -120,3 +120,10 @@ Format: `- [date] surface — what frictions; (what you did instead)`
   previews need the neutral gpl change (TangoGroup/360-gpl#45, draft).
   Verified live: localhost hydrates + auto-logs-in on unpatched gpl
   main; the preview URL does too with #45 applied.
+- [2026-10-10] run 6 — the gpl seed has no previewable asset in minio,
+  and the app's presigned URLs point at `localhost:9000`, which does
+  not resolve to the minio service inside the sandbox. The thread built
+  a PDF, uploaded it, and ran a TCP proxy (~20 calls, ~8 min). → the
+  gpl preview setup's `seed` uploads one sample asset; give the
+  services substrate a way to expose a service on the sandbox's
+  localhost (or the app reads a public S3 URL env).
