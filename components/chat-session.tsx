@@ -56,6 +56,7 @@ import type { ChatRoute } from "@/lib/providers/route";
 import type { ToolState } from "@/lib/machine-tool-view";
 import type { ViewingContext } from "@/lib/page-context";
 import { hasBackgroundChild, rowsToUIMessages, untilLiveTurn, type StoredRow } from "@/lib/chat-ui";
+import { CHAT_STREAM_THROTTLE_MS } from "@/lib/chat-stream-throttle";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -892,6 +893,10 @@ export function ChatSession({
     id: activeRunId ?? conversationId,
     resume: Boolean(activeRunId),
     transport,
+    // Long turns stream thousands of chunks (reasoning deltas
+    // token-by-token); without a throttle every chunk re-renders the
+    // whole transcript and the page seizes (2026-10-10 review thread).
+    throttle: CHAT_STREAM_THROTTLE_MS,
     ...(initialMessages && initialMessages.length > 0 ? { messages: initialMessages } : {}),
   });
 
