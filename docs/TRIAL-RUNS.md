@@ -248,6 +248,78 @@ time under 15 minutes, no verify stage to run away.
   environment, now fixed in the platform (services on localhost) and
   in data (seeds). Next: the big-ticket comparison.
 
+### Run 8 (phase 4 arm 1, Ticket playbook on a big ticket) — 2026-10-10 18:24–19:07 (deployed 86ab1e1) — WORK DONE, PR declined by design
+
+- Chat `c_1486f3c5b1a6ce3cdf480`, project gpl, `playbook: ticket`, GLM
+  flash, fresh sandbox. First run of the phase-3 shape (start_thread +
+  Ticket/Review playbooks, PR #74/#75) on a genuinely larger ticket:
+  WYC-1592 — multi-country filter with OR semantics plus multi-country
+  search OR (filter-types, filter-utils, search-utils, the sidebar,
+  wiring, tests).
+- **Ask → first PR card: 42m27s.** One touch from Chad: the plan
+  approval, 87 s (answered from the inbox by Chad himself).
+- **The ticket's premise was wrong and the thread caught it.** There is
+  no "RequestUsers" page in 360-gpl — it searched main, all branches,
+  all 45 PR heads and GitHub code search, then ASKED: the symptoms match
+  the Project Directory (/projects). The plan gate earned its keep on
+  the first big ticket.
+- **The full Ticket shape executed:** plan approval → implement →
+  verify (3 labeled before/after screenshots: the OR union, and two
+  `country:` search chips OR-ing where main ANDs to zero) → a fresh-eyes
+  review child via start_thread → the parent committed a fix for a
+  review finding (`availableCountries` required prop) → create_pr with
+  the runtime check green (tsc + vitest, the two known env-failing
+  files excluded) and 22 new tests. Card declined ("trial run, keep it
+  local") → clean two-commit summary, everything local, never pushed.
+- **The phase-3 primitives took real load:** the review child attached
+  to the same checkout; its FIRST start no-started silently (the model
+  retried — cause still to find) and the model cancelled it itself with
+  cancel_run; the wake carried the findings; the parent weighed them
+  and fixed one.
+- **Context-size risk: visible but not binding.** 465 KB of model
+  messages, 150 model steps (budget 400), 0 budget continuations, 0
+  pi/claude subagent calls. The understanding phase before the plan
+  gate was ~24 min / ~100 bash calls — model thoroughness, not
+  substrate. GLM flash's window never pressured; a truly huge ticket
+  would. If it bites, the 0037 answer stays compaction at a gate. The
+  zero-delegation habit is the cheaper fix to push on first: the
+  playbook says delegate non-trivial edits, and the model didn't.
+- Frictions: the silent first-child no-start (retry masked it); a wake
+  delivered mid-turn as steer persists as a plain user row, losing its
+  runEvent chip.
+
+### Run 9 (phase 4 arm 2, the old `ticket` machine on the same ticket) — 2026-10-10 19:10–19:50 — CANCELLED AT PLAN
+
+- Run `mr_mv2rqui5df4c9c` (machine `ticket`), API start, own fresh
+  sandbox, same brief as run 8. The arm the comparison exists to beat.
+- **Cancelled at 40m23s, never having reached a gate.** The plan stage
+  (pi on GLM flash) ran **260 steps / 832 harness events / ~820 KB** —
+  against 10–13 steps / ~3 min for the same stage on the small ticket
+  (runs 1–3) — and was still grep-exploring filter consumers when Chad
+  called it ("an hour to plan a feature without asking me anything is
+  not tenable"). Run 8's whole ticket, including its plan approval,
+  took 42m27s.
+- **Attribution — both, compounding (Chad's question: "is this just a
+  pi issue?"):**
+  - **Shape:** a harness stage cannot ask mid-stage; gates sit BETWEEN
+    stages. The ticket's premise was wrong, and the thread arm resolved
+    that in one ask_chad at minute 24 — the plan stage had no ask tool,
+    so it ground through every branch and PR head to resolve the
+    ambiguity itself. Exhaustive-by-construction.
+  - **Harness/model:** pi + flash is the documented rabbit-prone pair
+    (runs 2–3), and the plan seed's only bound is the word "concise" —
+    verify got a stop rule after run 3; plan never did. 260 steps
+    without writing a plan line is that same runaway, now upstream.
+- **Comparison verdict (runs 8–9, closing phase 4):** on a big ticket
+  the staged arm did not finish PLANNING in the time the one-thread arm
+  shipped the whole feature — with better evidence (premise check,
+  labeled screenshots, a review child's findings acted on) and one
+  touch. The staged shape's costs are structural (context handoffs,
+  gates that can't ask), not tunable away with better briefs — runs
+  2–3 tuned verify and the runaway moved to plan. 0037 proceeds to
+  phase 5 (delete machines); if big-ticket context ever binds, the
+  answer is compaction at a gate, not stages.
+
 ## Metrics to keep per run
 
 wall time · Chad's touches (count + minutes) · stage durations + steps ·
@@ -257,7 +329,10 @@ logged.
 
 ## Planned comparison
 
-Once the staged (machine) version is tuned, benchmark it against a
-simpler arm — a single session that calls harnesses as subagents at
-will (Chad, 2026-10-09) — on this same ticket, same metrics. "Simpler
-is better" is a hypothesis; the log is the experiment.
+Done — runs 8–9 (2026-10-10): the Ticket playbook (one thread, plan
+gate, fresh-eyes review child) versus the old `ticket` machine on
+WYC-1592. The thread shipped in 42½ min with one touch; the machine was
+cancelled at 40 min still planning, no gate reached. The staged shape's
+costs are structural; 0037 phase 5 (delete machines) followed. This log
+is the experiment record — future comparisons (bigger tickets, other
+playbooks) append here with the same metrics.
