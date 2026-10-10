@@ -244,6 +244,9 @@ export const pendingInputs = sqliteTable(
     resolvedAt: integer("resolved_at"),
     /** Serialized answer (approved/comment), once resolved. */
     answer: text("answer"),
+    /** 0037: runtime-built evidence for the card (JSON `ApprovalEvidence`
+     *  — check results, screenshots); null for plain asks. */
+    card: text("card"),
   },
   (table) => [index("pending_inputs_conversation_idx").on(table.conversationId)],
 );

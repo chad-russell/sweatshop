@@ -51,3 +51,14 @@ export async function POST(request: Request) {
   resolvePendingInput(db(), body.toolCallId, payload);
   return NextResponse.json({ resumed: true });
 }
+
+/** 0037: the runtime-built evidence for one pending input's card (the
+ *  transcript's create_pr card reads it while the approval waits). */
+export async function GET(request: Request) {
+  const toolCallId = new URL(request.url).searchParams.get("toolCallId");
+  if (!toolCallId) {
+    return NextResponse.json({ error: "toolCallId is required" }, { status: 400 });
+  }
+  const { getPendingInputCard } = await import("@/db/chat");
+  return NextResponse.json({ evidence: getPendingInputCard(db(), toolCallId) });
+}

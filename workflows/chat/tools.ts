@@ -110,17 +110,22 @@ export function buildChatTools(
       // silent PR. Invalid proposals return to the model without asking.
       execute: async (input, { toolCallId }) => {
         const preview = (await createPrPreviewStep(conversationId, input)) as
-          | { ok: true; summary: string }
+          | { ok: true; summary: string; evidence: unknown }
           | { ok: false; code: string; message: string };
         if (!preview.ok) return preview;
-        await pendingStep(conversationId, toolCallId, preview.summary, "approval");
+        // 0037: the card carries the runtime's evidence (test run +
+        // the thread's screenshots), not the model's say-so.
+        await pendingStep(conversationId, toolCallId, preview.summary, "approval", preview.evidence);
         const answer = await chatApprovalHook.create({ token: toolCallId });
         if (!(answer.kind === "approval" && answer.approved)) {
-          const why = answer.kind === "approval" && answer.comment ? ` (${answer.comment})` : "";
+          // 0037: a comment is a revise — Chad typed changes he wants.
+          const comment = answer.kind === "approval" ? answer.comment?.trim() : undefined;
           return {
             ok: false,
-            code: "denied" as const,
-            message: `Chad declined the PR${why} — nothing was opened`,
+            code: comment ? ("changes-requested" as const) : ("denied" as const),
+            message: comment
+              ? `Chad sent the PR back with changes — nothing was opened. Address this, then call create_pr again: ${comment}`
+              : "Chad declined the PR — nothing was opened",
           };
         }
         return createPrStep(conversationId, input);

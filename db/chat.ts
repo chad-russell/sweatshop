@@ -149,10 +149,11 @@ export function saveHarnessResumeState(
  */
 export function recordPendingInput(
   db: Db,
-  input: { id: string; conversationId: string; kind: string; question: string },
+  input: { id: string; conversationId: string; kind: string; question: string; card?: unknown },
 ): void {
+  const { card, ...row } = input;
   db.insert(pendingInputs)
-    .values({ ...input, createdAt: Date.now() })
+    .values({ ...row, card: card === undefined ? null : JSON.stringify(card), createdAt: Date.now() })
     .onConflictDoNothing()
     .run();
 }
@@ -166,6 +167,18 @@ export function resolvePendingInput(
     .set({ resolvedAt: Date.now(), answer: JSON.stringify(answer) })
     .where(eq(pendingInputs.id, id))
     .run();
+}
+
+/** 0037: a pending input's runtime-built card evidence (null = none,
+ *  or no such row). */
+export function getPendingInputCard(db: Db, id: string): unknown {
+  const row = db.select({ card: pendingInputs.card }).from(pendingInputs).where(eq(pendingInputs.id, id)).get();
+  if (!row?.card) return null;
+  try {
+    return JSON.parse(row.card) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 export function listPendingInputs(

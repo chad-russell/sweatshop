@@ -1,0 +1,1 @@
+ALTER TABLE `pending_inputs` ADD `card` text;

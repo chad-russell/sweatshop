@@ -191,7 +191,11 @@ inbox's machine-gate card goes away.
 ## Phases (each testable on its own)
 
 1. **Evidence on cards + typing-revises.** Items 2 and 3. Both are useful
-   to today's chats immediately.
+   to today's chats immediately. *(Built 2026-10-10: `pending_inputs.card`
+   holds the runtime evidence; the check is capped at 900 s and runs only
+   in an already-bound sandbox. Typing answers the OLDEST pending input.
+   A hook that will not resume falls back to a steer, so no message is
+   lost.)*
 2. **Playbooks + budget.** Items 1 and 4, Ship only.
    **Experiment:** WYC-1589 run 5 in a project chat with the Ship
    playbook versus run 4 on `flow`, same metrics, plus one deliberate
