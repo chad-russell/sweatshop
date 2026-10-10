@@ -22,6 +22,7 @@ import { chatRouteSchema, parseRouteAs, validateRoute } from "@/lib/providers/ro
 import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
 import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
+import { answerPendingWithText } from "@/lib/chat/answer-pending";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,16 @@ export async function POST(request: Request) {
   let active = getActiveRun(db(), body.conversationId);
   if (active) {
     if (ACTIVE.has(await getRun(active).status)) {
+      // 0037: a turn suspended on Chad (approval/question) takes the
+      // typed text as the ANSWER — a revise for approvals (denied with
+      // the text as the comment), the reply for questions. A steer would
+      // only drain after the hook resolves, i.e. never.
+      const answered = await answerPendingWithText(body.conversationId, text);
+      if (answered) {
+        // Transport callers re-attach to the live turn's stream; plain
+        // fetch callers learn what their text answered.
+        return wantsStream ? respond(active, true) : NextResponse.json({ runId: active, steered: false, answered });
+      }
       enqueueSteer(db(), body.conversationId, text);
       return respond(active, true);
     }

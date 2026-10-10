@@ -47,6 +47,8 @@ import {
 import { PreviewToolCard } from "@/components/previews/preview-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
+import { ApprovalEvidenceView } from "@/components/approval-evidence";
+import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { HarnessCard } from "@/components/harness-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
@@ -167,6 +169,79 @@ function prUrlCoords(url: string): { repo: string; number: string } | null {
   return match ? { repo: `${match[1]}/${match[2]}`, number: match[3] } : null;
 }
 
+/**
+ * 0037: a create_pr call waiting on Chad — the runtime's evidence (test
+ * check, the thread's screenshots) plus Approve/Deny, right in the
+ * transcript. The evidence row appears once the preview step has written
+ * it (polled until then); typing in the composer is a revise.
+ */
+function PendingPRApproval({ toolCallId }: { toolCallId: string }) {
+  const [evidence, setEvidence] = useState<ApprovalEvidence | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    if (evidence) return;
+    let stop = false;
+    const load = async () => {
+      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(toolCallId)}`).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { evidence?: ApprovalEvidence | null } | null;
+      if (!stop && body?.evidence) setEvidence(body.evidence);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [toolCallId, evidence]);
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId, approved }),
+      });
+      if (res.ok) setAnswered(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!evidence) {
+    return (
+      <p className="px-3 pb-2.5 text-xs text-muted-foreground">Running the project&apos;s checks for the approval card…</p>
+    );
+  }
+  return (
+    <div className="space-y-2 border-t border-warning/40 bg-warning/5 px-3 py-2.5">
+      <ApprovalEvidenceView evidence={evidence} />
+      {answered ? (
+        <p className="text-xs text-muted-foreground">Answered — the agent continues.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+          >
+            Approve PR
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
+          >
+            Deny
+          </button>
+          <span className="text-xs text-muted-foreground">or type below to send it back with changes</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One create_pr call: status pill, title, branch chips, link out. */
 function PullRequestToolCard({ part }: { part: ToolUIPart }) {
   const running = part.state === "input-streaming" || part.state === "input-available";
@@ -249,6 +324,7 @@ function PullRequestToolCard({ part }: { part: ToolUIPart }) {
           </CollapsibleTrigger>
         </div>
       </div>
+      {part.state === "input-available" && <PendingPRApproval toolCallId={part.toolCallId} />}
       <ToolContent>
         {head && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

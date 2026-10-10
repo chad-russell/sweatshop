@@ -4,6 +4,7 @@ import { getConversationBinding } from "@/db/sandboxes";
 import { openConversationSandbox } from "@/lib/sandboxes/binding";
 import { resolveProjectRepo } from "@/lib/git-hosts/open-pr";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
+import { buildApprovalEvidence, describeCheck, type ApprovalEvidence } from "./evidence";
 
 /**
  * 0034 Phase A: the approval preview for create_pr — validate the
@@ -23,7 +24,7 @@ export interface PRPreviewInput {
 }
 
 export type PRPreview =
-  | { ok: true; summary: string }
+  | { ok: true; summary: string; evidence: ApprovalEvidence }
   | {
       ok: false;
       code: "no-project" | "no-repo" | "no-credential";
@@ -131,5 +132,10 @@ export async function buildChatPRPreview(
   const resolved = resolveProjectRepo(conversation.projectId, input.repo);
   if (!resolved.ok) return resolved;
   const git = await gatherGitSummary(conversationId, input, provider);
-  return { ok: true, summary: formatPRSummary(input, git) };
+  // 0037: the runtime's own evidence — the test command and the
+  // thread's screenshots — so the card shows what the model skipped.
+  const evidence = await buildApprovalEvidence(conversationId, input.repo, provider);
+  const shots = evidence.screenshots.length;
+  const summary = `${formatPRSummary(input, git)}\n\nChecks: ${describeCheck(evidence)}\nScreenshots: ${shots === 0 ? "none attached in this thread" : shots}`;
+  return { ok: true, summary, evidence };
 }

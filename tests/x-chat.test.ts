@@ -349,8 +349,9 @@ describe("0010 spike: chat turn workflow", () => {
       const baseUrl = `http://127.0.0.1:${port}`;
 
       try {
-        for (const approved of [false, true] as const) {
-          const pid = `prgate-${approved ? "yes" : "no"}-${Math.random().toString(36).slice(2, 6)}`;
+        for (const answerWith of ["deny", "revise", "approve"] as const) {
+          const approved = answerWith === "approve";
+          const pid = `prgate-${answerWith}-${Math.random().toString(36).slice(2, 6)}`;
           expect(createProject(db(), {
             id: pid,
             name: "PR gate",
@@ -377,11 +378,25 @@ describe("0010 spike: chat turn workflow", () => {
           expect(listPendingInputs(db(), id).map((p) => p.id)).toContain("call_pr_1");
           expect(requests.length).toBe(before);
 
-          await chatApprovalHook.resume("call_pr_1", { kind: "approval", approved });
-          resolvePendingInput(db(), "call_pr_1", { approved });
+          if (answerWith === "revise") {
+            // 0037: typing while the PR waits = a revise, same turn.
+            const { answerPendingWithText } = await import("../lib/chat/answer-pending");
+            expect(await answerPendingWithText(id, "use the 896px cap")).toEqual({
+              toolCallId: "call_pr_1",
+              kind: "approval",
+            });
+          } else {
+            await chatApprovalHook.resume("call_pr_1", { kind: "approval", approved });
+            resolvePendingInput(db(), "call_pr_1", { approved });
+          }
           expect((await run.returnValue).finishReason).toBe("stop");
+          expect(listPendingInputs(db(), id)).toEqual([]);
 
-          if (approved) {
+          if (answerWith === "revise") {
+            expect(requests.length).toBe(before);
+            expect(serialized(id)).toContain("changes-requested");
+            expect(serialized(id)).toContain("use the 896px cap");
+          } else if (approved) {
             expect(requests.length).toBe(before + 1);
             expect(requests.at(-1)?.path).toBe("/api/v1/repos/chad/r/pulls");
             expect(requests.at(-1)?.body?.head).toBe("feat/trial");

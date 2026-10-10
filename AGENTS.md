@@ -214,7 +214,19 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   project conversations start on `/` with `?project=<id>`; `create_pr`
   is the agent's PR tool — approval-gated EVERYWHERE (0034 A), one
   mechanism per surface: the CHAT tool suspends on the ask_chad hook
-  with a commits + diffstat card; in MACHINE runs stages only
+  with a commits + diffstat card plus RUNTIME-BUILT evidence (0037
+  phase 1, `lib/agent/tools/evidence.ts`: the project's test command
+  run by the runtime in the bound sandbox — 900 s cap — and the
+  thread's `attach_screenshot` results from `messages` + its harness
+  calls' `harness_events`), stored as `pending_inputs.card` and
+  rendered on the inbox card and inline in the transcript
+  (`components/approval-evidence.tsx`). Typing in a thread while it
+  waits on Chad ANSWERS the oldest pending input (0037, Chad's
+  decision; `lib/chat/answer-pending.ts`, called by the chat send
+  route before any steer): an approval resolves DENIED with the text
+  as the comment — create_pr returns `changes-requested` and the turn
+  continues in the same context — a question takes the text as its
+  answer. Approve stays an explicit button. In MACHINE runs stages only
   `propose_pr` (a run-scoped `pr_proposals` row, `db/pr-proposals.ts`
   — harnesses hold no git write powers at all; chat harness calls get
   no git tool), the run's HUMAN gate card renders the pending proposal

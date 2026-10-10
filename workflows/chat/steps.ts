@@ -428,10 +428,12 @@ export async function pendingStep(
   id: string,
   question: string,
   kind: "approval" | "question" = "approval",
+  /** 0037: runtime-built evidence rendered on the card. */
+  card?: unknown,
 ): Promise<void> {
   "use step";
   const { db, chat } = await chatStore();
-  chat.recordPendingInput(db, { id, conversationId, kind, question });
+  chat.recordPendingInput(db, { id, conversationId, kind, question, ...(card !== undefined ? { card } : {}) });
 }
 
 /** 0010 Phase 4: generated titles (0007) for new-runtime conversations —

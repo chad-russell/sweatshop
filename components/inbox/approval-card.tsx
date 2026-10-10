@@ -3,6 +3,7 @@
 import { ShieldQuestion } from "lucide-react";
 import Link from "next/link";
 import { cn } from "cn";
+import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import { Button } from "@/components/ui/button";
 import type { NeedsYouThread, PendingRequest, RequestOption } from "@/db/attention";
 import { Where } from "./where";
@@ -67,6 +68,7 @@ export function ApprovalCard({
               {input}
             </pre>
           )}
+          {request.evidence && <ApprovalEvidenceView evidence={request.evidence} />}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">

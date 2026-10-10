@@ -64,8 +64,20 @@ export interface PendingRequest {
   /** The tool call behind the request (approvals), when present. */
   toolName: string | null;
   toolInput: Record<string, unknown> | null;
+  /** 0037: runtime-built evidence (check result, screenshots) for gated
+   *  tools; null for plain asks. */
+  evidence: import("../lib/agent/tools/evidence").ApprovalEvidence | null;
   /** Unix ms the request was raised. */
   at: number;
+}
+
+function parseCard(card: string | null): PendingRequest["evidence"] {
+  if (!card) return null;
+  try {
+    return JSON.parse(card) as PendingRequest["evidence"];
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -83,6 +95,7 @@ export function loadPendingRequests(
       conversationId: pendingInputs.conversationId,
       kind: pendingInputs.kind,
       question: pendingInputs.question,
+      card: pendingInputs.card,
       createdAt: pendingInputs.createdAt,
     })
     .from(pendingInputs)
@@ -115,6 +128,7 @@ export function loadPendingRequests(
       allowFreeform: true,
       toolName: "ask_chad",
       toolInput: { kind: row.kind, question: row.question },
+      evidence: parseCard(row.card),
       at: row.createdAt,
     });
     out.set(row.conversationId, list);
