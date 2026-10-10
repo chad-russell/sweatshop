@@ -217,6 +217,37 @@ time under 15 minutes, no verify stage to run away.
   observability. The remaining gap to run 4 is the seed/minio fixture
   for this page, not the thread shape.
 
+### Run 7 (Ship playbook, services on localhost + asset seed) — 2026-10-10 16:46–17:08 (deployed 2734ad3) — WORK DONE, PR declined by design
+
+- Chat `c_0fwHJVzzBIoS2Pa9u6R_L`, the same brief and model, fresh
+  sandbox. The variables under test: PR #72 (services share the
+  sandbox's localhost) and the gpl setup `seed` now uploading sample
+  files for every asset row.
+- **Ask → first PR card: ~10m06s.** Run 4's `flow` took 10m30s to its
+  gate. Run 7 matches it on the one-thread shape, with live
+  observability and a revise loop that `flow` lacks. ONE turn, **50
+  model steps** (run 6: 98, run 5: 156).
+- **Zero environment work:** 0 proxy, PDF-generation or auth-hack
+  calls; 20 agent-browser calls, all to `localhost:3006`, first try.
+  The seeded PDF rendered in the preview dialog.
+- **Engineering:** `max-w-[calc(100%-2rem)] sm:max-w-6xl` + 70vh,
+  measured 512×510 → 1152×568 in the browser; tests 235/235 via the
+  runtime check.
+- **One new model slip, caught by the card:** `create_pr` used head
+  `feature/wyc-card` (a typo; the work was on `feature/wyc-1589`). The
+  card showed "commit summary unavailable", and a typed revise
+  re-carded in ~22 s with the right head and its commit. → fix: a head
+  that does not exist is a value-shaped error back to the model before
+  any card (`no-such-branch`, same PR as this record), so Chad never
+  sees a commit-less card.
+- Ending: declined the corrected card with a stop note → a two-line
+  summary; every pending input resolved.
+- **Verdict:** the series is closed for this ticket class. The 0037
+  shape matches run 4 on wall time (~10 min) and quality, beats it on
+  observability and revise, and the remaining slowness in runs 5–6 was
+  environment, now fixed in the platform (services on localhost) and
+  in data (seeds). Next: the big-ticket comparison.
+
 ## Metrics to keep per run
 
 wall time · Chad's touches (count + minutes) · stage durations + steps ·
