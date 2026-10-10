@@ -77,8 +77,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `instrumentation-node.ts` re-fires anything the in-run wake missed
   (`WAKE_SWEEP=off` disables). Cancelled children never wake; trashed
   parents are marked woken and skipped. `cancel_run` (agent tool)
-  stops `mr_…` runs, `hc_…` calls, and `c_…` child threads, keeping
-  sandboxes and work. Transcript cards show the child's live status:
+  stops `hc_…` calls and `c_…` child threads, keeping sandboxes and
+  work (`mr_…` runs cannot be live since machines were deleted). Transcript cards show the child's live status:
   `GET /api/x/status/<id>` (`lib/child-status.ts`, all three kinds)
   polled by `useChildStatus` every
   5 s while the child is live and the tab visible, never once settled.
@@ -138,8 +138,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   default), the machine-stage `route` column and `machine_runs.overrides` are
   historical (machines deleted, 0037 phase 5) — the schema keeps them,
   nothing writes them.
-  What ran is recorded: `machine_stage_runs.route` ({route, layer}) and
-  the turn's first assistant row's `metadata.route`. Write paths shared
+  What ran is recorded on the turn's first assistant row's
+  `metadata.route` ({route, layer}); `machine_stage_runs.route` is
+  historical. Write paths shared
   by UI and future tools live in `lib/providers/settings.ts`. Surfaces:
   the chat's route picker (`components/route-picker.tsx`, per
   conversation, not sticky), `/settings`, the project page Models
@@ -164,13 +165,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   in the PR body) and `review` (0037 phase 3: fresh context — inputs are
   the ticket, the diff and the evidence from the parent's prompt; output
   is severity-ranked findings + a verdict; it changes nothing).
-- Web tools (1.5): every chat and agent stage has `web_search` and
-  `web_fetch`. `web_fetch` is plain HTTP (redirects followed, 2 MiB
+- Web tools (1.5): every chat has `web_search` and `web_fetch`. `web_fetch` is plain HTTP (redirects followed, 2 MiB
   download cap, 60 k character context clip, HTML stripped to text,
   textual content types only); `web_search` is Z.AI's coding-plan MCP
   tool (`web_search_prime`) over hand-rolled streamable-HTTP JSON-RPC —
   no SDK dependency; env-gated on `ZAI_API_KEY`, value-shaped
-  not-configured without it (agent stages omit it, claude-style).
+  not-configured without it.
   Results are value-shaped and framed as untrusted content (tool
   descriptions + one instructions line). Cores
   `lib/agent/tools/web.ts` / `web-search.ts`, steps in
@@ -181,7 +181,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   binary (~/.agent-browser) at build — nothing downloads at runtime; a
   custom `image_ref` without it degrades to agent-checkable
   (`command -v agent-browser`), never a tool gate. Every surface with a
-  sandbox (chat, agent stage, harness stage — one shared definition,
+  sandbox (chats; one shared definition,
   `workflows/chat/screenshot-tool.ts`) gets `attach_screenshot`: copy a
   PNG from the sandbox (any path, magic-checked, ≤ 10 MiB) to
   `data/attachments/att_<hex>.png`, served immutably by
@@ -292,8 +292,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   sandbox_exec, cancel_run, start_thread, web tools and ask_chad, all
   value-shaped so the model repairs its calls. Page context: pages register
   what they are (`components/page-context.tsx` provider in the root
-  layout; `usePageContext`; the machine editor includes its selection,
-  the run view its status) and a panel send carries it as a
+  layout; `usePageContext`; the run view shows its status) and a panel send carries it as a
   "[viewing]" note — a user-role message injected before the send (the
   agent forbids system messages in `messages`), stored as
   `messages.metadata` (never text), rebuilt each turn
@@ -333,10 +332,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the sandbox in the reaper's busy set. Cancelling (`cancel_run` with
   the `hc_…` id) cancels the workflow, settles the row cancelled (no
   wake), releases the slot; settles are running-only writes so the
-  first final write wins. AGENT-STAGE pi/claude calls (inside machine
-  runs) stay SYNCHRONOUS — `harnessToolStep` (same file) is one
-  `"use step"` per tool call advancing to completion in the run's
-  inherited binding; a run's stage is already async from every chat.
+  first final write wins.
   pi (`@ai-sdk/harness-pi`) runs in-process on
   GLM via the Z.AI coding plan's Anthropic Messages surface
   (`https://api.z.ai/api/anthropic`), through the shared AI SDK adapter
@@ -386,8 +382,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (reaper, proxy, 30 s tick) starts from `instrumentation-node.ts`
   (`instrumentation.ts` only imports it under NEXT_RUNTIME=nodejs — keeps
   sqlite out of the edge bundle). Tools `start_preview` /
-  `preview_status` / `stop_preview` come with any sandbox (chats and
-  agent stages; definitions in `workflows/chat/preview-tools.ts`, cores
+  `preview_status` / `stop_preview` come with any sandbox (chats;
+  definitions in `workflows/chat/preview-tools.ts`, cores
   in `lib/agent/tools/previews.ts`, value-shaped errors); start is
   idempotent per (sandbox, dir, port) and injects PORT / HOST /
   PREVIEW_HOST / PREVIEW_URL; those platform vars are FINAL over the
