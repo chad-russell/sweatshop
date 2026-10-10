@@ -78,3 +78,16 @@ Format: `- [date] surface — what frictions; (what you did instead)`
   internals for 47m (163 of 248 calls) instead of reporting the blocker.
   → stop rule in the verify seeds: a blocked spot-check is a finding;
   retry ≤2, screenshot the blocker, never dig into app internals.
+- [2026-10-10] run 4 — the gate card showed no screenshots: evidence
+  collection only scans harness visits; the flow machine's agent-stage
+  attachments live in its stage conversation. → collectRunEvidence (and
+  the brief's evidence) must read agent-stage tool results too.
+- [2026-10-10] run 4 — REAL setup bug found and worked around: the gpl
+  preview setup's BETTER_AUTH_URL points at the preview host, forcing
+  SSO with no email fallback off-localhost (run 3's 47m verify spiral
+  was this). → fix the saved setup env (or default auth to the dev
+  auto-login for previews).
+- [2026-10-10] run 4 — agent-stage visits report steps=0 and persist
+  only at visit end: fine to run, blind to monitor. → wire the steps
+  counter and consider incremental persistence or live-stream parity
+  with harness stages.

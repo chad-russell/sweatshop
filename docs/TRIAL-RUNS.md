@@ -92,6 +92,34 @@ on big/risky work. The gate now renders the run's attached screenshots
 (the eyes are at the gate). Same metrics; prediction: total machine
 time under 15 minutes, no verify stage to run away.
 
+### Run 4 (iteration 3, the simple arm) — 2026-10-10 00:37–00:48 (flow machine, deployed 76469b6) — COMPLETED
+
+- Chat `c_2MmkqeVTq8qy_69J-e20QizB`, run `mr_mv1o1tfu4dbffd`, machine
+  `flow` (first flight). Same ticket, same clean brief, fresh sandbox.
+- **10m30s wall** (chat preamble ~1m, work stage 9m27s), **one gate
+  decision** (Chad rejected — the no-PR choice per the brief; run ended
+  cleanly). Zero runaways, zero improvisation.
+- **Best engineering of all four runs**: found the REAL root cause the
+  three staged runs missed (base `DialogContent` carries `sm:max-w-lg`;
+  tailwind-merge can't dedupe across variant prefixes → the dialog was
+  capped at 512px, not 896) and fixed both variants, with a 375px
+  responsive check. Tests 235/235.
+- **Hit run 3's login wall and handled it as a footnote**: diagnosed
+  `BETTER_AUTH_URL` pointing at the preview host (forces SSO, no
+  email fallback off-localhost), restarted the preview with env
+  overrides for seeded auto-login. That is a REAL setup bug now
+  identified — fix pending.
+- **Zero subagent calls** — glm-flash judged the 4-line CSS fix not
+  worth delegating to claude, correctly. The shape let it choose.
+- Gaps found: gate card rendered no screenshots (collectRunEvidence
+  scans harness visits; the flow stage is an AGENT stage — its
+  attachments live in the stage conversation → evidence collection must
+  read agent-stage tool results too; same fix feeds stage briefs).
+  Agent-stage `steps` counter stays 0 (not wired). Reject leaves the
+  pr_proposals row dangling (known since run 1).
+- **Verdict for this ticket class: simpler won decisively** — 10.5
+  minutes, one touch, best fix, fewest failure modes.
+
 ## Metrics to keep per run
 
 wall time · Chad's touches (count + minutes) · stage durations + steps ·
