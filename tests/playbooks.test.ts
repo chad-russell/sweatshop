@@ -37,6 +37,20 @@ describe("playbook files", () => {
     expect((await listPlaybooks()).map((b) => b.id)).toContain("ship");
   });
 
+  it("ticket and review parse and carry their phase-3 shape", async () => {
+    const ticket = await readPlaybook("ticket");
+    expect(ticket?.title).toMatch(/^Ticket/);
+    expect(ticket?.body).toContain("ask_chad");
+    expect(ticket?.body).toContain("start_thread");
+    expect(ticket?.body).toContain("create_pr");
+    const review = await readPlaybook("review");
+    expect(review?.title).toMatch(/^Review/);
+    // The review thread changes nothing and reports findings.
+    expect(review?.body).toContain("Change nothing");
+    expect(review?.body).toMatch(/blocking/i);
+    expect((await listPlaybooks()).map((b) => b.id).sort()).toEqual(["review", "ship", "ticket"]);
+  });
+
   it("rejects traversal and unknown ids", async () => {
     for (const bad of ["../machines", "nope", "Ship", ""]) expect(await readPlaybook(bad)).toBeNull();
   });
