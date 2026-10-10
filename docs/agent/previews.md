@@ -28,6 +28,20 @@ per sandbox). You can read and save setups with
 Platform env is final over the layered env: `PORT`, `HOST`,
 `PREVIEW_HOST`, `PREVIEW_URL` (interpolated into the commands).
 
+## Two audiences, two URLs
+
+- **Agents QA at `http://localhost:<port>`.** agent-browser runs inside
+  the same sandbox as the server, so localhost is the app's own dev
+  origin — no proxy, no origin rules, local auth fallbacks work.
+- **Chad views the preview URL.** A dev server reached through any
+  non-localhost host is a "forwarded host" (like a tunnel or a
+  Codespaces port): `next dev` refuses its HMR/dev resources unless the
+  host is in `allowedDevOrigins` (the page renders but never hydrates),
+  and auth libraries reject unknown origins. The setup's env passes
+  `${PREVIEW_HOST}`/`${PREVIEW_URL}` to whatever the app reads for that
+  (gpl: `ALLOWED_DEV_ORIGINS`, `BETTER_AUTH_TRUSTED_ORIGINS`), while
+  keeping its auth base URL on `http://localhost:${PORT}`.
+
 ## Setting up previews for a new repo
 
 1. `get_preview_setup` — if unset, discover: package.json scripts,

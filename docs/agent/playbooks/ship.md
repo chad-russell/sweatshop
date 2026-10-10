@@ -19,9 +19,11 @@ autonomously; Chad's touchpoint is the `create_pr` approval card.
    branch with clear messages; never touch main.
 3. **Verify.** Read the diff against your understanding. For visual
    changes: `start_preview` (the saved setup makes it one call), capture
-   BEFORE and AFTER with agent-browser (follow its installed skill —
-   snapshot-and-refs, batched commands), and attach each with
-   `attach_screenshot`. A blocked visual check is a FINDING, not a
+   BEFORE and AFTER with agent-browser at `http://localhost:<port>` —
+   the browser runs in the same sandbox as the server, so QA never goes
+   through the preview URL (that URL is for Chad; dev servers often
+   refuse it) — following its installed skill (snapshot-and-refs,
+   batched commands), and attach each with `attach_screenshot`. A blocked visual check is a FINDING, not a
    puzzle: retry at most twice, attach what you saw, say so — never dig
    into the app's auth or middleware to get past it.
 4. **Ship.** Push the branch (`git push -u origin <branch>`), then

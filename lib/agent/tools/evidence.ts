@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import type { ModelMessage } from "ai";
 import { db } from "@/db";
 import { getConversation, listModelMessages } from "@/db/chat";
 import { getProject } from "@/db/projects";
@@ -51,18 +52,11 @@ function okUrl(value: unknown): string | null {
   return v && v.ok === true && typeof v.url === "string" ? v.url : null;
 }
 
-/** Screenshots attached anywhere in this thread, oldest first. */
-export function collectThreadEvidence(conversationId: string): EvidenceShot[] {
+/** Successful attach_screenshot results in a message list (pure). */
+export function shotsFromMessages(list: readonly ModelMessage[]): EvidenceShot[] {
   const labels = new Map<string, string>();
   const shots: EvidenceShot[] = [];
-  const seen = new Set<string>();
-  const push = (url: string, label?: string) => {
-    if (seen.has(url)) return;
-    seen.add(url);
-    shots.push(label ? { url, label } : { url });
-  };
-
-  for (const message of listModelMessages(db(), conversationId)) {
+  for (const message of list) {
     if (!Array.isArray(message.content)) continue;
     for (const part of message.content as Part[]) {
       if (part.toolName !== "attach_screenshot") continue;
@@ -74,10 +68,29 @@ export function collectThreadEvidence(conversationId: string): EvidenceShot[] {
         // ModelMessage tool results wrap the value: { type: "json", value }.
         const output = part.output as { type?: string; value?: unknown } | undefined;
         const url = okUrl(output?.type === "json" ? output.value : output);
-        if (url) push(url, labels.get(id));
+        if (url) shots.push(labels.get(id) ? { url, label: labels.get(id) } : { url });
       }
     }
   }
+  return shots;
+}
+
+/**
+ * Screenshots attached anywhere in this thread, oldest first. `live` is
+ * the running turn's messages (a tool's execute options) — a turn
+ * persists only at its end, so a card built mid-turn must read them too
+ * (run 5: the card said "none" beside three attachments).
+ */
+export function collectThreadEvidence(conversationId: string, live: readonly ModelMessage[] = []): EvidenceShot[] {
+  const shots: EvidenceShot[] = [];
+  const seen = new Set<string>();
+  const push = (shot: EvidenceShot) => {
+    if (seen.has(shot.url)) return;
+    seen.add(shot.url);
+    shots.push(shot);
+  };
+  for (const shot of shotsFromMessages(listModelMessages(db(), conversationId))) push(shot);
+  for (const shot of shotsFromMessages(live)) push(shot);
 
   const rows = db()
     .select({ input: harnessEvents.input, output: harnessEvents.output, kind: harnessEvents.kind, toolCallId: harnessEvents.toolCallId })
@@ -99,7 +112,8 @@ export function collectThreadEvidence(conversationId: string): EvidenceShot[] {
         continue;
       }
       const url = okUrl(JSON.parse(row.output ?? ""));
-      if (url) push(url, row.toolCallId ? harnessLabels.get(row.toolCallId) : undefined);
+      const label = row.toolCallId ? harnessLabels.get(row.toolCallId) : undefined;
+      if (url) push(label ? { url, label } : { url });
     } catch {
       // clipped or non-JSON payload — skip
     }
@@ -158,8 +172,9 @@ export async function buildApprovalEvidence(
   conversationId: string,
   repo: string,
   provider?: SandboxProvider,
+  live: readonly ModelMessage[] = [],
 ): Promise<ApprovalEvidence> {
-  const screenshots = collectThreadEvidence(conversationId);
+  const screenshots = collectThreadEvidence(conversationId, live);
   const projectId = getConversation(db(), conversationId)?.projectId;
   const command = projectId ? (getProject(db(), projectId)?.testCommand ?? null) : null;
   if (!command) return { screenshots, check: null };

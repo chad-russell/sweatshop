@@ -574,4 +574,28 @@ describe("0010 spike: chat turn workflow", () => {
       if (next) await getRun(next).cancel();
     },
   );
+  it(
+    "incremental persist: a multi-slice turn lands each slice as it finishes, without duplicates (run 5)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "steer";
+      const id = conv("incremental");
+      const { enqueueSteer, getActiveRun } = await import("../db/chat");
+      enqueueSteer(db(), id, "STEER_MARKER");
+      const run = await turn(id, "go");
+      // Before the turn ends, the first slice (the note tool call + its
+      // result) is already in sqlite while the turn is still active.
+      await waitFor(async () => {
+        const roles = listModelMessages(db(), id).map((m) => m.role);
+        return roles.includes("tool");
+      }, "the first slice to persist");
+      await run.returnValue;
+      expect(getActiveRun(db(), id)).toBeNull();
+      const rows = listMessageTexts(db(), id);
+      expect(new Set(rows.map((r) => r.id)).size).toBe(rows.length);
+      // (a steer queued before the turn is drained by the history load)
+      expect(rows.map((r) => r.role)).toEqual(["user", "user", "assistant", "tool", "assistant"]);
+      expect(rows.filter((r) => r.role === "assistant")[0]?.metadata?.route).toBeTruthy();
+    },
+  );
 });

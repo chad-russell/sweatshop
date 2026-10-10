@@ -120,6 +120,9 @@ export async function buildChatPRPreview(
   conversationId: string,
   input: PRPreviewInput,
   provider?: SandboxProvider,
+  /** 0037: the running turn's messages (its attachments are not
+   *  persisted yet). */
+  live: readonly import("ai").ModelMessage[] = [],
 ): Promise<PRPreview> {
   const conversation = getConversation(db(), conversationId);
   if (!conversation?.projectId) {
@@ -134,7 +137,7 @@ export async function buildChatPRPreview(
   const git = await gatherGitSummary(conversationId, input, provider);
   // 0037: the runtime's own evidence — the test command and the
   // thread's screenshots — so the card shows what the model skipped.
-  const evidence = await buildApprovalEvidence(conversationId, input.repo, provider);
+  const evidence = await buildApprovalEvidence(conversationId, input.repo, provider, live);
   const shots = evidence.screenshots.length;
   const summary = `${formatPRSummary(input, git)}\n\nChecks: ${describeCheck(evidence)}\nScreenshots: ${shots === 0 ? "none attached in this thread" : shots}`;
   return { ok: true, summary, evidence };

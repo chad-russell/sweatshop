@@ -46,7 +46,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 - Chat runtime (0010): one WorkflowAgent workflow run per turn
   (`workflows/chat/turn.ts` — one model step per slice via
   `stopWhen: isStepCount(1)`; steer messages drain between slices).
-  ONE durable stream per turn: slices stream with `preventClose` +
+  Each finished slice is persisted as it lands (0037 run-5 fix:
+  `persistTurn` with `{from, final:false}` per slice, then `final` clears
+  the active run; row ids `m_<conv>_<skip>_<i>` are deterministic so
+  retried steps never duplicate). A reload or a wake attach of a LIVE
+  turn hydrates rows only up to that turn's opening `t_…` row
+  (`untilLiveTurn`, `lib/chat-ui.ts`) — the stream replay supplies the
+  rest. ONE durable stream per turn: slices stream with `preventClose` +
   `sendFinish: false` and `finishTurnStream` emits the single `finish`
   and closes it AFTER `persistTurn` (the default closes after the first
   slice — the browser then saw one slice of a long turn). A fresh page
@@ -230,7 +236,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   with a commits + diffstat card plus RUNTIME-BUILT evidence (0037
   phase 1, `lib/agent/tools/evidence.ts`: the project's test command
   run by the runtime in the bound sandbox — 900 s cap — and the
-  thread's `attach_screenshot` results from `messages` + its harness
+  thread's `attach_screenshot` results from `messages`, the LIVE
+  turn's own messages (the tool's execute options), and its harness
   calls' `harness_events`), stored as `pending_inputs.card` and
   rendered on the inbox card and inline in the transcript
   (`components/approval-evidence.tsx`). Typing in a thread while it

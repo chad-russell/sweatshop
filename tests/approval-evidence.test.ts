@@ -17,6 +17,7 @@ import {
   buildApprovalEvidence,
   collectThreadEvidence,
   describeCheck,
+  shotsFromMessages,
   runCheck,
 } from "../lib/agent/tools/evidence";
 import { answerPendingWithText } from "../lib/chat/answer-pending";
@@ -126,6 +127,38 @@ describe("collectThreadEvidence", () => {
       { url: "/api/attachments/att_3", label: "after" },
       { url: "/api/attachments/att_h", label: "narrow" },
     ]);
+  });
+});
+
+describe("live turn evidence (run 5)", () => {
+  it("reads this turn's unpersisted attachments, de-duplicated against persisted ones", () => {
+    const live = [
+      {
+        role: "assistant" as const,
+        content: [{ type: "tool-call" as const, toolCallId: "live_1", toolName: "attach_screenshot", input: { path: "/z.png", label: "after-70vh" } }],
+      },
+      {
+        role: "tool" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: "live_1",
+            toolName: "attach_screenshot",
+            output: { type: "json" as const, value: { ok: true, url: "/api/attachments/att_live" } },
+          },
+          {
+            type: "tool-result" as const,
+            toolCallId: "call_1",
+            toolName: "attach_screenshot",
+            output: { type: "json" as const, value: { ok: true, url: "/api/attachments/att_1" } },
+          },
+        ],
+      },
+    ];
+    const shots = collectThreadEvidence(conv, live);
+    expect(shots.filter((s) => s.url === "/api/attachments/att_1")).toHaveLength(1);
+    expect(shots.at(-2)).toEqual({ url: "/api/attachments/att_live", label: "after-70vh" });
+    expect(shotsFromMessages(live)).toHaveLength(2);
   });
 });
 

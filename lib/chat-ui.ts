@@ -44,6 +44,20 @@ function unwrapOutput(output: unknown): { output?: unknown; errorText?: string }
   return { output };
 }
 
+/**
+ * 0037: rows up to and including the live turn's opening message. A
+ * running turn persists slice by slice, but a reload replays its whole
+ * stream, so its persisted slices must not also render from rows. Every
+ * turn opens with the row recordUserMessage writes (`t_<conv>_<seq>`);
+ * mid-turn steers and slices use other ids, so the cut is exact.
+ */
+export function untilLiveTurn(rows: StoredRow[]): StoredRow[] {
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    if (rows[i]!.id.startsWith("t_")) return rows.slice(0, i + 1);
+  }
+  return rows;
+}
+
 export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
   const out: UIMessage[] = [];
   const toolParts = new Map<string, ToolPart>();
