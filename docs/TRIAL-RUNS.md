@@ -120,6 +120,58 @@ time under 15 minutes, no verify stage to run away.
 - **Verdict for this ticket class: simpler won decisively** — 10.5
   minutes, one touch, best fix, fewest failure modes.
 
+### Run 5 (0037, Ship playbook in a plain chat) — 2026-10-10 03:10–03:50 (deployed 89ffcb6) — WORK DONE, PR declined by design
+
+- Chat `c_t2Y1HqNl6UIHTp6-ptmHJ`, project gpl, `playbook: ship`, GLM
+  flash, fresh sandbox. Same ticket and constraints; the only change
+  is the ending: `create_pr` on the local branch (its card is the gate)
+  instead of propose_pr → gate → publish.
+- **Ask → first PR card: 31m22s**, all in ONE turn (156 model steps
+  across the whole thread; 0 budget continuations; 0 subagent calls,
+  same as run 4). Run 4 took 10m30s to its gate. The 3× is mostly one
+  NEW environment problem, not the shape (below).
+- **The card did its job.** It was built by the runtime: the test
+  command ran in the sandbox (passed, 235/235, 7 s — warm install) and
+  the commits + diffstat were read from the checkout. One honest miss:
+  the card said "Screenshots: none" even though the thread attached 3
+  (before, after, and after-70vh). Cause: the turn persists to
+  `messages` only at TURN END, and the card is built mid-turn, so the
+  evidence collector cannot see this turn's attachments yet. → fix:
+  collect from the live turn's messages (pass them in), not only from
+  persisted rows.
+- **The revise loop worked — the case `flow` fails.** At the first card
+  Chad (via me) typed "use 70vh, add a QA note to the body". The send
+  answered the pending approval (`answered`, not steered). create_pr
+  returned `changes-requested`, and the SAME turn changed 75vh → 70vh,
+  re-shot an AFTER screenshot, rewrote the body, and re-called
+  create_pr. Typed revise → second card: **3m41s**, with full context
+  and no re-derivation.
+- **Engineering:** a smaller root-cause find than run 4 (it fixed
+  `max-w-4xl` → `sm:max-w-5xl` without naming the tailwind-merge
+  variant collision explicitly, but the effective width still went
+  512 → 1024 px), 60vh → 70vh media, tests green.
+- **New friction: the preview didn't hydrate.** React never hydrated
+  through the preview host (`__next_f` empty in the page while the HTML
+  carried the flight payload). The thread spent most of its time here
+  (78 agent-browser calls), plus 20 calls minting a session directly in
+  postgres to get past auth (the known BETTER_AUTH_URL setup bug). It
+  did eventually get real before/after shots. The stop rule ("a blocked
+  visual check is a finding; retry ≤ 2") was NOT obeyed — it is advice
+  in a playbook, and nothing enforces it. Same class as run 3's spiral,
+  now inside one thread.
+- Ending: Chad denied the second card on purpose (a work repo; no real
+  PR for an experiment) → create_pr `denied` → the thread asked what to
+  change (ask_chad) → typed "nothing, stop" answered it → a two-line
+  summary. Branch is local only. No dangling rows: every pending input
+  resolved.
+- **Verdict:** the 0037 mechanics work (one thread; card evidence built
+  by the runtime; typed revise lands in the same context). Wall time
+  lost to run 4 because of a new preview-hydration blocker plus an
+  unenforced stop rule, not because of the thread shape. Two fixes
+  before the big-ticket comparison: the mid-turn evidence gap, and the
+  gpl preview env (BETTER_AUTH_URL; investigate hydration through the
+  preview proxy).
+
 ## Metrics to keep per run
 
 wall time · Chad's touches (count + minutes) · stage durations + steps ·
