@@ -91,6 +91,23 @@ Format: `- [date] surface — what frictions; (what you did instead)`
   only at visit end: fine to run, blind to monitor. → wire the steps
   counter and consider incremental persistence or live-stream parity
   with harness stages.
+- [2026-10-10] run 5 — the create_pr card said "Screenshots: none"
+  although the thread had attached 3: a turn persists only at its end,
+  and the card is built mid-turn. → the evidence collector must also
+  read the live turn's messages.
+- [2026-10-10] run 5 — the gpl preview served HTML but React never
+  hydrated through the preview host (empty `__next_f`). The thread spent
+  ~20 min on it, plus 20 calls hand-minting an auth session in postgres
+  (the BETTER_AUTH_URL bug again). → fix the gpl setup env; investigate
+  hydration through the preview proxy.
+- [2026-10-10] run 5 — the playbook's stop rule ("retry ≤ 2, report the
+  blocker") was ignored. Advice in a prompt is not a guarantee. → if it
+  recurs, a runtime guard (e.g. budget-per-blocked-check), not more
+  prose.
+- [2026-10-10] run 5 — chat turns persist only at turn end, so a 30-min
+  playbook turn is invisible to DB monitoring (same blind spot as agent
+  stages); only the live stream shows progress. → incremental
+  persistence per slice.
 - [2026-10-10] run 5 follow-up — ROOT CAUSES found: (1) Next 16 dev
   blocks `/_next/webpack-hmr` from non-localhost origins without
   `allowedDevOrigins`, so the page renders but never hydrates (same
