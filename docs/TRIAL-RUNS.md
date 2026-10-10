@@ -26,20 +26,6 @@ are UTC, measured from the DB rows.
   pushed manually by the chat (later deleted for the retry series).
 - Findings → docs/0035, docs/0036, TRIAL-FRICTION 2026-10-09 entries.
 
-### Run 2 (iteration 1) — 2026-10-09 17:50→ (post-0035/0036, deployed 1f56204)
-
-- Chat `c_Wny2BY-RAJDUYCDM8-8fQ3dH`, run `mr_mv19qa6zdfce77`.
-- Prompted by Glen via the chat API (fresh chat, project gpl) — brief
-  carried a wrong "first run, bootstrap the setup" assertion (a gpl
-  preview setup had existed since Oct 8; only minio was missing), so
-  the plan spent a bootstrap section obeying it → the "# Project"
-  brief line on preview readiness followed (this PR).
-- Plan: 13 steps, 3m11s — read `system_docs` first; planned declared
-  services, $PORT-honoring command, DEV_AUTO_LOGIN, before/after
-  screenshots on the unmodified preview + a narrow-viewport shot,
-  minio bucket + seeded asset, screenshots attached. (Fill in the rest
-  when the run settles.)
-
 ### Run 2 (iteration 1) — 2026-10-09 17:50–21:43 (post-0035/0036, deployed 1f56204) — CANCELLED at verify
 
 - Chat `c_Wny2BY-RAJDUYCDM8-8fQ3dH`, run `mr_mv19qa6zdfce77`. Triggered by
@@ -70,6 +56,29 @@ are UTC, measured from the DB rows.
   value-shaped errors; agent-browser skill baked into the image
   (rebuild required).
 - Prediction for iteration 2: plan ~3m, implement ~8–10m, verify ~3–4m.
+
+### Run 3 (iteration 2) — 2026-10-09 21:52–23:15 (post-#60/#61, deployed 604412f) — CANCELLED at verify
+
+- Chat `c_3a6x4S43YRhuqHiD4LhRgXVX`, run `mr_mv1i9bqhcdec4a`. Clean brief:
+  ticket + constraints only. Fresh sandbox (cold start on the clock).
+- plan **2m44s / 10 steps** (predicted ~3m ✓ — and this time zero
+  bootstrap prose: the "# Project" preview line did its job).
+- implement **13m25s / 133 steps** (run 2: 21m15s / 171 — 37% faster;
+  prediction was 8–10m, partial credit: 62 browser commands vs 53, the
+  skill helped but batching didn't fully land).
+- verify **47m+ / 248+ steps, cancelled — NEW failure mode**: the old
+  env re-audit is dead (1 get_preview_setup, 1 start_preview), but the
+  live spot-check hit a login wall (setup env verified fine —
+  DEV_AUTO_LOGIN present; likely a transient/origin bounce) and pi
+  spent 163 of 248 calls investigating the app's auth internals
+  (login-form.tsx, sessions) instead of reporting the blocker.
+- Fix (one variable): verify's stop rule — a blocked spot-check is a
+  FINDING; retry ≤2, attach what you saw, name the blocker, never dig
+  into app internals to get past it. Candidate for a later iteration,
+  one variable at a time: the verify stage's model (flash is
+  rabbit-prone; claude stayed sane in implement).
+- Chat's wake turn survived (no inspect kills — value-shaped errors
+  work); gate approval went through first try.
 
 ### Iteration 3 — the simple arm (planned)
 
