@@ -106,6 +106,9 @@ export async function chatTurn(input: ChatTurnInput) {
   let finishReason: string = "stop";
   let stored = 0;
   let exhausted = false;
+  // skip = everything already persisted (loaded history + this turn's
+  // user message) plus the injected note, which sits right before it.
+  const skip = history.length + (input.viewing ? 1 : 0) + 1;
   // One durable stream per TURN, not per slice: every slice leaves it
   // open and unfinished; finishTurnStream ends it exactly once — also
   // when a slice throws, so a reconnected browser is never left hanging.
@@ -133,6 +136,12 @@ export async function chatTurn(input: ChatTurnInput) {
       });
       messages = stripLeadingSystem(result.messages);
       finishReason = result.finishReason;
+      // Each finished slice lands in sqlite now — a long turn is visible
+      // (inspect, monitors, reloads) while it runs, not only at its end.
+      stored += await persistTurn(conversationId, messages, skip, resolved, {
+        from: skip + stored,
+        final: false,
+      });
 
       // The turn ends when the latest assistant message asks for no tools.
       const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
@@ -144,11 +153,8 @@ export async function chatTurn(input: ChatTurnInput) {
       if (step === maxSteps - 1) exhausted = true;
     }
 
-    // skip = everything already persisted (loaded history + this turn's
-    // user message) plus the injected note, which sits right before it —
-    // persistTurn stores only the new tail.
-    const skip = history.length + (input.viewing ? 1 : 0) + 1;
-    stored = await persistTurn(conversationId, messages, skip, resolved);
+    // The rest of the tail (normally nothing) and the active-run clear.
+    stored += await persistTurn(conversationId, messages, skip, resolved, { from: skip + stored, final: true });
   } finally {
     await finishTurnStream(writable);
   }

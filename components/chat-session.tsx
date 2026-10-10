@@ -57,7 +57,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ToolState } from "@/lib/machine-tool-view";
 import type { ViewingContext } from "@/lib/page-context";
-import { hasBackgroundChild, rowsToUIMessages, type StoredRow } from "@/lib/chat-ui";
+import { hasBackgroundChild, rowsToUIMessages, untilLiveTurn, type StoredRow } from "@/lib/chat-ui";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -945,7 +945,10 @@ export function ChatSession({
         const body = (await res.json()) as { messages: StoredRow[]; activeRunId: string | null };
         const c = chatRef.current;
         if (stop || c.status === "submitted" || c.status === "streaming") return;
-        const stored = rowsToUIMessages(body.messages ?? []);
+        // A live turn replays from index 0 — its persisted slices must
+        // not render twice (0037 incremental persistence).
+        const rows = body.messages ?? [];
+        const stored = rowsToUIMessages(body.activeRunId ? untilLiveTurn(rows) : rows);
         const known = new Set(c.messages.map((m) => m.id));
         // Only act on something new: a turn in flight, or rows this
         // session has not seen (a wake turn that already finished).
