@@ -1,0 +1,119 @@
+import { randomUUID } from "node:crypto";
+import { db } from "@/db";
+import {
+  ensureConversation,
+  getConversation,
+  setConversationParent,
+  setConversationPlaybook,
+} from "@/db/chat";
+import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
+import { attachConversation, openConversationSandbox } from "@/lib/sandboxes/binding";
+import type { SandboxProvider } from "@/lib/sandboxes/provider";
+import { readPlaybook } from "@/lib/playbooks";
+
+/**
+ * 0037 phase 3: the start_thread tool's core — a fresh child chat with
+ * deliberately independent context (fresh eyes for a review), started
+ * from this thread and attached to its sandbox by default (0013: same
+ * sandbox, same directory — the child reads the same checkout) unless
+ * `fresh` gives it one of its own. The child records its parent and
+ * wakes it when it settles (lib/chat/wake.ts, the 0022 primitive);
+ * `cancel_run` covers it. The child's first turn IS the prompt — the
+ * parent passes raw material (ticket, branch, evidence), never its
+ * reasoning.
+ *
+ * Plain function: the workflow step wraps it. The turn starter is a
+ * seam (default: a dynamic import — a static one would close the
+ * turn → tools → steps → core → start-turn cycle), so tests never
+ * touch the workflow runtime or podman.
+ */
+
+export type StartThreadResult =
+  | {
+      ok: true;
+      /** The child chat's conversation id (c_…) — inspect/cancel/status. */
+      id: string;
+      url: string;
+      runId: string;
+      sandbox: "attached" | "own" | "none";
+      playbook: string | null;
+      note: string;
+    }
+  | {
+      ok: false;
+      code: "no-playbook" | "start-failed";
+      message: string;
+    };
+
+export async function startThread(
+  input: {
+    conversationId: string;
+    prompt: string;
+    playbook?: string;
+    fresh?: boolean;
+    provider?: SandboxProvider;
+    /** Test seam: the child's turn starter (default startChatTurn). */
+    start?: (conversationId: string, text: string) => Promise<{ runId: string }>;
+  },
+): Promise<StartThreadResult> {
+  if (input.playbook && !(await readPlaybook(input.playbook))) {
+    return {
+      ok: false,
+      code: "no-playbook",
+      message: `no playbook "${input.playbook}" — use_playbook lists what exists`,
+    };
+  }
+  const parent = getConversation(db(), input.conversationId);
+  if (!parent) {
+    return { ok: false, code: "start-failed", message: `no conversation ${input.conversationId}` };
+  }
+  const childId = `c_t${Date.now().toString(36)}${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  ensureConversation(db(), childId, parent.projectId);
+  if (input.playbook) setConversationPlaybook(db(), childId, input.playbook);
+
+  // The sandbox choice mirrors start_machine: attached to the parent's
+  // binding by default (binding the parent first if it was still
+  // pending), its own when `fresh`, none only when the parent has none.
+  let sandbox: "attached" | "own" | "none" = "own";
+  if (!input.fresh) {
+    const binding = getConversationBinding(db(), input.conversationId);
+    if (binding?.kind === "none") {
+      disableConversationSandbox(db(), childId);
+      sandbox = "none";
+    } else if (binding) {
+      const { binding: bound } = await openConversationSandbox(input.conversationId, input.provider);
+      await attachConversation(childId, bound.sandboxId, input.provider);
+      sandbox = "attached";
+    }
+  }
+
+  setConversationParent(db(), childId, input.conversationId);
+  try {
+    const start =
+      input.start ??
+      (async (id: string, text: string) => {
+        const { startChatTurn } = await import("@/lib/chat/start-turn");
+        return startChatTurn(id, text);
+      });
+    const { runId } = await start(childId, input.prompt);
+    return {
+      ok: true,
+      id: childId,
+      url: `/c/${childId}`,
+      runId,
+      sandbox,
+      playbook: input.playbook ?? null,
+      note:
+        `the child thread runs in the background — this conversation is woken with its ` +
+        `final message when it settles (inspect ${childId}; cancel_run stops it)`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      code: "start-failed",
+      message: `the child thread was created but its turn failed to start: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+}

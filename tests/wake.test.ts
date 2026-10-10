@@ -7,12 +7,22 @@ import {
   listWakableRuns,
   updateRun,
 } from "../db/machines";
-import { ensureConversation, getActiveRun, peekSteer, setActiveRun } from "../db/chat";
+import {
+  appendMessages,
+  ensureConversation,
+  getActiveRun,
+  getChatChild,
+  listWakableChatChildren,
+  peekSteer,
+  setActiveRun,
+  setConversationParent,
+} from "../db/chat";
 import { conversations } from "../db/schema";
 import { eq } from "drizzle-orm";
 import {
   renderWake,
   sweepWakes,
+  wakeChatChildIfDue,
   wakeConversation,
   wakeRunIfDue,
   type WakeDeps,
@@ -212,5 +222,117 @@ describe("cancel_run", () => {
     expect(await cancelRunTool("mr_missing")).toMatchObject({ ok: false, code: "not-found" });
     const { run } = settledRun();
     expect(await cancelRunTool(run.id)).toMatchObject({ ok: false, code: "not-live" });
+  });
+});
+
+/** 0037 phase 3 — a child chat with a settled turn (messages landed,
+ *  no live run). `setConversationParent` pre-stamps woken = updatedAt,
+ *  so the fixture bumps updatedAt past it the way a real turn does. */
+function settledChild(opts: { playbook?: string; text?: string | null; parent?: string } = {}) {
+  const parent = opts.parent ?? chatId();
+  ensureConversation(tdb, parent, null);
+  const child = `c_wkchild_${++seq}`;
+  ensureConversation(tdb, child, null);
+  setConversationParent(tdb, child, parent);
+  if (opts.playbook) tdb.update(conversations).set({ playbook: opts.playbook }).where(eq(conversations.id, child)).run();
+  if (opts.text !== null) {
+    appendMessages(tdb, child, [
+      {
+        id: `${child}_m1`,
+        role: "assistant",
+        text: opts.text ?? "Findings: 1) the dialog caps at 512px on 375px viewports.",
+        modelMessage: { role: "assistant", content: opts.text ?? "findings" },
+      },
+    ]);
+    // A real turn's messages land strictly after the creation stamp;
+    // force that ordering (same-ms Date.now() would read "already
+    // woken").
+    tdb.update(conversations).set({ updatedAt: Date.now() + 1000 }).where(eq(conversations.id, child)).run();
+  }
+  return { child, parent };
+}
+
+describe("child threads (0037 phase 3)", () => {
+  it("renders a thread settle with its playbook and findings", () => {
+    expect(
+      renderWake({ kind: "thread", id: "c_1", name: "review", status: "completed", url: "/c/c_1" }),
+    ).toBe("[review finished] — /c/c_1");
+  });
+
+  it("wakes the parent with the child's last message once per settle", async () => {
+    const { child, parent } = settledChild({ playbook: "review" });
+    const { deps, started } = seams();
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("woke");
+    expect(started).toHaveLength(1);
+    expect(started[0]!.conversationId).toBe(parent);
+    expect(started[0]!.text).toContain("[review finished] — /c/" + child);
+    expect(started[0]!.text).toContain("dialog caps at 512px");
+    expect(started[0]!.meta).toEqual({ kind: "thread", id: child, status: "completed" });
+    expect(getChatChild(tdb, child)!.wokenSettledAt).toBe(getChatChild(tdb, child)!.updatedAt);
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("skipped");
+    expect(listWakableChatChildren(tdb).map((c) => c.id)).not.toContain(child);
+  });
+
+  it("is not due while the child's turn is live (and a failed turn wakes as failed)", async () => {
+    const { child } = settledChild();
+    setActiveRun(tdb, child, "wr_live_child");
+    const live = seams({ wr_live_child: "running" });
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, live.deps)).resolves.toBe("none");
+    const failed = seams({ wr_live_child: "failed" });
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, failed.deps)).resolves.toBe("woke");
+    expect(failed.started[0]!.meta).toEqual({ kind: "thread", id: child, status: "failed" });
+    expect(getActiveRun(tdb, child)).toBeNull(); // stale row swept
+  });
+
+  it("stamps a never-started child woken instead of waking (nothing to report)", async () => {
+    const { child } = settledChild({ text: null });
+    const { deps, started } = seams();
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("skipped");
+    expect(started).toHaveLength(0);
+    expect(listWakableChatChildren(tdb).map((c) => c.id)).not.toContain(child);
+  });
+
+  it("skips a cancelled stale row without waking", async () => {
+    const { child } = settledChild();
+    setActiveRun(tdb, child, "wr_cancelled_child");
+    const { deps, started } = seams({ wr_cancelled_child: "cancelled" });
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("skipped");
+    expect(started).toHaveLength(0);
+    expect(getActiveRun(tdb, child)).toBeNull();
+  });
+
+  it("marks a gone (trashed) parent woken so the sweep does not retry", async () => {
+    const { child, parent } = settledChild();
+    tdb.update(conversations).set({ trashedAt: 1 }).where(eq(conversations.id, parent)).run();
+    const { deps } = seams();
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("skipped");
+    expect(getChatChild(tdb, child)!.wokenSettledAt).toBe(getChatChild(tdb, child)!.updatedAt);
+  });
+
+  it("the sweep delivers child settles too", async () => {
+    const { child } = settledChild();
+    const { deps } = seams();
+    // Not an exact count: earlier tests' fixtures may still be due.
+    expect(await sweepWakes(deps)).toBeGreaterThanOrEqual(1);
+    expect(listWakableChatChildren(tdb).map((c) => c.id)).not.toContain(child);
+  });
+
+  it("cancel_run stops a live child without waking its parent", async () => {
+    const { child } = settledChild();
+    setActiveRun(tdb, child, "wr_cancel_tool");
+    const result = await cancelRunTool(child);
+    expect(result).toMatchObject({ ok: true, runId: child, status: "cancelled" });
+    expect(getActiveRun(tdb, child)).toBeNull();
+    expect(listWakableChatChildren(tdb).map((c) => c.id)).not.toContain(child);
+  });
+
+  it("cancel_run value-shapes non-children and settled threads", async () => {
+    const ownChat = chatId();
+    ensureConversation(tdb, ownChat, null);
+    setActiveRun(tdb, ownChat, "wr_own");
+    expect(await cancelRunTool(ownChat)).toMatchObject({ ok: false, code: "not-a-child" });
+    const { child } = settledChild();
+    expect(await cancelRunTool(child)).toMatchObject({ ok: false, code: "not-live" });
+    expect(await cancelRunTool("c_missing")).toMatchObject({ ok: false, code: "not-found" });
   });
 });

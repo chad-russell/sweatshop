@@ -3,8 +3,13 @@ import { db, type Db } from "@/db";
 import {
   enqueueSteer,
   getActiveRun,
+  getChatChild,
   getConversation,
+  lastAssistantText,
+  listWakableChatChildren,
+  markChatChildWoken,
   setActiveRun,
+  type ChatChild,
   type RunEventMeta,
 } from "@/db/chat";
 import {
@@ -36,16 +41,17 @@ import { ACTIVE_RUN_STATUSES, startChatTurn } from "@/lib/chat/start-turn";
 
 /** One settled child, rendered into the parent's thread. */
 export interface WakeEvent {
-  kind: "machine" | "harness";
-  /** mr_… / hc_… — for inspect/cancel. */
+  kind: "machine" | "harness" | "thread";
+  /** mr_… / hc_… / c_… — for inspect/cancel. */
   id: string;
-  /** Machine name, or the harness kind ("pi" / "claude"). */
+  /** Machine name, the harness kind ("pi" / "claude"), or the child
+   *  thread's playbook ("review" — "thread" when it has none). */
   name: string;
   /** completed | failed | needs-attention | waiting. */
   status: string;
   /** Clipped outcome (completed) or reason; absent for terse events. */
   detail?: string | null;
-  /** Where to look: /r/<id> or /h/<kind>/<conversationId>. */
+  /** Where to look: /r/<id>, /h/<kind>/<conversationId>, or /c/<id>. */
   url: string;
 }
 
@@ -178,9 +184,9 @@ export async function wakeRunIfDue(
 }
 
 /**
- * Deliver every unwoken settle — machine runs and harness calls (the
- * tick's sweep; also the restart recovery). Errors are contained per
- * child — one bad parent must not starve the rest.
+ * Deliver every unwoken settle — machine runs, harness calls, and child
+ * chats (the tick's sweep; also the restart recovery). Errors are
+ * contained per child — one bad parent must not starve the rest.
  */
 export async function sweepWakes(deps: WakeDeps = {}): Promise<number> {
   const [{ listWakableRuns }, { listWakableCalls }] = await Promise.all([
@@ -200,6 +206,13 @@ export async function sweepWakes(deps: WakeDeps = {}): Promise<number> {
       if ((await wakeCallIfDue(call, deps)) === "woke") woke += 1;
     } catch (err) {
       console.error(`[wake-sweep] ${call.id}:`, err);
+    }
+  }
+  for (const child of listWakableChatChildren(db())) {
+    try {
+      if ((await wakeChatChildIfDue(child, deps)) === "woke") woke += 1;
+    } catch (err) {
+      console.error(`[wake-sweep] ${child.id}:`, err);
     }
   }
   return woke;
@@ -230,4 +243,69 @@ export async function wakeCallIfDue(
   );
   markCallWoken(db(), call.id, call.settledAt);
   return outcome === "gone" ? "skipped" : "woke";
+}
+
+/**
+ * 0037 phase 3: wake a child chat's parent when the child settles —
+ * the same primitive runs and harness calls use, with the child's own
+ * settle bookkeeping. "Settled" = no live turn and message updates the
+ * parent has not been told about (updatedAt is the settle reference;
+ * setConversationParent pre-stamps woken so the creation bump never
+ * counts). The child's last assistant text rides the wake — for a
+ * review thread that IS the deliverable. Cancelled children never wake
+ * (the cancel path stamps woken itself).
+ */
+export async function wakeChatChildIfDue(
+  child: ChatChild,
+  deps: WakeDeps = {},
+): Promise<"woke" | "skipped" | "none"> {
+  if (!child.parentConversationId) return "none";
+  const statusOf = deps.statusOf ?? ((runId: string) => getWorkflowRun(runId).status);
+  let status = "completed";
+  if (child.activeRunId) {
+    const runStatus = await statusOf(child.activeRunId);
+    if (ACTIVE_RUN_STATUSES.has(runStatus)) return "none"; // still working
+    if (runStatus === "cancelled") {
+      // A cancel that crashed before stamping — cancelled never wakes.
+      setActiveRun(db(), child.id, null);
+      markChatChildWoken(db(), child.id, child.updatedAt);
+      return "skipped";
+    }
+    if (runStatus === "failed") status = "failed";
+    setActiveRun(db(), child.id, null); // stale, like the route's sweep
+  }
+  if ((child.wokenSettledAt ?? -1) >= child.updatedAt) return "skipped";
+  const last = lastAssistantText(db(), child.id);
+  // No turn ever produced output (start_thread failed to start, or the
+  // turn died before its first slice) — nothing to report. Stamp woken
+  // so the sweep stops re-reading it; a later human/child turn that
+  // lands messages makes it due again.
+  if (status === "completed" && last == null) {
+    markChatChildWoken(db(), child.id, child.updatedAt);
+    return "skipped";
+  }
+  const outcome = await wakeConversation(
+    child.parentConversationId,
+    {
+      kind: "thread",
+      id: child.id,
+      name: child.playbook ?? "thread",
+      status,
+      detail: last ? clipText(last, 500) : null,
+      url: `/c/${child.id}`,
+    },
+    deps,
+  );
+  markChatChildWoken(db(), child.id, child.updatedAt);
+  return outcome === "gone" ? "skipped" : "woke";
+}
+
+/** Read the child fresh (the turn-end path) and wake if due. */
+export async function wakeChatChildByIdIfDue(
+  conversationId: string,
+  deps: WakeDeps = {},
+): Promise<"woke" | "skipped" | "none"> {
+  const child = getChatChild(db(), conversationId);
+  if (!child) return "none";
+  return wakeChatChildIfDue(child, deps);
 }

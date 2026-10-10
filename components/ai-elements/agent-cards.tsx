@@ -465,6 +465,68 @@ const VISIT_TONE: Record<string, { Icon: LucideIcon; className: string }> = {
   parked: { Icon: CircleDotIcon, className: "text-warning" },
 };
 
+/** A started child thread (start_thread): the handle to poll/follow. */
+function threadStarted(
+  output: unknown,
+): { id: string; url: string; sandbox: string; playbook: string | null } | undefined {
+  const o = objectOf(output);
+  if (!o || o.ok !== true || typeof o.id !== "string") return undefined;
+  return {
+    id: o.id,
+    url: typeof o.url === "string" ? o.url : `/c/${o.id}`,
+    sandbox: typeof o.sandbox === "string" ? o.sandbox : "",
+    playbook: typeof o.playbook === "string" ? o.playbook : null,
+  };
+}
+
+/** 0037 phase 3: the start_thread card — a background child chat whose
+ *  pill follows the thread (polled while its turn is live). */
+export function StartThreadCard({
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  state: ToolState;
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const started = threadStarted(output);
+  const i = objectOf(input);
+  const prompt = typeof i?.prompt === "string" ? i.prompt : undefined;
+  const playbook = started?.playbook ?? (typeof i?.playbook === "string" ? i.playbook : null);
+  const live = useChildStatus(started?.id ?? null);
+  const failedToStart = state === "error" || Boolean(failureOf(output));
+  const sp = live ? childPill(live) : statePill(state, failedToStart);
+  const failed = failedToStart || live?.status === "failed";
+  return (
+    <Card
+      icon={GitForkIcon}
+      title={state === "running" ? "Starting thread" : "Thread"}
+      subtitle={playbook ?? (started ? "plain" : "…")}
+      extra={
+        <>
+          {live && <ChildMeta status={live} />}
+          {started ? <MetaChip>{started.sandbox === "attached" ? "this sandbox" : started.sandbox === "own" ? "own sandbox" : "no sandbox"}</MetaChip> : null}
+        </>
+      }
+      link={started ? { href: started.url, label: "Open thread" } : undefined}
+      {...sp}
+      failed={failed}
+      errorLines={failureLines(output, errorText) ?? (live?.status === "failed" && live.error ? [live.error] : undefined)}
+      defaultOpen={Boolean(prompt)}
+    >
+      {prompt ? (
+        <p className="whitespace-pre-wrap break-words border-l-2 border-border py-2 pl-3 pr-3 text-[13px] leading-relaxed text-muted-foreground">
+          {prompt}
+        </p>
+      ) : undefined}
+    </Card>
+  );
+}
+
+
 function InspectBody({ view }: { view: InspectView }) {
   return (
     <div className="space-y-2.5 px-3 py-2.5 text-[12.5px]">

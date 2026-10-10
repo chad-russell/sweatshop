@@ -77,10 +77,25 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `instrumentation-node.ts` re-fires anything the in-run wake missed
   (`WAKE_SWEEP=off` disables). Cancelled children never wake; trashed
   parents are marked woken and skipped. `cancel_run` (agent tool)
-  stops `mr_…` runs and `hc_…` calls, keeping sandboxes and work.
-  Transcript cards show the child's live status: `GET /api/x/status/<id>`
-  (`lib/child-status.ts`, both kinds) polled by `useChildStatus` every
+  stops `mr_…` runs, `hc_…` calls, and `c_…` child threads, keeping
+  sandboxes and work. Transcript cards show the child's live status:
+  `GET /api/x/status/<id>` (`lib/child-status.ts`, all three kinds)
+  polled by `useChildStatus` every
   5 s while the child is live and the tab visible, never once settled.
+- Child threads (0037 phase 3): `start_thread({prompt, playbook?,
+  fresh?})` — every chat tool — starts a fresh child chat with its own
+  context (the review shape) on the parent's project, ATTACHED to the
+  parent's sandbox by default (the parent binds first if still pending;
+  `fresh: true` provisions its own), running the prompt as its first
+  turn. The child records `conversations.parent_conversation_id` and
+  wakes the parent when it settles — same primitive, its own
+  bookkeeping: `woken_settled_at` is stamped at creation (the creation
+  bump is not a settle) and settle = `updated_at` moved past it with no
+  live turn, so the wake fires at the turn's end (`wakeParentStep`,
+  after the budget decision — a continuing child still reads as
+  working) and in the sweep (crash recovery), carrying the child's last
+  assistant message (a review's findings). A child that never produced
+  output is stamped woken silently.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
   `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
   TSX; themes `clickhouse` (default), `cal`, `nova`.
@@ -144,7 +159,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   turn through `startChatTurn` with a `runEvent` of kind `budget`
   (chip, never Chad's words), bounded at 3 consecutive continuations
   with no human message between (`lib/chat/budget.ts`). Catalog: `ship`
-  (ticket → `create_pr`).
+  (ticket → `create_pr`), `ticket` (0037 phase 3: `ask_chad` plan
+  approval first, then the Ship steps, then a fresh-eyes `start_thread`
+  review with the `review` playbook before `create_pr`, findings weighed
+  in the PR body) and `review` (0037 phase 3: fresh context — inputs are
+  the ticket, the diff and the evidence from the parent's prompt; output
+  is severity-ranked findings + a verdict; it changes nothing).
 - Web tools (1.5): every chat and agent stage has `web_search` and
   `web_fetch`. `web_fetch` is plain HTTP (redirects followed, 2 MiB
   download cap, 60 k character context clip, HTML stripped to text,

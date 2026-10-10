@@ -331,6 +331,27 @@ export async function cancelRunStep(runId: string): Promise<unknown> {
   return cancelRunTool(runId);
 }
 
+/** 0037 phase 3: start a fresh child thread (its own context, this
+ *  sandbox by default) that wakes this conversation when it settles. */
+export async function startThreadStep(
+  conversationId: string,
+  input: { prompt: string; playbook?: string; fresh?: boolean },
+): Promise<unknown> {
+  "use step";
+  const { startThread } = await import("../../lib/agent/tools/start-thread");
+  return startThread({ conversationId, ...input });
+}
+
+/** 0037 phase 3: at a turn's end — wake this thread's parent if this
+ *  thread is a settled child (no-op for every other conversation; one
+ *  select). Runs after the budget decision so a continuing child reads
+ *  as still-working, and a bounded one still reports. */
+export async function wakeParentStep(conversationId: string): Promise<"woke" | "skipped" | "none"> {
+  "use step";
+  const { wakeChatChildByIdIfDue } = await import("../../lib/chat/wake");
+  return wakeChatChildByIdIfDue(conversationId);
+}
+
 /** 0016/0017: preview tools in this conversation's sandbox binding. */
 export async function previewToolStep(
   conversationId: string,

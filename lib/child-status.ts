@@ -1,26 +1,27 @@
 import type { Db } from "@/db";
 import { getHarnessCall } from "@/db/harness-calls";
 import { getRun, LIVE_STATUSES, MachineError } from "@/db/machines";
+import { getChatChild } from "@/db/chat";
 
 /**
- * The status of a chat's background child — a machine run (mr_…) or a
- * background harness call (hc_…, 0022) — as its transcript card shows
- * it. One read model for both so the card, the route, and the tests
- * agree on what "live" means: `live` children are polled, settled ones
- * never change again (cancelled is final; waiting can resume, so it
- * stays live).
+ * The status of a chat's background child — a machine run (mr_…), a
+ * background harness call (hc_…, 0022), or a child thread (c_…, 0037
+ * phase 3) — as its transcript card shows it. One read model for all
+ * three so the card, the route, and the tests agree on what "live"
+ * means: `live` children are polled, settled ones never change again
+ * (cancelled is final; waiting can resume, so it stays live).
  */
 export interface ChildStatus {
   id: string;
-  kind: "run" | "harness";
+  kind: "run" | "harness" | "thread";
   status: string;
   live: boolean;
-  /** Where to look closer (the run view or the harness session). */
+  /** Where to look closer (the run view, harness session, or thread). */
   href: string;
   startedAt: number;
   /** Unix ms of the last settle (null while it has never settled). */
   settledAt: number | null;
-  /** Runs: the stage it is on (or stopped at). */
+  /** Runs: the stage it is on; threads: their playbook. */
   stage: string | null;
   /** Clipped failure reason, when there is one. */
   error: string | null;
@@ -60,6 +61,26 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       settledAt: run.settledAt,
       stage: run.currentStage,
       error: clip(run.error),
+    };
+  }
+  if (id.startsWith("c_")) {
+    // Only agent-started children (they carry a parent) are cards'
+    // business; Chad's own conversations are not polled here. A chat's
+    // live signal is its active turn row — cleared at settle, cancel,
+    // and by the wake sweep's stale pass.
+    const child = getChatChild(db, id);
+    if (!child?.parentConversationId) return null;
+    const live = child.activeRunId != null;
+    return {
+      id,
+      kind: "thread",
+      status: live ? "running" : "completed",
+      live,
+      href: `/c/${id}`,
+      startedAt: child.createdAt,
+      settledAt: live ? null : child.updatedAt,
+      stage: child.playbook,
+      error: null,
     };
   }
   return null;

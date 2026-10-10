@@ -15,6 +15,7 @@ import {
   persistTurn,
   recordUserMessage,
   resolveTurnRouteStep,
+  wakeParentStep,
 } from "./steps";
 
 /**
@@ -58,9 +59,9 @@ const INSTRUCTIONS = `You are sweatshop's agent — Chad's personal agent inside
 
 Capability docs: system_docs(topic) explains the system's pieces in depth — projects, previews, machines, sandboxes, models. Call it before setting one up, walking Chad through one, or when a capability surprises you.
 
-Every chat has: the machine tools (list/get/create/edit/delete — creation and deletion ask Chad first), start_machine (background machine runs; the chat is woken with the result), the project tools (list_projects; create/edit/delete_project — creation and deletion ask Chad first; a setup chat creates the project and hands off the /?project=<id> link, never becoming the project chat), gh and forgejo (authenticated repo discovery on Chad's stored git-host credentials), inspect and sandbox_exec (read-only looks and one-off commands in other chats' sandboxes), cancel_run, web_search / web_fetch, and ask_chad. Project chats additionally have bash, pi and claude (background coding harnesses in the conversation's sandbox), and the preview tools. Plain chats have none of those — if Chad needs them, create the project and say so; never improvise a substitute.
+Every chat has: the machine tools (list/get/create/edit/delete — creation and deletion ask Chad first), start_machine (background machine runs; the chat is woken with the result), start_thread (a fresh child chat with its own context — the review shape — attached to this sandbox; the wake carries its final message), the project tools (list_projects; create/edit/delete_project — creation and deletion ask Chad first; a setup chat creates the project and hands off the /?project=<id> link, never becoming the project chat), gh and forgejo (authenticated repo discovery on Chad's stored git-host credentials), inspect and sandbox_exec (read-only looks and one-off commands in other chats' sandboxes), cancel_run, web_search / web_fetch, and ask_chad. Project chats additionally have bash, pi and claude (background coding harnesses in the conversation's sandbox), and the preview tools. Plain chats have none of those — if Chad needs them, create the project and say so; never improvise a substitute.
 
-Playbooks: runbooks for a kind of work (use_playbook lists them). When Chad asks you to take work to a PR ("ship it", "do this ticket"), bind the "ship" playbook with use_playbook and follow it in this thread — prefer that over starting a machine.
+Playbooks: runbooks for a kind of work (use_playbook lists them). When Chad asks you to take work to a PR ("ship it", "do this ticket"), bind the "ship" or "ticket" playbook with use_playbook and follow it in this thread — prefer that over starting a machine. Before create_pr on real ticket work, get fresh eyes: start_thread with the "review" playbook and the raw material, and weigh its findings.
 
 Working with machines: the catalog (ticket, bugfix, review, think) covers the common flows — start_machine with the right machine rather than a new one. Put any ticket key in the prompt (e.g. "ENG-1234 fix the widget") so the branch name matches Chad's tracker. Machine runs and harness calls are background work: report the handle and what it will do; the wake delivers the outcome.
 
@@ -161,6 +162,10 @@ export async function chatTurn(input: ChatTurnInput) {
   // 0037: a playbook turn that ran out of budget mid-work continues in a
   // fresh turn (bounded — see lib/chat/budget.ts).
   if (exhausted && playbook) await continueAfterBudgetStep(conversationId);
+  // 0037 phase 3: a child thread reports its settle to its parent —
+  // after the budget decision, so a continuing child still reads as
+  // working. One select for every other conversation.
+  await wakeParentStep(conversationId);
   // Generated titles (0007) — skipped under the scripted mock so tests
   // never wait on (or pay for) a real title call.
   if (!(process.env.SWEATSHOP_CHAT_MOCK && process.env.NODE_ENV === "test")) {
