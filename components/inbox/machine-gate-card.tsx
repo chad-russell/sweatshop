@@ -34,6 +34,16 @@ export function MachineGateCard({
               <MessageResponse>{gate.lastOutcome}</MessageResponse>
             </div>
           )}
+          {gate.evidence && gate.evidence.length > 0 && (
+            <div className="grid grid-cols-3 gap-1">
+              {gate.evidence.map((e, i) => (
+                <a key={i} href={e.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- immutable attachment files served by our API */}
+                  <img src={e.url} alt={e.label ?? "attached screenshot"} className="h-28 w-full object-cover object-top hover:opacity-80" />
+                </a>
+              ))}
+            </div>
+          )}
           {gate.prProposal && (
             <div className="max-h-72 space-y-1 overflow-auto rounded-md border border-primary/40 p-2">
               <p className="text-xs font-medium text-primary">

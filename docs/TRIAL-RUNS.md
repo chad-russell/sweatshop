@@ -71,6 +71,18 @@ are UTC, measured from the DB rows.
   (rebuild required).
 - Prediction for iteration 2: plan ~3m, implement ~8–10m, verify ~3–4m.
 
+### Iteration 3 — the simple arm (planned)
+
+Runs the same WYC-1589 ticket through the new `flow` machine: ONE agent
+stage with the whole thread (subagent harnesses for implementation,
+self-verification, evidence attached) + the PR gate + publish. Zero
+context handoffs — the hypothesis (Chad, 2026-10-09) is that the
+staged machine's handoff losses were the whole cost, so the simple
+shape wins on this ticket class while the staged shape keeps its edge
+on big/risky work. The gate now renders the run's attached screenshots
+(the eyes are at the gate). Same metrics; prediction: total machine
+time under 15 minutes, no verify stage to run away.
+
 ## Metrics to keep per run
 
 wall time · Chad's touches (count + minutes) · stage durations + steps ·
