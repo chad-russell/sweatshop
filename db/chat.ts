@@ -34,9 +34,10 @@ export interface MessageRowMetadata {
 }
 
 /** 0022: what woke a conversation (machine run or harness call; 0037:
- *  "budget" = a playbook turn hit its step budget and continues). */
+ *  "budget" = a playbook turn hit its step budget and continues;
+ *  "thread" = a child chat started by start_thread settled). */
 export interface RunEventMeta {
-  kind: "machine" | "harness" | "budget";
+  kind: "machine" | "harness" | "budget" | "thread";
   id: string;
   status: string;
 }
@@ -379,4 +380,76 @@ export function getActiveRun(db: Db, conversationId: string): string | null {
     .where(eq(conversations.id, conversationId))
     .get();
   return row?.activeRunId ?? null;
+}
+
+/** 0037 phase 3: a chat another chat started (start_thread) — the wake
+ *  read model. `updatedAt` is the settle reference: it moves with every
+ *  persisted message, so "settled" = no live turn and updates the parent
+ *  has not been told about. */
+export interface ChatChild {
+  id: string;
+  parentConversationId: string | null;
+  playbook: string | null;
+  activeRunId: string | null;
+  trashedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+  wokenSettledAt: number | null;
+}
+
+const chatChildColumns = {
+  id: conversations.id,
+  parentConversationId: conversations.parentConversationId,
+  playbook: conversations.playbook,
+  activeRunId: conversations.activeRunId,
+  trashedAt: conversations.trashedAt,
+  createdAt: conversations.createdAt,
+  updatedAt: conversations.updatedAt,
+  wokenSettledAt: conversations.wokenSettledAt,
+};
+
+export function getChatChild(db: Db, id: string): ChatChild | null {
+  return db.select(chatChildColumns).from(conversations).where(eq(conversations.id, id)).get() ?? null;
+}
+
+/** Children with an undelivered settle — the wake sweep's input. */
+export function listWakableChatChildren(db: Db): ChatChild[] {
+  return db
+    .select(chatChildColumns)
+    .from(conversations)
+    .where(
+      sql`${conversations.parentConversationId} is not null
+          and (${conversations.wokenSettledAt} is null
+               or ${conversations.wokenSettledAt} < ${conversations.updatedAt})`,
+    )
+    .all();
+}
+
+/** Record the parent (start_thread) and pre-stamp woken to the row's
+ *  current updatedAt — the creation bump is not a settle, so the wake
+ *  fires only once the child's turn actually lands messages. */
+export function setConversationParent(db: Db, id: string, parentConversationId: string): void {
+  const row = db.select({ updatedAt: conversations.updatedAt }).from(conversations).where(eq(conversations.id, id)).get();
+  if (!row) throw new Error(`no conversation ${id}`);
+  db.update(conversations)
+    .set({ parentConversationId, wokenSettledAt: row.updatedAt })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+export function markChatChildWoken(db: Db, id: string, at: number): void {
+  db.update(conversations).set({ wokenSettledAt: at }).where(eq(conversations.id, id)).run();
+}
+
+/** The child's last assistant text — the wake's detail (a review
+ *  thread's findings). Null when it never produced output. */
+export function lastAssistantText(db: Db, conversationId: string): string | null {
+  const row = db
+    .select({ text: messages.text })
+    .from(messages)
+    .where(sql`${messages.conversationId} = ${conversationId} and ${messages.role} = 'assistant'`)
+    .orderBy(sql`rowid desc`)
+    .limit(1)
+    .get();
+  return row?.text ?? null;
 }

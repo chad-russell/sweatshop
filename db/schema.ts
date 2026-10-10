@@ -74,6 +74,17 @@ export const conversations = sqliteTable(
      *  null = a plain chat. Its body joins the turn instructions and
      *  raises the turn's step budget. */
     playbook: text("playbook"),
+    /** 0037 phase 3: the chat whose start_thread created this thread —
+     *  the wake target when this one settles. Null = not a child. A
+     *  deleted parent goes null and wakes stop. */
+    parentConversationId: text("parent_conversation_id").references(
+      (): AnySQLiteColumn => conversations.id,
+      { onDelete: "set null" },
+    ),
+    /** 0037 phase 3: the child's latest updated_at already delivered to
+     *  its parent (wake-once-per-settle idempotency; the tick sweep
+     *  re-fires anything missed — crash, restart). */
+    wokenSettledAt: integer("woken_settled_at"),
   },
   (table) => [
     index("conversations_updated_at_idx").on(table.updatedAt),

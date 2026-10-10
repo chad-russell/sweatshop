@@ -23,6 +23,7 @@ import {
   screenshotStep,
   sandboxExecStep,
   startMachineStep,
+  startThreadStep,
   systemDocsStep,
   bindPlaybookStep,
   ghStep,
@@ -171,13 +172,39 @@ export function buildChatTools(
       },
     }),
 
+    start_thread: tool({
+      description:
+        "Start a fresh child thread — a new chat with deliberately independent context, for work " +
+        "that should NOT inherit this thread's reasoning (above all a fresh-eyes review of your own " +
+        "work). It runs in the BACKGROUND attached to this sandbox (same checkout; fresh: true gives it " +
+        "its own) and THIS conversation is woken with its final message when it settles. Put RAW " +
+        "MATERIAL in the prompt — the ticket, the branch, where the evidence is — never your reasoning " +
+        "or conclusions. Optional playbook (e.g. \"review\") guides it. inspect checks on it; " +
+        "cancel_run stops it.",
+      inputSchema: z.object({
+        prompt: z
+          .string()
+          .min(1)
+          .max(20_000)
+          .describe(
+            "The child's whole task, standalone: the ticket/branch/diff to look at and what to return. " +
+              "Raw material only — it must form its own judgment.",
+          ),
+        playbook: z.string().optional().describe("Playbook id for the child (e.g. \"review\")"),
+        fresh: z.boolean().optional().describe("Give the child its own new sandbox instead of sharing this one"),
+      }),
+      execute: ({ prompt, playbook, fresh }) =>
+        startThreadStep(conversationId, { prompt, ...(playbook ? { playbook } : {}), ...(fresh ? { fresh } : {}) }),
+    }),
+
     cancel_run: tool({
       description:
-        "Cancel a machine run you started (or are watching): a running or waiting run stops and is " +
-        "marked cancelled; its sandbox and work are kept. The conversation still gets a record of it " +
-        "in /r/<runId>. Check state first with inspect if unsure.",
+        "Cancel background work you started (or are watching): a machine run (mr_…), a background " +
+        "harness call (hc_…), or a child thread (c_…) stops and is marked cancelled; sandboxes and " +
+        "work are kept. A cancelled child never wakes this conversation. Check state first with " +
+        "inspect if unsure.",
       inputSchema: z.object({
-        runId: z.string().min(1).describe("Run id (mr_…)"),
+        runId: z.string().min(1).describe("Run id (mr_… / hc_…) or child thread id (c_…)"),
       }),
       execute: ({ runId }) => cancelRunStep(runId),
     }),

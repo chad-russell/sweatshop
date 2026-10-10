@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db";
-import { ensureConversation } from "../db/chat";
+import { ensureConversation, setActiveRun, setConversationParent } from "../db/chat";
 import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
 import { createMachine, createRun, updateRun } from "../db/machines";
 import { projects } from "../db/schema";
 import { childStatus } from "../lib/child-status";
 
-/** The transcript cards' live status read model (mr_… and hc_…). */
+/** The transcript cards' live status read model (mr_…, hc_…, and c_…). */
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 tdb.insert(projects).values({ id: "p_cs", name: "CS", createdAt: 0 }).onConflictDoNothing().run();
@@ -21,7 +21,8 @@ describe("childStatus", () => {
   it("unknown and foreign ids are null", () => {
     expect(childStatus(tdb, "mr_nope")).toBeNull();
     expect(childStatus(tdb, "hc_nope")).toBeNull();
-    expect(childStatus(tdb, "c_cs")).toBeNull();
+    expect(childStatus(tdb, "c_cs")).toBeNull(); // not a child thread
+    expect(childStatus(tdb, "sbx_nope")).toBeNull();
   });
 
   it("a harness call is live while running and final once settled", () => {
@@ -47,5 +48,22 @@ describe("childStatus", () => {
     const done = childStatus(tdb, run.id);
     expect(done).toMatchObject({ status: "completed", live: false, stage: null });
     expect(done?.settledAt).toEqual(expect.any(Number));
+  });
+
+  it("a child thread is live while its turn is (0037 phase 3)", () => {
+    ensureConversation(tdb, "c_cs_parent", "p_cs");
+    ensureConversation(tdb, "c_cs_child", "p_cs");
+    setConversationParent(tdb, "c_cs_child", "c_cs_parent");
+    setActiveRun(tdb, "c_cs_child", "wr_cs");
+    expect(childStatus(tdb, "c_cs_child")).toMatchObject({
+      kind: "thread",
+      status: "running",
+      live: true,
+      stage: null, // no playbook
+      href: "/c/c_cs_child",
+      settledAt: null,
+    });
+    setActiveRun(tdb, "c_cs_child", null);
+    expect(childStatus(tdb, "c_cs_child")).toMatchObject({ status: "completed", live: false, settledAt: expect.any(Number) });
   });
 });
