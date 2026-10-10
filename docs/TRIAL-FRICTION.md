@@ -74,3 +74,7 @@ Format: `- [date] surface — what frictions; (what you did instead)`
 - [2026-10-09] run 2 — 391 model round-trips; 53 were one
   agent-browser subcommand each, learned via --help. → the CLI's skill
   is baked into the sandbox image (refs + batch patterns).
+- [2026-10-09] run 3 — verify chased a login wall into the app's auth
+  internals for 47m (163 of 248 calls) instead of reporting the blocker.
+  → stop rule in the verify seeds: a blocked spot-check is a finding;
+  retry ≤2, screenshot the blocker, never dig into app internals.

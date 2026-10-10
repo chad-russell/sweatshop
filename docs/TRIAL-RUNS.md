@@ -71,6 +71,29 @@ are UTC, measured from the DB rows.
   (rebuild required).
 - Prediction for iteration 2: plan ~3m, implement ~8–10m, verify ~3–4m.
 
+### Run 3 (iteration 2) — 2026-10-09 21:52–23:15 (post-#60/#61, deployed 604412f) — CANCELLED at verify
+
+- Chat `c_3a6x4S43YRhuqHiD4LhRgXVX`, run `mr_mv1i9bqhcdec4a`. Clean brief:
+  ticket + constraints only. Fresh sandbox (cold start on the clock).
+- plan **2m44s / 10 steps** (predicted ~3m ✓ — and this time zero
+  bootstrap prose: the "# Project" preview line did its job).
+- implement **13m25s / 133 steps** (run 2: 21m15s / 171 — 37% faster;
+  prediction was 8–10m, partial credit: 62 browser commands vs 53, the
+  skill helped but batching didn't fully land).
+- verify **47m+ / 248+ steps, cancelled — NEW failure mode**: the old
+  env re-audit is dead (1 get_preview_setup, 1 start_preview), but the
+  live spot-check hit a login wall (setup env verified fine —
+  DEV_AUTO_LOGIN present; likely a transient/origin bounce) and pi
+  spent 163 of 248 calls investigating the app's auth internals
+  (login-form.tsx, sessions) instead of reporting the blocker.
+- Fix (one variable): verify's stop rule — a blocked spot-check is a
+  FINDING; retry ≤2, attach what you saw, name the blocker, never dig
+  into app internals to get past it. Candidate for a later iteration,
+  one variable at a time: the verify stage's model (flash is
+  rabbit-prone; claude stayed sane in implement).
+- Chat's wake turn survived (no inspect kills — value-shaped errors
+  work); gate approval went through first try.
+
 ## Metrics to keep per run
 
 wall time · Chad's touches (count + minutes) · stage durations + steps ·
