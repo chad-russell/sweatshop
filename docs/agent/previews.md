@@ -20,9 +20,11 @@ sandbox (it outlives the chat or run that started it). Reached at
 A project with a saved `preview_setups` row skips discovery —
 `/previews` creation is ONE shot. The setup: repo, workDir, install
 command (repo root, e.g. `pnpm install`), server command, port, env,
-optional services (sibling containers like a database, referenced as
-`${service:<name>:<port>}`), migrate + seed commands (each runs once
-per sandbox). You can read and save setups with
+optional services (containers like a database that share the
+sandbox's localhost — referenced as `${service:<name>:<port>}`, which
+resolves to `localhost:<port>`; each needs its own port), migrate +
+seed commands (each runs once per sandbox). A seed should leave the app
+QA-able: if a page needs uploaded files, the seed uploads samples too. You can read and save setups with
 `get_preview_setup` / `save_preview_setup` in a project chat.
 
 Platform env is final over the layered env: `PORT`, `HOST`,

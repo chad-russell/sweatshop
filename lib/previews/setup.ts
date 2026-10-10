@@ -40,6 +40,21 @@ export const previewSetupSchema = z.object({
    *  PREVIEW_* win — 0017). */
   env: envMap.default({}),
   services: z.array(serviceSpecSchema).default([]),
+}).superRefine((def, ctx) => {
+  // Services share the sandbox's network namespace (0017 amendment):
+  // one port, one listener — the server and each service need their own.
+  const seen = new Map<number, string>([[def.port, "the server"]]);
+  def.services.forEach((svc, i) => {
+    const other = seen.get(svc.port);
+    if (other) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["services", i, "port"],
+        message: `port ${svc.port} is already used by ${other} (services share the sandbox's localhost)`,
+      });
+    }
+    seen.set(svc.port, `service ${svc.name}`);
+  });
 });
 
 export type PreviewSetupDefinition = z.infer<typeof previewSetupSchema>;

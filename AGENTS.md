@@ -466,13 +466,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   setup (0017), else `describeDir` prefills once; agent tools also
   include `get_preview_setup` / `save_preview_setup`. Declared
   SERVICES (0017 phase 3, `sandbox_services` rows +
-  `lib/sandboxes/services.ts` behind a DockerRunner seam): sibling
-  containers on `sweatshop-harness` named `<ref>-svc-<name>` (compose
-  semantics — `command` is entrypoint argv; liveness by
+  `lib/sandboxes/services.ts` behind a DockerRunner seam): containers
+  named `<ref>-svc-<name>` that JOIN THE SANDBOX'S NETWORK NAMESPACE
+  (`--network container:<sandbox-ref>`, 0017 amendment 2026-10-10 —
+  dev apps' self-URLs like `localhost:9000` just work; the setup schema
+  rejects service ports colliding with the server or each other)
+  (compose semantics — `command` is entrypoint argv; liveness by
   `inspect {{.State.Running}}`, recreate-if-gone), owned by the
   sandbox, ensured at branch provisioning and every launch, readiness
   probed FROM INSIDE the sandbox, `${service:<name>:<port>}` resolving
-  to the container name; the setup's `migrate` (schema/migrations; was
+  to `localhost:<port>`; the setup's `migrate` (schema/migrations; was
   `provision`, renamed 0019) runs once per sandbox (`sandboxes.migrated_at`) after
   services are healthy and before the server, with the resolved env,
   then `seed` (data, 0017 amendment — one command, idempotent by
