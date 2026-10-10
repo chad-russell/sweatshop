@@ -168,9 +168,9 @@ describe("0017 env × services", () => {
       { DATABASE_URL: "postgres@${service:db:5432}", ALIAS: "${service:db}" },
       null,
       platform,
-      (name) => (name === "db" ? { address: "ref-1-svc-db" } : { error: "no such service" }),
+      (name) => (name === "db" ? { address: "localhost" } : { error: "no such service" }),
     );
-    expect(ok).toEqual({ env: { DATABASE_URL: "postgres@ref-1-svc-db:5432", ALIAS: "ref-1-svc-db" } });
+    expect(ok).toEqual({ env: { DATABASE_URL: "postgres@localhost:5432", ALIAS: "localhost" } });
   });
 
   it("a not-running service is a value-shaped error naming it", () => {
@@ -183,13 +183,15 @@ describe("0017 env × services", () => {
 });
 
 describe("0017 ensureSandboxServices", () => {
-  it("creates sibling containers on the harness network, idempotently", async () => {
+  it("creates service containers in the sandbox's network namespace, idempotently (0017 amendment)", async () => {
     const { sandboxId } = servicePreviewFixture();
     const docker = new FakeDocker();
     await ensureSandboxServices(sandboxId, SERVICES, { docker: docker.runner });
     const run = docker.calls.find((a) => a[0] === "run")!;
     expect(run).toContain("-d");
-    expect(run.join(" ")).toContain("--network sweatshop-harness");
+    expect(run.join(" ")).toContain(`--network container:ref-${sandboxId}`);
+    expect(run.join(" ")).not.toContain("sweatshop-harness");
+    expect(serviceAddress(sandboxId, "db")).toEqual({ address: "localhost" });
     expect(run.join(" ")).toContain("--name ref-" + sandboxId + "-svc-db");
     expect(run).toContain("-e");
     expect(run).toContain("POSTGRES_PASSWORD=postgres");
@@ -240,7 +242,8 @@ describe("0017 launch with services", () => {
     // (values are shell-quoted inside the file content — assert pieces)
     const envFile = sbx.ran.find((c) => c.includes(".env") && c.includes("printf"));
     expect(envFile).toContain("DATABASE_URL=");
-    expect(envFile).toContain(`@ref-${sandboxId}-svc-db:5432/app`);
+    expect(envFile).toContain("@localhost:5432/app");
+    void sandboxId;
     // migrate runs ONCE per sandbox
     const again = await launchPreview(previewId, {
       provider: sbx,
@@ -293,7 +296,7 @@ describe("0017 resolvedEnvFor wiring", () => {
     const resolved = resolvedEnvFor(p);
     expect(resolved).toEqual({
       env: expect.objectContaining({
-        DATABASE_URL: `postgres://postgres:postgres@ref-${sandboxId}-svc-db:5432/app`,
+        DATABASE_URL: "postgres://postgres:postgres@localhost:5432/app",
       }),
     });
   });
@@ -377,5 +380,26 @@ describe("0019 services stop and resume with the sandbox", () => {
     await destroySandboxServices(sandboxId, { docker: docker.runner });
     await stopSandboxServices(sandboxId, { docker: docker.runner });
     expect(listSandboxServices(db(), sandboxId)).toMatchObject([{ status: "destroyed" }]);
+  });
+});
+
+describe("0017 amendment: services share the sandbox's localhost", () => {
+  it("a setup whose service port collides with the server or another service is rejected", async () => {
+    const { parsePreviewSetup } = await import("../lib/previews/setup");
+    const base = { repo: "r", workDir: ".", install: "i", command: "c", port: 3000, env: {} };
+    const clash = parsePreviewSetup({
+      ...base,
+      services: [
+        { name: "db", image: "postgres", env: {}, port: 3000 },
+        { name: "s3", image: "minio", env: {}, port: 9000 },
+        { name: "s3b", image: "minio", env: {}, port: 9000 },
+      ],
+    });
+    expect(clash.ok).toBe(false);
+    if (!clash.ok) {
+      expect(clash.issues.join("\n")).toContain("services.0.port: port 3000 is already used by the server");
+      expect(clash.issues.join("\n")).toContain("services.2.port: port 9000 is already used by service s3");
+    }
+    expect(parsePreviewSetup({ ...base, services: [{ name: "db", image: "postgres", env: {}, port: 5432 }] }).ok).toBe(true);
   });
 });

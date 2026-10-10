@@ -10,7 +10,6 @@ import {
   updateService,
 } from "@/db/sandbox-services";
 import { getLease, touchLease } from "@/db/sandboxes";
-import { HARNESS_NETWORK } from "@/lib/sandboxes/harness-bridge";
 import type { SandboxHandle } from "@/lib/sandboxes/provider";
 import type { ServiceSpec } from "@/lib/sandboxes/service-spec";
 
@@ -122,7 +121,24 @@ export function splitArgs(command: string): string[] {
   return out;
 }
 
-async function runService(docker: DockerRunner, ref: string, spec: ServiceSpec): Promise<void> {
+/**
+ * 0017 amendment (2026-10-10, run 6): a service joins its SANDBOX's
+ * network namespace (`--network container:<sandbox>`), so the sandbox
+ * reaches it at `localhost:<port>` — the in-VM answer 0017 already named
+ * for VM substrates, now on podman too. Dev apps hand out URLs to
+ * themselves on localhost (gpl presigns `http://localhost:9000`); with
+ * sibling-network services those URLs dead-ended and run 6 hand-built a
+ * TCP proxy. Isolation is per sandbox by construction (no shared DNS
+ * names), and ports share the sandbox's space — two services, or a
+ * service and the dev server, cannot both bind one port (the setup
+ * schema rejects duplicate service ports).
+ */
+async function runService(
+  docker: DockerRunner,
+  ref: string,
+  sandboxRef: string,
+  spec: ServiceSpec,
+): Promise<void> {
   // A leftover container with our name (a crash between rm and run)
   // would collide — clear it first; a missing one is fine.
   await docker(["rm", "-f", ref]).catch(() => undefined);
@@ -130,17 +146,7 @@ async function runService(docker: DockerRunner, ref: string, spec: ServiceSpec):
   // `command` is argv for the image's ENTRYPOINT (compose semantics) —
   // arbitrary images may have none of our shell assumptions.
   const commandArgs = spec.command ? splitArgs(spec.command) : [];
-  await docker([
-    "run",
-    "-d",
-    "--name",
-    ref,
-    "--network",
-    HARNESS_NETWORK,
-    ...envArgs,
-    spec.image,
-    ...commandArgs,
-  ]);
+  await docker(["run", "-d", "--name", ref, "--network", `container:${sandboxRef}`, ...envArgs, spec.image, ...commandArgs]);
 }
 
 /**
@@ -187,7 +193,7 @@ export async function ensureSandboxServices(
       continue;
     }
     try {
-      await runService(docker, row.ref, spec);
+      await runService(docker, row.ref, lease.ref, spec);
     } catch (err) {
       updateService(db(), row.id, { status: "stopped" });
       throw new ServiceError(
@@ -200,8 +206,8 @@ export async function ensureSandboxServices(
 }
 
 /** The address `${service:<name>:<port>}` resolves to on this substrate:
- *  the sibling's container name, resolvable by the sandbox (and the
- *  proxy) on the harness network. Value-shaped when not running. */
+ *  `localhost` — services share the sandbox's network namespace (0017
+ *  amendment). Value-shaped when not running. */
 export function serviceAddress(
   sandboxId: string,
   name: string,
@@ -209,7 +215,7 @@ export function serviceAddress(
   const row = getService(db(), sandboxId, name);
   if (!row) return { error: `no service ${name} is declared for this sandbox` };
   if (row.status !== "running") return { error: `service ${name} is ${row.status}` };
-  return { address: row.ref };
+  return { address: "localhost" };
 }
 
 /**

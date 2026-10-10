@@ -519,3 +519,33 @@ ask_chad gate on `save_preview_setup`, were resolved in chat
   seam they plug into; build when a slow or rate-limited fetch re-runs
   too often across branch previews).
 - Push webhooks → immediate follows (unchanged from 0016).
+
+## Amendment (2026-10-10, trial run 6): services share the sandbox's localhost
+
+The v1 podman backend no longer runs services as siblings addressed by
+container name. Each service joins its sandbox's network namespace
+(`--network container:<sandbox-ref>`), and `${service:<name>:<port>}`
+resolves to `localhost:<port>`. That is the "VM backend … answer
+`localhost`" model above, now on podman too.
+
+Why: dev apps hand out URLs to themselves, and those assume localhost.
+gpl presigns asset URLs as `http://localhost:9000`, the docker-compose
+habit. With siblings, those URLs dead-ended inside the sandbox: run 6
+hand-built a TCP proxy, and the browser could not have followed them
+at all. With a shared namespace, the address the app is configured
+with and the address it hands to its own browser are the same.
+
+What holds and what changes:
+- **Isolation stays per sandbox**, and is stronger: there are no
+  DNS names at all, so the alias-collision concern above is gone.
+- **Ports are shared with the dev server.** The setup schema rejects
+  a service port that equals the server's or another service's.
+- **Lifecycle is unchanged.** A stopped sandbox stops its services
+  first. A started service needs its sandbox running, which the
+  launch path already guarantees (resume before ensure, via the
+  provider). The containers still die with the sandbox (`rm -f`
+  before the sandbox is destroyed).
+- **Existing sibling-mode service containers** in live sandboxes keep
+  their old network. They are recreated (data lost) the first time
+  `ensure` finds them stopped, or on the next fresh sandbox. Trial
+  sandboxes only; nothing to migrate.
