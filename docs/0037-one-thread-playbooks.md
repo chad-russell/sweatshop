@@ -207,7 +207,21 @@ inbox's machine-gate card goes away.
    playbook versus run 4 on `flow`, same metrics, plus one deliberate
    revise at the PR card (the case `flow` fails).
 3. **`start_thread` + Ticket/Review.** Item 5 and the remaining
-   playbooks.
+   playbooks. *(Built 2026-10-10: `start_thread({prompt, playbook?,
+   fresh?})` creates a child chat (`conversations.parent_conversation_id`)
+   attached to the parent's sandbox by default — the parent binds first
+   if pending — and starts its first turn on the prompt. The child
+   settles by message updates: `woken_settled_at` is stamped at creation
+   (the creation bump is not a settle) and compared against
+   `updated_at`, so the wake fires when a turn lands messages and no
+   turn is live — at the turn's end (`wakeParentStep`, after the budget
+   decision so a continuing child still reads as working) and in the 30 s
+   sweep (crash recovery). The wake carries the child's last assistant
+   message — for a review, that IS the deliverable. `cancel_run` covers
+   `c_…` children (cancelled never wakes). Playbooks `ticket` (ask_chad
+   plan approval → Ship steps → fresh-eyes `start_thread` review before
+   `create_pr`) and `review` (fresh context, findings only, changes
+   nothing) joined the catalog.)*
 4. **The deciding experiment.** A genuinely big ticket: Ticket playbook
    versus the old `ticket` machine, logged in TRIAL-RUNS. The open risk
    is **context size**. If a long thread exhausts the window, the answer
