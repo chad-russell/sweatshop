@@ -26,20 +26,6 @@ are UTC, measured from the DB rows.
   pushed manually by the chat (later deleted for the retry series).
 - Findings → docs/0035, docs/0036, TRIAL-FRICTION 2026-10-09 entries.
 
-### Run 2 (iteration 1) — 2026-10-09 17:50→ (post-0035/0036, deployed 1f56204)
-
-- Chat `c_Wny2BY-RAJDUYCDM8-8fQ3dH`, run `mr_mv19qa6zdfce77`.
-- Prompted by Glen via the chat API (fresh chat, project gpl) — brief
-  carried a wrong "first run, bootstrap the setup" assertion (a gpl
-  preview setup had existed since Oct 8; only minio was missing), so
-  the plan spent a bootstrap section obeying it → the "# Project"
-  brief line on preview readiness followed (this PR).
-- Plan: 13 steps, 3m11s — read `system_docs` first; planned declared
-  services, $PORT-honoring command, DEV_AUTO_LOGIN, before/after
-  screenshots on the unmodified preview + a narrow-viewport shot,
-  minio bucket + seeded asset, screenshots attached. (Fill in the rest
-  when the run settles.)
-
 ### Run 2 (iteration 1) — 2026-10-09 17:50–21:43 (post-0035/0036, deployed 1f56204) — CANCELLED at verify
 
 - Chat `c_Wny2BY-RAJDUYCDM8-8fQ3dH`, run `mr_mv19qa6zdfce77`. Triggered by
@@ -93,6 +79,18 @@ are UTC, measured from the DB rows.
   rabbit-prone; claude stayed sane in implement).
 - Chat's wake turn survived (no inspect kills — value-shaped errors
   work); gate approval went through first try.
+
+### Iteration 3 — the simple arm (planned)
+
+Runs the same WYC-1589 ticket through the new `flow` machine: ONE agent
+stage with the whole thread (subagent harnesses for implementation,
+self-verification, evidence attached) + the PR gate + publish. Zero
+context handoffs — the hypothesis (Chad, 2026-10-09) is that the
+staged machine's handoff losses were the whole cost, so the simple
+shape wins on this ticket class while the staged shape keeps its edge
+on big/risky work. The gate now renders the run's attached screenshots
+(the eyes are at the gate). Same metrics; prediction: total machine
+time under 15 minutes, no verify stage to run away.
 
 ## Metrics to keep per run
 

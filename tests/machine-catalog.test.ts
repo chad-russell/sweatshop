@@ -29,8 +29,8 @@ const defOf = (id: string) => {
 };
 
 describe("0023: the seed catalog", () => {
-  it("is exactly the four approved machines, all valid definitions", () => {
-    expect([...byId.keys()].sort()).toEqual(["bugfix", "review", "think", "ticket"]);
+  it("is exactly the five approved machines, all valid definitions", () => {
+    expect([...byId.keys()].sort()).toEqual(["bugfix", "flow", "review", "think", "ticket"]);
     for (const seed of seeds) {
       expect(parseDefinition(seed.definition).ok, seed.id).toBe(true);
     }

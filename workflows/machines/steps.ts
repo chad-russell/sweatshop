@@ -242,36 +242,8 @@ export async function loadEvidence(
   runId: string,
 ): Promise<Record<number, { label?: string; url: string }[]>> {
   "use step";
-  const [{ db }, { listStageRuns }] = await Promise.all([
-    import("@/db"),
-    import("@/db/machines"),
-  ]);
-  const out: Record<number, { label?: string; url: string }[]> = {};
-  for (const v of listStageRuns(db(), runId)) {
-    if (!v.sessionId || v.kind !== "harness") continue;
-    const rows = db()
-      .select({ output: harnessEvents.output })
-      .from(harnessEvents)
-      .where(
-        and(
-          eq(harnessEvents.sessionId, v.sessionId),
-          eq(harnessEvents.kind, "tool-end"),
-          eq(harnessEvents.toolName, "attach_screenshot"),
-        ),
-      )
-      .all();
-    const found: { label?: string; url: string }[] = [];
-    for (const row of rows) {
-      try {
-        const parsed = JSON.parse(row.output ?? "") as { ok?: boolean; url?: string };
-        if (parsed.ok === true && parsed.url) found.push({ url: parsed.url });
-      } catch {
-        // clipped or non-JSON output — skip
-      }
-    }
-    if (found.length > 0) out[v.seq] = found;
-  }
-  return out;
+  const { collectRunEvidence } = await import("@/lib/machines/evidence");
+  return collectRunEvidence(runId);
 }
 
 /**

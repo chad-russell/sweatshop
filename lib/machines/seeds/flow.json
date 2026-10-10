@@ -1,0 +1,33 @@
+{
+  "id": "flow",
+  "name": "Flow",
+  "description": "One agent with the whole thread: plan, implement via subagent harnesses, verify its own diff, attach visual evidence, and hand to the PR gate. The simple arm of the staged-vs-simple comparison (TRIAL-RUNS).",
+  "definition": {
+    "workspace": "project",
+    "start": "work",
+    "stages": {
+      "work": {
+        "kind": "agent",
+        "title": "Do the work",
+        "instructions": "You are the whole workflow in one session — you keep the thread, so never re-derive what you or a subagent already established.\n\n1. Read the brief. Its \"# Project\" section carries the test command, branch rules, and preview-setup state — those are facts; trust them. Think the plan through; you do not need approval to start (the PR gate at the end is the checkpoint).\n2. Implement: delegate non-trivial code changes to a subagent harness (pi or claude) with a precise task — you hold the context, it holds the editor. Small mechanical edits, run them yourself with bash.\n3. Verify your own work: the diff against your plan, the project's test command, and — for visual changes — serve the preview (start_preview; the saved setup makes it one call) and capture before/after screenshots with agent-browser (follow its installed skill), attaching each with attach_screenshot. The gate reads those. A blocked visual check is a finding to report, not to engineer around: retry at most twice, attach what you saw, say so.\n4. Declare the PR with propose_pr, then transition to the gate. Nothing is pushed until it approves.",
+        "next": [{ "to": "pr-approve" }]
+      },
+      "pr-approve": {
+        "kind": "human",
+        "title": "Approve PR",
+        "instructions": "The work's summary, the attached screenshots, and the PR proposal are shown. Approve it to push the branch and open the PR, send it back with a comment for changes, or reject to end the run.",
+        "next": [
+          { "to": "publish", "when": "Approve the PR" },
+          { "to": "work", "when": "Request changes (add a comment for the agent)" },
+          { "to": "end", "when": "Reject" }
+        ]
+      },
+      "publish": {
+        "kind": "publish",
+        "title": "Publish",
+        "instructions": "Deterministic: pushes the approved branch and opens the approved PR.",
+        "next": []
+      }
+    }
+  }
+}

@@ -14,6 +14,7 @@ import {
 } from "./schema";
 import type { MachineDefinition } from "../lib/machines/definition";
 import { pendingRunProposal } from "./pr-proposals";
+import { collectRunEvidence } from "@/lib/machines/evidence";
 
 /**
  * 0008 attention: what is waiting on the user.
@@ -294,6 +295,9 @@ export interface NeedsYouMachineGate {
   prompt: string;
   /** The previous stage's outcome — usually what Chad is judging. */
   lastOutcome: string | null;
+  /** 2026-10-09: screenshots the run attached — the gate renders them
+   *  so visual judgment happens where the eyes are. */
+  evidence: { label?: string; url: string }[] | null;
   /** 0034 A: the run's pending PR proposal — when present, this gate is
    *  the PR approval (the summary was rendered at propose time). */
   prProposal: {
@@ -400,6 +404,7 @@ export function loadInbox(db: Conn): InboxData {
       .where(and(eq(machineStageRuns.runId, g.runId), eq(machineStageRuns.seq, g.seq - 1)))
       .get();
     const proposal = pendingRunProposal(db, g.runId);
+    const evidence = Object.values(collectRunEvidence(g.runId)).flat();
     return {
       kind: "machine",
       id: g.token,
@@ -411,6 +416,7 @@ export function loadInbox(db: Conn): InboxData {
       targets: stage?.next ?? [],
       prompt: g.prompt,
       lastOutcome: previous?.outcome ?? null,
+      evidence: evidence.length > 0 ? evidence : null,
       prProposal: proposal
         ? {
             repo: proposal.repo,
