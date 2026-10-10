@@ -292,6 +292,17 @@ describe("child threads (0037 phase 3)", () => {
     expect(listWakableChatChildren(tdb).map((c) => c.id)).not.toContain(child);
   });
 
+  it("carries the child's findings at a wider clip than run wakes", async () => {
+    const long = "FINDING ".repeat(700); // ~5.6k chars — a real review report
+    const { child } = settledChild({ text: long });
+    const { deps, started } = seams();
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("woke");
+    const text = started[0]!.text;
+    expect(text).toContain("[clipped");
+    expect(text.length).toBeLessThan(long.length);
+    expect(text.length).toBeGreaterThan(2000); // the full findings, not a 500-char stub
+  });
+
   it("skips a cancelled stale row without waking", async () => {
     const { child } = settledChild();
     setActiveRun(tdb, child, "wr_cancelled_child");

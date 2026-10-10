@@ -291,7 +291,10 @@ export async function wakeChatChildIfDue(
       id: child.id,
       name: child.playbook ?? "thread",
       status,
-      detail: last ? clipText(last, 500) : null,
+      // Wider than runs/harness calls: for a review thread the final
+      // message IS the deliverable, and the smoke run showed 500 chars
+      // truncating it mid-findings. The rest is one inspect away.
+      detail: last ? clipText(last, 2000) : null,
       url: `/c/${child.id}`,
     },
     deps,
