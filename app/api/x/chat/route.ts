@@ -12,6 +12,7 @@ import {
   getConversation,
   listMessageTexts,
   setActiveRun,
+  setConversationPlaybook,
   setConversationRoute,
 } from "@/db/chat";
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
@@ -23,6 +24,7 @@ import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
 import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
 import { answerPendingWithText } from "@/lib/chat/answer-pending";
+import { readPlaybook } from "@/lib/playbooks";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,8 @@ export async function POST(request: Request) {
     sandbox?: string | null;
     /** 0015: the page the send came from (the agent panel's viewing note). */
     context?: unknown;
+    /** 0037, creation only: the playbook this thread runs. */
+    playbook?: unknown;
     messages?: { role: string; parts?: { type: string; text?: string }[] }[];
   };
   const transportText = body.messages
@@ -99,6 +103,12 @@ export async function POST(request: Request) {
     }
   }
   const projectId = existing ? existing.projectId : ((body.projectId as string | undefined) ?? null);
+  // 0037: a playbook is chosen by the creating send (use_playbook covers
+  // later); unknown ids reject before anything is created.
+  const playbook = !existing && typeof body.playbook === "string" && body.playbook ? body.playbook : null;
+  if (playbook && !(await readPlaybook(playbook))) {
+    return NextResponse.json({ error: `no playbook "${playbook}"` }, { status: 400 });
+  }
   let pickedRoute: import("@/lib/providers/route").ChatRoute | null | undefined;
   if (body.route !== undefined) {
     if (body.route === null) {
@@ -116,6 +126,7 @@ export async function POST(request: Request) {
   }
   if (!existing) {
     ensureConversation(db(), body.conversationId, projectId);
+    if (playbook) setConversationPlaybook(db(), body.conversationId, playbook);
     if (body.sandbox === "none") {
       disableConversationSandbox(db(), body.conversationId);
     } else if (body.sandbox?.startsWith("attached:")) {

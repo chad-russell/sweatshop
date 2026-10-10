@@ -126,6 +126,19 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   card, the run view's per-visit route. Live check:
   `PI_SPIKE=1` (pi on every keyed provider via the real builder) and
   `CLAUDE_SPIKE=1 CLAUDE_SPIKE_LIVE=1` (claude on a route).
+- Playbooks (0037 phase 2): markdown runbooks in
+  `docs/agent/playbooks/<id>.md` (front matter `description`; H1 =
+  title; loader `lib/playbooks.ts`, read at call time). A thread runs
+  one via `conversations.playbook` — chosen by the creating send (the
+  composer's "Chat with a playbook" picker section, project scope;
+  `?playbook=<id>`; the route rejects unknown ids before creating
+  anything) or mid-thread by the agent's `use_playbook` tool. Its body
+  joins the turn instructions and the turn's step budget rises from 50
+  to 400; a playbook turn that EXHAUSTS the budget continues in a new
+  turn through `startChatTurn` with a `runEvent` of kind `budget`
+  (chip, never Chad's words), bounded at 3 consecutive continuations
+  with no human message between (`lib/chat/budget.ts`). Catalog: `ship`
+  (ticket → `create_pr`).
 - Web tools (1.5): every chat and agent stage has `web_search` and
   `web_fetch`. `web_fetch` is plain HTTP (redirects followed, 2 MiB
   download cap, 60 k character context clip, HTML stripped to text,

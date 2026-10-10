@@ -14,16 +14,17 @@ export const dynamic = "force-dynamic";
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ machine?: string; project?: string }>;
+  searchParams: Promise<{ machine?: string; project?: string; playbook?: string }>;
 }) {
-  const { machine, project } = await searchParams;
+  const { machine, project, playbook } = await searchParams;
   const projectOptions = db().select({ id: projects.id, name: projects.name }).from(projects).all();
   const scoped = project ? (projectOptions.find((p) => p.id === project) ?? null) : null;
 
   return (
     <ChatSurface
-      key={`${scoped?.id ?? "chat"}:${machine ?? "chat"}`}
+      key={`${scoped?.id ?? "chat"}:${machine ?? "chat"}:${playbook ?? ""}`}
       initialMachineId={machine ?? null}
+      initialPlaybookId={playbook ?? null}
       projectOptions={projectOptions}
       {...(scoped ? { projectId: scoped.id, projectName: scoped.name } : {})}
     />

@@ -14,7 +14,7 @@ import {
   type SandboxOption,
 } from "@/components/chat-session";
 import { usePageContext } from "@/components/page-context";
-import { RunTargetPicker, startMachineRun, useScopedMachines } from "@/components/machines/run-target";
+import { RunTargetPicker, startMachineRun, usePlaybooks, useScopedMachines } from "@/components/machines/run-target";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { shortSandboxId } from "@/lib/sandbox-id";
@@ -277,6 +277,7 @@ export function ChatSurface({
   conversationTitle,
   headerExtra,
   initialMachineId,
+  initialPlaybookId,
   projectOptions,
 }: {
   conversationId?: string;
@@ -289,6 +290,8 @@ export function ChatSurface({
   headerExtra?: React.ReactNode;
   /** 0012: preselect this machine as the fresh composer's target. */
   initialMachineId?: string | null;
+  /** 0037: preselect this playbook (`?playbook=`; project scope only). */
+  initialPlaybookId?: string | null;
   /** 0018: pickable chat-in-project targets for the fresh composer
    *  (the ?project= param seeds the initial scope). */
   projectOptions?: { id: string; name: string }[];
@@ -331,12 +334,17 @@ export function ChatSurface({
   const [pickedMachineId, setPickedMachineId] = useState<string | null>(initialMachineId ?? null);
   const [runStart, setRunStart] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const machineTargeted = machines?.some((m) => m.id === pickedMachineId) ?? false;
+  // 0037: a fresh project chat can run by a playbook.
+  const playbooks = usePlaybooks();
+  const [pickedPlaybookId, setPickedPlaybookId] = useState<string | null>(initialPlaybookId ?? null);
+  const activePlaybookId = !conversationId && activeProjectId ? pickedPlaybookId : null;
 
   /** 0018: pick (or clear) the composer's project scope; the URL
    *  follows so the scope is visible and shareable while fresh. */
   const pickProject = (id: string | null) => {
     setPickedProjectId(id);
     setPickedMachineId(null);
+    setPickedPlaybookId(null);
     setRunStart({ busy: false, error: null });
     if (!conversationId) {
       window.history.replaceState(null, "", id ? `/?project=${id}` : "/");
@@ -352,12 +360,16 @@ export function ChatSurface({
         selectedId={machine?.id ?? null}
         onSelect={(id) => {
           setPickedMachineId(id);
+          if (id) setPickedPlaybookId(null);
           setRunStart({ busy: false, error: null });
         }}
         projectScoped={Boolean(activeProjectId)}
         projects={projectOptions}
         selectedProjectId={activeProjectId}
         onSelectProject={pickProject}
+        playbooks={playbooks}
+        selectedPlaybookId={activePlaybookId}
+        onSelectPlaybook={setPickedPlaybookId}
       />
     );
     if (!machine) {
@@ -443,6 +455,7 @@ export function ChatSurface({
       initialMessages={initialMessages}
       activeRunId={activeRunId}
       projectId={activeProjectId ?? undefined}
+      playbook={activePlaybookId}
       initialRoute={initialRoute}
       className="mx-auto h-dvh max-w-3xl"
       onAdopted={handleAdopted}

@@ -70,6 +70,10 @@ export const conversations = sqliteTable(
      *  id) | "stage" (a run's per-visit agent conversation, hidden from
      *  the sidebar, unread, and search results). */
     kind: text("kind").notNull().default("chat"),
+    /** 0037: the playbook this thread runs (docs/agent/playbooks/<id>.md);
+     *  null = a plain chat. Its body joins the turn instructions and
+     *  raises the turn's step budget. */
+    playbook: text("playbook"),
   },
   (table) => [
     index("conversations_updated_at_idx").on(table.updatedAt),

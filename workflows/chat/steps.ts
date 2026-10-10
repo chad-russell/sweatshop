@@ -155,6 +155,37 @@ export async function createPrPreviewStep(
   return buildChatPRPreview(conversationId, input);
 }
 
+/** 0037: the thread's playbook (null = plain chat). */
+export async function loadPlaybookStep(
+  conversationId: string,
+): Promise<{ id: string; title: string; body: string } | null> {
+  "use step";
+  const [{ db, chat }, { readPlaybook }] = await Promise.all([chatStore(), import("../../lib/playbooks")]);
+  const id = chat.getConversation(db, conversationId)?.playbook;
+  const book = id ? await readPlaybook(id) : null;
+  return book ? { id: book.id, title: book.title, body: book.body } : null;
+}
+
+/** 0037: list playbooks, or bind one to the thread and return its body
+ *  (followed from this turn on; later turns get it as instructions). */
+export async function bindPlaybookStep(conversationId: string, id?: string): Promise<unknown> {
+  "use step";
+  const [{ db, chat }, { listPlaybooks, readPlaybook }] = await Promise.all([chatStore(), import("../../lib/playbooks")]);
+  const list = async () => (await listPlaybooks()).map((b) => ({ id: b.id, title: b.title, description: b.description }));
+  if (!id) return { ok: true, playbooks: await list() };
+  const book = await readPlaybook(id);
+  if (!book) return { ok: false, code: "unknown-playbook", message: `No playbook "${id}".`, playbooks: await list() };
+  chat.setConversationPlaybook(db, conversationId, book.id);
+  return { ok: true, id: book.id, note: "Bound to this thread — follow it from now on.", playbook: book.body };
+}
+
+/** 0037: continue a playbook turn that hit its step budget. */
+export async function continueAfterBudgetStep(conversationId: string): Promise<string> {
+  "use step";
+  const { continueAfterBudget } = await import("../../lib/chat/budget");
+  return continueAfterBudget(conversationId);
+}
+
 /** 1.5 (roadmap): fetch one web page — plain HTTP, capped, HTML stripped. */
 export async function webFetchStep(url: string): Promise<unknown> {
   "use step";
