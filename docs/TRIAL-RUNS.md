@@ -172,6 +172,82 @@ time under 15 minutes, no verify stage to run away.
   gpl preview env (BETTER_AUTH_URL; investigate hydration through the
   preview proxy).
 
+### Run 6 (Ship playbook, after the run-5 fixes) — 2026-10-10 15:47–16:23 (deployed 44c590a) — WORK DONE, PR declined by design
+
+- Chat `c_h4bPOe_cr5zB_hPhKFcAE`, project gpl, `playbook: ship`, GLM
+  flash, fresh sandbox, the same brief as run 5, unchanged. The
+  variables under test: PR #69 (live-turn card evidence, per-slice
+  persistence), PR #70 (agents QA at localhost), and the gpl setup env
+  (auth on localhost; the dev-origin vars).
+- **Ask → first PR card: 19m59s** (run 5: 31m22s; run 4: 10m30s to its
+  gate). ONE turn, 98 model steps across the whole thread (run 5: 156),
+  0 budget continuations, 0 subagent calls.
+- **Every run-5 fix held:**
+  - Card evidence: "Screenshots: 5" on the first card and 7 on the
+    second, all attached in the LIVE turn; the runtime check passed
+    (235/235, 7 s).
+  - Per-slice persistence: the DB monitor showed every slice as it
+    landed. This is the first run observable from sqlite in real time.
+  - QA at localhost: every agent-browser call went to
+    `http://localhost:3006`; zero to the preview URL. It hydrated and
+    auto-logged-in first try. Zero hydration debugging, zero auth
+    internals (run 5: 78 agent-browser calls, 20 auth hacks).
+- **Revise loop, second time:** the typed revise ("max-w-6xl, 70vh,
+  re-shoot") answered the card. The same turn applied both, re-shot,
+  amended into one clean commit, and re-carded in **4m07s** (run 5:
+  3m41s).
+- **Engineering:** the best fix after run 4's. It used `sm:max-w-6xl`
+  (the `sm:` variant, so the base `sm:max-w-lg` is overridden; the
+  tailwind-merge trap run 4 named), measured 512 → 1152 px in the
+  browser, plus a 1024 px responsive shot.
+- **Where the remaining ~10 min over run 4 went: seed data, not the
+  platform.** The Products tab needed a previewable asset, and the gpl
+  seed has none in minio. The thread generated a PDF, uploaded it,
+  and ran a TCP proxy so the presigned `localhost:9000` URLs resolved
+  inside the sandbox (~20 calls). That is the gpl setup's `seed` not
+  covering this page — a setup gap (fix: seed one asset into minio, or
+  a `localhost:9000` alias for the minio service), and arguably within
+  the stop rule's spirit, since it was making the QA possible, not
+  digging into app internals.
+- Ending: declined the revised card with a stop note ("trial run, keep
+  it local") → a two-line summary. Branch local; every pending input
+  resolved.
+- **Verdict:** the 0037 shape is now on par with run 4's `flow` on
+  quality, with the revise loop `flow` cannot do, and full live
+  observability. The remaining gap to run 4 is the seed/minio fixture
+  for this page, not the thread shape.
+
+### Run 7 (Ship playbook, services on localhost + asset seed) — 2026-10-10 16:46–17:08 (deployed 2734ad3) — WORK DONE, PR declined by design
+
+- Chat `c_0fwHJVzzBIoS2Pa9u6R_L`, the same brief and model, fresh
+  sandbox. The variables under test: PR #72 (services share the
+  sandbox's localhost) and the gpl setup `seed` now uploading sample
+  files for every asset row.
+- **Ask → first PR card: ~10m06s.** Run 4's `flow` took 10m30s to its
+  gate. Run 7 matches it on the one-thread shape, with live
+  observability and a revise loop that `flow` lacks. ONE turn, **50
+  model steps** (run 6: 98, run 5: 156).
+- **Zero environment work:** 0 proxy, PDF-generation or auth-hack
+  calls; 20 agent-browser calls, all to `localhost:3006`, first try.
+  The seeded PDF rendered in the preview dialog.
+- **Engineering:** `max-w-[calc(100%-2rem)] sm:max-w-6xl` + 70vh,
+  measured 512×510 → 1152×568 in the browser; tests 235/235 via the
+  runtime check.
+- **One new model slip, caught by the card:** `create_pr` used head
+  `feature/wyc-card` (a typo; the work was on `feature/wyc-1589`). The
+  card showed "commit summary unavailable", and a typed revise
+  re-carded in ~22 s with the right head and its commit. → fix: a head
+  that does not exist is a value-shaped error back to the model before
+  any card (`no-such-branch`, same PR as this record), so Chad never
+  sees a commit-less card.
+- Ending: declined the corrected card with a stop note → a two-line
+  summary; every pending input resolved.
+- **Verdict:** the series is closed for this ticket class. The 0037
+  shape matches run 4 on wall time (~10 min) and quality, beats it on
+  observability and revise, and the remaining slowness in runs 5–6 was
+  environment, now fixed in the platform (services on localhost) and
+  in data (seeds). Next: the big-ticket comparison.
+
 ## Metrics to keep per run
 
 wall time · Chad's touches (count + minutes) · stage durations + steps ·

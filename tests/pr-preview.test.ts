@@ -4,7 +4,7 @@ import { db } from "../db";
 import { ensureConversation } from "../db/chat";
 import { createProject } from "../db/projects";
 import { conversations, gitCredentials, projectRepos, projects } from "../db/schema";
-import { buildChatPRPreview, formatPRSummary } from "../lib/agent/tools/pr-preview";
+import { buildChatPRPreview, formatPRSummary, runGitSummary } from "../lib/agent/tools/pr-preview";
 
 /**
  * 0034 Phase A: the create_pr approval preview — pure formatting, and
@@ -98,5 +98,23 @@ describe("buildChatPRPreview", () => {
     } finally {
       db().delete(gitCredentials).where(eq(gitCredentials.id, `cred-pv-${rand}`)).run();
     }
+  });
+});
+
+describe("runGitSummary (run 7)", () => {
+  it("flags a head branch that does not exist instead of an empty summary", async () => {
+    const calls: string[] = [];
+    const missing = await runGitSummary(async (c) => {
+      calls.push(c);
+      return c.includes("rev-parse") ? { exitCode: 1, stdout: "", stderr: "" } : { exitCode: 0, stdout: "x", stderr: "" };
+    }, "r", "feature/wyc-card");
+    expect(missing).toMatchObject({ missingHead: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("refs/heads/feature/wyc-card");
+
+    const ok = await runGitSummary(async (c) =>
+      c.includes("rev-parse") ? { exitCode: 0, stdout: "sha", stderr: "" } : { exitCode: 0, stdout: "abc fix", stderr: "" },
+    "r", "feature/wyc-1589");
+    expect(ok).toEqual({ log: "abc fix", stat: "abc fix" });
   });
 });

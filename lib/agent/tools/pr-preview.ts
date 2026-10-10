@@ -27,7 +27,7 @@ export type PRPreview =
   | { ok: true; summary: string; evidence: ApprovalEvidence }
   | {
       ok: false;
-      code: "no-project" | "no-repo" | "no-credential";
+      code: "no-project" | "no-repo" | "no-credential" | "no-such-branch";
       message: string;
     };
 
@@ -69,7 +69,7 @@ export async function runGitSummary(
   repo: string,
   head: string,
   base?: string,
-): Promise<{ log?: string; stat?: string; note?: string }> {
+): Promise<{ log?: string; stat?: string; note?: string; missingHead?: true }> {
   for (const name of [repo, head, base ?? "main"]) {
     if (!SAFE_NAME.test(name)) {
       return { note: `unusual name "${name}" — commit summary skipped` };
@@ -77,6 +77,8 @@ export async function runGitSummary(
   }
   try {
     const target = base ?? "main";
+    const exists = await run(`git -C ${repo} rev-parse --verify --quiet refs/heads/${head}`);
+    if (exists.exitCode !== 0) return { missingHead: true, note: `branch "${head}" does not exist` };
     const log = await run(`git -C ${repo} log --oneline -16 ${target}..${head}`);
     const stat = await run(`git -C ${repo} diff --stat ${target}...${head} | tail -16`);
     if (log.exitCode !== 0 || stat.exitCode !== 0) {
@@ -98,7 +100,7 @@ async function gatherGitSummary(
   conversationId: string,
   input: PRPreviewInput,
   provider?: SandboxProvider,
-): Promise<{ log?: string; stat?: string; note?: string }> {
+): Promise<{ log?: string; stat?: string; note?: string; missingHead?: true }> {
   // Only a BOUND conversation has a sandbox to read from — pending
   // would provision one (clone repos) just to summarize, and none has
   // nothing to read. Neither belongs in an approval preview.
@@ -135,6 +137,16 @@ export async function buildChatPRPreview(
   const resolved = resolveProjectRepo(conversation.projectId, input.repo);
   if (!resolved.ok) return resolved;
   const git = await gatherGitSummary(conversationId, input, provider);
+  // Run 7: a head that does not exist in the checkout is the model's
+  // typo — return it to the model to repair, never put a commit-less
+  // card in front of Chad.
+  if (git.missingHead) {
+    return {
+      ok: false,
+      code: "no-such-branch",
+      message: `branch "${input.head}" does not exist in ${input.repo} — check \`git branch\` and call create_pr with the branch your commits are on`,
+    };
+  }
   // 0037: the runtime's own evidence — the test command and the
   // thread's screenshots — so the card shows what the model skipped.
   const evidence = await buildApprovalEvidence(conversationId, input.repo, provider, live);
