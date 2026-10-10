@@ -25,7 +25,7 @@ import {
 
 const SURFACE_COPY: Record<Surface, { title: string; hint: string }> = {
   chat: { title: "Chat", hint: "New chats and conversations without their own pick." },
-  agent: { title: "Agent stages", hint: "Machine agent stages without a pinned route." },
+  agent: { title: "Agent stages", hint: "Legacy surface (machines); kept for stored defaults." },
   pi: { title: "pi harness", hint: "pi tool calls and pi stages without a conversation, stage, or project route." },
   claude: { title: "claude harness", hint: "Subscription only — never provider-routed. Model and effort." },
   titles: { title: "Titles", hint: "Generated conversation titles. Keep it cheap and fast." },

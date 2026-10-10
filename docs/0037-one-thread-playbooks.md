@@ -227,7 +227,26 @@ inbox's machine-gate card goes away.
    is **context size**. If a long thread exhausts the window, the answer
    is compaction (summarize at a gate, the summary shown on the card),
    not a return to amnesiac stages.
-5. **Delete machines** (item 6).
+5. **Delete machines** (item 6). *(Built 2026-10-10, after runs 8–9
+   closed phase 4: the machine arm was cancelled at 40m23s still in its
+   plan stage — 260 steps, no gate reached — while the Ticket thread
+   shipped the whole feature in 42m27s with one 87 s touch. Deleted:
+   the `runMachine` interpreter and every stage kind, `lib/machines/*`
+   (the shared HarnessAgent builder moved to
+   `workflows/chat/harness-agent.ts`), the machine tools and their
+   approvals, `start_machine`, `/machines` + the graph +
+   `@xyflow/react`, the machine-gate inbox card, `pr_proposals` +
+   `propose_pr`/`publish`, the seeds and `db:seed`, and the machine
+   tests. Kept read-only: `machine_runs`/`machine_stage_runs` rows
+   (runs were conversations — they stay in the sidebar until purged),
+   a static `/r/<id>`, the run GET API, child-status/inspect reads, and
+   the 0021 route schema (the stage layers just never resolve).
+   `db/machines.ts` is reads only. Migration 0047 drops `machines` and
+   `pr_proposals` and `machine_runs`' FK to machines. The fresh
+   composer's target picker kept its project and playbook axes
+   (`components/fresh-target-picker`). Net for the phase: +339 /
+   −10,191 in code — the 0037 ledger ends ≈ +2.6k / −10.3k,
+   decisively negative.)*
 
 ## Costs and non-goals
 

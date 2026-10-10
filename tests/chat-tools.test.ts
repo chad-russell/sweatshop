@@ -384,3 +384,16 @@ describe("0010 chat tool cores", () => {
     });
   });
 });
+
+describe("0037 phase 5: the tool catalog after machines", () => {
+  it("every chat has start_thread; no machine tool remains", () => {
+    const names = (hasSandbox: boolean, hasProject: boolean) =>
+      Object.keys(buildChatTools("c_x", { hasSandbox, hasProject }));
+    expect(names(false, false)).toContain("start_thread");
+    expect(names(true, true)).toContain("cancel_run");
+    expect(names(true, true)).toContain("use_playbook");
+    for (const gone of ["start_machine", "list_machines", "get_machine", "create_machine", "edit_machine", "delete_machine"]) {
+      expect(names(true, true)).not.toContain(gone);
+    }
+  });
+});

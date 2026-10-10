@@ -26,23 +26,8 @@ import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { HarnessMark } from "@/components/harness-logo";
 import { SandboxChip } from "@/components/sandbox-view";
-import {
-  describeOps,
-  execOf,
-  failureOf,
-  inspectOf,
-  machineList,
-  machineOf,
-  machineResult,
-  runStarted,
-  transitionOf,
-  type FlowStage,
-  type InspectView,
-  type MachineView,
-  type OpLine,
-  type ToolState,
-} from "@/lib/machine-tool-view";
 import { objectOf } from "@/lib/tool-fields";
+import { execOf, failureOf, inspectOf, transitionOf, type InspectView, type ToolState } from "@/lib/machine-tool-view";
 import type { ChildStatus } from "@/lib/child-status";
 import { elapsed, useChildStatus } from "@/lib/use-child-status";
 import { cn } from "@/lib/utils";
@@ -201,269 +186,11 @@ export function failureLines(output: unknown, errorText?: string): string[] | un
   return errorText ? [errorText] : undefined;
 }
 
-// --- machine flow --------------------------------------------------------------
-
-const KIND_ICON: Record<string, LucideIcon> = { human: HandIcon, agent: WorkflowIcon, harness: PlayIcon };
-
-function StageChip({ stage }: { stage: FlowStage }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs">
-      {stage.kind === "harness" && stage.harness ? (
-        <HarnessMark kind={stage.harness} className="size-3.5" />
-      ) : (
-        (() => {
-          const I = KIND_ICON[stage.kind] ?? CircleDotIcon;
-          return <I className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />;
-        })()
-      )}
-      <span className="font-medium">{stage.title}</span>
-    </span>
-  );
-}
-
-/** The machine as a walk: stage chips joined by arrows; branches listed under their stage. */
-function FlowView({ flow }: { flow: FlowStage[] }) {
-  const titles = new Map(flow.map((s) => [s.id, s.title]));
-  return (
-    <div className="space-y-2 px-3 py-2.5">
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-        {flow.map((stage, i) => (
-          <span key={stage.id} className="inline-flex items-center gap-1.5">
-            <StageChip stage={stage} />
-            {i < flow.length - 1 && <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground/60" aria-hidden />}
-          </span>
-        ))}
-        <FlagIcon className="size-3.5 shrink-0 text-muted-foreground/60" aria-label="end" />
-      </div>
-      {flow.some((s) => s.next.length > 1) && (
-        <ul className="space-y-0.5 font-mono text-[11px] text-muted-foreground">
-          {flow
-            .filter((s) => s.next.length > 1)
-            .map((s) => (
-              <li key={s.id} className="flex flex-wrap items-center gap-1.5">
-                <GitForkIcon className="size-3 shrink-0" aria-hidden />
-                <span className="text-foreground">{s.title}</span>
-                <ArrowRightIcon className="size-3" aria-hidden />
-                {s.next.map((to, i) => (
-                  <span key={to}>
-                    {titles.get(to) ?? to}
-                    {i < s.next.length - 1 ? "," : ""}
-                  </span>
-                ))}
-              </li>
-            ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function machineMeta(m: MachineView): string {
-  return [
-    m.stageCount !== undefined ? `${m.stageCount} ${m.stageCount === 1 ? "stage" : "stages"}` : null,
-    m.version !== undefined ? `v${m.version}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 function MetaChip({ children }: { children: ReactNode }) {
   return <span className="hidden shrink-0 font-mono text-[11px] text-muted-foreground sm:inline">{children}</span>;
 }
 
 // --- cards ---------------------------------------------------------------------
-
-export function MachineCard({
-  tool,
-  state,
-  input,
-  output,
-  errorText,
-}: {
-  tool: "get_machine" | "create_machine" | "list_machines";
-  state: ToolState;
-  input: unknown;
-  output?: unknown;
-  errorText?: string;
-}) {
-  const errors = failureLines(output, errorText);
-  const failed = state === "error" || Boolean(failureOf(output));
-  const sp = statePill(state, failed);
-
-  if (tool === "list_machines") {
-    const machines = machineList(output);
-    return (
-      <Card
-        icon={WorkflowIcon}
-        title="Machines"
-        subtitle={state === "completed" && !failed ? `${machines.length} available` : undefined}
-        {...sp}
-        failed={failed}
-        errorLines={errors}
-        defaultOpen={machines.length > 0 && machines.length <= 6}
-      >
-        {machines.length > 0 && (
-          <ul className="divide-y divide-border">
-            {machines.map((m) => (
-              <li key={m.id} className="flex items-baseline gap-3 px-3 py-2">
-                <Link href={`/machines/${m.id}`} className="shrink-0 text-sm font-medium underline-offset-2 hover:underline">
-                  {m.name}
-                </Link>
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{m.description}</span>
-                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{machineMeta(m)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-    );
-  }
-
-  const machine = machineResult(output);
-  const idFromInput = objectOf(input)?.id;
-  const name = machine?.name ?? (typeof objectOf(input)?.name === "string" ? (objectOf(input)!.name as string) : typeof idFromInput === "string" ? idFromInput : "…");
-  return (
-    <Card
-      icon={WorkflowIcon}
-      title={tool === "create_machine" ? (state === "running" ? "Creating machine" : "Created machine") : "Machine"}
-      subtitle={name}
-      extra={machine && <MetaChip>{machineMeta(machine)}</MetaChip>}
-      link={machine ? { href: `/machines/${machine.id}`, label: "Open" } : undefined}
-      {...sp}
-      failed={failed}
-      errorLines={errors}
-      defaultOpen={Boolean(machine?.flow.length)}
-    >
-      {machine && (machine.flow.length > 0 || machine.description) ? (
-        <>
-          {machine.description && <p className="px-3 pt-2.5 text-xs text-muted-foreground">{machine.description}</p>}
-          {machine.flow.length > 0 && <FlowView flow={machine.flow} />}
-        </>
-      ) : undefined}
-    </Card>
-  );
-}
-
-const OP_STYLE: Record<OpLine["tone"], { icon: LucideIcon; className: string }> = {
-  add: { icon: PlusIcon, className: "text-success" },
-  remove: { icon: MinusIcon, className: "text-destructive" },
-  change: { icon: PencilLineIcon, className: "text-info" },
-  link: { icon: ArrowRightIcon, className: "text-muted-foreground" },
-  unlink: { icon: UnplugIcon, className: "text-muted-foreground" },
-};
-
-export function EditMachineCard({
-  state,
-  input,
-  output,
-  errorText,
-}: {
-  state: ToolState;
-  input: unknown;
-  output?: unknown;
-  errorText?: string;
-}) {
-  const ops = useMemo(() => describeOps(objectOf(input)?.ops), [input]);
-  const failure = failureOf(output);
-  const failed = state === "error" || Boolean(failure);
-  const machine = machineResult(output);
-  const id = objectOf(input)?.id;
-  const base = objectOf(input)?.baseVersion;
-  const sp = statePill(state, failed);
-  const conflict = failure?.code === "conflict";
-
-  return (
-    <Card
-      icon={PencilLineIcon}
-      title={state === "running" ? "Editing machine" : failed ? "Couldn't edit machine" : "Edited machine"}
-      subtitle={machine?.name ?? (typeof id === "string" ? id : "…")}
-      extra={
-        <>
-          {ops.length > 0 && <MetaChip>{ops.length} {ops.length === 1 ? "change" : "changes"}</MetaChip>}
-          {machine?.version !== undefined && typeof base === "number" && (
-            <MetaChip>
-              v{base} → v{machine.version}
-            </MetaChip>
-          )}
-        </>
-      }
-      link={machine ? { href: `/machines/${machine.id}`, label: "Open" } : undefined}
-      {...(conflict ? { tone: "warn" as const, pill: "conflict" } : sp)}
-      failed={failed && !conflict}
-      errorLines={failureLines(output, errorText)}
-      defaultOpen={ops.length > 0 && ops.length <= 8}
-    >
-      {ops.length > 0 ? (
-        <ul className="divide-y divide-border/60">
-          {ops.map((op, i) => {
-            const s = OP_STYLE[op.tone];
-            return (
-              <li key={i} className="flex items-baseline gap-2 px-3 py-1.5 text-[12.5px]">
-                <s.icon className={cn("size-3.5 shrink-0 translate-y-0.5", s.className)} aria-hidden />
-                <span className="font-medium">{op.text}</span>
-                {op.detail && <span className="min-w-0 truncate text-muted-foreground">{op.detail}</span>}
-              </li>
-            );
-          })}
-        </ul>
-      ) : undefined}
-    </Card>
-  );
-}
-
-export function StartMachineCard({
-  state,
-  input,
-  output,
-  errorText,
-}: {
-  state: ToolState;
-  input: unknown;
-  output?: unknown;
-  errorText?: string;
-}) {
-  const run = runStarted(output);
-  const i = objectOf(input);
-  const prompt = typeof i?.prompt === "string" ? i.prompt : undefined;
-  // The tool's own result only says the run STARTED; once it has, the
-  // pill follows the run itself (polled while it is live).
-  const live = useChildStatus(run?.runId ?? null);
-  const failedToStart = state === "error" || Boolean(failureOf(output));
-  const sp = live ? childPill(live) : statePill(state, failedToStart);
-  const failed = failedToStart || live?.status === "failed";
-  return (
-    <Card
-      icon={PlayIcon}
-      title={state === "running" ? "Starting run" : "Run"}
-      subtitle={typeof i?.machineId === "string" ? i.machineId : "…"}
-      extra={
-        <>
-          {live && <ChildMeta status={live} />}
-          {run?.sandbox ? <MetaChip>{run.sandbox === "inherited" ? "this sandbox" : run.sandbox === "own" ? "own sandbox" : "no sandbox"}</MetaChip> : null}
-        </>
-      }
-      link={run ? { href: run.url, label: "Open run" } : undefined}
-      {...sp}
-      failed={failed}
-      errorLines={failureLines(output, errorText) ?? (live?.status === "failed" && live.error ? [live.error] : undefined)}
-      defaultOpen={Boolean(prompt)}
-    >
-      {prompt ? (
-        <p className="whitespace-pre-wrap break-words border-l-2 border-border py-2 pl-3 pr-3 text-[13px] leading-relaxed text-muted-foreground">
-          {prompt}
-        </p>
-      ) : undefined}
-    </Card>
-  );
-}
-
-const VISIT_TONE: Record<string, { Icon: LucideIcon; className: string }> = {
-  completed: { Icon: CircleCheckIcon, className: "text-success" },
-  failed: { Icon: CircleXIcon, className: "text-destructive" },
-  running: { Icon: Loader2Icon, className: "animate-spin text-info" },
-  waiting: { Icon: CircleDotIcon, className: "text-warning" },
-  parked: { Icon: CircleDotIcon, className: "text-warning" },
-};
 
 /** A started child thread (start_thread): the handle to poll/follow. */
 function threadStarted(
@@ -526,6 +253,14 @@ export function StartThreadCard({
   );
 }
 
+
+const VISIT_TONE: Record<string, { Icon: LucideIcon; className: string }> = {
+  completed: { Icon: CircleCheckIcon, className: "text-success" },
+  failed: { Icon: CircleXIcon, className: "text-destructive" },
+  running: { Icon: Loader2Icon, className: "animate-spin text-info" },
+  waiting: { Icon: CircleDotIcon, className: "text-warning" },
+  parked: { Icon: CircleDotIcon, className: "text-warning" },
+};
 
 function InspectBody({ view }: { view: InspectView }) {
   return (

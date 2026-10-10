@@ -195,7 +195,7 @@ export function ProjectWorkEditor({
         />
       </label>
       <p className="text-xs text-muted-foreground">
-        Run from a repo root; must exit 0. Machine verify stages run it — empty means they fall back to the repo&rsquo;s own test script.
+        Run from a repo root; must exit 0. The create_pr approval card runs it — empty means the card falls back to the repo&rsquo;s own test script.
       </p>
       <label className={FIELD} htmlFor="proj-branch-prefix">
         <span className={LABEL}>Branch prefix</span>
@@ -211,7 +211,7 @@ export function ProjectWorkEditor({
         />
       </label>
       <p className="text-xs text-muted-foreground">
-        Machine branches land as &lt;prefix&gt;/&lt;slug&gt;; a ticket key in the run&rsquo;s prompt (e.g. ENG-1234) always wins. Empty = the generic &lt;type&gt;/&lt;slug&gt;.
+        Work branches land as &lt;prefix&gt;/&lt;slug&gt;; a ticket key in the task (e.g. ENG-1234) always wins. Empty = the generic &lt;type&gt;/&lt;slug&gt;.
       </p>
       <div>
         <Button type="button" size="sm" variant="outline" disabled={busy || !dirty} onClick={() => void save()}>
@@ -330,7 +330,7 @@ export function ProjectDangerZone({ projectId, name }: { projectId: string; name
     <div className="flex flex-col gap-3 rounded-lg border border-destructive/40 p-3">
       <p className="text-sm text-muted-foreground">
         Deletes the project and everything it owns — conversations and their history (hard delete, no trash),
-        machine runs, previews and their sandboxes, folders, the preview setup, repos. Machines and git
+        conversations, previews and their sandboxes, folders, the preview setup, repos. Git
         credentials are untouched.
       </p>
       <label className={FIELD} htmlFor="danger-name">

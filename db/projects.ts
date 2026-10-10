@@ -16,12 +16,11 @@ import {
 } from "./schema";
 import { getPreviewSetup } from "./preview-setups";
 import { deleteConversationForever } from "./organize";
-import { LIVE_STATUSES } from "./machines";
 
 /**
  * 0018 phase 3: project entity CRUD + the delete cascade's store half.
- * All value-shaped errors; the substrate half (cancel runs, destroy
- * sandboxes) is lib/projects.ts — this file never touches a provider.
+ * All value-shaped errors; the substrate half (destroy sandboxes) is
+ * lib/projects.ts — this file never touches a provider.
  */
 
 export type ProjectResult<T> = ({ ok: true } & T) | { ok: false; code: string; message: string };
@@ -350,17 +349,6 @@ export function deleteProjectRows(db: Db, projectId: string): ProjectResult<{ co
   });
 
   return { ok: true, counts };
-}
-
-/** The project's live machine-run ids (the orchestrator cancels them). */
-export function listLiveProjectRuns(db: Db, projectId: string): string[] {
-  return db
-    .select({ id: machineRuns.id, status: machineRuns.status })
-    .from(machineRuns)
-    .where(eq(machineRuns.projectId, projectId))
-    .all()
-    .filter((r) => LIVE_STATUSES.has(r.status))
-    .map((r) => r.id);
 }
 
 /** The project's non-destroyed sandbox leases (the orchestrator destroys them). */

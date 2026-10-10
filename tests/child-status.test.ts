@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { openDb } from "../db";
 import { ensureConversation, setActiveRun, setConversationParent } from "../db/chat";
 import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
-import { createMachine, createRun, updateRun } from "../db/machines";
+import { machineRuns } from "../db/schema";
 import { projects } from "../db/schema";
 import { childStatus } from "../lib/child-status";
 
@@ -11,12 +11,6 @@ import { childStatus } from "../lib/child-status";
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 tdb.insert(projects).values({ id: "p_cs", name: "CS", createdAt: 0 }).onConflictDoNothing().run();
 ensureConversation(tdb, "c_cs", "p_cs");
-createMachine(tdb, {
-  id: "cs-machine",
-  name: "CS",
-  definition: { workspace: "none", start: "a", stages: { a: { kind: "agent", title: "A", instructions: "a", next: [] } } },
-});
-
 describe("childStatus", () => {
   it("unknown and foreign ids are null", () => {
     expect(childStatus(tdb, "mr_nope")).toBeNull();
@@ -38,16 +32,15 @@ describe("childStatus", () => {
     expect(childStatus(tdb, call.id)).toMatchObject({ status: "failed", live: false, error: "boom" });
   });
 
-  it("a run is live while running or waiting at a gate, settled otherwise", () => {
-    const run = createRun(tdb, { machineId: "cs-machine", prompt: "go" });
-    updateRun(tdb, run.id, { status: "running", currentStage: "a" });
-    expect(childStatus(tdb, run.id)).toMatchObject({ kind: "run", status: "running", live: true, stage: "a", href: `/r/${run.id}` });
-    updateRun(tdb, run.id, { status: "waiting" });
-    expect(childStatus(tdb, run.id)).toMatchObject({ status: "waiting", live: true });
-    updateRun(tdb, run.id, { status: "completed", currentStage: null });
-    const done = childStatus(tdb, run.id);
+  it("a historical run reads (0037 phase 5: rows only, no writes)", () => {
+    const def = JSON.stringify({ start: "a", stages: { a: { kind: "agent", title: "A", instructions: "a", next: [] } } });
+    const at = { machineName: "CS", machineVersion: 1, definition: def, prompt: "go", createdAt: 1, updatedAt: 1 };
+    tdb.insert(machineRuns).values({ id: "mr_cs_live", status: "running", currentStage: "a", ...at }).run();
+    tdb.insert(machineRuns).values({ id: "mr_cs_done", status: "completed", currentStage: null, settledAt: 5, ...at }).run();
+    expect(childStatus(tdb, "mr_cs_live")).toMatchObject({ kind: "run", status: "running", live: true, stage: "a", href: "/r/mr_cs_live" });
+    const done = childStatus(tdb, "mr_cs_done");
     expect(done).toMatchObject({ status: "completed", live: false, stage: null });
-    expect(done?.settledAt).toEqual(expect.any(Number));
+    expect(done?.settledAt).toBe(5);
   });
 
   it("a child thread is live while its turn is (0037 phase 3)", () => {

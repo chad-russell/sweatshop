@@ -11,7 +11,7 @@ import {
 } from "../db/chat";
 import { getConversationBinding } from "../db/sandboxes";
 import { conversations, messages, projects, sandboxAttachments } from "../db/schema";
-import type { SandboxHandle, SandboxProvider, SandboxSpec } from "../lib/sandboxes/provider";
+import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 import { startThread } from "../lib/agent/tools/start-thread";
 
 /**

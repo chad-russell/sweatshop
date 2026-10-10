@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import { ensureConversation, setActiveRun } from "../db/chat";
 import { getLease } from "../db/sandboxes";
-import { createMachine, createRun, bindRun } from "../db/machines";
 import { projects } from "../db/schema";
 import { claimHarnessRun } from "../lib/harness-events";
 import { openConversationSandbox } from "../lib/sandboxes/binding";
@@ -73,15 +72,6 @@ function lease(ownerKind: "conversation" | "machine_run", status: string, idleMs
 const status = (id: string) => getLease(db(), id)?.status;
 
 db().insert(projects).values({ id: "p_gc", name: "GC", createdAt: 0 }).onConflictDoNothing().run();
-createMachine(db(), {
-  id: "gc-build",
-  name: "GC build",
-  definition: {
-    workspace: "project",
-    start: "b",
-    stages: { b: { kind: "agent", title: "B", instructions: "b", next: [{ to: "end" }] } },
-  },
-});
 
 describe("0013 sandbox reaper", () => {
   it("one window for every owner kind: idle 30m stops, idle 7d destroys", async () => {
@@ -142,11 +132,14 @@ describe("0013 sandbox reaper", () => {
       .prepare("insert into conversations (id, sandbox_id, sandbox_work_dir, sandbox_owner, created_at, updated_at) values ('c_gc_h', ?, '/work/x', 0, 0, 0)")
       .run(shared);
     claimHarnessRun("c_gc_h", "pi");
-    // a run waiting at a gate
-    const run = createRun(db(), { machineId: "gc-build", prompt: "x", projectId: "p_gc" });
-    const runBox = lease("machine_run", "running", 4 * DAY, run.id);
-    bindRun(db(), run.id, { kind: "bound", sandboxId: runBox, workDir: `/work/${run.id}`, owner: true });
-    db().$client.prepare("update machine_runs set status = 'waiting' where id = ?").run(run.id);
+    // a run-owned sandbox whose run row reads waiting (0037 phase 5:
+    // historical rows still keep the reaper away; no run can move now)
+    const runBox = lease("machine_run", "running", 4 * DAY, "mr_gc_wait");
+    db().$client
+      .prepare(
+        "insert into machine_runs (id, machine_name, machine_version, definition, prompt, status, sandbox_id, sandbox_work_dir, sandbox_owner, created_at, updated_at) values ('mr_gc_wait', 'M', 1, '{}', 'x', 'waiting', ?, '/work/mr_gc_wait', 1, 0, 0)",
+      )
+      .run(runBox);
 
     const report = await reap({ apply: true, provider });
     for (const id of [chat.sandboxId, shared, runBox]) {

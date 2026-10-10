@@ -12,9 +12,6 @@ import {
   projectRepos,
   projects,
 } from "./schema";
-import type { MachineDefinition } from "../lib/machines/definition";
-import { pendingRunProposal } from "./pr-proposals";
-import { collectRunEvidence } from "@/lib/machines/evidence";
 
 /**
  * 0008 attention: what is waiting on the user.
@@ -26,10 +23,9 @@ import { collectRunEvidence } from "@/lib/machines/evidence";
  *    (`machine_runs.settled_at`); `stage` conversations never count —
  *    their output surfaces through the run.
  *  - **Needs you** — a pending human-input request (tool approval or
- *    question, from unresolved `pending_inputs` rows — 0010; the eve-era
- *    event fold was retired by 0032) or a machine run waiting at a human
- *    stage (0009 — machines replaced the 0004 ticket pipeline and its
- *    gate). Opening the thread does NOT clear it; only answering does.
+ *    question, from unresolved `pending_inputs` rows — 0010). Opening
+ *    the thread does NOT clear it; only answering does. (Machine-run
+ *    gates were also here; 0037 phase 5 deleted machines.)
  */
 
 type Conn = Pick<Db, "select" | "insert" | "update" | "delete">;
@@ -170,11 +166,8 @@ export interface AttentionState {
   /** Live (not archived/trashed) conversations with unread assistant output. */
   unread: Set<string>;
   /** Conversations with ≥1 pending request (archived ones included —
-   *  an approval blocks work whether or not the thread is filed away),
-   *  plus 0012 run conversations waiting at a human gate. */
+   *  an approval blocks work whether or not the thread is filed away). */
   needsYou: Set<string>;
-  /** Machine runs waiting at a human stage (0009). */
-  machineGates: number;
   /**
    * Changes iff anything the sidebar dots or the Inbox page show changed
    * (unread set, pending request ids, machine gates). Clients poll it
@@ -204,11 +197,7 @@ export function loadAttention(db: Conn): AttentionState {
     const at = latest.get(r.id);
     if (at !== undefined && at > r.lastSeenAt) unread.add(r.id);
   }
-  const gates = waitingMachineGates(db);
-  const needsYou = new Set(
-    [...pending.keys(), ...gates.map((g) => g.runId)].filter((id) => live.has(id)),
-  );
-  const machineGateIds = gates.map((g) => g.token);
+  const needsYou = new Set([...pending.keys()].filter((id) => live.has(id)));
   const requestIds = [...pending.entries()]
     .filter(([id]) => live.has(id))
     .flatMap(([, list]) => list.map((r) => r.requestId));
@@ -216,10 +205,9 @@ export function loadAttention(db: Conn): AttentionState {
   const signature = [
     [...unread].sort().join(","),
     requestIds.sort().join(","),
-    machineGateIds.sort().join(","),
     previewFailures.sort().join(","),
   ].join("|");
-  return { unread, needsYou, machineGates: machineGateIds.length, signature };
+  return { unread, needsYou, signature };
 }
 
 // ---------------------------------------------------------------------
@@ -295,36 +283,6 @@ export interface NeedsYouThread extends Where {
   unread: boolean;
 }
 
-/** A machine run waiting at a human stage (0009). */
-export interface NeedsYouMachineGate {
-  kind: "machine";
-  /** Visit token `<runId>:<seq>` — stable card key. */
-  id: string;
-  runId: string;
-  seq: number;
-  machineName: string;
-  stageTitle: string;
-  instructions: string;
-  targets: { to: string; when?: string }[];
-  prompt: string;
-  /** The previous stage's outcome — usually what Chad is judging. */
-  lastOutcome: string | null;
-  /** 2026-10-09: screenshots the run attached — the gate renders them
-   *  so visual judgment happens where the eyes are. */
-  evidence: { label?: string; url: string }[] | null;
-  /** 0034 A: the run's pending PR proposal — when present, this gate is
-   *  the PR approval (the summary was rendered at propose time). */
-  prProposal: {
-    repo: string;
-    head: string;
-    base: string | null;
-    title: string;
-    summary: string;
-  } | null;
-  projectName: string | null;
-  since: number;
-}
-
 /** 0016: a branch preview the follower parked as failed (one per failing sha). */
 export interface NeedsYouPreview {
   kind: "preview";
@@ -352,7 +310,7 @@ export interface UnreadThread extends Where {
 }
 
 export interface InboxData {
-  needsYou: (NeedsYouThread | NeedsYouMachineGate | NeedsYouPreview)[];
+  needsYou: (NeedsYouThread | NeedsYouPreview)[];
   unread: UnreadThread[];
 }
 
@@ -392,8 +350,6 @@ export function loadInbox(db: Conn): InboxData {
     };
   };
 
-  // Runs waiting at a gate are in needsYou too (sidebar dots); their
-  // Inbox card is the machine-gate card below, not a thread card.
   const pending = loadPendingRequests(db, [...attention.needsYou]);
   const threadIds = [...attention.needsYou].filter((id) => pending.has(id));
   const threads: NeedsYouThread[] = threadIds.map((id) => {
@@ -406,42 +362,6 @@ export function loadInbox(db: Conn): InboxData {
       since: requests[0]?.at ?? 0,
       unread: attention.unread.has(id),
       ...where(id),
-    };
-  });
-
-  const machineGates: NeedsYouMachineGate[] = waitingMachineGates(db).map((g) => {
-    const definition = JSON.parse(g.definition) as MachineDefinition;
-    const stage = definition.stages[g.stageId];
-    const previous = db
-      .select({ outcome: machineStageRuns.outcome })
-      .from(machineStageRuns)
-      .where(and(eq(machineStageRuns.runId, g.runId), eq(machineStageRuns.seq, g.seq - 1)))
-      .get();
-    const proposal = pendingRunProposal(db, g.runId);
-    const evidence = Object.values(collectRunEvidence(g.runId)).flat();
-    return {
-      kind: "machine",
-      id: g.token,
-      runId: g.runId,
-      seq: g.seq,
-      machineName: g.machineName,
-      stageTitle: stage?.title ?? g.stageId,
-      instructions: stage?.instructions ?? "",
-      targets: stage?.next ?? [],
-      prompt: g.prompt,
-      lastOutcome: previous?.outcome ?? null,
-      evidence: evidence.length > 0 ? evidence : null,
-      prProposal: proposal
-        ? {
-            repo: proposal.repo,
-            head: proposal.head,
-            base: proposal.base,
-            title: proposal.title,
-            summary: proposal.summary,
-          }
-        : null,
-      projectName: g.projectId ? (projectName.get(g.projectId) ?? g.projectId) : null,
-      since: g.startedAt,
     };
   });
 
@@ -463,7 +383,7 @@ export function loadInbox(db: Conn): InboxData {
     };
   });
 
-  const needsYou = [...threads, ...machineGates, ...previewItems].sort((a, b) => a.since - b.since);
+  const needsYou = [...threads, ...previewItems].sort((a, b) => a.since - b.since);
 
   // A thread that needs an answer is shown once, above; Unread is the rest.
   const unreadIds = [...attention.unread].filter((id) => !attention.needsYou.has(id));
@@ -515,28 +435,3 @@ function runUnread(db: Conn, runId: string): { snippet: string; at: number } | n
   return { snippet: clip(detail ? `${run.status} — ${detail}` : run.status), at: run.settledAt };
 }
 
-/** Human stage visits whose run is waiting on Chad (0009). */
-function waitingMachineGates(db: Conn) {
-  return db
-    .select({
-      runId: machineStageRuns.runId,
-      seq: machineStageRuns.seq,
-      stageId: machineStageRuns.stageId,
-      startedAt: machineStageRuns.startedAt,
-      machineName: machineRuns.machineName,
-      definition: machineRuns.definition,
-      prompt: machineRuns.prompt,
-      projectId: machineRuns.projectId,
-    })
-    .from(machineStageRuns)
-    .innerJoin(machineRuns, eq(machineRuns.id, machineStageRuns.runId))
-    .where(
-      and(
-        eq(machineStageRuns.kind, "human"),
-        eq(machineStageRuns.status, "waiting"),
-        eq(machineRuns.status, "waiting"),
-      ),
-    )
-    .all()
-    .map((g) => ({ ...g, token: `${g.runId}:${g.seq}` }));
-}

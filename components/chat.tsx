@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Check, ChevronsUpDown, Workflow } from "lucide-react";
+import { BookOpen, Box, Check, ChevronsUpDown } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -9,12 +9,11 @@ import { AppHeader } from "@/components/app-header";
 import {
   ChatSession,
   type ChatSessionController,
-  type ChatSessionState,
   type FreshComposerMode,
   type SandboxOption,
 } from "@/components/chat-session";
 import { usePageContext } from "@/components/page-context";
-import { RunTargetPicker, startMachineRun, usePlaybooks, useScopedMachines } from "@/components/machines/run-target";
+import { FreshTargetPicker, usePlaybooks } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { shortSandboxId } from "@/lib/sandbox-id";
@@ -35,7 +34,7 @@ import { cn } from "@/lib/utils";
  * The chat page frame (0010 Phase 4; split in 0015 Phase 3): the
  * AppHeader with the model and sandbox pickers, URL behaviour (adopting
  * `/c/<id>` on first send, ⌘⇧O new chat), and the fresh composer's
- * machine-run target (0012). The transcript, composer and transport
+ * playbook target (0037). The transcript, composer and transport
  * live in ChatSession, which this frame and the agent panel share.
  */
 
@@ -265,7 +264,7 @@ function SandboxPicker({
 /**
  * The sweatshop chat page: ChatSession in its full-page frame — the
  * AppHeader (crumbs, model and sandbox pickers), `/c/<id>` adoption,
- * ⌘⇧O new chat, and the fresh composer's machine-run target.
+ * ⌘⇧O new chat, and the fresh composer's target picker.
  */
 export function ChatSurface({
   conversationId,
@@ -276,7 +275,6 @@ export function ChatSurface({
   initialRoute,
   conversationTitle,
   headerExtra,
-  initialMachineId,
   initialPlaybookId,
   projectOptions,
 }: {
@@ -288,8 +286,6 @@ export function ChatSurface({
   initialRoute?: ChatRoute | null;
   conversationTitle?: string | null;
   headerExtra?: React.ReactNode;
-  /** 0012: preselect this machine as the fresh composer's target. */
-  initialMachineId?: string | null;
   /** 0037: preselect this playbook (`?playbook=`; project scope only). */
   initialPlaybookId?: string | null;
   /** 0018: pickable chat-in-project targets for the fresh composer
@@ -326,15 +322,7 @@ export function ChatSurface({
         : { kind: "other" },
   );
 
-  // ── 0012: a fresh composer can start a machine run instead ────────────
-  // Machines load for a not-yet-adopted conversation (the target picker's
-  // moment); an adopted one is already a chat. 0018: the scope follows
-  // the picked project, so project machines list when one is chosen.
-  const machines = useScopedMachines(conversationId ? undefined : (activeProjectId ?? undefined));
-  const [pickedMachineId, setPickedMachineId] = useState<string | null>(initialMachineId ?? null);
-  const [runStart, setRunStart] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
-  const machineTargeted = machines?.some((m) => m.id === pickedMachineId) ?? false;
-  // 0037: a fresh project chat can run by a playbook.
+  // ── 0037: the fresh composer's target — a chat, in a project, by a playbook ──
   const playbooks = usePlaybooks();
   const [pickedPlaybookId, setPickedPlaybookId] = useState<string | null>(initialPlaybookId ?? null);
   const activePlaybookId = !conversationId && activeProjectId ? pickedPlaybookId : null;
@@ -343,27 +331,17 @@ export function ChatSurface({
    *  follows so the scope is visible and shareable while fresh. */
   const pickProject = (id: string | null) => {
     setPickedProjectId(id);
-    setPickedMachineId(null);
     setPickedPlaybookId(null);
-    setRunStart({ busy: false, error: null });
     if (!conversationId) {
       window.history.replaceState(null, "", id ? `/?project=${id}` : "/");
     }
   };
 
-  const freshComposer = (s: ChatSessionState): FreshComposerMode | undefined => {
+  const freshComposer = (): FreshComposerMode | undefined => {
     if (conversationId) return undefined;
-    const machine = machines?.find((m) => m.id === pickedMachineId) ?? null;
+    const book = playbooks?.find((b) => b.id === activePlaybookId) ?? null;
     const footer = (
-      <RunTargetPicker
-        machines={machines}
-        selectedId={machine?.id ?? null}
-        onSelect={(id) => {
-          setPickedMachineId(id);
-          if (id) setPickedPlaybookId(null);
-          setRunStart({ busy: false, error: null });
-        }}
-        projectScoped={Boolean(activeProjectId)}
+      <FreshTargetPicker
         projects={projectOptions}
         selectedProjectId={activeProjectId}
         onSelectProject={pickProject}
@@ -372,39 +350,18 @@ export function ChatSurface({
         onSelectPlaybook={setPickedPlaybookId}
       />
     );
-    if (!machine) {
-      // A plain chat still shows the picker — the project axis lives
-      // there too (0018). Without pickable targets, the default
-      // composer stands (a ?project= scope shows nothing new to pick).
-      return projectOptions?.length ? { footer } : undefined;
-    }
-    const startRun = async (text: string) => {
-      if (runStart.busy) return;
-      setRunStart({ busy: true, error: null });
-      try {
-        const runId = await startMachineRun({ machineId: machine.id, prompt: text, ...(activeProjectId ? { projectId: activeProjectId } : {}) });
-        s.clearDraft();
-        router.push(`/r/${runId}`);
-        router.refresh();
-      } catch (err) {
-        setRunStart({ busy: false, error: err instanceof Error ? err.message : "failed to start" });
-      }
-    };
+    // The picker shows when there is anything to pick (projects and/or
+    // playbooks); the default composer stands otherwise.
+    if (!projectOptions?.length && !book) return undefined;
     return {
-      emptyState: (
-        <ConversationEmptyStateMachine
-          title={machine.name}
-          description={machine.description ?? "Your message becomes the run's prompt."}
+      emptyState: book ? (
+        <ConversationEmptyState
+          icon={<BookOpen className="size-6" />}
+          title={book.title}
+          description={book.description}
         />
-      ),
-      placeholder: activeProjectId ? "What should it do? (paste the ticket)" : "What should it work on?",
+      ) : undefined,
       footer,
-      onSubmit: (text) => {
-        void startRun(text);
-        return true;
-      },
-      busy: runStart.busy,
-      error: runStart.error,
     };
   };
 
@@ -460,7 +417,7 @@ export function ChatSurface({
       className="mx-auto h-dvh max-w-3xl"
       onAdopted={handleAdopted}
       onAddressable={handleAddressable}
-      freshComposer={freshComposer}
+      freshComposer={() => freshComposer()}
       header={(s) => (
         <AppHeader
           crumbs={[
@@ -470,8 +427,7 @@ export function ChatSurface({
             { label: conversationTitle ?? "New chat" },
           ]}
         >
-          {/* A machine decides model and sandbox per stage. */}
-          {!(s.fresh && machineTargeted) && (
+          {
             <>
               <RoutePicker
                 ariaLabel="Chat model"
@@ -490,7 +446,7 @@ export function ChatSurface({
                 hasProject={Boolean(activeProjectId)}
               />
             </>
-          )}
+          }
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
           <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}
@@ -500,9 +456,3 @@ export function ChatSurface({
   );
 }
 
-/** The machine-target empty state (kept out of the header closure). */
-function ConversationEmptyStateMachine({ title, description }: { title: string; description: string }) {
-  return (
-    <ConversationEmptyState icon={<Workflow className="size-6" />} title={title} description={description} />
-  );
-}

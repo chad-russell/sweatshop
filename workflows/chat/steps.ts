@@ -4,7 +4,6 @@ import { chatStore } from "./deps";
 /**
  * 0010 spike turn side effects — every function here is a `"use step"`
  * (replay-safe via recorded results); Node/sqlite imports happen inside
- * (through ./deps loaders), same pattern as workflows/machines/steps.ts.
  * The workflow body (turn.ts) only orchestrates.
  *
  * Relative imports throughout: this tree is compiled into the workflow
@@ -305,25 +304,6 @@ export async function deleteProjectStep(projectId: string): Promise<unknown> {
   return deleteProjectFully(projectId);
 }
 
-/** 0010 Phase 3: machines available in this conversation (0009). */
-export async function listMachinesStep(
-  conversationId: string,
-): Promise<unknown> {
-  "use step";
-  const { listAvailableMachines } = await import("../../lib/agent/tools/start-machine");
-  return listAvailableMachines(conversationId);
-}
-
-/** 0010 Phase 3: start a machine run directly, in-process (0009). */
-export async function startMachineStep(
-  conversationId: string,
-  input: { machineId: string; prompt: string; fresh?: boolean; overrides?: unknown },
-): Promise<{ runId: string; url: string; sandbox: "inherited" | "own" | "none" }> {
-  "use step";
-  const { startMachineRun } = await import("../../lib/agent/tools/start-machine");
-  return startMachineRun({ conversationId, ...input });
-}
-
 /** 0022: cancel a run the agent started (or watches). */
 export async function cancelRunStep(runId: string): Promise<unknown> {
   "use step";
@@ -394,84 +374,6 @@ export async function sandboxExecStep(
   "use step";
   const { sandboxExec } = await import("../../lib/agent/tools/inspect");
   return sandboxExec(target, command, workDir ? { workDir } : {});
-}
-
-/**
- * 0015 Part A: machine-definition tools. Every chat gets them (no
- * sandbox or project involved); the delete approval's pending row +
- * hook live in the tool execute (workflows/chat/tools.ts), same shape
- * as ask_chad.
- */
-export async function machinesCatalogStep(): Promise<unknown> {
-  "use step";
-  const { listMachinesCatalog } = await import("../../lib/agent/tools/machines");
-  return listMachinesCatalog();
-}
-
-export async function getMachineStep(id: string): Promise<unknown> {
-  "use step";
-  const { getMachineTool } = await import("../../lib/agent/tools/machines");
-  return getMachineTool(id);
-}
-
-/** Validate a would-be machine and summarize it for Chad's approval. */
-export async function createMachinePreviewStep(input: {
-  id?: string;
-  name: string;
-  definition: unknown;
-}): Promise<unknown> {
-  "use step";
-  const { previewCreateMachine } = await import("../../lib/agent/tools/machines");
-  return previewCreateMachine(input);
-}
-
-export async function createMachineStep(input: {
-  id?: string;
-  name: string;
-  description?: string;
-  definition: unknown;
-}): Promise<unknown> {
-  "use step";
-  const { createMachineTool } = await import("../../lib/agent/tools/machines");
-  return createMachineTool(input);
-}
-
-export async function editMachineStep(input: {
-  id: string;
-  baseVersion: number;
-  ops: import("../../lib/machines/edit").EditOp[];
-  name?: string;
-  description?: string;
-}): Promise<unknown> {
-  "use step";
-  const { editMachineTool } = await import("../../lib/agent/tools/machines");
-  return editMachineTool(input);
-}
-
-/** 0034 A: the approval preview for edit_machine (validates, no save). */
-export async function editMachinePreviewStep(input: {
-  id: string;
-  baseVersion: number;
-  ops: import("../../lib/machines/edit").EditOp[];
-  name?: string;
-  description?: string;
-}): Promise<unknown> {
-  "use step";
-  const { editMachinePreview } = await import("../../lib/agent/tools/machines");
-  return editMachinePreview(input);
-}
-
-/** The preview for the delete approval question (name, stages, version). */
-export async function machineDeletePreviewStep(id: string): Promise<unknown> {
-  "use step";
-  const { machineDeletePreview } = await import("../../lib/agent/tools/machines");
-  return machineDeletePreview(id);
-}
-
-export async function deleteMachineStep(id: string): Promise<unknown> {
-  "use step";
-  const { deleteMachineTool } = await import("../../lib/agent/tools/machines");
-  return deleteMachineTool(id);
 }
 
 /** 0010 Phase 4: record a pending human-input request (the ask_chad

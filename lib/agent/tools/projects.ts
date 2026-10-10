@@ -2,7 +2,6 @@ import { db } from "@/db";
 import {
   checkNewProject,
   getProject,
-  listLiveProjectRuns,
   listLiveProjectSandboxes,
   listProjectRepos,
   listProjectsWithRepos,
@@ -131,17 +130,15 @@ export function editProjectTool(input: {
 export function deleteProjectPreview(projectId: string): ToolResult<{ summary: string }> {
   const project = getProject(db(), projectId);
   if (!project) return { ok: false, code: "not-found", message: `no project ${projectId}` };
-  const runs = listLiveProjectRuns(db(), projectId);
   const sandboxes = listLiveProjectSandboxes(db(), projectId);
   const repos = listProjectRepos(db(), projectId);
   const parts = [
     `${repos.length} repo${repos.length === 1 ? "" : "s"}`,
-    ...(runs.length ? [`${runs.length} live run${runs.length === 1 ? "" : "s"} cancelled`] : []),
     ...(sandboxes.length ? [`${sandboxes.length} sandbox${sandboxes.length === 1 ? "" : "es"} destroyed`] : []),
     "its conversations, previews, and folders deleted",
   ];
   return {
     ok: true,
-    summary: `Delete project ${projectId} ("${project.name}") — ${parts.join(", ")}? Machines and credentials are untouched; this cannot be undone.`,
+    summary: `Delete project ${projectId} ("${project.name}") — ${parts.join(", ")}? Credentials are untouched; this cannot be undone.`,
   };
 }

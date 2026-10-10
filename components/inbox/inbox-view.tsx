@@ -6,20 +6,17 @@ import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type {
   InboxData,
-  NeedsYouMachineGate,
   NeedsYouPreview,
   NeedsYouThread,
   PendingRequest,
   UnreadThread,
 } from "@/db/attention";
 import { ApprovalCard } from "./approval-card";
-import { MachineGateCard } from "./machine-gate-card";
 import { PreviewFailureCard } from "./preview-failure-card";
 import { QuestionCard } from "./question-card";
 import { UnreadCard } from "./unread-card";
 
 type Needed =
-  | { key: string; kind: "machine"; gate: NeedsYouMachineGate }
   | { key: string; kind: "preview"; item: NeedsYouPreview }
   | { key: string; kind: "request"; thread: NeedsYouThread; request: PendingRequest };
 
@@ -45,7 +42,7 @@ function Section({
 
 /**
  * The Inbox dashboard (0008): everything waiting on you, in one place.
- * "Needs you" — approvals, questions, machine gates, failed branch
+ * "Needs you" — approvals, questions, failed branch
  * previews (0016) — comes first and
  * stays until answered; "Unread" is threads with assistant output you
  * haven't viewed. The shell (lib/use-attention-sync) refreshes this page
@@ -93,9 +90,6 @@ export function InboxView({ data }: { data: InboxData }) {
   );
 
   const needs = data.needsYou.flatMap((item): Needed[] => {
-    if (item.kind === "machine") {
-      return answered.has(item.id) ? [] : [{ key: item.id, kind: "machine", gate: item }];
-    }
     if (item.kind === "preview") {
       return answered.has(item.id) ? [] : [{ key: item.id, kind: "preview", item }];
     }
@@ -135,9 +129,6 @@ export function InboxView({ data }: { data: InboxData }) {
       {needs.length > 0 && (
         <Section title="Needs you" count={needs.length}>
           {needs.map((n) => {
-            if (n.kind === "machine") {
-              return <MachineGateCard key={n.key} gate={n.gate} onAnswered={answer} />;
-            }
             if (n.kind === "preview") {
               return <PreviewFailureCard key={n.key} item={n.item} onAnswered={answer} />;
             }

@@ -2,7 +2,6 @@ import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import { appendMessages, ensureConversation } from "../db/chat";
-import { bindRun, beginStageRun, createMachine, createRun, updateStageRun } from "../db/machines";
 import { getConversationBinding, getLease, markDestroyed } from "../db/sandboxes";
 import { projects } from "../db/schema";
 import { inspectTarget, resolveSandboxTarget, sandboxExec } from "../lib/agent/tools/inspect";
@@ -55,15 +54,34 @@ function say(conversationId: string, role: "user" | "assistant", text: string) {
 }
 
 db().insert(projects).values({ id: "p_insp", name: "Insp", createdAt: 0 }).onConflictDoNothing().run();
-createMachine(db(), {
-  id: "insp-m",
-  name: "Insp machine",
-  definition: {
-    workspace: "project",
-    start: "a",
-    stages: { a: { kind: "agent", title: "A", instructions: "a", next: [{ to: "end" }] } },
-  },
+const DEF = JSON.stringify({
+  workspace: "project",
+  start: "a",
+  stages: { a: { kind: "agent", title: "A", instructions: "a", next: [{ to: "end" }] } },
 });
+let runSeq = 0;
+/** A historical run row (0037 phase 5: machines are gone; inspect still reads). */
+function mkRun(prompt: string) {
+  runSeq += 1;
+  const id = `mr_insp_r${runSeq}box`;
+  db().$client
+    .prepare(
+      "insert into machine_runs (id, machine_name, machine_version, definition, project_id, prompt, status, created_at, updated_at) values (?, 'Insp machine', 1, ?, 'p_insp', ?, 'completed', 0, 0)",
+    )
+    .run(id, DEF, prompt);
+  // 0012: a run IS a conversation (kind 'run') — inspect reads it that way.
+  db().$client
+    .prepare("insert into conversations (id, kind, project_id, created_at, updated_at) values (?, 'run', 'p_insp', 0, 0)")
+    .run(id);
+  return id;
+}
+function visit(runId: string, seq: number, stageId: string, kind: string, harness: string | null, patch: string) {
+  db().$client
+    .prepare(
+      `insert into machine_stage_runs (run_id, seq, stage_id, kind, harness, status, session_id, outcome, transition_to, steps, started_at, ended_at) values (?, ?, ?, ?, ?, 'completed', ?, ?, ?, 0, 0, 1)`,
+    )
+    .run(runId, seq, stageId, kind, harness, `${runId}_${seq}`, ...patch.split("|"));
+}
 
 describe("0013 inspect", () => {
   it("reports a chat's transcript tail, binding, and harness activity", async () => {
@@ -86,45 +104,49 @@ describe("0013 inspect", () => {
   });
 
   it("reports a run's status, visits, and sandbox", () => {
-    const run = createRun(db(), { machineId: "insp-m", prompt: "ship it", projectId: "p_insp" });
+    const run = mkRun("ship it");
     db().$client
       .prepare(
         "insert into sandboxes (id, provider, ref, owner_kind, owner_id, status, last_used_at, created_at) values ('sbx_insp_run', 'podman', 'r', 'machine_run', ?, 'stopped', 0, 0)",
       )
-      .run(run.id);
-    bindRun(db(), run.id, { kind: "bound", sandboxId: "sbx_insp_run", workDir: `/work/${run.id}`, owner: true });
-    beginStageRun(db(), { runId: run.id, seq: 0, stageId: "a", kind: "agent" });
-    updateStageRun(db(), run.id, 0, { status: "completed", outcome: "built it", transitionTo: "end" });
+      .run(run);
+    db().$client
+      .prepare("update machine_runs set sandbox_id = 'sbx_insp_run', sandbox_work_dir = ?, sandbox_owner = 1 where id = ?")
+      .run(`/work/${run}`, run);
+    visit(run, 0, "a", "agent", null, "built it|end");
 
-    expect(inspectTarget(run.id)).toMatchObject({
+    expect(inspectTarget(run)).toMatchObject({
       kind: "run",
       machine: "Insp machine",
       prompt: "ship it",
-      sandbox: { sandboxId: "sbx_insp_run", workDir: `/work/${run.id}`, status: "stopped" },
-      visits: [{ seq: 0, stage: "a", status: "completed", outcome: "built it", to: "end", session: `${run.id}_0` }],
+      sandbox: { sandboxId: "sbx_insp_run", workDir: `/work/${run}`, status: "stopped" },
+      visits: [{ seq: 0, stage: "a", status: "completed", outcome: "built it", to: "end", session: `${run}_0` }],
     });
   });
 
   it("serves a harness stage visit by its session id (the run hint's pointer)", () => {
-    const run = createRun(db(), { machineId: "insp-m", prompt: "qa it", projectId: "p_insp" });
-    beginStageRun(db(), { runId: run.id, seq: 0, stageId: "plan", kind: "harness", harness: "pi" });
-    updateStageRun(db(), run.id, 0, { status: "completed", outcome: "planned", steps: 9 });
-    claimHarnessRun(`${run.id}_0`, "pi");
-    recordHarnessEvent(`${run.id}_0`, "pi", { kind: "tool-start", toolName: "bash", input: "ls" });
+    const run = mkRun("qa it");
+    db().$client
+      .prepare(
+        "insert into machine_stage_runs (run_id, seq, stage_id, kind, harness, status, session_id, outcome, transition_to, steps, started_at, ended_at) values (?, 0, 'plan', 'harness', 'pi', 'completed', ?, 'planned', null, 9, 0, 1)",
+      )
+      .run(run, `${run}_0`);
+    claimHarnessRun(`${run}_0`, "pi");
+    recordHarnessEvent(`${run}_0`, "pi", { kind: "tool-start", toolName: "bash", input: "ls" });
 
-    const result = inspectTarget(`${run.id}_0`);
+    const result = inspectTarget(`${run}_0`);
     expect(result).toMatchObject({
       kind: "visit",
-      run: run.id,
+      run,
       stage: "plan",
       status: "completed",
       steps: 9,
       outcome: "planned",
-      eventsUrl: `/h/pi/${run.id}_0`,
+      eventsUrl: `/h/pi/${run}_0`,
       harness: { runs: [{ harness: "pi", status: "running" }] },
     });
     // a session id with no matching visit row is still unknown
-    expect(inspectTarget(`${run.id}_7`)).toMatchObject({ kind: "error", code: "unknown-id" });
+    expect(inspectTarget(`${run}_7`)).toMatchObject({ kind: "error", code: "unknown-id" });
   });
 
   it("explains unknown ids as values, not throws (a typo'd id must not kill the turn)", () => {
@@ -157,18 +179,20 @@ describe("0013 sandbox_exec", () => {
   });
 
   it("targets a run's sandbox via the run or a stage visit id", () => {
-    const run = createRun(db(), { machineId: "insp-m", prompt: "x", projectId: "p_insp" });
+    const run = mkRun("x");
     db().$client
       .prepare(
         "insert into sandboxes (id, provider, ref, owner_kind, owner_id, status, last_used_at, created_at) values ('sbx_insp_r2', 'podman', 'r', 'machine_run', ?, 'running', 0, 0)",
       )
-      .run(run.id);
-    bindRun(db(), run.id, { kind: "bound", sandboxId: "sbx_insp_r2", workDir: `/work/${run.id}`, owner: true });
-    for (const target of [run.id, `${run.id}_3`, "sbx_insp_r2"]) {
+      .run(run);
+    db().$client
+      .prepare("update machine_runs set sandbox_id = 'sbx_insp_r2', sandbox_work_dir = ?, sandbox_owner = 1 where id = ?")
+      .run(`/work/${run}`, run);
+    for (const target of [run, `${run}_3`, "sbx_insp_r2"]) {
       expect(resolveSandboxTarget(target)).toEqual({
         kind: "bound",
         sandboxId: "sbx_insp_r2",
-        workDir: `/work/${run.id}`,
+        workDir: `/work/${run}`,
         owner: false,
       });
     }

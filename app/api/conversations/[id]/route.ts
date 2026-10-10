@@ -11,7 +11,6 @@ import {
   setTrashed,
 } from "@/db/organize";
 import { conversations } from "@/db/schema";
-import { cancelRun } from "@/lib/machines/runs";
 import {
   nullableString,
   optionalBoolean,
@@ -24,8 +23,8 @@ export const dynamic = "force-dynamic";
 /**
  * Organize one conversation (0007):
  * `{ title?, folderId?: string|null, archived?: boolean, trashed?: boolean }`.
- * 0012: trashing a live run conversation cancels the run first — a
- * trashed run must not keep working out of sight.
+ * (0012 also cancelled a live run on trash; machines were deleted by
+ * 0037 phase 5 — no run can be live.)
  */
 export async function PATCH(
   request: Request,
@@ -40,7 +39,6 @@ export async function PATCH(
     const archived = optionalBoolean(body, "archived");
     if (archived !== undefined) setArchived(db(), id, archived);
     const trashed = optionalBoolean(body, "trashed");
-    if (trashed === true && isRun(id)) await cancelRun(id, "moved to trash");
     if (trashed !== undefined) setTrashed(db(), id, trashed);
     return NextResponse.json({ ok: true });
   } catch (err) {
@@ -72,11 +70,3 @@ export async function DELETE(
   }
 }
 
-function isRun(id: string): boolean {
-  const row = db()
-    .select({ kind: conversations.kind })
-    .from(conversations)
-    .where(eq(conversations.id, id))
-    .get();
-  return row?.kind === "run";
-}

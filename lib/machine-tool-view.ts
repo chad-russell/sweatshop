@@ -1,7 +1,7 @@
 import { objectOf } from "./tool-fields";
 
 /**
- * Normalisers for the machine / run / inspect tool results. The tools return
+ * Normalisers for the inspect / exec / transition tool results. The tools return
  * value-shaped JSON (`{ok:true,…}` or `{ok:false,code,message,issues}`), so a
  * card can read success vs. failure without guessing. Everything here is pure
  * and defensive: model-supplied input and stored output are never trusted to
@@ -40,159 +40,11 @@ export function failureOf(output: unknown): ToolFailure | undefined {
 
 // --- edit ops -----------------------------------------------------------------
 
-export interface OpLine {
-  /** add | remove | change | link | unlink | flag */
-  tone: "add" | "remove" | "change" | "link" | "unlink";
-  /** The headline: "Add stage Lint". */
-  text: string;
-  /** Secondary detail: what changed. */
-  detail?: string;
-}
-
-function patchDetail(patch: unknown): string | undefined {
-  const p = objectOf(patch);
-  if (!p) return undefined;
-  const parts: string[] = [];
-  for (const [k, v] of Object.entries(p)) {
-    if (k === "instructions") parts.push("instructions");
-    else if (v === null) parts.push(`${k} cleared`);
-    else parts.push(`${k} → ${String(v)}`);
-  }
-  return parts.length ? parts.join(", ") : undefined;
-}
-
-export function describeOps(ops: unknown): OpLine[] {
-  if (!Array.isArray(ops)) return [];
-  return ops.map((raw): OpLine => {
-    const o = objectOf(raw) ?? {};
-    const s = (k: string) => (typeof o[k] === "string" ? (o[k] as string) : "?");
-    switch (o.op) {
-      case "add_stage":
-        return {
-          tone: "add",
-          text: `Add ${typeof o.kind === "string" ? o.kind : ""} stage ${typeof o.title === "string" ? o.title : typeof o.id === "string" ? o.id : ""}`.replace(/\s+/g, " ").trim(),
-        };
-      case "update_stage":
-        return { tone: "change", text: `Update ${s("stage")}`, detail: patchDetail(o.patch) };
-      case "set_kind":
-        return { tone: "change", text: `Make ${s("stage")} a ${s("kind")} stage` };
-      case "rename_stage":
-        return { tone: "change", text: `Rename ${s("from")} → ${s("to")}` };
-      case "remove_stage":
-        return { tone: "remove", text: `Remove stage ${s("stage")}` };
-      case "connect":
-        return {
-          tone: "link",
-          text: `${s("source")} → ${s("target")}`,
-          detail: typeof o.when === "string" && o.when ? o.when : undefined,
-        };
-      case "disconnect":
-        return { tone: "unlink", text: `${s("source")} ⇢ ${s("target")}` };
-      case "update_transition":
-        return { tone: "change", text: `Relabel ${s("source")} → ${s("target")}`, detail: typeof o.when === "string" ? o.when || "label removed" : undefined };
-      case "set_start":
-        return { tone: "change", text: `Start at ${s("stage")}` };
-      case "set_workspace":
-        return { tone: "change", text: `Workspace → ${s("workspace")}` };
-      default:
-        return { tone: "change", text: typeof o.op === "string" ? o.op : "edit" };
-    }
-  });
-}
 
 // --- machines -----------------------------------------------------------------
 
-export interface FlowStage {
-  id: string;
-  title: string;
-  kind: string;
-  harness?: string;
-  next: string[];
-}
-
-export interface MachineView {
-  id: string;
-  name: string;
-  description: string | null;
-  workspace: string;
-  version: number | undefined;
-  stageCount: number | undefined;
-  /** In walk order from the start stage, when a full definition is present. */
-  flow: FlowStage[];
-}
-
-function flowOf(definition: unknown): FlowStage[] {
-  const def = objectOf(definition);
-  const stages = objectOf(def?.stages);
-  if (!def || !stages) return [];
-  const order: string[] = [];
-  const seen = new Set<string>();
-  const queue = typeof def.start === "string" ? [def.start] : [];
-  while (queue.length) {
-    const id = queue.shift()!;
-    if (seen.has(id) || !stages[id]) continue;
-    seen.add(id);
-    order.push(id);
-    const next = Array.isArray(objectOf(stages[id])?.next) ? (objectOf(stages[id])!.next as unknown[]) : [];
-    for (const t of next) {
-      const to = objectOf(t)?.to;
-      if (typeof to === "string") queue.push(to);
-    }
-  }
-  for (const id of Object.keys(stages)) if (!seen.has(id)) order.push(id); // unreachable stages still show
-  return order.map((id) => {
-    const st = objectOf(stages[id]) ?? {};
-    const next = (Array.isArray(st.next) ? st.next : [])
-      .map((t) => objectOf(t)?.to)
-      .filter((t): t is string => typeof t === "string");
-    return {
-      id,
-      title: typeof st.title === "string" ? st.title : id,
-      kind: typeof st.kind === "string" ? st.kind : "?",
-      ...(typeof st.harness === "string" ? { harness: st.harness } : {}),
-      next,
-    };
-  });
-}
-
-export function machineOf(value: unknown): MachineView | undefined {
-  const m = objectOf(value);
-  if (!m || typeof m.id !== "string") return undefined;
-  const flow = flowOf(m.definition);
-  return {
-    id: m.id,
-    name: typeof m.name === "string" ? m.name : m.id,
-    description: typeof m.description === "string" ? m.description : null,
-    workspace: typeof m.workspace === "string" ? m.workspace : "",
-    version: typeof m.version === "number" ? m.version : undefined,
-    stageCount: typeof m.stages === "number" ? m.stages : flow.length || undefined,
-    flow,
-  };
-}
-
 /** `{ok:true, machine}` (get / create / edit) → the machine, or undefined. */
-export function machineResult(output: unknown): MachineView | undefined {
-  const o = objectOf(output);
-  return o && o.ok !== false ? machineOf(o.machine) : undefined;
-}
-
-export function machineList(output: unknown): MachineView[] {
-  const o = objectOf(output);
-  const list = Array.isArray(o?.machines) ? (o!.machines as unknown[]) : [];
-  return list.map(machineOf).filter((m): m is MachineView => !!m);
-}
-
 // --- runs & inspect -------------------------------------------------------------
-
-export function runStarted(output: unknown): { runId: string; url: string; sandbox: string } | undefined {
-  const o = objectOf(output);
-  if (!o || typeof o.runId !== "string") return undefined;
-  return {
-    runId: o.runId,
-    url: typeof o.url === "string" ? o.url : `/r/${o.runId}`,
-    sandbox: typeof o.sandbox === "string" ? o.sandbox : "",
-  };
-}
 
 export interface InspectView {
   kind: string;

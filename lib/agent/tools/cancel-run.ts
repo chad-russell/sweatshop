@@ -1,16 +1,15 @@
 import { getRun as getWorkflowRun } from "workflow/api";
 import { db } from "@/db";
-import { getRun, MachineError } from "@/db/machines";
 import { getHarnessCall, settleHarnessCall } from "@/db/harness-calls";
 import { getChatChild, markChatChildWoken, setActiveRun } from "@/db/chat";
 import { recordHarnessRunEnd } from "@/lib/harness-events";
-import { cancelRun } from "@/lib/machines/runs";
 
 /**
- * 0022: the cancel_run tool's core — the agent surface of cancelRun
- * (the run view's button is the human one). Handles machine runs
- * (mr_…), background harness calls (hc_…), and child threads (c_…,
- * 0037 phase 3). Value-shaped errors so the model reads and repairs
+ * 0022: the cancel_run tool's core — the agent surface of cancellation
+ * (the run view's button was the human one). Handles background
+ * harness calls (hc_…) and child threads (c_…, 0037 phase 3). Machine
+ * runs (mr_…) cannot be live since 0037 phase 5 deleted the
+ * interpreter. Value-shaped errors so the model reads and repairs
  * instead of the tool call failing.
  */
 
@@ -21,29 +20,10 @@ export type CancelRunResult =
 export async function cancelRunTool(runId: string): Promise<CancelRunResult> {
   if (runId.startsWith("hc_")) return cancelHarnessCall(runId);
   if (runId.startsWith("c_")) return cancelChatChild(runId);
-
-  let run;
-  try {
-    run = getRun(db(), runId);
-  } catch (err) {
-    if (err instanceof MachineError && err.code === "not-found") {
-      return { ok: false, code: "not-found", message: `no run ${runId}` };
-    }
-    throw err;
-  }
-  if (run.status !== "running" && run.status !== "waiting") {
-    return {
-      ok: false,
-      code: "not-live",
-      message: `run ${runId} is already ${run.status} — only running/waiting runs can be cancelled`,
-    };
-  }
-  await cancelRun(runId, "cancelled by cancel_run tool");
   return {
-    ok: true,
-    runId,
-    status: "cancelled",
-    note: "the run's sandbox and work are kept (inspect it as usual)",
+    ok: false,
+    code: "not-found",
+    message: `no cancellable background work ${runId} — harness calls are hc_… and child threads c_…`,
   };
 }
 

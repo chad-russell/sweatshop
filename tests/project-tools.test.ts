@@ -113,7 +113,7 @@ describe("deleteProjectPreview", () => {
     if (result.ok) {
       expect(result.summary).toContain("Delete project gone");
       expect(result.summary).toContain("cannot be undone");
-      expect(result.summary).toContain("Machines and credentials are untouched");
+      expect(result.summary).toContain("Credentials are untouched");
     }
     expect(deleteProjectPreview("nope")).toMatchObject({ ok: false, code: "not-found" });
   });

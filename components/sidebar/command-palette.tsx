@@ -1,7 +1,7 @@
 "use client";
 
-import { Archive, FolderPlus, MonitorPlay, Workflow } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import { Archive, FolderPlus, MonitorPlay } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Command,
@@ -29,19 +29,12 @@ interface PalettePreview {
   status: string;
 }
 
-interface PaletteMachine {
-  id: string;
-  name: string;
-  definition: { workspace: "project" | "none" };
-}
-
 /**
  * ⌘K / Ctrl-K jump-to-conversation palette (0007), available on every
  * page. Same search as the sidebar — title/summary matches first, then
  * message text — with the folder breadcrumb on each result. cmdk's own
- * filtering is off: ranking comes from the server. 0012: "Run <machine>"
- * commands open a fresh composer with that machine preselected (in the
- * current project for project machines). 0016: "Open preview …" for
+ * filtering is off: ranking comes from the server. 0016: "Open
+ * preview …" for
  * every preview that is serving (opens its URL in a new tab).
  */
 export function CommandPalette() {
@@ -50,16 +43,6 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const results = useConversationSearch(query, ALL);
   const hits = query.trim() ? (results ?? []) : [];
-  const pathname = usePathname();
-  const projectId = /^\/p\/([^/]+)/.exec(pathname)?.[1] ?? null;
-  const [machines, setMachines] = useState<PaletteMachine[]>([]);
-  useEffect(() => {
-    if (!open) return;
-    void fetch("/api/machines", { cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<{ machines: PaletteMachine[] }>) : { machines: [] }))
-      .then(({ machines: all }) => setMachines(all))
-      .catch(() => setMachines([]));
-  }, [open]);
   const [previews, setPreviews] = useState<PalettePreview[]>([]);
   useEffect(() => {
     if (!open) return;
@@ -71,12 +54,6 @@ export function CommandPalette() {
   const needle = query.trim().toLowerCase();
   const openable = previews.filter(
     (p) => !needle || `open preview ${p.label ?? ""} ${p.branch ?? ""} ${p.slug}`.toLowerCase().includes(needle),
-  );
-  // Project machines need a project: offered only on a project page.
-  const runnable = machines.filter(
-    (m) =>
-      (m.definition.workspace === "none" || projectId) &&
-      (!needle || `run ${m.name}`.toLowerCase().includes(needle)),
   );
   const close = () => {
     setOpen(false);
@@ -112,7 +89,7 @@ export function CommandPalette() {
           placeholder="Search conversations…"
         />
         <CommandList>
-          {query.trim() && hits.length === 0 && runnable.length === 0 && openable.length === 0 && (
+          {query.trim() && hits.length === 0 && openable.length === 0 && (
             <CommandEmpty>No matches.</CommandEmpty>
           )}
           {!query.trim() && (
@@ -151,26 +128,6 @@ export function CommandPalette() {
                 <FolderPlus className="text-muted-foreground" />
                 <span className="truncate">New project</span>
               </CommandItem>
-            </CommandGroup>
-          )}
-          {runnable.length > 0 && (
-            <CommandGroup heading="Run machine">
-              {runnable.map((m) => (
-                <CommandItem
-                  key={`run:${m.id}`}
-                  value={`run:${m.id}`}
-                  onSelect={() => {
-                    close();
-                    // 0018: a run starts on / — a project machine
-                    // carries its project's scope as a param.
-                    const scope = m.definition.workspace === "project" && projectId ? `/?project=${projectId}` : "/";
-                    router.push(`${scope}?machine=${encodeURIComponent(m.id)}`);
-                  }}
-                >
-                  <Workflow className="text-muted-foreground" />
-                  <span className="truncate">Run {m.name}</span>
-                </CommandItem>
-              ))}
             </CommandGroup>
           )}
           {hits.map((hit) => (

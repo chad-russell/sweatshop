@@ -66,9 +66,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the browser bundle). Approvals are `defineHook` suspensions answered
   via `/api/x/input`; the model instance crosses step boundaries through
   `SerializableChatModel` (@workflow/serde class protocol).
-- Wakes (0022): when a child settles — a machine run
-  (waiting/needs-attention/completed/failed) or a background harness
-  call (completed/failed) — the chat that started it is nudged through
+- Wakes (0022): when a child settles — a background harness call
+  (completed/failed) or a child thread (0037 phase 3) — the chat that
+  started it is nudged through
   exactly the path a human send takes (`lib/chat/wake.ts`): mid-turn
   the message queues as steer, idle `startChatTurn` starts a turn. The
   wake is a user row with `metadata.runEvent`, rendered as a transcript
@@ -124,9 +124,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   validation on models without a knob, never silently sent; pi routes
   exempt (harness-pi owns its knob). Live check `THINKING_SPIKE=1`.
   Resolution per surface (`resolveRoute`): chat =
-  conversation > project > global; agent = run-stage > run > stage >
-  project > global; pi = run-stage > run > stage > conversation >
-  project > global; claude = run-stage > stage > global (never inherits
+  conversation > project > global; agent = (stage layers historical, machines gone) project > global;
+  pi = conversation > project > global; claude = global (never inherits
   a chat/project route); titles = the titles default, else the
   project's default when the project forbids it, else skipped. Project
   restrictions (`projects.allowed_providers` / `allowed_harnesses`,
@@ -136,15 +135,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   on a route that cannot run. Storage: `conversations.route`,
   `projects.default_route`, the `settings` table (per-surface global
   defaults; built-ins = GLM `glm-5.3-flash`, claude subscription
-  default), machine stage `route` (replaced harness `model`/`thinking`
-  and agent `model`; `set_route` edit op), `machine_runs.overrides`
-  (`startRun({overrides})`, API, `start_machine`; validated at start).
+  default), the machine-stage `route` column and `machine_runs.overrides` are
+  historical (machines deleted, 0037 phase 5) — the schema keeps them,
+  nothing writes them.
   What ran is recorded: `machine_stage_runs.route` ({route, layer}) and
   the turn's first assistant row's `metadata.route`. Write paths shared
   by UI and future tools live in `lib/providers/settings.ts`. Surfaces:
   the chat's route picker (`components/route-picker.tsx`, per
   conversation, not sticky), `/settings`, the project page Models
-  card, the run view's per-visit route. Live check:
+  card. Live check:
   `PI_SPIKE=1` (pi on every keyed provider via the real builder) and
   `CLAUDE_SPIKE=1 CLAUDE_SPIKE_LIVE=1` (claude on a route).
 - Playbooks (0037 phase 2): markdown runbooks in
@@ -266,118 +265,32 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   route before any steer): an approval resolves DENIED with the text
   as the comment — create_pr returns `changes-requested` and the turn
   continues in the same context — a question takes the text as its
-  answer. Approve stays an explicit button. In MACHINE runs stages only
-  `propose_pr` (a run-scoped `pr_proposals` row, `db/pr-proposals.ts`
-  — harnesses hold no git write powers at all; chat harness calls get
-  no git tool), the run's HUMAN gate card renders the pending proposal
-  (the transition choice is the approval), and a deterministic
-  `publish` stage kind pushes the branch and opens the PR.
-- Machines (0009): user-editable stage machines — sqlite `machines`
-  rows holding a zod-validated JSON definition (`lib/machines/
-  definition.ts`; seeds in `lib/machines/seeds/*.json`, insert-only via
-  `npm run db:seed`; `-- --replace` deletes and reseeds the catalog —
-  0023, run once at its deploy); runs snapshot it (`machine_runs`,
-  `machine_stage_runs`, store `db/machines.ts`). `runMachine`
-  (`workflows/machines/`) is a raw Workflow SDK interpreter — no agent
-  session. Stage kinds: `harness` (pi/claude HarnessAgent, one
-  `"use step"` per semantic agent step via `@ai-sdk/workflow-harness`
-  `runHarnessAgentStep` + `stopWhen: isStepCount(1)`; project machines
-  only), `agent`
-  (0010 Phase 5: an in-process WorkflowAgent turn — `agentStageStep`,
-  one `"use step"` per visit, persisted as a conversation under the
-  stage session id; branching stages choose via a side-effect-free
-  `transition` tool, single-target ones advance on completion; was
-  `eve` in 0009), `human` (a `defineHook`
-  gate shown in `/inbox`; its card renders the run's pending PR
-  proposal when one exists — 0034 A), and `publish` (0034 A:
-  deterministic — `publishStep` pushes the run's gate-approved PR
-  proposal and opens it; no model, protected refs refused; project
-  machines only). A project run has ONE sandbox binding
-  (0013, `machine_runs.sandbox_id`/`sandbox_work_dir`/`sandbox_owner`):
-  inherited from the chat that started it via `start_machine` (same
-  sandbox and directory; `fresh: true` opts out), or its own dedicated
-  lease provisioned at start through the 0010 seam (`acquireSandbox`,
-  `lib/sandboxes/lease.ts`; `SandboxProvider` in `provider.ts`,
-  podman today/VMs later; rows in `sandboxes`) whose repos clone to
-  `/work/<runId>` — never `/workspace`: pi runs
-  in-process and treats a sandbox workdir that also exists on the host
-  as shared, and the dev runtime's `/workspace` is this repo. Every
-  harness stage, and every agent stage (which gets bash/pi/claude),
-  works in that checkout. The sandbox outlives the run (finished or
-  cancelled work stays inspectable/attachable). One reaper
-  (`lib/sandboxes/reaper.ts`) stops/destroys idle sandboxes — ONE
-  window since 0031 (stop 30 min, destroy 7 days; `GC_STOP_MINUTES` /
-  `GC_DESTROY_DAYS` env), never one with
-  live work in it — and MARKS rows destroyed, never deletes them. It
-  runs on a timer from `instrumentation.ts` (every 5 min while the
-  server is up; `SANDBOX_REAPER=off` disables), from "Run cleanup now"
-  on `/sandboxes`, and via `./dev exec -- npm run sandbox:gc` (a client
-  of `POST /api/sandboxes/reap`; `GC_APPLY=1` to act). Each sandbox
-  page has manual Stop / Destroy. Purging a run destroys the sandbox it
-  owns. An inherited binding is never
-  released by the run. Branching agent stages pick a
-  target with a `transition` tool; the interpreter validates and commits
-  it. Runs are conversations (0012): `createRun` writes a
-  `conversations` row with `kind = 'run'` and the SAME id as the run
-  (`mr_…`), so runs live in the sidebar beside chats (folders, archive,
-  trash, search, dots); `machine_runs` stays the source of truth for
-  status/visits. Agent-stage visit conversations are `kind = 'stage'`
-  (`<runId>_<seq>`) — hidden from sidebar/unread/search, whose body
-  hits report the parent run. Run unread = `machine_runs.settled_at`
-  (stamped on waiting/needs-attention/completed/failed) newer than
-  `last_seen_at`; a waiting gate puts needs-you on the run row.
-  `lib/machines/runs.ts` is the one start/cancel path (`startRun`
-  records `workflow_run_id`; `cancelRun` cancels the workflow, marks
-  the run cancelled — final, later status writes are ignored; the
-  sandbox stays); trashing a live run cancels it, purge removes the run
-  and its visit sessions (and destroys its own sandbox). 0022: a run
-  started by `start_machine` records its parent
-  (`machine_runs.parent_conversation_id`; UI/API starts have none) and
-  its settle steps (`markRun`, `beginVisit`'s human-gate waiting) wake
-  that chat — see the Wakes bullet. Triggers: the fresh composer's
-  target picker (`?machine=<id>` and `?project=<id>` preselect; `/`,
-  0018), Run
-  on `/machines/<id>`, ⌘K "Run …", `POST /api/machine-runs`, the
-  `start_machine` chat tool; `/r/<runId>` is the run view (visit
-  transcripts open in a side panel; `/c/<runId>` redirects there).
-  Links go through `conversationHref`. Machine graph (0014 → 0031):
-  `/machines/<id>` shows ONE draft definition as a READ-ONLY canvas
-  (`@xyflow/react` 12.12.0, pinned; AI Elements canvas/controls) plus a
-  JSON tab that edits it — canvas editing, drag-connect, and the
-  inspector are gone (0031; the agent's `edit_machine` ops in
-  `lib/machines/edit.ts`, applied through `applyOps`/`editOpSchema`,
-  are the structured edit surface), re-validated by `parseDefinition`,
-  with issues placed on nodes/edges via
-  `issuesByElement`. Selection is observational (the page's
-  "[viewing]" context). The editor polls
-  its machine's version every 5 s while visible (0015): newer + clean
-  draft reloads silently; newer + unsaved edits shows a stale banner
-  (`components/machines/use-machine-version-sync.ts`). Layout is automatic and never stored
-  (`lib/machines/layout.ts`, layered, loops as back edges; left→right or
-  top→bottom, auto-picked from the canvas size by `pickDirection`); the run
-  view shows the run's snapshot with a progress overlay. Graph modules
-  are client-only (`machine-graph-lazy.tsx`, `ssr: false`). Everything runs in the Next
-  process — no cross-runtime HTTP. Workflow-transform rule: Node-touching code only inside `"use step"`
-  functions, and the workflow body imports harness packages type-only
-  (a runtime import drags pi's raw-.ts deps into the bundle). Harness
-  packages are `serverExternalPackages` in next.config. Keep
-  `@ai-sdk/workflow` aligned with the installed `ai` line (2.0.62 ↔
-  ai 7.0.130 / provider-utils 5.0.56), and `@ai-sdk/workflow-harness`
-  exactly on the harness line (1.0.141; its stale `workflow@4` peer is
-  satisfied by a scoped npm override). These pins are exact in
-  package.json on purpose — a caret range would let a routine install
-  break a load-bearing pairing; bump them deliberately, together.
-- Agent everywhere (0015): every chat has machine tools —
-  `list_machines`, `get_machine`, `create_machine` (full definition;
-  validated, then approval-gated through the ask_chad hook — machines
-  are reusable pipelines, never a workaround),
-  `edit_machine` (a batch of `edit.ts` ops applied in order,
-  all-or-nothing against `baseVersion`; an invalid batch returns issues
-  by stage/transition plus the draft shape and saves nothing, a stale
-  `baseVersion` is a conflict; 0034 A: approval-gated — the stage graph
-  is policy) and `delete_machine` (asks through the
-  ask_chad hook) — cores in `lib/agent/tools/machines.ts`, errors
-  value-shaped so the model repairs them. Page context: pages register
+  answer. Approve stays an explicit button. (Machines' `propose_pr`/`publish`
+  died with them, 0037 phase 5; harnesses still hold no git write
+  powers at all — chat harness calls get no git tool.)
+- Machines (0009) — **DELETED 2026-10-10 by 0037 phase 5** (docs/0037,
+  evidence runs 8–9 in TRIAL-RUNS: the staged arm couldn't finish
+  planning in the time a playbook thread shipped the ticket; its costs —
+  context handoffs between amnesiac stages, gates that can only sit
+  between stages so a stage can never ASK — are structural). Gone:
+  `runMachine`, the stage kinds (harness/agent/human/publish),
+  `lib/machines/*` (the shared HarnessAgent builder survives at
+  `workflows/chat/harness-agent.ts`), the machine tools + approvals,
+  `start_machine`, `/machines` + the graph + `@xyflow/react`,
+  the machine-gate inbox card, `pr_proposals` + `propose_pr`/`publish`,
+  seeds + `db:seed`. What remains: `machine_runs`/`machine_stage_runs`
+  as READ-ONLY history (runs were conversations — sidebar/search/trash
+  until purged), `db/machines.ts` reads (getRun/listStageRuns/
+  getRunBinding/LIVE_STATUSES), a static `/r/<runId>` view + the run GET
+  API, child-status/inspect reads, and the reaper's defensive consult of
+  run rows. Migration 0047 dropped `machines` and `pr_proposals`. The
+  work surfaces now: a chat running a PLAYBOOK (ship/ticket/review), the
+  gated tools (`create_pr`), and `start_thread` children — see those
+  bullets.
+- Agent everywhere (0015; the machine tools died with machines, 0037
+  phase 5): every chat has the project tools, gh/forgejo, inspect /
+  sandbox_exec, cancel_run, start_thread, web tools and ask_chad, all
+  value-shaped so the model repairs its calls. Page context: pages register
   what they are (`components/page-context.tsx` provider in the root
   layout; `usePageContext`; the machine editor includes its selection,
   the run view its status) and a panel send carries it as a
@@ -538,16 +451,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 
 - Inbox & attention (0008, no design doc — approved in chat): `/inbox`
   is a dashboard of what is waiting on Chad. **Needs you** = pending
-  human-input requests (tool approval / question) plus
-  machine runs waiting at a human stage (0009); stays until answered, opening the
-  thread does not clear it. **Unread** = assistant output newer than
+  human-input requests (tool approval / question); stays until answered,
+  opening the thread does not clear it. **Unread** = assistant output newer than
   `conversations.last_seen_at`; opening a conversation marks it seen
   (`lib/use-mark-seen.ts`: only while the tab is visible AND focused),
   per-item mark read/unread via `PUT /api/conversations/[id]/seen`.
   Pending requests are rows (`pending_inputs`, written by ask_chad
   through a step, resolved by `/api/x/input`) — the single source since
   0032 retired the eve event fold and the `runtime` card routing. Cards
-  (`components/inbox/`: approval / question / machine-gate / unread)
+  (`components/inbox/`: approval / question / preview-failure / unread)
   answer approvals by POSTing to `/api/x/input`.
   The sidebar shows the same signal as dots (amber = needs you, filled =
   unread) on rows, rolled up on collapsed folders/groups, kept live by
@@ -575,9 +487,9 @@ ONE instance (0020) — no dev server, no second checkout:
   + `next build` + `db:migrate` → start → health check; a failed build
   restores the previous commit). `scripts/deploy.sh <sha>` rolls back. A
   host script on purpose — sandboxed agents cannot redeploy the app.
-- **Changing sweatshop** = an ordinary project: a sandboxed chat or
-  machine run on the `sweatshop` project opens a PR (`create_pr`); after
-  merge, deploy. dsh is the emergency path when a deploy breaks the app.
+- **Changing sweatshop** = an ordinary project: a sandboxed chat on
+  the `sweatshop` project opens a PR (`create_pr`); after merge,
+  deploy. dsh is the emergency path when a deploy breaks the app.
 - **State** is all under `data/` (backed up nightly by bee's restic, plus
   a `VACUUM INTO` snapshot at `data/backups/nightly.db` an hour before):
   `sweatshop.db` (+WAL), `workflow-data/` (the Workflow SDK local world —

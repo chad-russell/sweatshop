@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:seed": "node scripts/seed.mjs",
     "sandbox:gc": "node scripts/sandbox-gc.mjs",
     "test": "vitest run"
   },
@@ -29,7 +28,6 @@
     "@streamdown/code": "^1.1.1",
     "@streamdown/math": "^1.0.2",
     "@streamdown/mermaid": "^1.0.2",
-    "@xyflow/react": "12.12.0",
     "ai": "7.0.130",
     "better-sqlite3": "^13.0.3",
     "class-variance-authority": "^0.7.1",

@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
 import { getConversation } from "../db/chat";
-import { createMachine, createRun, getRun } from "../db/machines";
 import { getGlobalDefaults, getProjectModels, setProjectModels } from "../db/providers";
 import { conversations, projects, settings } from "../db/schema";
-import { parseDefinition, type MachineDefinition } from "../lib/machines/definition";
-import { applyOps, EditError, setStageRoute, updateStage } from "../lib/machines/edit";
 import { setDefaultRoute, setProjectModelSettings } from "../lib/providers/settings";
 import { titleRouteFor } from "../lib/titles";
 import { PATCH as patchProjectModels } from "../app/api/projects/[projectId]/models/route";
@@ -99,73 +96,7 @@ describe("project model settings", () => {
   });
 });
 
-describe("stage routes (edit ops)", () => {
-  const def: MachineDefinition = {
-    workspace: "project",
-    start: "plan",
-    stages: {
-      plan: { kind: "harness", harness: "pi", title: "Plan", instructions: "", next: [{ to: "think" }] },
-      think: { kind: "agent", title: "Think", instructions: "", next: [{ to: "gate" }] },
-      gate: { kind: "human", title: "Gate", instructions: "", next: [] },
-    },
-  };
 
-  it("pins per kind, rejects mismatches, clears with null", () => {
-    const pi = setStageRoute(def, "plan", { harness: "pi", provider: "gloo", model: "gloo-kimi-k3", thinking: "high" });
-    expect(pi.stages.plan).toMatchObject({ route: { harness: "pi", provider: "gloo" } });
-    expect(parseDefinition(pi).ok).toBe(true);
-    expect(() => setStageRoute(def, "plan", { harness: "claude", model: "opus" })).toThrow(EditError);
-    expect(() => setStageRoute(def, "plan", { provider: "glm", model: "glm-5.3" })).toThrow(EditError);
-    expect(() => setStageRoute(def, "think", { harness: "pi", provider: "glm", model: "glm-5.3" })).toThrow(EditError);
-    expect(() => setStageRoute(def, "gate", { provider: "glm", model: "glm-5.3" })).toThrow(EditError);
-    expect(setStageRoute(pi, "plan", null).stages.plan).not.toHaveProperty("route");
-  });
-
-  it("the set_route op applies through applyOps (the agent surface)", () => {
-    const next = applyOps(def, [
-      { op: "set_route", stage: "think", route: { provider: "gloo", model: "gloo-openai-gpt-6-sol" } },
-    ]);
-    expect(next.stages.think).toMatchObject({ route: { provider: "gloo", model: "gloo-openai-gpt-6-sol" } });
-  });
-
-  it("switching a stage's harness drops a route of the other harness", () => {
-    const pi = setStageRoute(def, "plan", { harness: "pi", provider: "glm", model: "glm-5.3" });
-    expect(updateStage(pi, "plan", { harness: "claude" }).stages.plan).not.toHaveProperty("route");
-  });
-
-  it("the definition schema rejects a route whose harness mismatches the stage", () => {
-    const bad = structuredClone(def) as unknown as { stages: { plan: Record<string, unknown> } };
-    bad.stages.plan.route = { harness: "claude" };
-    expect(parseDefinition(bad).ok).toBe(false);
-  });
-});
-
-describe("run overrides", () => {
-  it("stores valid overrides on the run; rejects unknown stages and bad shapes", () => {
-    project("ro");
-    createMachine(db(), {
-      id: "ro-m",
-      name: "ro",
-      definition: {
-        workspace: "none",
-        start: "a",
-        stages: { a: { kind: "agent", title: "A", instructions: "", next: [] } },
-      },
-    });
-    const run = createRun(db(), {
-      machineId: "ro-m",
-      prompt: "go",
-      overrides: { route: { provider: "gloo", model: "gloo-kimi-k3" }, stages: { a: { provider: "glm", model: "glm-5.3" } } },
-    });
-    expect(getRun(db(), run.id).overrides).toEqual({
-      route: { provider: "gloo", model: "gloo-kimi-k3" },
-      stages: { a: { provider: "glm", model: "glm-5.3" } },
-    });
-    expect(() => createRun(db(), { machineId: "ro-m", prompt: "go", overrides: { stages: { ghost: { provider: "glm", model: "x" } } } })).toThrow(/no such stage/);
-    expect(() => createRun(db(), { machineId: "ro-m", prompt: "go", overrides: { route: { provider: "nope" } } })).toThrow(/overrides/);
-    expect(getRun(db(), createRun(db(), { machineId: "ro-m", prompt: "go" }).id).overrides).toBeNull();
-  });
-});
 
 describe("title route under restrictions", () => {
   it("uses the titles default, falls back to the project default, else skips", () => {
@@ -180,61 +111,3 @@ describe("title route under restrictions", () => {
   });
 });
 
-describe("visit route resolution (the run's layers, recorded)", () => {
-  it("run-stage > run > stage > project > global, recorded on the visit row", async () => {
-    const { resolveVisitRoute } = await import("../workflows/machines/steps");
-    const { beginStageRun, listStageRuns } = await import("../db/machines");
-    project("vr");
-    setProjectModels(db(), "vr", { defaultRoute: { provider: "gloo", model: "gloo-kimi-k3" } });
-    createMachine(db(), {
-      id: "vr-m",
-      name: "vr",
-      definition: {
-        workspace: "project",
-        start: "a",
-        stages: {
-          a: { kind: "agent", title: "A", instructions: "", next: [{ to: "b" }] },
-          b: { kind: "agent", title: "B", instructions: "", next: [{ to: "c" }], route: { provider: "glm", model: "glm-5.3" } },
-          c: { kind: "harness", harness: "claude", title: "C", instructions: "", next: [] },
-        },
-      },
-    });
-    const plain = createRun(db(), { machineId: "vr-m", prompt: "go", projectId: "vr" });
-    beginStageRun(db(), { runId: plain.id, seq: 0, stageId: "a", kind: "agent" });
-    beginStageRun(db(), { runId: plain.id, seq: 1, stageId: "b", kind: "agent" });
-    expect(await resolveVisitRoute({ runId: plain.id, seq: 0, stageId: "a", surface: "agent" })).toEqual({
-      route: { provider: "gloo", model: "gloo-kimi-k3" },
-      layer: "project",
-    });
-    expect((await resolveVisitRoute({ runId: plain.id, seq: 1, stageId: "b", surface: "agent" })).layer).toBe("stage");
-    const recorded = listStageRuns(db(), plain.id).map((v) => JSON.parse(v.route ?? "null"));
-    expect(recorded.map((r) => r.layer)).toEqual(["project", "stage"]);
-
-    const overridden = createRun(db(), {
-      machineId: "vr-m",
-      prompt: "go",
-      projectId: "vr",
-      overrides: { route: { provider: "glm", model: "glm-5.3-flash" }, stages: { b: { provider: "gloo", model: "gloo-openai-gpt-6-sol" } } },
-    });
-    expect((await resolveVisitRoute({ runId: overridden.id, seq: 0, stageId: "a", surface: "agent" })).layer).toBe("run");
-    expect(await resolveVisitRoute({ runId: overridden.id, seq: 1, stageId: "b", surface: "agent" })).toEqual({
-      route: { provider: "gloo", model: "gloo-openai-gpt-6-sol" },
-      layer: "run-stage",
-    });
-  });
-
-  it("a forbidden route fails the visit fatally with the reason", async () => {
-    const { resolveVisitRoute } = await import("../workflows/machines/steps");
-    project("vr2");
-    setProjectModels(db(), "vr2", { allowedProviders: ["gloo"] });
-    createMachine(db(), {
-      id: "vr2-m",
-      name: "vr2",
-      definition: { workspace: "project", start: "a", stages: { a: { kind: "agent", title: "A", instructions: "", next: [] } } },
-    });
-    const run = createRun(db(), { machineId: "vr2-m", prompt: "go", projectId: "vr2" });
-    await expect(resolveVisitRoute({ runId: run.id, seq: 0, stageId: "a", surface: "agent" })).rejects.toThrow(
-      /does not allow provider glm/,
-    );
-  });
-});

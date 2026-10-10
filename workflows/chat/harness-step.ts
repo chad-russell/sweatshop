@@ -7,13 +7,10 @@ import { harnessEventSink } from "../shared/harness-sink";
 type HarnessResumeFrom = NonNullable<HarnessWorkflowState["resumeFrom"]>;
 
 /**
- * 0010 Phase 3b: the chat harness steps. `harnessToolStep` is the
- * agent-stage path (0010 Phase 5): one synchronous `"use step"` per
- * tool call that advances the harness turn to completion inside the
- * stage's own step — machine runs are already async from every chat, so
- * stages keep the simple blocking shape.
+ * 0010 Phase 3b: the chat harness steps. (The synchronous
+ * agent-stage path died with machines, 0037 phase 5.)
  *
- * 0022 cut 2: CHAT pi/claude calls are background work instead —
+ * 0022 cut 2: CHAT pi/claude calls are background work —
  * `startHarnessCallStep` claims the slot, records the call, and returns
  * a handle immediately; the `harnessCall` workflow (./harness-call.ts)
  * advances the turn one semantic step per `"use step"`
@@ -26,7 +23,6 @@ type HarnessResumeFrom = NonNullable<HarnessWorkflowState["resumeFrom"]>;
  * the live-activity page for background calls.
  */
 
-const MAX_STEPS = 200;
 
 /**
  * UI chunk → ModelCallStreamPart. runHarnessAgentStep emits UI chunks,
@@ -118,153 +114,6 @@ export interface HarnessToolStepResult {
   eventLogUrl: string;
 }
 
-export async function harnessToolStep(
-  input: HarnessToolStepInput,
-): Promise<HarnessToolStepResult> {
-  "use step";
-  const { conversationId, kind, task, inherited } = input;
-  const [
-    { createHarnessWorkflowState, runHarnessAgentStep },
-    { toNetworkSandboxSession },
-    { buildHarnessAgent, proposePrTool },
-    { claimHarnessRun, clipHarnessText, getActiveHarnessRun, recordHarnessEvent, recordHarnessRunEnd },
-    { db },
-    { getConversation, getHarnessResumeState, saveHarnessResumeState },
-    { getWritable },
-    { requireRoute },
-    { getModelInfo },
-  ] = await Promise.all([
-    import("@ai-sdk/workflow-harness"),
-    import("../../lib/sandboxes/ai-sdk-adapter"),
-    import("../machines/harness-agent"),
-    import("../../lib/harness-events"),
-    import("../../db"),
-    import("../../db/chat"),
-    import("workflow"),
-    import("../../lib/providers/resolve"),
-    import("../../db/providers"),
-  ]);
-
-  const conversation = getConversation(db(), conversationId);
-  const projectId = inherited.projectId;
-  if (!projectId) {
-    throw new Error(
-      `${kind} requires a project conversation — start one from a project page`,
-    );
-  }
-  if (kind === "claude" && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    throw new Error(
-      "claude is not configured — set CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) in the app environment",
-    );
-  }
-
-  // 0021: pi inherits the conversation's route (provider + model, the
-  // harness swapped in), else the project / global pi default; claude
-  // takes its own global setting (subscription only). Checked before the
-  // slot is claimed so a forbidden route never holds the sandbox.
-  const { route } = requireRoute(db(), kind, { conversation: conversation?.route ?? null }, projectId);
-
-  // v1 concurrency contract: one harness at a time per sandbox (0006).
-  if (!claimHarnessRun(conversationId, kind)) {
-    const active = getActiveHarnessRun(conversationId);
-    throw new Error(
-      `a ${active?.kind ?? "harness"} run is already active in this conversation — ` +
-        `wait for it to finish before starting ${kind}`,
-    );
-  }
-
-  let toolCalls = 0;
-  let failure: string | undefined;
-  try {
-    // 0013: the stage's inherited binding — the run's sandbox, in the
-    // bound working directory.
-    const { openInheritedSandbox } = await import("../../lib/sandboxes/binding");
-    const { sandboxId, workDir, handle } = await openInheritedSandbox(inherited.binding);
-    const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
-
-    const resumeFrom =
-      (getHarnessResumeState(db(), conversationId, kind) as HarnessResumeFrom | null) ?? undefined;
-    let state: HarnessWorkflowState = createHarnessWorkflowState({
-      sessionId: conversationId,
-      prompt: task,
-      resumeFrom,
-    });
-
-    // Tee the UI chunks through the shared harness sink (0031): events
-    // into harness_events, the model-part form to the turn's output
-    // stream (the chat shows harness activity live).
-    const out = getWritable<Record<string, unknown>>();
-    const writer = out.getWriter();
-    const { sink, text } = harnessEventSink({
-      recordEvent: (event) => recordHarnessEvent(conversationId, kind, event),
-      clip: clipHarnessText,
-      inputClip: HARNESS_INPUT_CLIP,
-      outputClip: HARNESS_OUTPUT_CLIP,
-      writer,
-      forward: uiChunkToModelPart,
-      envelope: { chatConversation: conversationId, chatHarness: kind },
-      onToolStart: (name) => {
-        if (name !== "fileChange" && name !== "compaction") toolCalls += 1;
-      },
-    });
-
-    // 0034 A: an agent stage's harness works in the run's checkout and
-    // may only PROPOSE a PR — the run's gate approves, publish executes.
-    const summarize = (repo: string, head: string, base?: string) =>
-      import("../../lib/agent/tools/pr-preview").then(({ runGitSummary }) =>
-        runGitSummary((command) => handle.run(command, undefined, workDir), repo, head, base),
-      );
-    const hostTools = { propose_pr: proposePrTool(projectId, input.runId, summarize) };
-
-    recordHarnessEvent(conversationId, kind, { kind: "start", input: clipHarnessText(task, HARNESS_INPUT_CLIP) });
-    try {
-      let steps = 0;
-      do {
-        const agent = buildHarnessAgent({
-          route,
-          sessionId: conversationId,
-          tools: hostTools,
-          ...(route.harness === "pi" ? { modelInfo: getModelInfo(db(), route.provider, route.model) } : {}),
-        });
-        state = await runHarnessAgentStep({
-          agent: agent as never,
-          state,
-          sandboxSession: sandboxSession as never,
-          writable: sink as never,
-        });
-        steps += 1;
-        recordHarnessEvent(conversationId, kind, {
-          kind: "step-end",
-          text: clipHarnessText(text(), 500),
-        });
-      } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
-    } finally {
-      writer.releaseLock();
-    }
-
-    if (state.status === "failed") {
-      throw new Error(state.error ?? `${kind} turn failed`);
-    }
-    // Park the session and remember how to resume it (destroyOnFinish
-    // stays false — the next tool call continues the same session).
-    if (state.resumeFrom) {
-      saveHarnessResumeState(db(), conversationId, kind, state.resumeFrom);
-    }
-
-    return {
-      text: text(),
-      toolCalls,
-      harnessUrl: `/h/${kind}/${conversationId}`,
-      eventLogUrl: `/api/harness/${conversationId}?harness=${kind}`,
-    };
-  } catch (err) {
-    failure = err instanceof Error ? err.message : String(err);
-    throw err;
-  } finally {
-    // 0006: failures are failures — keep the transcript, record why.
-    recordHarnessRunEnd(conversationId, kind, toolCalls, failure ? "failed" : "completed", failure);
-  }
-}
 
 // --- 0022 cut 2: background chat harness calls ------------------------------
 
@@ -318,7 +167,7 @@ export async function harnessAdvanceStep(input: {
   ] = await Promise.all([
     import("@ai-sdk/workflow-harness"),
     import("../../lib/sandboxes/ai-sdk-adapter"),
-    import("../machines/harness-agent"),
+    import("./harness-agent"),
     import("../../lib/harness-events"),
     import("../../db"),
     import("../../db/chat"),

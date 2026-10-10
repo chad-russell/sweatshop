@@ -38,11 +38,8 @@ import {
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
 import {
-  EditMachineCard,
   InspectCard,
-  MachineCard,
   SandboxExecCard,
-  StartMachineCard,
   StartThreadCard,
 } from "@/components/ai-elements/agent-cards";
 import { PreviewToolCard } from "@/components/previews/preview-card";
@@ -431,7 +428,7 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
 /** Tools whose execute asks Chad first (the ask_chad pattern inside a
  * tool): while the part is unresolved, the transcript shows the
  * approval buttons right there — same POST as the inbox card. */
-const GATED_TOOLS = new Set(["create_machine", "delete_machine", "create_project", "delete_project"]);
+const GATED_TOOLS = new Set(["create_project", "delete_project"]);
 
 /** One gated tool call awaiting Chad's approval, in the transcript. */
 function GatedApprovalCard({ part }: { part: ToolUIPart }) {
@@ -442,11 +439,7 @@ function GatedApprovalCard({ part }: { part: ToolUIPart }) {
   const headline =
     name === "create_project"
       ? `Create project ${str("id") ?? "?"}${str("name") ? ` ("${str("name")}")` : ""}`
-      : name === "delete_project"
-        ? `Delete project ${str("id") ?? "?"} — and everything it owns`
-        : name === "create_machine"
-          ? `Create machine "${str("name") ?? "?"}"`
-          : `Delete machine ${str("id") ?? "?"}`;
+      : `Delete project ${str("id") ?? "?"} — and everything it owns`;
   const answered = part.state === "output-available" || part.state === "output-error";
 
   const post = async (approved: boolean) => {
@@ -495,11 +488,6 @@ function GatedApprovalCard({ part }: { part: ToolUIPart }) {
 }
 
 const AGENT_TOOLS = new Set([
-  "list_machines",
-  "get_machine",
-  "create_machine",
-  "edit_machine",
-  "start_machine",
   "start_thread",
   "inspect",
   "sandbox_exec",
@@ -507,13 +495,6 @@ const AGENT_TOOLS = new Set([
   "preview_status",
   "stop_preview",
 ]);
-
-/** A start_machine call that lists instead of starting (no machineId). */
-function isMachineListing(part: ToolUIPart): boolean {
-  if (part.state === "input-streaming") return false;
-  const input = part.input as { machineId?: unknown } | undefined;
-  return typeof input?.machineId !== "string" || input.machineId === "";
-}
 
 /** The designed card for a machine / run / inspect tool call, if it has one. */
 function agentToolCard(part: ToolUIPart): ReactNode {
@@ -528,16 +509,6 @@ function agentToolCard(part: ToolUIPart): ReactNode {
     errorText: part.state === "output-error" ? (part.errorText ?? "tool failed") : part.state === "output-denied" ? "denied" : undefined,
   };
   switch (name) {
-    case "list_machines":
-    case "get_machine":
-    case "create_machine":
-      return <MachineCard tool={name} {...shared} />;
-    case "edit_machine":
-      return <EditMachineCard {...shared} />;
-    case "start_machine":
-      // Called with no machineId it only LISTS machines — draw that as
-      // the machine list, never as a "Started run" with nothing behind it.
-      return isMachineListing(part) ? <MachineCard tool="list_machines" {...shared} /> : <StartMachineCard {...shared} />;
     case "start_thread":
       return <StartThreadCard {...shared} />;
     case "inspect":

@@ -1,5 +1,5 @@
 import { getRun as getWorkflowRun } from "workflow/api";
-import { db, type Db } from "@/db";
+import { db } from "@/db";
 import {
   enqueueSteer,
   getActiveRun,
@@ -12,23 +12,20 @@ import {
   type ChatChild,
   type RunEventMeta,
 } from "@/db/chat";
-import {
-  listStageRuns,
-  markRunWoken,
-  SETTLED_STATUSES,
-  type RunView,
-} from "@/db/machines";
-import { clipText } from "@/lib/machines/brief";
+import { markCallWoken, CALL_SETTLED_STATUSES } from "@/db/harness-calls";
+import type { HarnessCall } from "@/db/schema";
 import { ACTIVE_RUN_STATUSES, startChatTurn } from "@/lib/chat/start-turn";
 
 /**
- * 0022: the wake primitive. When a child (machine run, later a harness
- * call) settles, its parent conversation is nudged through exactly the
- * path a human send takes — mid-turn the message queues as steer
- * (drained between slices), idle it starts a new turn. The wake message
- * is a user-role row whose text is the model input and whose
- * `metadata.runEvent` renders as a transcript chip (0015 viewing-note
- * treatment): it must never read as Chad's own words.
+ * 0022: the wake primitive. When a child settles — a background harness
+ * call (hc_…) or a child thread (c_…, 0037 phase 3) — the conversation
+ * that started it is nudged through exactly the path a human send
+ * takes: mid-turn the message queues as steer (drained between slices),
+ * idle it starts a new turn. The wake message is a user-role row whose
+ * text is the model input and whose `metadata.runEvent` renders as a
+ * transcript chip (0015 viewing-note treatment): it must never read as
+ * Chad's own words. (Machine runs also woke parents; the interpreter
+ * was deleted by 0037 phase 5 — historical rows never settle again.)
  *
  * Idempotency: callers stamp the child's `woken_settled_at` AFTER the
  * wake fires — a crash in between at worst duplicates a message (the
@@ -41,17 +38,17 @@ import { ACTIVE_RUN_STATUSES, startChatTurn } from "@/lib/chat/start-turn";
 
 /** One settled child, rendered into the parent's thread. */
 export interface WakeEvent {
-  kind: "machine" | "harness" | "thread";
-  /** mr_… / hc_… / c_… — for inspect/cancel. */
+  kind: "harness" | "thread";
+  /** hc_… / c_… — for inspect/cancel. */
   id: string;
-  /** Machine name, the harness kind ("pi" / "claude"), or the child
-   *  thread's playbook ("review" — "thread" when it has none). */
+  /** The harness kind ("pi" / "claude") or the child thread's playbook
+   *  ("review" — "thread" when it has none). */
   name: string;
   /** completed | failed | needs-attention | waiting. */
   status: string;
   /** Clipped outcome (completed) or reason; absent for terse events. */
   detail?: string | null;
-  /** Where to look: /r/<id>, /h/<kind>/<conversationId>, or /c/<id>. */
+  /** Where to look: /h/<kind>/<conversationId> or /c/<id>. */
   url: string;
 }
 
@@ -73,14 +70,16 @@ const STATUS_WORD: Record<string, string> = {
   waiting: "waiting for your input",
 };
 
+/** Clip a wake's detail (was lib/machines/brief — deleted in phase 5). */
+export function clipText(text: string | null | undefined, max: number): string {
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max)}\n…[clipped ${text.length - max} chars]` : text;
+}
+
 /** The message the model sees (and the row text). Short and standalone. */
 export function renderWake(event: WakeEvent): string {
   const word = STATUS_WORD[event.status] ?? event.status;
-  const head =
-    event.kind === "machine"
-      ? `[run ${word}] ${event.name}: ${event.status}`
-      : `[${event.name} ${word}]`;
-  const lines = [`${head} — ${event.url}`];
+  const lines = [`[${event.name} ${word}] — ${event.url}`];
   if (event.detail) lines.push("", event.detail);
   return lines.join("\n");
 }
@@ -132,75 +131,14 @@ export async function wakeConversation(
   });
 }
 
-/** The wake event for a settled machine run (detail from its visits). */
-export function runWakeEvent(run: RunView, detail: string | null): WakeEvent {
-  return {
-    kind: "machine",
-    id: run.id,
-    name: run.machineName,
-    status: run.status,
-    detail: detail ? clipText(detail, 500) : null,
-    url: `/r/${run.id}`,
-  };
-}
-
-/** A completed run's detail: its last completed visit's outcome. */
-function runOutcomeDetail(database: Db, run: RunView): string | null {
-  if (run.status !== "completed") {
-    if (run.status === "waiting") {
-      const stage = run.currentStage ? `"${run.currentStage}"` : "a stage";
-      return `The run is parked at ${stage} waiting for your answer — /inbox.`;
-    }
-    return run.error ?? null;
-  }
-  const visits = listStageRuns(database, run.id);
-  const last = [...visits].reverse().find((v) => v.status === "completed" && v.outcome);
-  return last?.outcome ?? null;
-}
-
 /**
- * Wake a run's parent if its latest settle is undelivered. Returns
- * "none" (nothing to do — no parent / not settled), "skipped" (already
- * woken, or the parent is gone), "woke" (message delivered).
- */
-export async function wakeRunIfDue(
-  run: RunView,
-  deps: WakeDeps = {},
-): Promise<"woke" | "skipped" | "none"> {
-  if (!run.parentConversationId) return "none";
-  if (!SETTLED_STATUSES.has(run.status) || run.settledAt == null) return "none";
-  if ((run.wokenSettledAt ?? -1) >= run.settledAt) return "skipped";
-  const outcome = await wakeConversation(
-    run.parentConversationId,
-    runWakeEvent(run, runOutcomeDetail(db(), run)),
-    deps,
-  );
-  if (outcome === "gone") {
-    markRunWoken(db(), run.id, run.settledAt);
-    return "skipped";
-  }
-  markRunWoken(db(), run.id, run.settledAt);
-  return "woke";
-}
-
-/**
- * Deliver every unwoken settle — machine runs, harness calls, and child
- * chats (the tick's sweep; also the restart recovery). Errors are
- * contained per child — one bad parent must not starve the rest.
+ * Deliver every unwoken settle — harness calls and child chats (the
+ * tick's sweep; also the restart recovery). Errors are contained per
+ * child — one bad parent must not starve the rest.
  */
 export async function sweepWakes(deps: WakeDeps = {}): Promise<number> {
-  const [{ listWakableRuns }, { listWakableCalls }] = await Promise.all([
-    import("@/db/machines"),
-    import("@/db/harness-calls"),
-  ]);
+  const { listWakableCalls } = await import("@/db/harness-calls");
   let woke = 0;
-  for (const run of listWakableRuns(db())) {
-    try {
-      if ((await wakeRunIfDue(run, deps)) === "woke") woke += 1;
-    } catch (err) {
-      console.error(`[wake-sweep] ${run.id}:`, err);
-    }
-  }
   for (const call of listWakableCalls(db())) {
     try {
       if ((await wakeCallIfDue(call, deps)) === "woke") woke += 1;
@@ -223,10 +161,9 @@ export async function sweepWakes(deps: WakeDeps = {}): Promise<number> {
  * undelivered. The call's conversation is its parent by construction.
  */
 export async function wakeCallIfDue(
-  call: { id: string; conversationId: string; kind: string; status: string; settledAt: number | null; wokenSettledAt: number | null; result: string | null; error: string | null },
+  call: HarnessCall,
   deps: WakeDeps = {},
 ): Promise<"woke" | "skipped" | "none"> {
-  const { CALL_SETTLED_STATUSES, markCallWoken } = await import("@/db/harness-calls");
   if (call.settledAt == null || !CALL_SETTLED_STATUSES.has(call.status)) return "none";
   if ((call.wokenSettledAt ?? -1) >= call.settledAt) return "skipped";
   const outcome = await wakeConversation(
@@ -247,8 +184,8 @@ export async function wakeCallIfDue(
 
 /**
  * 0037 phase 3: wake a child chat's parent when the child settles —
- * the same primitive runs and harness calls use, with the child's own
- * settle bookkeeping. "Settled" = no live turn and message updates the
+ * the same primitive harness calls use, with the child's own
+ * bookkeeping. "Settled" = no live turn and message updates the
  * parent has not been told about (updatedAt is the settle reference;
  * setConversationParent pre-stamps woken so the creation bump never
  * counts). The child's last assistant text rides the wake — for a
@@ -291,7 +228,7 @@ export async function wakeChatChildIfDue(
       id: child.id,
       name: child.playbook ?? "thread",
       status,
-      // Wider than runs/harness calls: for a review thread the final
+      // Wider than harness calls: for a review thread the final
       // message IS the deliverable, and the smoke run showed 500 chars
       // truncating it mid-findings. The rest is one inspect away.
       detail: last ? clipText(last, 2000) : null,

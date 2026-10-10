@@ -2,27 +2,16 @@ import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "./hooks";
 import { startHarnessCallStep } from "./harness-step";
-import { runOverridesSchema } from "../../lib/providers/route";
 import {
   bashStep,
   cancelRunStep,
-  createMachinePreviewStep,
-  createMachineStep,
   createPrPreviewStep,
   createPrStep,
-  deleteMachineStep,
-  editMachinePreviewStep,
-  editMachineStep,
-  getMachineStep,
   inspectStep,
-  listMachinesStep,
-  machineDeletePreviewStep,
-  machinesCatalogStep,
   pendingStep,
   previewToolStep,
   screenshotStep,
   sandboxExecStep,
-  startMachineStep,
   startThreadStep,
   systemDocsStep,
   bindPlaybookStep,
@@ -37,12 +26,12 @@ import {
   webFetchStep,
   webSearchStep,
 } from "./steps";
-import { editOpSchema } from "../../lib/machines/edit";
 import { previewTools } from "./preview-tools";
 import { screenshotTool } from "./screenshot-tool";
 
 /**
- * 0010 tool set for the new chat runtime. Built per conversation by
+ * 0010 tool set for the new chat runtime (0037 phase 5: the machine
+ * tools are gone — machines were deleted). Built per conversation by
  * buildChatTools (a module-scope factory the workflow body calls —
  * tool executes close over the conversationId, and the whole agent is
  * rebuilt on every body replay so the closures are always fresh).
@@ -137,41 +126,6 @@ export function buildChatTools(
       },
     }),
 
-    start_machine: tool({
-      description:
-        "Start a machine run (a multi-stage pipeline: coding harnesses, agent conversations, and " +
-        "Chad's approval gates) — it runs in the background and THIS conversation gets a '[run …]' " +
-        "message when it finishes, fails, parks, or waits for Chad. Call with no machineId to list " +
-        "machines available here. A project machine runs in THIS conversation's sandbox and directory " +
-        "(it sees and changes the same files) unless fresh: true gives it a new sandbox of its own. " +
-        "Check on it with inspect; stop it with cancel_run.",
-      inputSchema: z.object({
-        machineId: z.string().optional().describe("Machine id; omit to list machines"),
-        prompt: z.string().optional().describe("The task the run works on (required to start)"),
-        fresh: z
-          .boolean()
-          .optional()
-          .describe("Give the run its own new sandbox instead of sharing this conversation's"),
-        overrides: runOverridesSchema
-          .optional()
-          .describe(
-            "Model routes for this run only. route: { provider, model } for every agent/pi stage; " +
-              "stages: { <stageId>: route } per stage (pi: { harness: \"pi\", provider, model }; claude: " +
-              "{ harness: \"claude\", model?, effort? }). provider is glm | gloo | openrouter. Omit to use the defaults.",
-          ),
-      }),
-      execute: async ({ machineId, prompt, fresh, overrides }) => {
-        if (!machineId) return listMachinesStep(conversationId);
-        if (!prompt?.trim()) throw new Error("prompt is required to start a run");
-        return startMachineStep(conversationId, {
-          machineId,
-          prompt,
-          ...(fresh ? { fresh } : {}),
-          ...(overrides ? { overrides } : {}),
-        });
-      },
-    }),
-
     start_thread: tool({
       description:
         "Start a fresh child thread — a new chat with deliberately independent context, for work " +
@@ -199,12 +153,11 @@ export function buildChatTools(
 
     cancel_run: tool({
       description:
-        "Cancel background work you started (or are watching): a machine run (mr_…), a background " +
-        "harness call (hc_…), or a child thread (c_…) stops and is marked cancelled; sandboxes and " +
-        "work are kept. A cancelled child never wakes this conversation. Check state first with " +
-        "inspect if unsure.",
+        "Cancel background work you started (or are watching): a background harness call (hc_…) or " +
+        "a child thread (c_…) stops and is marked cancelled; sandboxes and work are kept. A " +
+        "cancelled child never wakes this conversation. Check state first with inspect if unsure.",
       inputSchema: z.object({
-        runId: z.string().min(1).describe("Run id (mr_… / hc_…) or child thread id (c_…)"),
+        runId: z.string().min(1).describe("Harness call id (hc_…) or child thread id (c_…)"),
       }),
       execute: ({ runId }) => cancelRunStep(runId),
     }),
@@ -281,7 +234,7 @@ export function buildChatTools(
     system_docs: tool({
       description:
         "Read a capability doc: how this system's pieces work and how to drive them — " +
-        "projects, previews, machines, sandboxes, models. Call it before setting one up, " +
+        "projects, previews, sandboxes, models. Call it before setting one up, " +
         "explaining one to Chad, or when a capability behaves unexpectedly. Omit topic to list what exists.",
       inputSchema: z.object({
         topic: z.string().optional().describe("The doc to read (e.g. \"machines\"); omit to list topics"),
@@ -334,7 +287,7 @@ export function buildChatTools(
 
     create_project: tool({
       description:
-        "Create a project — the sweatshop unit of work (repos + settings machine runs inherit). " +
+        "Create a project — the sweatshop unit of work (repos + settings its chats inherit). " +
         "Find repos first with gh/forgejo. Optionally set the test command, branch prefix, and a " +
         "default route ({provider, model}) at creation; everything else is editable later. " +
         "Chad is asked first — the turn waits for his answer. After creating, hand him the " +
@@ -392,7 +345,7 @@ export function buildChatTools(
     delete_project: tool({
       description:
         "Delete a project and everything it owns: live runs cancelled, sandboxes destroyed, " +
-        "conversations/previews/folders deleted (machines and credentials untouched — this cannot " +
+        "conversations/previews/folders deleted (credentials untouched — this cannot " +
         "be undone). Chad is asked first with the full cascade summary; the turn waits for his answer.",
       inputSchema: z.object({
         id: z.string().min(1),
@@ -408,126 +361,6 @@ export function buildChatTools(
           return { ok: false, code: "denied" as const, message: "Chad declined — nothing was deleted" };
         }
         return deleteProjectStep(id);
-      },
-    }),
-
-    // 0015 Part A: machine-definition tools — every chat, no sandbox or
-    // project needed. Errors return as values ({ ok: false, … }) so the
-    // model reads them and repairs its call instead of the tool failing.
-    list_machines: tool({
-      description:
-        "List every machine (id, name, description, workspace, version, stage count). " +
-        "Read one with get_machine before editing it.",
-      inputSchema: z.object({}),
-      execute: () => machinesCatalogStep(),
-    }),
-
-    get_machine: tool({
-      description:
-        "Read one machine's full definition (stages, kinds, instructions, transitions, start) plus its " +
-        "current version. Edit with edit_machine, naming that version as baseVersion.",
-      inputSchema: z.object({
-        id: z.string().min(1).describe("Machine id from list_machines"),
-      }),
-      execute: ({ id }) => getMachineStep(id),
-    }),
-
-    create_machine: tool({
-      description:
-        "Create a new machine from a full definition you generate: { workspace, start, stages }, where " +
-        "each stage is harness/agent/human with title, instructions, and next (transitions; to: \"end\" " +
-        "completes the run). Machines are durable, reusable pipelines: create one ONLY when Chad wants " +
-        "something reusable — never as a workaround for a one-off task or a tool this chat lacks. " +
-        "Prefer building on an existing machine with edit_machine when one is close. Chad is asked " +
-        "first — the turn waits for his answer.",
-      inputSchema: z.object({
-        id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/).optional().describe("Lowercase kebab-case id; omit to generate one"),
-        name: z.string().min(1).max(80),
-        description: z.string().max(500).optional(),
-        definition: z.record(z.string(), z.unknown()).describe("The full machine definition object"),
-      }),
-      // Approval-gated (2026-10-07): a machine outlives the chat, so Chad
-      // decides. Invalid definitions return to the model without asking.
-      execute: async (input, { toolCallId }) => {
-        const preview = (await createMachinePreviewStep(input)) as
-          | { ok: true; summary: string }
-          | { ok: false; code: string; message: string };
-        if (!preview.ok) return preview;
-        await pendingStep(conversationId, toolCallId, preview.summary, "approval");
-        const answer = await chatApprovalHook.create({ token: toolCallId });
-        if (!(answer.kind === "approval" && answer.approved)) {
-          const why = answer.kind === "approval" && answer.comment ? ` (${answer.comment})` : "";
-          return {
-            ok: false,
-            code: "denied" as const,
-            message: `Chad declined to create machine "${input.name}"${why} — nothing was created`,
-          };
-        }
-        return createMachineStep(input);
-      },
-    }),
-
-    edit_machine: tool({
-      description:
-        "Change a machine by applying a batch of ops, in order, to the saved definition: add_stage, " +
-        "update_stage, set_kind, rename_stage, remove_stage, connect, disconnect, update_transition, " +
-        "set_start, set_workspace. The batch is all-or-nothing — if the result would be invalid, nothing " +
-        "is saved and you get the issues by stage/transition to fix your batch. baseVersion must be the " +
-        "version you read (a mismatch means the machine changed: re-read and retry). Read the machine " +
-        "first with get_machine. The stage graph is policy, so Chad approves every edit — the turn waits.",
-      inputSchema: z.object({
-        id: z.string().min(1),
-        baseVersion: z.number().int().min(1).describe("The version your ops were planned against (from get_machine)"),
-        ops: z.array(editOpSchema).min(1).max(100).describe("Ops applied in order to the saved definition"),
-        name: z.string().min(1).max(80).optional(),
-        description: z.string().max(500).optional(),
-      }),
-      // 0034 A: approval-gated like create_machine — the stage graph
-      // (gates, publish stages) bounds what runs may do. Invalid
-      // batches return to the model without asking.
-      execute: async (input, { toolCallId }) => {
-        const preview = (await editMachinePreviewStep(input)) as
-          | { ok: true; summary: string }
-          | { ok: false; code: string; message: string };
-        if (!preview.ok) return preview;
-        await pendingStep(conversationId, toolCallId, preview.summary, "approval");
-        const answer = await chatApprovalHook.create({ token: toolCallId });
-        if (!(answer.kind === "approval" && answer.approved)) {
-          const why = answer.kind === "approval" && answer.comment ? ` (${answer.comment})` : "";
-          return {
-            ok: false,
-            code: "denied" as const,
-            message: `Chad declined the edit${why} — nothing was changed`,
-          };
-        }
-        return editMachineStep(input);
-      },
-    }),
-
-    delete_machine: tool({
-      description:
-        "Delete a machine. Runs keep their snapshots, but the definition is gone. Chad is asked first — " +
-        "the turn waits for his answer.",
-      inputSchema: z.object({
-        id: z.string().min(1),
-      }),
-      execute: async ({ id }, { toolCallId }) => {
-        const preview = (await machineDeletePreviewStep(id)) as
-          | { ok: true; machine: { name: string; stages: number } }
-          | { ok: false; code: string; message: string };
-        if (!preview.ok) return preview;
-        const { name, stages } = preview.machine;
-        await pendingStep(
-          conversationId,
-          toolCallId,
-          `Delete machine "${name}" (${id}, ${stages} stages)? Existing runs keep their snapshots.`,
-          "approval",
-        );
-        const answer = await chatApprovalHook.create({ token: toolCallId });
-        if (!(answer.kind === "approval" && answer.approved)) {
-          return { ok: false, code: "denied" as const, message: `Chad declined to delete machine ${id}` };
-        }
-        return deleteMachineStep(id);
       },
     }),
 

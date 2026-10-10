@@ -330,6 +330,13 @@
       "when": 1791654331348,
       "tag": "0046_thread_children",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1791663079459,
+      "tag": "0047_delete_machines",
+      "breakpoints": true
     }
   ]
 }

@@ -54,7 +54,7 @@ run("claude harness bridge spike (0006/0013)", () => {
         // 0021: the production builder, on a route — subscription auth
         // (setup-token through the env channel, direct), the route
         // contributing only model + effort (CLAUDE_SPIKE_MODEL, default sonnet).
-        const { buildHarnessAgent } = await import("../workflows/machines/harness-agent");
+        const { buildHarnessAgent } = await import("../workflows/chat/harness-agent");
         const agent = buildHarnessAgent({
           route: { harness: "claude", model: process.env.CLAUDE_SPIKE_MODEL ?? "sonnet", effort: "low" },
           sessionId: "spike-claude",

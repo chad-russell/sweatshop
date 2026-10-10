@@ -33,7 +33,7 @@ run("pi harness spike (0021 routes)", () => {
         expect(process.env[KEY_ENV[route.provider]], `${KEY_ENV[route.provider]} must be set`).toBeTruthy();
         const { podmanProvider } = await import("../lib/sandboxes/provider");
         const { toSandboxSession } = await import("../lib/sandboxes/ai-sdk-adapter");
-        const { buildHarnessAgent } = await import("../workflows/machines/harness-agent");
+        const { buildHarnessAgent } = await import("../workflows/chat/harness-agent");
         const { staticModelInfo } = await import("../lib/providers/registry");
         const { tool } = await import("ai");
         const { z } = await import("zod");
