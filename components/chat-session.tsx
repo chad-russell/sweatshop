@@ -43,6 +43,7 @@ import {
   MachineCard,
   SandboxExecCard,
   StartMachineCard,
+  StartThreadCard,
 } from "@/components/ai-elements/agent-cards";
 import { PreviewToolCard } from "@/components/previews/preview-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
@@ -499,6 +500,7 @@ const AGENT_TOOLS = new Set([
   "create_machine",
   "edit_machine",
   "start_machine",
+  "start_thread",
   "inspect",
   "sandbox_exec",
   "start_preview",
@@ -536,6 +538,8 @@ function agentToolCard(part: ToolUIPart): ReactNode {
       // Called with no machineId it only LISTS machines — draw that as
       // the machine list, never as a "Started run" with nothing behind it.
       return isMachineListing(part) ? <MachineCard tool="list_machines" {...shared} /> : <StartMachineCard {...shared} />;
+    case "start_thread":
+      return <StartThreadCard {...shared} />;
     case "inspect":
       return <InspectCard {...shared} />;
     case "sandbox_exec":
@@ -645,7 +649,7 @@ function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; stat
       <span className="truncate">
         {runEvent.kind === "budget"
           ? "step budget reached · continuing"
-          : `${runEvent.kind === "machine" ? "run" : runEvent.id.split("_")[0]} ${runEvent.status} · ${runEvent.id}`}
+          : `${runEvent.kind === "machine" ? "run" : runEvent.kind === "thread" ? "thread" : runEvent.id.split("_")[0]} ${runEvent.status} · ${runEvent.id}`}
       </span>
     </span>
   );
