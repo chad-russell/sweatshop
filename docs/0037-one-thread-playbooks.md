@@ -244,9 +244,9 @@ inbox's machine-gate card goes away.
    `db/machines.ts` is reads only. Migration 0047 drops `machines` and
    `pr_proposals` and `machine_runs`' FK to machines. The fresh
    composer's target picker kept its project and playbook axes
-   (`components/fresh-target-picker`). Net for the phase: +339 /
-   −10,191 in code — the 0037 ledger ends ≈ +2.6k / −10.3k,
-   decisively negative.)*
+   (`components/fresh-target-picker`). Net for the phase: +570 /
+   −10,114 in code — the 0037 ledger ends +2,808 / −10,219
+   (net −7,411), decisively negative.)*
 
 ## Costs and non-goals
 
