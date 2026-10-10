@@ -109,8 +109,11 @@ export function buildChatTools(
       }),
       // 0034 Phase A: approval-gated like create_machine — never a
       // silent PR. Invalid proposals return to the model without asking.
-      execute: async (input, { toolCallId }) => {
-        const preview = (await createPrPreviewStep(conversationId, input)) as
+      execute: async (input, { toolCallId, messages }) => {
+        // The live prompt carries this turn's attachments (a turn
+        // persists only at its end — run 5's card missed three).
+        const live = messages.filter((m) => m.role === "tool" || m.role === "assistant");
+        const preview = (await createPrPreviewStep(conversationId, input, live)) as
           | { ok: true; summary: string; evidence: unknown }
           | { ok: false; code: string; message: string };
         if (!preview.ok) return preview;

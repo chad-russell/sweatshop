@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import { hasBackgroundChild, rowsToUIMessages, type StoredRow } from "../lib/chat-ui";
+import { hasBackgroundChild, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
 import { parseViewingContext, viewingNote } from "../lib/page-context";
 
 let n = 0;
@@ -142,5 +142,21 @@ describe("hasBackgroundChild (0022 wake watch)", () => {
     expect(hasBackgroundChild([started("start_machine", { machines: [] })])).toBe(false);
     expect(hasBackgroundChild([started("pi", { ok: false, code: "busy" })])).toBe(false);
     expect(hasBackgroundChild([started("pi", { ok: true, callId: "hc_1" }), wake])).toBe(false);
+  });
+});
+
+describe("untilLiveTurn (0037 incremental persistence)", () => {
+  const row = (id: string, role: string): StoredRow => ({ id, role, text: "", at: 0, modelMessage: null });
+  it("cuts after the live turn's opening row, dropping its persisted slices", () => {
+    const rows = [
+      row("t_c_0", "user"),
+      row("m_c_1_0", "assistant"),
+      row("t_c_2", "user"),
+      row("sq_c_1", "user"),
+      row("m_c_3_0", "assistant"),
+      row("m_c_3_1", "tool"),
+    ];
+    expect(untilLiveTurn(rows).map((r) => r.id)).toEqual(["t_c_0", "m_c_1_0", "t_c_2"]);
+    expect(untilLiveTurn([row("x", "user")])).toHaveLength(1);
   });
 });

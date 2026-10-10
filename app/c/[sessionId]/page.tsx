@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { conversations, projects } from "@/db/schema";
 import { getActiveRun, listMessageTexts } from "@/db/chat";
 import { parseStoredChatRoute } from "@/db/providers";
-import { rowsToUIMessages } from "@/lib/chat-ui";
+import { rowsToUIMessages, untilLiveTurn } from "@/lib/chat-ui";
 
 /**
  * Open a conversation by its durable address (0010 Phase 4). History
@@ -38,13 +38,18 @@ export default async function ConversationPage({
         .sync()
     : undefined;
 
-  const initialMessages = rowsToUIMessages(listMessageTexts(db(), sessionId));
+  // A live turn persists slice by slice (0037), but a reload REPLAYS the
+  // turn's whole stream from index 0 — so the hydrated transcript stops
+  // at the live turn's user message, or its slices would render twice.
+  const activeRunId = getActiveRun(db(), sessionId);
+  const rows = listMessageTexts(db(), sessionId);
+  const initialMessages = rowsToUIMessages(activeRunId ? untilLiveTurn(rows) : rows);
 
   return (
     <ChatSurface
       conversationId={sessionId}
       initialMessages={initialMessages}
-      activeRunId={getActiveRun(db(), sessionId)}
+      activeRunId={activeRunId}
       projectId={project?.id}
       projectName={project?.name}
       conversationTitle={conversation.title}

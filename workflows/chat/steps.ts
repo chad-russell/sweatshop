@@ -149,10 +149,12 @@ export async function createPrPreviewStep(
     title: string;
     body?: string;
   },
+  /** 0037: the running turn's messages (screenshots attached this turn). */
+  live: ModelMessage[] = [],
 ): Promise<unknown> {
   "use step";
   const { buildChatPRPreview } = await import("../../lib/agent/tools/pr-preview");
-  return buildChatPRPreview(conversationId, input);
+  return buildChatPRPreview(conversationId, input, undefined, live);
 }
 
 /** 0037: the thread's playbook (null = plain chat). */
@@ -495,10 +497,14 @@ export async function maybeTitleStep(conversationId: string): Promise<void> {
 }
 
 /**
- * Persist the turn's new messages (result.messages tail — includes
- * mid-turn steer injections) and clear the conversation's active run.
- * Exactly one turn runs per conversation at a time (route-enforced), so
- * an unconditional clear-if-set cannot clobber another turn.
+ * Persist the turn's messages from index `from` on (result.messages tail
+ * — includes mid-turn steer injections). Called after EVERY slice
+ * (run 5: a 30-minute turn was invisible to sqlite until it ended) and
+ * once at the end with `final`, which clears the conversation's active
+ * run. Row ids are deterministic per (turn, index) — the turn is keyed
+ * by `skip`, which grows every turn — so a retried step never
+ * duplicates a row. Exactly one turn runs per conversation at a time
+ * (route-enforced), so the final clear cannot clobber another turn.
  */
 export async function persistTurn(
   conversationId: string,
@@ -506,25 +512,27 @@ export async function persistTurn(
   skip: number,
   /** 0021: recorded on the turn's first assistant row ("what actually ran"). */
   route?: import("../../db/chat").MessageRowMetadata["route"],
+  opts: { from?: number; final?: boolean } = {},
 ): Promise<number> {
   "use step";
   const { db, chat } = await chatStore();
+  const from = Math.max(opts.from ?? skip, skip);
+  const firstAssistant = messages.findIndex((m, i) => i >= skip && m.role === "assistant");
   const tail: import("../../db/chat").NewMessageRow[] = [];
-  messages.slice(skip).forEach((message, i) => {
+  messages.forEach((message, i) => {
     // System messages are injected viewing notes (and the agent's
     // instructions) — model input only, never persisted as rows.
-    if (message.role === "system") return;
+    if (i < from || message.role === "system") return;
     tail.push({
-      id: `m_${conversationId}_${skip + i}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `m_${conversationId}_${skip}_${i - skip}`,
       role: message.role === "assistant" ? "assistant" : message.role === "tool" ? "tool" : "user",
       text: textOf(message),
       modelMessage: message,
+      ...(route && i === firstAssistant ? { metadata: { route } } : {}),
     });
   });
-  const firstAssistant = tail.find((row) => row.role === "assistant");
-  if (route && firstAssistant) firstAssistant.metadata = { route };
   chat.appendMessages(db, conversationId, tail);
-  chat.setActiveRun(db, conversationId, null);
+  if (opts.final ?? true) chat.setActiveRun(db, conversationId, null);
   return tail.length;
 }
 
