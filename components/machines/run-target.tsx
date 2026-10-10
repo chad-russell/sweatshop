@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronsUpDown, FolderGit2, MessageSquare, Workflow } from "lucide-react";
+import { BookOpen, Check, ChevronsUpDown, FolderGit2, MessageSquare, Workflow } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
@@ -60,6 +60,29 @@ export function useScopedMachines(projectId: string | undefined): MachineOption[
   return machines;
 }
 
+/** 0037: a playbook a project chat can run by. */
+export interface PlaybookOption {
+  id: string;
+  title: string;
+  description: string;
+}
+
+/** The playbook catalog, fetched once. */
+export function usePlaybooks(): PlaybookOption[] | null {
+  const [books, setBooks] = useState<PlaybookOption[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void fetch("/api/playbooks", { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ playbooks: PlaybookOption[] }>) : { playbooks: [] }))
+      .then(({ playbooks }) => live && setBooks(playbooks))
+      .catch(() => live && setBooks([]));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return books;
+}
+
 /** Start a run; resolves to its id or throws with the server's message. */
 export async function startMachineRun(input: {
   machineId: string;
@@ -88,6 +111,9 @@ export function RunTargetPicker({
   projects,
   selectedProjectId,
   onSelectProject,
+  playbooks,
+  selectedPlaybookId,
+  onSelectPlaybook,
 }: {
   machines: readonly MachineOption[] | null;
   /** null = chat. */
@@ -99,11 +125,20 @@ export function RunTargetPicker({
   projects?: readonly ProjectOption[] | null;
   selectedProjectId?: string | null;
   onSelectProject?: (projectId: string | null) => void;
+  /** 0037: playbooks a project chat can run by (project scope only). */
+  playbooks?: readonly PlaybookOption[] | null;
+  selectedPlaybookId?: string | null;
+  onSelectPlaybook?: (playbookId: string | null) => void;
 }) {
   const selected = machines?.find((m) => m.id === selectedId) ?? null;
   const selectedProject =
     projects?.find((p) => p.id === (selectedProjectId ?? null)) ?? null;
-  const label = selected ? selected.name : (selectedProject?.name ?? "Chat");
+  const selectedBook = projectScoped ? (playbooks?.find((b) => b.id === selectedPlaybookId) ?? null) : null;
+  const label = selected
+    ? selected.name
+    : selectedBook
+      ? `${selectedProject?.name ?? "Project"} · ${selectedBook.title.split(" — ")[0]}`
+      : (selectedProject?.name ?? "Chat");
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -118,6 +153,8 @@ export function RunTargetPicker({
         >
           {selected ? (
             <Workflow className="size-3.5 shrink-0" aria-hidden />
+          ) : selectedBook ? (
+            <BookOpen className="size-3.5 shrink-0" aria-hidden />
           ) : selectedProject ? (
             <FolderGit2 className="size-3.5 shrink-0" aria-hidden />
           ) : (
@@ -173,6 +210,32 @@ export function RunTargetPicker({
               <span className="text-xs font-normal text-muted-foreground">A conversation with your agent</span>
             </span>
           </DropdownMenuItem>
+        )}
+        {projectScoped && playbooks && playbooks.length > 0 && onSelectPlaybook && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Chat with a playbook
+            </DropdownMenuLabel>
+            {playbooks.map((b) => (
+              <DropdownMenuItem
+                key={b.id}
+                onSelect={() => {
+                  onSelect(null);
+                  onSelectPlaybook(b.id);
+                }}
+                className="items-start py-2"
+              >
+                <Check className={cn("mt-0.5", b.id === selectedBook?.id ? "opacity-100" : "opacity-0")} aria-hidden />
+                <span className="flex min-w-0 flex-col">
+                  <span>{b.title}</span>
+                  {b.description && (
+                    <span className="line-clamp-2 text-xs font-normal text-muted-foreground">{b.description}</span>
+                  )}
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">

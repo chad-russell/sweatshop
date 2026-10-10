@@ -24,6 +24,7 @@ import {
   sandboxExecStep,
   startMachineStep,
   systemDocsStep,
+  bindPlaybookStep,
   ghStep,
   forgejoStep,
   listProjectsStep,
@@ -238,6 +239,15 @@ export function buildChatTools(
 
     // Capability docs (the skills-pattern v1): succinct instructions
     // point here; the depth is pulled on demand from docs/agent/.
+    use_playbook: tool({
+      description:
+        "Run this thread by a playbook — a runbook for a kind of work (e.g. \"ship\": ticket to approved PR). " +
+        "Call it when Chad asks for that kind of work mid-thread (\"ship it\"); the playbook then guides every " +
+        "later turn and the thread gets the background work budget. Omit id to list playbooks.",
+      inputSchema: z.object({ id: z.string().optional().describe("Playbook id; omit to list") }),
+      execute: ({ id }) => bindPlaybookStep(conversationId, id),
+    }),
+
     system_docs: tool({
       description:
         "Read a capability doc: how this system's pieces work and how to drive them — " +

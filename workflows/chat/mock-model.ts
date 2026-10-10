@@ -12,7 +12,7 @@ import type { LanguageModel } from "ai";
  * the workflow serializes the model across step boundaries, so instance
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
- * "hang" | "edit-machine" | "create-machine" | "create-pr" | "viewing") is read at call time so a test file can
+ * "hang" | "edit-machine" | "create-machine" | "create-pr" | "viewing" | "playbook" | "loop") is read at call time so a test file can
  * switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
@@ -116,6 +116,23 @@ export function scriptedChatModel(): LanguageModel {
         // Echo the tool result back so the test can see it round-tripped.
         const toolMessage = options.prompt.find((m) => m.role === "tool");
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
+      }
+
+      // 0037: bind a playbook mid-thread; later turns see it in the
+      // system prompt ("mock-playbook:<in-system>").
+      if (script === "playbook") {
+        const system = options.prompt.find((m) => m.role === "system");
+        const inSystem = system ? messageText(system).includes("# Playbook: Ship") : false;
+        if (!sawToolResult && !inSystem) {
+          return result(toolCallPart("call_playbook_1", "use_playbook", { id: "ship" }));
+        }
+        return result(textPart(`mock-playbook:${inSystem}`));
+      }
+
+      // 0037: a turn that never stops calling tools — exhausts its budget.
+      if (script === "loop") {
+        const n = options.prompt.filter((m) => m.role === "tool").length;
+        return result(toolCallPart(`call_loop_${n}`, "note", { note: `loop ${n}` }));
       }
 
       if (script === "steer") {

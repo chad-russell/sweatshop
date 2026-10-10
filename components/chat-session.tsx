@@ -643,7 +643,9 @@ function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; stat
     <span className="mb-1 inline-flex max-w-full items-center gap-1 self-start rounded-full border bg-muted/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
       <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden />
       <span className="truncate">
-        {runEvent.kind === "machine" ? "run" : runEvent.id.split("_")[0]} {runEvent.status} · {runEvent.id}
+        {runEvent.kind === "budget"
+          ? "step budget reached · continuing"
+          : `${runEvent.kind === "machine" ? "run" : runEvent.id.split("_")[0]} ${runEvent.status} · ${runEvent.id}`}
       </span>
     </span>
   );
@@ -785,6 +787,7 @@ export function ChatSession({
   onAdopted,
   onAddressable,
   pageContext,
+  playbook,
   className,
   ref,
 }: {
@@ -810,6 +813,8 @@ export function ChatSession({
   /** 0015: the page this chat is drawn on, read at send time — each send
    *  carries it as the turn's viewing note ("this"). Absent = no note. */
   pageContext?: () => ViewingContext | null;
+  /** 0037: the playbook the creating send binds (null = plain chat). */
+  playbook?: string | null;
   className?: string;
   ref?: Ref<ChatSessionController>;
 }) {
@@ -858,12 +863,14 @@ export function ChatSession({
   const choiceRef = useRef(sandboxChoice);
   const conversationRef = useRef({ conversationId, projectId: projectId ?? null });
   const pageContextRef = useRef(pageContext);
+  const playbookRef = useRef(playbook ?? null);
   useEffect(() => {
     routeRef.current = { touched: routeTouched, route };
     choiceRef.current = sandboxChoice;
     conversationRef.current = { conversationId, projectId: projectId ?? null };
     pageContextRef.current = pageContext;
-  }, [route, routeTouched, sandboxChoice, conversationId, projectId, pageContext]);
+    playbookRef.current = playbook ?? null;
+  }, [route, routeTouched, sandboxChoice, conversationId, projectId, pageContext, playbook]);
 
   const resumeRunRef = useRef<string | null>(null);
   // The callback runs at send time (never during render) and must see
@@ -889,6 +896,8 @@ export function ChatSession({
               // Only the creating send's choice counts (server-enforced);
               // "auto" = the chat's own sandbox, the default.
               ...(choiceRef.current !== "auto" ? { sandbox: choiceRef.current } : {}),
+              // 0037: creation-only server-side, like the sandbox choice.
+              ...(playbookRef.current ? { playbook: playbookRef.current } : {}),
               ...(viewing ? { context: viewing } : {}),
               messages,
               trigger,

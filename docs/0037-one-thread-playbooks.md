@@ -196,7 +196,13 @@ inbox's machine-gate card goes away.
    in an already-bound sandbox. Typing answers the OLDEST pending input.
    A hook that will not resume falls back to a steer, so no message is
    lost.)*
-2. **Playbooks + budget.** Items 1 and 4, Ship only.
+2. **Playbooks + budget.** Items 1 and 4, Ship only. *(Built
+   2026-10-10: `conversations.playbook`; the body goes into the turn
+   instructions, not a note, because a mid-thread `use_playbook` must
+   govern every later turn. Budget exhaustion continues the thread
+   through a `budget` wake; the "three nudges with no progress"
+   heuristic became "three consecutive continuations with no human
+   message", which is simpler to count.)*
    **Experiment:** WYC-1589 run 5 in a project chat with the Ship
    playbook versus run 4 on `flow`, same metrics, plus one deliberate
    revise at the PR card (the case `flow` fails).

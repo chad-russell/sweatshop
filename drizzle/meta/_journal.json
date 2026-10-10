@@ -316,6 +316,13 @@
       "when": 1791599431763,
       "tag": "0044_pending_input_card",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1791600984075,
+      "tag": "0045_conversation_playbook",
+      "breakpoints": true
     }
   ]
 }

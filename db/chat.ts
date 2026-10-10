@@ -33,9 +33,10 @@ export interface MessageRowMetadata {
   runEvent?: RunEventMeta;
 }
 
-/** 0022: what woke a conversation (machine run or harness call). */
+/** 0022: what woke a conversation (machine run or harness call; 0037:
+ *  "budget" = a playbook turn hit its step budget and continues). */
 export interface RunEventMeta {
-  kind: "machine" | "harness";
+  kind: "machine" | "harness" | "budget";
   id: string;
   status: string;
 }
@@ -78,6 +79,8 @@ export function getConversation(
   route: ChatRoute | null;
   /** 0007: set while the conversation sits in Trash (0022: no wakes). */
   trashedAt: number | null;
+  /** 0037: the thread's playbook id (null = plain chat). */
+  playbook: string | null;
 } | null {
   const row = db
     .select({
@@ -85,11 +88,17 @@ export function getConversation(
       projectId: conversations.projectId,
       route: conversations.route,
       trashedAt: conversations.trashedAt,
+      playbook: conversations.playbook,
     })
     .from(conversations)
     .where(eq(conversations.id, id))
     .get();
   return row ? { ...row, route: parseStoredChatRoute(row.route) } : null;
+}
+
+/** 0037: set the thread's playbook (creation send, or use_playbook). */
+export function setConversationPlaybook(db: Db, id: string, playbook: string): void {
+  db.update(conversations).set({ playbook }).where(eq(conversations.id, id)).run();
 }
 
 /** 0021: set (or clear, with null) the conversation's route — the chat
