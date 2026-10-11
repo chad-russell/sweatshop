@@ -21,7 +21,7 @@ const MAX_STEPS = 200;
 export interface HarnessCallInput {
   callId: string;
   conversationId: string;
-  kind: "pi" | "claude";
+  kind: "pi" | "claude" | "cursor";
   task: string;
   /** 0021: resolved by the starter (route crossing step boundaries as
    *  plain data — the SerializableChatModel protocol is per-turn, not

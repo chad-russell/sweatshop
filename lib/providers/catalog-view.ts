@@ -1,6 +1,7 @@
 import type { Db } from "../../db";
 import { getGlobalDefaults, getProjectModels, listProviderModels, type ProjectModels } from "../../db/providers";
-import { CLAUDE_MODELS, PROVIDER_IDS, PROVIDER_LABELS, type ModelInfo, type ProviderId } from "./catalog";
+import { cursorConfigured, cursorCredential } from "../harness-auth/cursor";
+import { CLAUDE_MODELS, CURSOR_MODELS, PROVIDER_IDS, PROVIDER_LABELS, type ModelInfo, type ProviderId } from "./catalog";
 import { availableProviders } from "./registry";
 import type { GlobalDefaults, RouteHarness } from "./route";
 
@@ -20,6 +21,15 @@ export interface ModelsView {
     models: ModelInfo[];
   }[];
   claude: { configured: boolean; allowed: boolean; models: { id: string; label: string }[] };
+  /** 0038: `configured` = a usable login file; `status` is the reason it
+   *  is not (missing/invalid/expired), `expiresAt` the access-token expiry. */
+  cursor: {
+    configured: boolean;
+    allowed: boolean;
+    models: { id: string; label: string }[];
+    status: string | null;
+    expiresAt: number | null;
+  };
   piAllowed: boolean;
   defaults: GlobalDefaults;
   project: ProjectModels | null;
@@ -45,8 +55,20 @@ export function modelsView(db: Db, projectId?: string | null): ModelsView {
       allowed: harnessAllowed("claude"),
       models: [...CLAUDE_MODELS],
     },
+    cursor: cursorView(harnessAllowed("cursor")),
     piAllowed: harnessAllowed("pi"),
     defaults: getGlobalDefaults(db),
     project,
+  };
+}
+
+function cursorView(allowed: boolean): ModelsView["cursor"] {
+  const credential = cursorCredential();
+  return {
+    configured: cursorConfigured(),
+    allowed,
+    models: [...CURSOR_MODELS],
+    status: credential.ok ? null : credential.message,
+    expiresAt: credential.ok ? credential.expiresAt : null,
   };
 }

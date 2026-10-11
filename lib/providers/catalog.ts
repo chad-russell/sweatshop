@@ -94,6 +94,22 @@ export function staticModels(provider: ProviderId): readonly ModelInfo[] | null 
   return null;
 }
 
+/**
+ * 0038: Cursor CLI model ids offered for the subscription harness (a
+ * curated slice of `agent --list-models`; unset = Cursor's own default,
+ * "auto"). Ids pass through to the CLI as-is — a model Cursor retires
+ * fails the turn value-shaped, never silently swapped.
+ */
+export const CURSOR_MODELS: readonly { id: string; label: string }[] = [
+  { id: "auto", label: "Auto" },
+  { id: "composer-2.5", label: "Composer 2.5" },
+  { id: "gpt-5.3-codex", label: "Codex 5.3" },
+  { id: "gpt-5.6-sol-high", label: "GPT-5.6 Sol High" },
+  { id: "claude-sonnet-5-thinking-high", label: "Claude Sonnet 5 Thinking" },
+  { id: "claude-opus-5-thinking-high", label: "Claude Opus 5 Thinking" },
+  { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash" },
+];
+
 /** Claude models offered for the subscription harness (model is optional — unset = the subscription default). */
 export const CLAUDE_MODELS: readonly { id: string; label: string }[] = [
   { id: "opus", label: "Opus" },

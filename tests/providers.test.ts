@@ -57,6 +57,13 @@ describe("route schema", () => {
     expect(routeSchema.safeParse({ harness: "claude" }).success).toBe(true);
   });
 
+  it("0038: cursor takes only a model — nowhere to put a provider or effort", () => {
+    expect(routeSchema.safeParse({ harness: "cursor" }).success).toBe(true);
+    expect(routeSchema.safeParse({ harness: "cursor", model: "composer-2.5" }).success).toBe(true);
+    expect(routeSchema.safeParse({ harness: "cursor", provider: "openrouter", model: "x/y" }).success).toBe(false);
+    expect(routeSchema.safeParse({ harness: "cursor", effort: "high" }).success).toBe(false);
+  });
+
   it("has nowhere to put a provider on claude (ToS by construction)", () => {
     expect(routeSchema.safeParse({ harness: "claude", provider: "openrouter", model: "opus" }).success).toBe(false);
   });
@@ -109,6 +116,18 @@ describe("resolveRoute layers", () => {
     expect(resolveRoute("pi", { global: g, stage: { harness: "claude", model: "opus" } }).layer).toBe("global");
   });
 
+  it("0038: cursor never inherits a chat/project/run route, and only a cursor stage applies", () => {
+    expect(resolveRoute("cursor", { global: g, conversation: conv, project: proj, run: conv })).toEqual({
+      route: g.cursor,
+      layer: "global",
+    });
+    expect(resolveRoute("cursor", { global: g, stage: { harness: "claude", model: "opus" } }).layer).toBe("global");
+    expect(resolveRoute("cursor", { global: g, stage: { harness: "cursor", model: "composer-2.5" } })).toEqual({
+      route: { harness: "cursor", model: "composer-2.5" },
+      layer: "stage",
+    });
+  });
+
   it("claude never inherits a chat/project/run route (decision 1)", () => {
     expect(resolveRoute("claude", { global: g, conversation: conv, project: proj, run: conv })).toEqual({
       route: g.claude,
@@ -133,6 +152,7 @@ describe("validateRoute", () => {
     availableProviders: new Set(["glm", "gloo", "openrouter"]),
     hasModel: () => true,
     claudeConfigured: true,
+    cursorConfigured: true,
     project: null,
     ...over,
   });
@@ -149,6 +169,21 @@ describe("validateRoute", () => {
   it("rejects an unknown model, accepts an unfetched dynamic catalog", () => {
     expect(validateRoute({ provider: "glm", model: "nope" }, ctx({ hasModel: () => false })).ok).toBe(false);
     expect(validateRoute({ provider: "openrouter", model: "a/b" }, ctx({ hasModel: () => "unknown" })).ok).toBe(true);
+  });
+
+  it("0038: rejects cursor until a login exists, with the way out in the message", () => {
+    const r = validateRoute({ harness: "cursor" }, ctx({ cursorConfigured: false }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.issues[0]).toContain("agent login");
+    expect(validateRoute({ harness: "cursor" }, ctx({ cursorConfigured: true })).ok).toBe(true);
+  });
+
+  it("0038: a cursor harness is a restrictable harness like the others", () => {
+    const project = { id: "p", allowedProviders: null, allowedHarnesses: ["pi", "claude"] as const };
+    expect(validateRoute({ harness: "cursor" }, ctx({ project })).ok).toBe(false);
+    expect(
+      validateRoute({ harness: "cursor" }, ctx({ project: { ...project, allowedHarnesses: ["cursor"] as const } })).ok,
+    ).toBe(true);
   });
 
   it("rejects claude when its token is unset", () => {
@@ -188,6 +223,7 @@ describe("thinking on chat routes (0021 amendment)", () => {
     availableProviders: new Set(["glm", "gloo", "openrouter"]),
     hasModel: () => true,
     claudeConfigured: true,
+    cursorConfigured: true,
     project: null,
     ...over,
   });

@@ -1,5 +1,6 @@
 import { HarnessAgent } from "@ai-sdk/harness/agent";
 import { createClaudeCode } from "@ai-sdk/harness-claude-code";
+import { createCursor } from "@ai-sdk/harness-cursor";
 import { createPi } from "@ai-sdk/harness-pi";
 import { isStepCount, type ToolSet } from "ai";
 import type { ModelInfo } from "@/lib/providers/catalog";
@@ -48,6 +49,25 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
       // Without a workDir the harness gives every session a private
       // `<harness>-<sessionId>` directory — sessions would not see each
       // other's work. "." = the sandbox cwd, the workspace root.
+      sandboxConfig: { workDir: "." },
+      tools,
+      stopWhen: isStepCount(1),
+    });
+  }
+  if (route.harness === "cursor") {
+    // 0038: subscription only — the browser-login auth.json is planted in
+    // the sandbox by the call step (lib/harness-auth/cursor.ts), and the
+    // CLI authenticates from that file. Default `auth` (auto) on purpose —
+    // it is what the 0038 spike proved; `direct` makes the adapter MORE
+    // eager to resolve its native subscription (forwarding the access
+    // token as CURSOR_API_KEY, which the CLI rejects), and warns. With no
+    // CURSOR_API_KEY in this process env the shortcut finds nothing to
+    // forward, so the planted file is what authenticates. The route
+    // contributes only the model.
+    return new HarnessAgent({
+      harness: createCursor({ port: HARNESS_BRIDGE_PORT }),
+      id: `cursor-${sessionId}`,
+      ...(route.model ? { model: route.model } : {}),
       sandboxConfig: { workDir: "." },
       tools,
       stopWhen: isStepCount(1),

@@ -101,7 +101,7 @@ export interface HarnessToolStepInput {
   conversationId: string;
   /** 0034 A: the owning run — propose_pr records against it. */
   runId: string;
-  kind: "pi" | "claude";
+  kind: "pi" | "claude" | "cursor";
   task: string;
   /** 0013: run in this binding (the run's) with this project. */
   inherited: { binding: BoundSandbox; projectId: string };
@@ -125,7 +125,7 @@ export interface HarnessToolStepResult {
  */
 export async function startHarnessCallStep(input: {
   conversationId: string;
-  kind: "pi" | "claude";
+  kind: "pi" | "claude" | "cursor";
   task: string;
 }): Promise<import("../../lib/chat/harness-call-start").StartHarnessCallResult> {
   "use step";
@@ -137,7 +137,7 @@ export async function startHarnessCallStep(input: {
 export async function harnessAdvanceStep(input: {
   callId: string;
   conversationId: string;
-  kind: "pi" | "claude";
+  kind: "pi" | "claude" | "cursor";
   route: import("../../lib/providers/route").HarnessRoute;
   state: HarnessWorkflowState;
 }): Promise<{ state: HarnessWorkflowState; text: string; toolCalls: number }> {
@@ -203,6 +203,21 @@ export async function harnessAdvanceStep(input: {
 
     const projectId = getConversation(db(), input.conversationId)?.projectId;
     if (!projectId) throw new Error(`conversation ${input.conversationId} lost its project mid-call`);
+    // 0038: the CLI authenticates from a planted auth.json. The host
+    // copy is the source of truth, re-planted every step (a refresh the
+    // CLI does in the sandbox must never strand it); a missing/expired
+    // login fails the call value-shaped instead of as an opaque bridge
+    // error. The step is idempotent and the credential never logs.
+    if (input.route.harness === "cursor") {
+      const [{ cursorCredential, plantCursorCredential }, { FatalError }] = await Promise.all([
+        import("../../lib/harness-auth/cursor"),
+        import("workflow"),
+      ]);
+      const credential = cursorCredential();
+      if (!credential.ok) throw new FatalError(credential.message);
+      const planted = await plantCursorCredential(handle, credential.json);
+      if (!planted.ok) throw new FatalError(planted.message);
+    }
     // 0034 A: a CHAT harness call has no git tool at all — publishing
     // is the chat agent's act (its gated create_pr) after the wake.
     const agent = buildHarnessAgent({
@@ -237,7 +252,7 @@ export async function harnessAdvanceStep(input: {
 export async function harnessSettleStep(input: {
   callId: string;
   conversationId: string;
-  kind: "pi" | "claude";
+  kind: "pi" | "claude" | "cursor";
   status: "completed" | "failed";
   text: string;
   toolCalls: number;

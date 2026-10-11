@@ -7,6 +7,7 @@ import {
   SURFACES,
   chatRouteSchema,
   claudeRouteSchema,
+  cursorRouteSchema,
   piRouteSchema,
   type ChatRoute,
   type GlobalDefaults,
@@ -31,6 +32,7 @@ const SURFACE_SCHEMA = {
   titles: chatRouteSchema,
   pi: piRouteSchema,
   claude: claudeRouteSchema,
+  cursor: cursorRouteSchema,
 } as const;
 
 export function surfaceSchema(surface: Surface) {
@@ -200,7 +202,7 @@ export function getProjectModels(db: Db, projectId: string | null | undefined): 
     id: row.id,
     defaultRoute: route.success ? route.data : null,
     allowedProviders: parseList(row.allowedProviders, PROVIDER_IDS),
-    allowedHarnesses: parseList(row.allowedHarnesses, ["pi", "claude"] as const),
+    allowedHarnesses: parseList(row.allowedHarnesses, ["pi", "claude", "cursor"] as const),
   };
 }
 

@@ -1,8 +1,7 @@
 # 0038 — Cursor harness, browser-login auth (and the road to in-app auth)
 
-Status: **2026-10-11 — spike done, design for approval.** Nothing but the
-spike and one adapter fix is merged by this doc; the build is gated on
-Chad's approval of the shape below.
+Status: **2026-10-11 — approved by Chad; v1 built** (branch
+`feat/cursor-harness`). The spike and the adapter fix shipped in #80.
 
 ## Why this exists
 
@@ -157,3 +156,53 @@ claude and cursor. The shape that fits what we now know:
 6. `/settings`: status (logged in as, expires in N days).
 7. Live: `CURSOR_SPIKE=1` stays as the opt-in check; add a route-driven
    variant like `CLAUDE_SPIKE`.
+
+## As built (v1)
+
+Matches the plan above, with these specifics:
+
+- `lib/harness-auth/cursor.ts` — the seam: `cursorCredential()` (sync;
+  missing / invalid / expired are value-shaped, a login within 1 h of
+  expiry counts as expired), `saveCursorCredential` (validates, 0600,
+  atomic rename), `plantCursorCredential` (env-var base64 into
+  `$HOME/.ai-sdk-harness/.harness-bootstrap/cursor/implementation/home/
+  .config/cursor/auth.json` — `$HOME` expands inside the sandbox, so no
+  path is guessed from the host). `HARNESS_AUTH_DIR` relocates the root.
+- Planting happens in `harnessAdvanceStep` **before** the adapter's first
+  bootstrap and again on every step (the host copy is the source of truth;
+  the in-sandbox file is a cache). A missing/expired login fails the call
+  as a `FatalError` with the fix in the message.
+- The adapter runs with its default `auth`. `direct` was tried on paper and
+  rejected: it makes the adapter's native-subscription shortcut MORE eager
+  (it would forward the access token as `CURSOR_API_KEY`, which the CLI
+  rejects) and logs a warning. With no `CURSOR_API_KEY` in the app's env
+  the shortcut forwards nothing and the planted file authenticates.
+- Route: `{harness:"cursor", model?}`; surface `cursor`; global default
+  `{harness:"cursor"}`; allowed in project `allowed_harnesses`;
+  validation needs a usable login. The model list is a curated slice of
+  `agent --list-models` (`CURSOR_MODELS`), `auto` first.
+- Chat tool `cursor` (project + sandbox chats, beside pi/claude), the
+  generic `/h/cursor/<id>` view, wake chip, cancel — all through the
+  existing 0022 path; `harness_calls.kind` is plain text, so no migration.
+- `/settings`: login status and expiry, default-model picker. Project page:
+  `cursor` in the allowed-harnesses list.
+- `Containerfile.sandbox` gains `curl`. Until the base image is rebuilt
+  (`./dev exec -- docker build -t localhost/sweatshop-sandbox -f
+  Containerfile.sandbox .`), existing sandboxes cannot install the CLI.
+- Tests: credential parse/store/plant (real bash round trip for the plant),
+  route schema/validation/resolution, the settings write path, tool gating,
+  and the start gate. Live: `tests/cursor-spike.integration.test.ts` now
+  drives the production builder + plant order; the negative control
+  (nothing planted) fails "Authentication required".
+
+### Still open
+
+- Near-expiry refresh was not exercised (tokens last ~60 days); the host
+  copy is re-planted every step, so a CLI-side refresh in a sandbox cannot
+  strand it, but it also means a refreshed token is not captured back. If
+  the refresh token proves single-use, the Connect flow (or a copy-back)
+  becomes necessary rather than optional.
+- Permission requests: the adapter's default permission mode is
+  `allow-all` (acp-v1-harness.ts); the spike turn completed without
+  prompts. That matches how claude runs today; revisit with the sandbox
+  `network_policy`.

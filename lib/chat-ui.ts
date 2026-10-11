@@ -149,7 +149,7 @@ export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
 
 /** Tools whose successful result is a background child that will wake
  *  this chat when it settles (0022; start_thread children, 0037). */
-const BACKGROUND_TOOLS = new Set(["start_machine", "pi", "claude", "start_thread"]);
+const BACKGROUND_TOOLS = new Set(["start_machine", "pi", "claude", "cursor", "start_thread"]);
 
 /** Whether the transcript shows background work that has not yet woken
  *  it: a started child (run or harness handle) after the latest wake. A

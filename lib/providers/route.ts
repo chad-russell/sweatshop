@@ -7,7 +7,7 @@ import { PROVIDER_IDS, PROVIDER_LABELS, type ProviderId } from "./catalog";
  * stores, the routes, and the client pickers.
  *
  * Provider-routed surfaces (chats, agent stages, titles, pi) carry a
- * provider + model. The subscription harnesses (claude; cursor later)
+ * provider + model. The subscription harnesses (claude, cursor — 0038)
  * carry only what the subscription offers — the schema has nowhere to
  * put a provider on them, so "never repoint a subscription harness"
  * holds by construction (decision 1).
@@ -17,7 +17,7 @@ export const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
 export type Thinking = (typeof THINKING_LEVELS)[number];
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ClaudeEffort = (typeof CLAUDE_EFFORTS)[number];
-export const ROUTE_HARNESSES = ["pi", "claude"] as const;
+export const ROUTE_HARNESSES = ["pi", "claude", "cursor"] as const;
 export type RouteHarness = (typeof ROUTE_HARNESSES)[number];
 
 const providerId = z.enum(PROVIDER_IDS);
@@ -42,23 +42,36 @@ export const claudeRouteSchema = z.strictObject({
   model: modelId.optional(),
   effort: z.enum(CLAUDE_EFFORTS).optional(),
 });
-export const harnessRouteSchema = z.discriminatedUnion("harness", [piRouteSchema, claudeRouteSchema]);
+/** 0038: Cursor — subscription only (browser-login auth.json); the model
+ *  is a Cursor CLI model id, unset = Cursor's own default ("auto"). */
+export const cursorRouteSchema = z.strictObject({
+  harness: z.literal("cursor"),
+  model: modelId.optional(),
+});
+export const harnessRouteSchema = z.discriminatedUnion("harness", [
+  piRouteSchema,
+  claudeRouteSchema,
+  cursorRouteSchema,
+]);
 export const routeSchema = z.union([harnessRouteSchema, chatRouteSchema]);
 
 export type ChatRoute = z.infer<typeof chatRouteSchema>;
 export type PiRoute = z.infer<typeof piRouteSchema>;
 export type ClaudeRoute = z.infer<typeof claudeRouteSchema>;
+export type CursorRoute = z.infer<typeof cursorRouteSchema>;
 export type HarnessRoute = z.infer<typeof harnessRouteSchema>;
 export type Route = z.infer<typeof routeSchema>;
 
 /** Where a model call happens — each resolves through its own layers. */
-export type Surface = "chat" | "agent" | "pi" | "claude" | "titles";
-export const SURFACES = ["chat", "agent", "pi", "claude", "titles"] as const satisfies readonly Surface[];
+export type Surface = "chat" | "agent" | "pi" | "claude" | "cursor" | "titles";
+export const SURFACES = ["chat", "agent", "pi", "claude", "cursor", "titles"] as const satisfies readonly Surface[];
 export type SurfaceRoute<S extends Surface> = S extends "pi"
   ? PiRoute
   : S extends "claude"
     ? ClaudeRoute
-    : ChatRoute;
+    : S extends "cursor"
+      ? CursorRoute
+      : ChatRoute;
 
 /** Which layer a resolved route came from — recorded with every visit/turn. */
 export type RouteLayer = "run-stage" | "run" | "stage" | "conversation" | "project" | "global";
@@ -76,6 +89,7 @@ export const BUILTIN_DEFAULTS: GlobalDefaults = {
   agent: { provider: "glm", model: "glm-5.3-flash" },
   pi: { harness: "pi", provider: "glm", model: "glm-5.3-flash" },
   claude: { harness: "claude" },
+  cursor: { harness: "cursor" },
   titles: { provider: "glm", model: "glm-5.3-flash" },
 };
 
@@ -103,6 +117,8 @@ const isChat = (r: Route | null | undefined): r is ChatRoute => !!r && !("harnes
 const isPi = (r: Route | null | undefined): r is PiRoute => !!r && "harness" in r && r.harness === "pi";
 const isClaude = (r: Route | null | undefined): r is ClaudeRoute =>
   !!r && "harness" in r && r.harness === "claude";
+const isCursor = (r: Route | null | undefined): r is CursorRoute =>
+  !!r && "harness" in r && r.harness === "cursor";
 
 /** A chat route carried onto pi (the chat's pi tool inherits its conversation's route). */
 function asPi(r: ChatRoute | PiRoute): PiRoute {
@@ -117,6 +133,7 @@ function asPi(r: ChatRoute | PiRoute): PiRoute {
  *   pi:     run-stage > run > stage > conversation > project > global
  *   claude: run-stage > stage > global — never inherits a chat/project
  *           route (subscription harness, decision 1)
+ *   cursor: same as claude (0038)
  * A layer whose value has the wrong shape for the surface is skipped.
  */
 export function resolveRoute<S extends Surface>(surface: S, layers: RouteLayers): Resolved<S> {
@@ -147,6 +164,10 @@ export function resolveRoute<S extends Surface>(surface: S, layers: RouteLayers)
         if (isClaude(layers.runStage)) return { route: layers.runStage, layer: "run-stage" };
         if (isClaude(layers.stage)) return { route: layers.stage, layer: "stage" };
         return { route: g.claude, layer: "global" };
+      case "cursor":
+        if (isCursor(layers.runStage)) return { route: layers.runStage, layer: "run-stage" };
+        if (isCursor(layers.stage)) return { route: layers.stage, layer: "stage" };
+        return { route: g.cursor, layer: "global" };
     }
     throw new Error(`unknown surface ${String(surface)}`);
   };
@@ -171,6 +192,8 @@ export interface ValidationContext {
    *  "unknown" = dynamic catalog never fetched — accepted). */
   modelReasoning?: (provider: ProviderId, model: string) => "none" | "switch" | "effort" | "unknown";
   claudeConfigured: boolean;
+  /** 0038: a usable Cursor browser-login credential exists. */
+  cursorConfigured: boolean;
   project?: (ProjectRestrictions & { id: string }) | null;
 }
 
@@ -229,6 +252,11 @@ export function validateRoute(route: Route, ctx: ValidationContext): RouteCheck 
   if (routeHarness(route) === "claude" && !ctx.claudeConfigured) {
     issues.push("claude is not configured (CLAUDE_CODE_OAUTH_TOKEN is not set)");
   }
+  if (routeHarness(route) === "cursor" && !ctx.cursorConfigured) {
+    issues.push(
+      "cursor is not logged in — run `agent login` and save its auth.json (data/harness-auth/cursor/auth.json), see /settings",
+    );
+  }
   issues.push(...checkRestrictions(route, ctx.project));
   return issues.length ? { ok: false, issues } : { ok: true };
 }
@@ -250,6 +278,7 @@ export function parseRouteAs<T>(
 
 /** Short display, e.g. "Gloo · gloo-openai-gpt-6-sol", "claude · opus". */
 export function routeLabel(route: Route): string {
+  if (isCursor(route)) return `cursor${route.model ? ` · ${route.model}` : ""}`;
   if (isClaude(route)) return `claude${route.model ? ` · ${route.model}` : ""}${route.effort ? ` (${route.effort})` : ""}`;
   const r = route as ChatRoute | PiRoute;
   const prefix = isPi(r) ? "pi · " : "";

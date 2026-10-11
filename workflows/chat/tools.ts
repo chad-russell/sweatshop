@@ -410,6 +410,19 @@ export function buildChatTools(
         }),
         execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "claude", task }),
       }),
+
+      cursor: tool({
+        description:
+          "Hand a coding task to the Cursor agent harness — it runs in the BACKGROUND in this " +
+          "conversation's sandbox with Cursor's own read/edit/shell tools. Returns a handle " +
+          "immediately; this conversation gets a \"[cursor finished]\" message with the result when " +
+          "it ends. cursor keeps context across calls. Needs Chad's Cursor login (it errors " +
+          "value-shaped when not logged in). inspect (hc_…) checks progress; cancel_run stops it.",
+        inputSchema: z.object({
+          task: z.string().min(1).describe("The coding task, with enough context to act on."),
+        }),
+        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "cursor", task }),
+      }),
     }),
 
     /** Trivial tool so the mock can force a second model step (steer test). */
