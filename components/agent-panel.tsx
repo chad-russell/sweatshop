@@ -16,8 +16,8 @@ import type { ChatRoute } from "@/lib/providers/route";
 /**
  * 0015 Part B — the always-available agent panel: an ordinary chat
  * (ChatSession) in a right-side frame in the root layout, so it stays
- * open across navigation. Toggled by a floating bottom-right button and
- * ⌘J / Ctrl-J. It pushes the page on lg+, overlays below it, and is a
+ * open across navigation. Toggled by a floating bottom-right button (md+;
+ * below md the nav drawer's "Agent" row opens it) and ⌘J / Ctrl-J. It pushes the page on lg+, overlays below it, and is a
  * full-screen sheet below md. The panel shows one current conversation
  * (its id in localStorage); New starts a fresh one and Open full page
  * goes to /c/<id>.
@@ -30,6 +30,8 @@ import type { ChatRoute } from "@/lib/providers/route";
  * (ChatSession's useMarkSeen — visible + focused tab).
  */
 
+/** Dispatched on `window` to open the panel (the mobile drawer's entry). */
+export const OPEN_PANEL_EVENT = "sweatshop:open-agent-panel";
 const OPEN_KEY = "sweatshop.panel.open";
 const CONVERSATION_KEY = "sweatshop.panel.conversation";
 const WIDTH_KEY = "sweatshop.panel.width";
@@ -122,6 +124,17 @@ export function AgentPanel() {
   useEffect(() => {
     toggleRef.current = togglePanel;
   });
+  // Other surfaces (the mobile nav drawer) open the panel by event rather
+  // than sharing state — the panel stays the one owner of its lifecycle.
+  const openRef = useRef(openPanel);
+  useEffect(() => {
+    openRef.current = openPanel;
+  });
+  useEffect(() => {
+    const onOpen = () => openRef.current();
+    window.addEventListener(OPEN_PANEL_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_PANEL_EVENT, onOpen);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "j") {
@@ -262,7 +275,7 @@ export function AgentPanel() {
           onClick={openPanel}
           aria-label="Open agent panel (⌘J)"
           title="Agent panel (⌘J)"
-          className="fixed right-4 bottom-[max(8.5rem,calc(env(safe-area-inset-bottom)+7.5rem))] z-40 md:bottom-4 inline-flex size-12 md:size-10 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+          className="fixed right-4 bottom-4 z-40 hidden size-10 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 md:inline-flex"
         >
           <Bot className="size-5" aria-hidden />
         </button>
@@ -296,6 +309,7 @@ export function AgentPanel() {
             <ChatSession
               key={`fresh-${nonce}`}
               frameId="panel"
+              className="flex-1"
               pageContext={readPageContext}
               onAdopted={handleAdopted}
               header={sessionHeader}
@@ -304,6 +318,7 @@ export function AgentPanel() {
             <ChatSession
               key={conversationId}
               frameId="panel"
+              className="flex-1"
               conversationId={conversationId}
               initialMessages={hydration.messages}
               activeRunId={hydration.activeRunId}
