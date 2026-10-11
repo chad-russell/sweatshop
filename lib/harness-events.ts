@@ -9,7 +9,7 @@ import { harnessEvents, harnessRuns } from "@/db/schema";
  */
 
 /** Harnesses with a first-class Eve tool (0006). */
-export const HARNESS_KINDS = ["pi", "claude"] as const;
+export const HARNESS_KINDS = ["pi", "claude", "cursor"] as const;
 export type HarnessKind = (typeof HARNESS_KINDS)[number];
 
 export function isHarnessKind(value: string): value is HarnessKind {

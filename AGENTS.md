@@ -125,8 +125,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   exempt (harness-pi owns its knob). Live check `THINKING_SPIKE=1`.
   Resolution per surface (`resolveRoute`): chat =
   conversation > project > global; agent = (stage layers historical, machines gone) project > global;
-  pi = conversation > project > global; claude = global (never inherits
-  a chat/project route); titles = the titles default, else the
+  pi = conversation > project > global; claude and cursor = global
+  (never inherit a chat/project route); titles = the titles default, else the
   project's default when the project forbids it, else skipped. Project
   restrictions (`projects.allowed_providers` / `allowed_harnesses`,
   null = all) apply AFTER resolution at every layer — rejected, never
@@ -311,7 +311,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   conversation (hydrated before mount; initialMessages/activeRunId are
   init-only props).
 - Harness agents (0005/0006 + 0010 Phase 3 + 0022): project
-  conversations have `pi` and `claude` tools — separate coding harnesses
+  conversations have `pi`, `claude` and `cursor` tools — separate coding harnesses
   on the conversation's sandbox (0010 lease seam). CHAT calls are
   BACKGROUND work (0022 cut 2): the tool step
   (`startHarnessCallStep` → core `lib/chat/harness-call-start.ts`)
@@ -345,7 +345,23 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   through the adapter's env channel (`auth: "direct"` — no gateway, no
   host discovery); single-user personal use per Chad's recorded
   decision, revisit if productized. The tool is env-gated off until the
-  variable is set. Harness activity persists in `harness_events` +
+  variable is set. cursor (0038, `@ai-sdk/harness-cursor` 1.0.55 over ACP,
+  pinned exactly — it pairs with harness 1.0.141) authenticates from the
+  CLI's BROWSER-LOGIN `auth.json` (`agent login`), not an API key: the
+  app holds it at `data/harness-auth/cursor/auth.json` (0600;
+  `HARNESS_AUTH_DIR` relocates; `lib/harness-auth/cursor.ts` is the one
+  seam — read/validate/store/plant), and every harness step re-plants the
+  host copy into the CLI's private HOME in the sandbox (env-var base64,
+  never argv or logs; the host file is the source of truth). The access
+  token as `CURSOR_API_KEY`/`CURSOR_AUTH_TOKEN` is rejected by the CLI —
+  only the file authenticates it. Route `{harness:"cursor", model?}`
+  (subscription only, validated against the login: missing/invalid/
+  expired refuse value-shaped; a login inside 1 h of expiry is refused),
+  `/settings` shows status + expiry. Live check:
+  `CURSOR_SPIKE=1 CURSOR_SPIKE_AUTH_JSON=… npx vitest run
+  tests/cursor-spike.integration.test.ts` (production builder + plant
+  order; `CURSOR_SPIKE_NO_AUTH=1` is the negative control; needs a sandbox
+  image with curl until the base image is rebuilt). Harness activity persists in `harness_events` +
   `harness_runs` keyed (conversation, harness) —
   `/h/<harness>/<conversationId>` is the one shape for every harness
   (pi, claude); legacy `/h/<id>` and `/h/<id>/<harness>` URLs

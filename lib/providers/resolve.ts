@@ -7,6 +7,7 @@ import {
   getProjectModels,
   type ProjectModels,
 } from "../../db/providers";
+import { cursorConfigured } from "../harness-auth/cursor";
 import { availableProviders } from "./registry";
 import {
   resolveRoute,
@@ -40,6 +41,7 @@ export function validationContext(db: Db, project: ProjectModels | null): Valida
       return catalogHas(db, provider, model) === "unknown" ? "unknown" : "none";
     },
     claudeConfigured: !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
+    cursorConfigured: cursorConfigured(),
     project: project
       ? { id: project.id, allowedProviders: project.allowedProviders, allowedHarnesses: project.allowedHarnesses }
       : null,

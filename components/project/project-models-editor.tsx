@@ -49,7 +49,7 @@ export function ProjectModelsEditor({ projectId, initial }: { projectId: string;
     const next = current.includes(id) ? current.filter((p) => p !== id) : [...current, id];
     void patch({ allowedProviders: next.length === providers.length ? null : next });
   };
-  const harnesses: RouteHarness[] = ["pi", "claude"];
+  const harnesses: RouteHarness[] = ["pi", "claude", "cursor"];
   const toggleHarness = (id: RouteHarness) => {
     const current = project.allowedHarnesses ?? harnesses;
     const next = current.includes(id) ? current.filter((h) => h !== id) : [...current, id];
@@ -100,7 +100,7 @@ export function ProjectModelsEditor({ projectId, initial }: { projectId: string;
                 onChange={() => toggleHarness(h)}
               />
               {h}
-              {h === "claude" && <span className={LABEL}>(subscription)</span>}
+              {(h === "claude" || h === "cursor") && <span className={LABEL}>(subscription)</span>}
             </label>
           ))}
         </div>

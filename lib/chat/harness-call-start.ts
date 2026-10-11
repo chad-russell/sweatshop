@@ -9,6 +9,7 @@ import {
   recordHarnessRunEnd,
 } from "@/lib/harness-events";
 import { HARNESS_INPUT_CLIP } from "@/lib/harness-limits";
+import { cursorCredential } from "@/lib/harness-auth/cursor";
 import { requireRoute } from "@/lib/providers/resolve";
 import type { HarnessRoute } from "@/lib/providers/route";
 import { start as startWorkflowRun } from "workflow/api";
@@ -41,7 +42,7 @@ export type StartHarnessCallResult =
 export interface HarnessCallWorkflowInput {
   callId: string;
   conversationId: string;
-  kind: "pi" | "claude";
+  kind: "pi" | "claude" | "cursor";
   task: string;
   route: HarnessRoute;
   resumeFrom?: unknown;
@@ -50,7 +51,7 @@ export interface HarnessCallWorkflowInput {
 export async function startHarnessCall(
   input: {
     conversationId: string;
-    kind: "pi" | "claude";
+    kind: "pi" | "claude" | "cursor";
     task: string;
     /** Test seam: the workflow starter (default: the real runtime). */
     start?: (workflowInput: HarnessCallWorkflowInput) => Promise<{ runId: string }>;
@@ -72,6 +73,11 @@ export async function startHarnessCall(
       message:
         "claude is not configured — set CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) in the app environment",
     };
+  }
+
+  if (input.kind === "cursor") {
+    const credential = cursorCredential();
+    if (!credential.ok) return { ok: false, code: "not-configured", message: credential.message };
   }
 
   // 0021: pi inherits the conversation's route, else the project /

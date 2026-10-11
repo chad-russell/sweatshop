@@ -11,6 +11,7 @@ import {
   THINKING_LEVELS,
   type ChatRoute,
   type ClaudeRoute,
+  type CursorRoute,
   type GlobalDefaults,
   type PiRoute,
   type Surface,
@@ -28,6 +29,7 @@ const SURFACE_COPY: Record<Surface, { title: string; hint: string }> = {
   agent: { title: "Agent stages", hint: "Legacy surface (machines); kept for stored defaults." },
   pi: { title: "pi harness", hint: "pi tool calls and pi stages without a conversation, stage, or project route." },
   claude: { title: "claude harness", hint: "Subscription only — never provider-routed. Model and effort." },
+  cursor: { title: "cursor harness", hint: "Subscription only — never provider-routed. Model." },
   titles: { title: "Titles", hint: "Generated conversation titles. Keep it cheap and fast." },
 };
 
@@ -103,6 +105,15 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
               {view.claude.configured ? "token set" : "CLAUDE_CODE_OAUTH_TOKEN not set"}
             </span>
           </li>
+          <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
+            <span className="flex-1 font-medium">cursor (subscription)</span>
+            <span className={`${MONO} text-muted-foreground`}>
+              {view.cursor.configured ? cursorExpiry(view.cursor.expiresAt) : "not logged in"}
+            </span>
+            {!view.cursor.configured && view.cursor.status && (
+              <span className={`${LABEL} w-full`}>{view.cursor.status}</span>
+            )}
+          </li>
         </ul>
       </section>
 
@@ -134,6 +145,14 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
               models={view.claude.models}
               disabled={busy !== null || !view.claude.configured}
               onSave={(route) => void save("claude", route)}
+            />
+          </SurfaceRow>
+          <SurfaceRow surface="cursor">
+            <CursorDefault
+              value={defaults.cursor}
+              models={view.cursor.models}
+              disabled={busy !== null || !view.cursor.configured}
+              onSave={(route) => void save("cursor", route)}
             />
           </SurfaceRow>
         </ul>
@@ -247,5 +266,41 @@ function ClaudeDefault({
         ))}
       </select>
     </>
+  );
+}
+
+/** "logged in · expires in 41 days" — the access-token expiry, when known. */
+function cursorExpiry(expiresAt: number | null): string {
+  if (expiresAt === null) return "logged in";
+  const days = Math.floor((expiresAt - Date.now()) / 86_400_000);
+  return days >= 0 ? `logged in · expires in ${days} day${days === 1 ? "" : "s"}` : "logged in";
+}
+
+function CursorDefault({
+  value,
+  models,
+  disabled,
+  onSave,
+}: {
+  value: CursorRoute;
+  models: { id: string; label: string }[];
+  disabled: boolean;
+  onSave: (route: CursorRoute) => void;
+}) {
+  return (
+    <select
+      aria-label="cursor default model"
+      className={SELECT}
+      disabled={disabled}
+      value={value.model ?? ""}
+      onChange={(e) => onSave(e.target.value ? { harness: "cursor", model: e.target.value } : { harness: "cursor" })}
+    >
+      <option value="">model: Cursor default</option>
+      {models.map((m) => (
+        <option key={m.id} value={m.id}>
+          model: {m.label}
+        </option>
+      ))}
+    </select>
   );
 }

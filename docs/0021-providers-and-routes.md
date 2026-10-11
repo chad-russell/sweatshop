@@ -70,7 +70,9 @@ resolution order. It doesn't build fallbacks.
 - **cursor** (`@ai-sdk/harness-cursor`, roadmap 3.2) runs the Cursor CLI over
   ACP. It authenticates only with a Cursor user API key (`CURSOR_API_KEY`);
   there is no interactive-login path in the adapter, so cursor stays
-  blocked until such a key exists for the account. The model is passed as
+  blocked until such a key exists for the account. *(Superseded
+  2026-10-11, docs/0038: the CLI's browser-login `auth.json` authenticates
+  it headless; no API key needed.)* The model is passed as
   an ACP session config option (`modelMapping: session-config-option
   "model"`), so per-route model choice works.
 

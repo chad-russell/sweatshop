@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { openDb } from "../db";
@@ -120,6 +123,23 @@ describe("startHarnessCall", () => {
     expect(claimHarnessRun(conv, "claude")).toBe(true);
     const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "again", start: fakeStart });
     expect(result).toMatchObject({ ok: false, code: "busy" });
+  });
+
+  it("0038: cursor refuses value-shaped (and never claims the slot) until a login exists", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-auth-"));
+    const prev = process.env.HARNESS_AUTH_DIR;
+    process.env.HARNESS_AUTH_DIR = dir;
+    try {
+      const conv = newConv();
+      const result = await startHarnessCall({ conversationId: conv, kind: "cursor", task: "x", start: fakeStart });
+      expect(result).toMatchObject({ ok: false, code: "not-configured" });
+      if (!result.ok) expect(result.message).toContain("agent login");
+      expect(getActiveHarnessRun(conv)).toBeNull();
+    } finally {
+      if (prev === undefined) delete process.env.HARNESS_AUTH_DIR;
+      else process.env.HARNESS_AUTH_DIR = prev;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("refuses without a project", async () => {

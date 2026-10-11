@@ -6,7 +6,7 @@
 FROM docker.io/library/node:24-trixie-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates sudo \
+  && apt-get install -y --no-install-recommends git ca-certificates curl sudo \
   && rm -rf /var/lib/apt/lists/*
 
 # 0035: browser tools baked in for general-purpose use — anything the

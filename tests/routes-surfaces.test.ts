@@ -1,8 +1,12 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
 import { getConversation } from "../db/chat";
 import { getGlobalDefaults, getProjectModels, setProjectModels } from "../db/providers";
 import { conversations, projects, settings } from "../db/schema";
+import { saveCursorCredential } from "../lib/harness-auth/cursor";
 import { setDefaultRoute, setProjectModelSettings } from "../lib/providers/settings";
 import { titleRouteFor } from "../lib/titles";
 import { PATCH as patchProjectModels } from "../app/api/projects/[projectId]/models/route";
@@ -34,6 +38,13 @@ function project(id: string) {
   db().insert(projects).values({ id, name: id, createdAt: Date.now() }).onConflictDoNothing().run();
 }
 
+/** A structurally real auth.json (unsigned JWTs) expiring at `expMs`. */
+function fakeAuthJson(expMs: number): string {
+  const jwt = (exp: number) =>
+    ["e30", Buffer.from(JSON.stringify({ exp: Math.floor(exp / 1000) })).toString("base64url"), "sig"].join(".");
+  return JSON.stringify({ accessToken: jwt(expMs), refreshToken: jwt(expMs) });
+}
+
 const json = (body: unknown, method = "PUT") => new Request("http://x", { method, body: JSON.stringify(body) });
 
 describe("global defaults write path", () => {
@@ -58,6 +69,27 @@ describe("global defaults write path", () => {
       ok: false,
       issues: [expect.stringContaining("not in GLM")],
     });
+  });
+
+  it("0038: cursor defaults take a model, never a provider — and need a login to be saved", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-auth-"));
+    const prev = process.env.HARNESS_AUTH_DIR;
+    process.env.HARNESS_AUTH_DIR = dir;
+    try {
+      // No login yet: the route is well-formed but cannot run.
+      expect(setDefaultRoute(db(), "cursor", { harness: "cursor", model: "composer-2.5" }).ok).toBe(false);
+      saveCursorCredential(fakeAuthJson(Date.now() + 30 * 86_400_000));
+      expect(setDefaultRoute(db(), "cursor", { harness: "cursor", model: "composer-2.5" }).ok).toBe(true);
+      expect(getGlobalDefaults(db()).cursor).toEqual({ harness: "cursor", model: "composer-2.5" });
+      expect(setDefaultRoute(db(), "cursor", { harness: "cursor", provider: "gloo" }).ok).toBe(false);
+      // Reset falls back to the built-in.
+      expect(setDefaultRoute(db(), "cursor", null)).toEqual({ ok: true });
+      expect(getGlobalDefaults(db()).cursor).toEqual({ harness: "cursor" });
+    } finally {
+      if (prev === undefined) delete process.env.HARNESS_AUTH_DIR;
+      else process.env.HARNESS_AUTH_DIR = prev;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("claude defaults take model/effort, never a provider", () => {
@@ -90,7 +122,9 @@ describe("project model settings", () => {
 
   it("validates list entries and 404s an unknown project", async () => {
     project("pms2");
-    expect(setProjectModelSettings(db(), "pms2", { allowedHarnesses: ["cursor"] }).ok).toBe(false);
+    // "cursor" became a real harness in 0038 — an unknown one must still be refused.
+    expect(setProjectModelSettings(db(), "pms2", { allowedHarnesses: ["windsurf"] }).ok).toBe(false);
+    expect(setProjectModelSettings(db(), "pms2", { allowedHarnesses: ["cursor"] }).ok).toBe(true);
     expect(setProjectModelSettings(db(), "pms2", { allowedHarnesses: ["pi"] }).ok).toBe(true);
     expect((await patchProjectModels(json({ allowedProviders: null }, "PATCH"), ctx("ghost"))).status).toBe(404);
   });
