@@ -31,7 +31,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       title={next ? `Theme: ${current} → ${next.value}` : "Switch theme"}
       onClick={() => next && setTheme(next.value)}
       className={cn(
-        "inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        "inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         className,
       )}
     >

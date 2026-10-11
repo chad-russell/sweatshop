@@ -222,7 +222,7 @@ export function PreviewPill({ owner, compact = false }: { owner: string | null; 
 
   return (
     <>
-      <div className="inline-flex h-8 items-center overflow-hidden rounded-lg border border-border text-sm">
+      <div className="inline-flex h-8 pointer-coarse:h-10 items-center overflow-hidden rounded-lg border border-border text-sm">
         {single ? (
           <a
             href={single.url}

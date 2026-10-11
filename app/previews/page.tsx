@@ -30,7 +30,7 @@ export default async function PreviewsPage({
       >
         <NewPreviewForm projects={projectOptions} />
       </AppHeader>
-      <div className="flex flex-col gap-3 p-6">
+      <div className="flex flex-col gap-3 p-4 md:p-6">
         <p className="text-sm text-muted-foreground">
           {scoped ? (
             <>

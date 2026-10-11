@@ -79,7 +79,7 @@ export function FreshTargetPicker({
           aria-label="Send to"
           title="Start a chat (optionally in a project, optionally by a playbook)"
           className={cn(
-            "inline-flex h-8 max-w-48 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+            "inline-flex h-8 pointer-coarse:h-10 max-w-48 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
             selectedProject && "text-foreground",
           )}
         >

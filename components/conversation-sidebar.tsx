@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowLeft, Box, Inbox, MessageSquare, MonitorPlay, PanelLeft, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Box, Inbox, MessageSquare, MonitorPlay, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -8,6 +8,7 @@ import { cn } from "cn";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CommandPalette } from "@/components/sidebar/command-palette";
 import { SidebarContext } from "@/components/sidebar/context";
+import { useNavDrawer } from "@/components/sidebar/nav-drawer";
 import { GroupSection } from "@/components/sidebar/group-section";
 import { SearchResults } from "@/components/sidebar/search-results";
 import { ShelfView } from "@/components/sidebar/shelf-view";
@@ -29,7 +30,7 @@ export type { SidebarData, SidebarGroup, SidebarItem } from "@/components/sideba
 type View = "library" | "archive" | "trash";
 
 const FOOTER_BUTTON =
-  "inline-flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-sidebar-foreground";
+  "inline-flex items-center gap-1 rounded px-1 py-0.5 pointer-coarse:px-2.5 pointer-coarse:py-2 transition-colors hover:text-sidebar-foreground";
 
 /**
  * Conversation navigation (0002–0004, 0007, 0008): New chat, search, the
@@ -58,21 +59,19 @@ export function ConversationSidebar({
   const [view, setView] = useState<View>("library");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<string | undefined>(undefined);
-  // Drawer state as "the pathname it was opened on": derived closed the
-  // moment the route changes (no effect-driven setState), with Escape as
-  // the explicit close.
-  const [drawerPath, setDrawerPath] = useState<string | null>(null);
-  const mobileOpen = drawerPath !== null && drawerPath === pathname;
+  // Mobile drawer state lives in NavDrawerProvider (page headers own the
+  // trigger); Escape is the explicit close here.
+  const { open: mobileOpen, closeDrawer } = useNavDrawer();
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!mobileOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerPath(null);
+      if (e.key === "Escape") closeDrawer();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mobileOpen]);
+  }, [mobileOpen, closeDrawer]);
 
   const searching = query.trim().length > 0;
   const results = useConversationSearch(query, {
@@ -112,7 +111,7 @@ export function ConversationSidebar({
         className={cn(
           "h-dvh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
           mobileOpen
-            ? "fixed inset-y-0 left-0 z-50 flex animate-in slide-in-from-left duration-200 shadow-lg md:hidden"
+            ? "fixed inset-y-0 left-0 z-50 flex w-[min(20rem,85vw)] animate-in slide-in-from-left duration-200 shadow-lg md:hidden"
             : "hidden md:flex",
         )}
       >
@@ -123,7 +122,7 @@ export function ConversationSidebar({
               href="/"
               aria-label="New chat"
               title="New chat (no project)"
-              className="inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              className="inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             >
               <SquarePen className="size-4" />
             </Link>
@@ -132,8 +131,8 @@ export function ConversationSidebar({
             <button
               type="button"
               aria-label="Close navigation"
-              onClick={() => setDrawerPath(null)}
-              className="inline-flex size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
+              onClick={closeDrawer}
+              className="inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
             >
               <X className="size-4" />
             </button>
@@ -141,7 +140,7 @@ export function ConversationSidebar({
         </div>
 
         <div className="px-3 pb-2">
-          <div className="flex items-center gap-2 rounded-md border border-sidebar-border px-2 py-1.5 focus-within:ring-2 focus-within:ring-sidebar-ring">
+          <div className="flex items-center gap-2 rounded-md border border-sidebar-border px-2 py-1.5 pointer-coarse:py-2.5 focus-within:ring-2 focus-within:ring-sidebar-ring">
             <Search className="size-3.5 shrink-0 text-sidebar-foreground/60" />
             <input
               ref={searchRef}
@@ -155,7 +154,7 @@ export function ConversationSidebar({
               }}
               placeholder="Search conversations…"
               aria-label="Search conversations"
-              className="w-full bg-transparent text-sm outline-none placeholder:text-sidebar-foreground/60"
+              className="w-full bg-transparent text-base md:text-sm outline-none placeholder:text-sidebar-foreground/60"
             />
             {searching ? (
               <button
@@ -181,7 +180,7 @@ export function ConversationSidebar({
                   aria-pressed={scope === s.id}
                   onClick={() => setScope(s.id)}
                   className={cn(
-                    "max-w-full truncate rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+                    "max-w-full truncate rounded-full border px-2 py-0.5 pointer-coarse:px-3 pointer-coarse:py-1.5 text-[11px] transition-colors",
                     scope === s.id
                       ? "border-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground"
                       : "border-sidebar-border text-sidebar-foreground/60 hover:text-sidebar-foreground",
@@ -199,7 +198,7 @@ export function ConversationSidebar({
             href="/inbox"
             aria-current={pathname === "/inbox" ? "page" : undefined}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent/60",
+              "flex items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm transition-colors hover:bg-sidebar-accent/60",
               pathname === "/inbox" && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
           >
@@ -226,7 +225,7 @@ export function ConversationSidebar({
             href="/sandboxes"
             aria-current={pathname.startsWith("/sandboxes") ? "page" : undefined}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent/60",
+              "flex items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm transition-colors hover:bg-sidebar-accent/60",
               pathname.startsWith("/sandboxes") && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
           >
@@ -238,7 +237,7 @@ export function ConversationSidebar({
             href="/previews"
             aria-current={pathname.startsWith("/previews") ? "page" : undefined}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent/60",
+              "flex items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm transition-colors hover:bg-sidebar-accent/60",
               pathname.startsWith("/previews") && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
           >
@@ -253,7 +252,7 @@ export function ConversationSidebar({
             href="/settings"
             aria-current={pathname.startsWith("/settings") ? "page" : undefined}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent/60",
+              "flex items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm transition-colors hover:bg-sidebar-accent/60",
               pathname.startsWith("/settings") && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
           >
@@ -286,7 +285,7 @@ export function ConversationSidebar({
               <button
                 type="button"
                 onClick={() => setView("library")}
-                className="mb-2 inline-flex items-center gap-1 px-2 text-xs text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground"
+                className="mb-2 inline-flex items-center gap-1 px-2 pointer-coarse:py-2 text-xs text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground"
               >
                 <ArrowLeft className="size-3" />
                 Back to conversations
@@ -329,24 +328,13 @@ export function ConversationSidebar({
           </span>
         </div>
       </nav>
-      {/* Mobile: fixed trigger in the layout-reserved gutter (md:hidden),
-          overlay drawer + backdrop while open. */}
-      {!mobileOpen && (
-        <button
-          type="button"
-          aria-label="Open conversations"
-          title="Conversations"
-          onClick={() => setDrawerPath(pathname)}
-          className="fixed top-3 left-3 z-30 inline-flex size-9 items-center justify-center rounded-md border border-sidebar-border bg-sidebar text-sidebar-foreground shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
-        >
-          <PanelLeft className="size-4" />
-        </button>
-      )}
+      {/* Mobile: backdrop while the drawer is open (the trigger is in
+          each page's header — see NavTrigger). */}
       {mobileOpen && (
         <button
           type="button"
           aria-label="Close navigation"
-          onClick={() => setDrawerPath(null)}
+          onClick={closeDrawer}
           className="fixed inset-0 z-40 animate-in fade-in duration-200 bg-foreground/25 backdrop-blur-[2px] md:hidden"
         />
       )}

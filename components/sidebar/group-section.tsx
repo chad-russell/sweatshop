@@ -88,7 +88,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
             aria-expanded={groupOpen}
             aria-label={`${groupOpen ? "Collapse" : "Expand"} ${group.project?.name ?? "Chats"}`}
             onClick={() => toggleFolder(groupKey)}
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-sidebar-accent/60"
+            className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded transition-colors hover:bg-sidebar-accent/60"
           >
             <Chevron open={groupOpen} />
           </button>
@@ -123,7 +123,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
             href={`/?project=${group.project.id}`}
             aria-label={`New chat in ${group.project.name}`}
             title="New chat"
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
+            className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
           >
             <MessageSquarePlus className="size-3.5" />
           </Link>
@@ -136,7 +136,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
             if (!groupOpen) toggleFolder(groupKey);
             setEditing({ kind: "new-folder", projectId, parentId: null });
           }}
-          className="inline-flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
+          className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
         >
           <FolderPlus className="size-3.5" />
         </button>

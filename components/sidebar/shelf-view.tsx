@@ -30,7 +30,7 @@ function IconButton({
       title={label}
       onClick={onClick}
       className={
-        "inline-flex size-6 items-center justify-center rounded-md text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent " +
+        "inline-flex size-6 pointer-coarse:size-9 items-center justify-center rounded-md text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent " +
         (destructive ? "hover:text-destructive" : "hover:text-sidebar-accent-foreground")
       }
     >

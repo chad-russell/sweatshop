@@ -296,6 +296,15 @@
   html {
     @apply font-sans;
   }
+  /* App shell: the document itself never scrolls (mobile browsers let the
+     whole page drag when the URL bar or keyboard resizes the viewport).
+     Scrolling lives in <main> pages and the transcript. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
 
   @media (prefers-reduced-motion: reduce) {
     *,
@@ -337,6 +346,17 @@
   padding: 0.875rem 1rem 0;
   font-size: 15px;
   background-color: transparent;
+}
+@media (pointer: coarse) {
+  /* 16px+ keeps mobile browsers from zooming the page on focus. */
+  .composer [data-slot="input-group-control"] {
+    font-size: 16px;
+  }
+  .composer [data-slot="input-group-addon"] button[type="submit"],
+  .composer [data-slot="input-group-addon"] button[aria-label="Stop"] {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
 }
 .composer [data-slot="input-group-addon"][data-align="block-end"] {
   padding: 0 0.75rem 0.625rem;

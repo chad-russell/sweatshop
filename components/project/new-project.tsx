@@ -102,7 +102,7 @@ export function NewProjectButton() {
       <DialogTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
         >
           <FolderPlus className="size-4 shrink-0 text-sidebar-foreground/60" />
           <span className="flex-1 text-left">New project</span>
