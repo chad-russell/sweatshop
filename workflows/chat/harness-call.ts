@@ -47,13 +47,33 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
   // do…while: the fresh state is "not_started", so a plain while never
   // ran the harness at all and every call "completed" in 0 s with no
   // output (caught live 2026-10-07). Same shape as run-machine's loop.
-  do {
-    const r = await harnessAdvanceStep({ callId, conversationId, kind, route, state });
-    state = r.state;
-    if (r.text) text += (text ? "\n\n" : "") + r.text;
-    toolCalls += r.toolCalls;
-    steps += 1;
-  } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
+  try {
+    do {
+      const r = await harnessAdvanceStep({ callId, conversationId, kind, route, state });
+      state = r.state;
+      if (r.text) text += (text ? "\n\n" : "") + r.text;
+      toolCalls += r.toolCalls;
+      steps += 1;
+    } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
+  } catch (err) {
+    // A step that exhausts its retries (the bridge could not start, the
+    // sandbox is gone, a FatalError) throws HERE. Uncaught, the workflow
+    // dies and nothing ever settles the call: the harness_calls row stays
+    // `running` forever, the one-per-session slot stays held (every later
+    // call is "busy"), and the chat is never woken (0038: a Cursor call
+    // sat "running" for good). Settle it failed instead — the settle step
+    // releases the slot and wakes the chat with the reason.
+    await harnessSettleStep({
+      callId,
+      conversationId,
+      kind,
+      status: "failed",
+      text,
+      toolCalls,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { status: "failed" };
+  }
 
   if (state.status === "failed") {
     await harnessSettleStep({
@@ -64,6 +84,10 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       text,
       toolCalls,
       error: state.error ?? `${kind} turn failed`,
+      // A failed turn can leave a LIVE session behind (the bridge process
+      // keeps its port). Keep the handle so the next call reattaches to it
+      // instead of spawning a second bridge that dies on EADDRINUSE.
+      resumeFrom: state.resumeFrom,
     });
     return { status: "failed" };
   }

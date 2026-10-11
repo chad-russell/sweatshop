@@ -95,19 +95,23 @@ export function staticModels(provider: ProviderId): readonly ModelInfo[] | null 
 }
 
 /**
- * 0038: Cursor CLI model ids offered for the subscription harness (a
- * curated slice of `agent --list-models`; unset = Cursor's own default,
- * "auto"). Ids pass through to the CLI as-is — a model Cursor retires
- * fails the turn value-shaped, never silently swapped.
+ * 0038: model ids offered for the Cursor harness, in ACP's vocabulary —
+ * the adapter hands the route's model straight to ACP's `model` session
+ * option, and ACP rejects anything it does not list ("Invalid params",
+ * mid-turn). That is NOT the vocabulary of `agent --list-models`
+ * ("gpt-5.6-sol-high", "auto"): ACP has base ids with effort, context
+ * and speed as separate options. Unset = Cursor's own default
+ * ("auto-smart"). `tests/fixtures/cursor-acp-models.ts` is the full
+ * accepted set; a test pins this list to it.
  */
 export const CURSOR_MODELS: readonly { id: string; label: string }[] = [
-  { id: "auto", label: "Auto" },
+  { id: "auto-smart", label: "Auto" },
   { id: "composer-2.5", label: "Composer 2.5" },
   { id: "gpt-5.3-codex", label: "Codex 5.3" },
-  { id: "gpt-5.6-sol-high", label: "GPT-5.6 Sol High" },
-  { id: "claude-sonnet-5-thinking-high", label: "Claude Sonnet 5 Thinking" },
-  { id: "claude-opus-5-thinking-high", label: "Claude Opus 5 Thinking" },
-  { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash" },
+  { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
+  { id: "claude-opus-5", label: "Claude Opus 5" },
+  { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash" },
 ];
 
 /** Claude models offered for the subscription harness (model is optional — unset = the subscription default). */

@@ -10,7 +10,8 @@ import {
   setProjectModels,
 } from "../db/providers";
 import { projects, providerModels, settings } from "../db/schema";
-import { GLM_MODELS, GLOO_MODELS } from "../lib/providers/catalog";
+import { CURSOR_MODELS, GLM_MODELS, GLOO_MODELS } from "../lib/providers/catalog";
+import { CURSOR_ACP_MODEL_IDS } from "./fixtures/cursor-acp-models";
 import { ensureOpenRouterCatalog, parseOpenRouterModels } from "../lib/providers/openrouter";
 import { fillToolDescriptions, effortLevel, zhipuThinkingSettings } from "../lib/providers/registry";
 import { checkRoute } from "../lib/providers/resolve";
@@ -48,6 +49,19 @@ afterEach(() => {
 function project(id: string) {
   db().insert(projects).values({ id, name: id, createdAt: Date.now() }).onConflictDoNothing().run();
 }
+
+describe("0038: the curated Cursor model list speaks ACP's vocabulary", () => {
+  it("every offered model id is one Cursor's ACP server accepts", () => {
+    // A composed CLI id ("gpt-5.6-sol-high") or "auto" is rejected by ACP as
+    // Invalid params — the bug this guards (2026-10-11).
+    for (const m of CURSOR_MODELS) expect(CURSOR_ACP_MODEL_IDS, m.id).toContain(m.id);
+  });
+  it("offers no duplicates and leads with Cursor's own default (auto-smart)", () => {
+    const ids = CURSOR_MODELS.map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids[0]).toBe("auto-smart");
+  });
+});
 
 describe("route schema", () => {
   it("accepts the three shapes", () => {

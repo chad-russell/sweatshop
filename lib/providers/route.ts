@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PROVIDER_IDS, PROVIDER_LABELS, type ProviderId } from "./catalog";
+import { CURSOR_MODELS, PROVIDER_IDS, PROVIDER_LABELS, type ProviderId } from "./catalog";
 
 /**
  * 0021: the route — the one value that says what runs a model call.
@@ -251,6 +251,11 @@ export function validateRoute(route: Route, ctx: ValidationContext): RouteCheck 
   }
   if (routeHarness(route) === "claude" && !ctx.claudeConfigured) {
     issues.push("claude is not configured (CLAUDE_CODE_OAUTH_TOKEN is not set)");
+  }
+  if (isCursor(route) && route.model && !CURSOR_MODELS.some((m) => m.id === route.model)) {
+    issues.push(
+      `cursor model "${route.model}" is not one Cursor's ACP accepts (offered: ${CURSOR_MODELS.map((m) => m.id).join(", ")}) — pick one on /settings or clear it`,
+    );
   }
   if (routeHarness(route) === "cursor" && !ctx.cursorConfigured) {
     issues.push(

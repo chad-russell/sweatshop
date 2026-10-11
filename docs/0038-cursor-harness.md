@@ -206,3 +206,52 @@ Matches the plan above, with these specifics:
   `allow-all` (acp-v1-harness.ts); the spike turn completed without
   prompts. That matches how claude runs today; revisit with the sandbox
   `network_policy`.
+
+## Model ids (learned the hard way, 2026-10-11)
+
+The curated list first shipped with ids copied from `agent --list-models`
+(`auto`, `gpt-5.6-sol-high`, `claude-sonnet-5-thinking-high`…). ACP does
+not speak that vocabulary: the adapter sets ACP's `model` session option,
+and ACP only accepts its own base ids (`auto-smart`, `gpt-5.6-sol`,
+`claude-sonnet-5`…), with reasoning effort / context / fast as separate
+options. Any other id fails the turn mid-flight with a bare
+`RequestError: Invalid params`. The spike never caught it because it ran
+with no model set (Cursor's default). Of the first list only
+`composer-2.5` and `gpt-5.3-codex` happened to be valid.
+
+Fixed by switching the list to ACP ids, validating a cursor route's model
+against it (a stale saved id now fails fast with the offered ids in the
+message), and pinning the list to the accepted set with a test
+(`tests/fixtures/cursor-acp-models.ts`). To refresh the set, ask ACP:
+
+```js
+// node probe.mjs — session/new returns models.availableModels
+spawn("agent", ["acp"]); initialize; authenticate {methodId:"cursor_login"};
+session/new {cwd, mcpServers: []}  →  result.models.availableModels[].modelId
+```
+
+Effort / context / fast are not exposed in routes yet.
+
+## A failed call used to wedge its conversation (2026-10-11)
+
+Found with the model-id bug, but independent of it and true for every
+harness. When a turn FAILED (or a step threw), three things went wrong:
+
+1. `harnessCall` had no `catch`: a step that exhausted its retries (here
+   "bridge exited before becoming ready") killed the workflow before
+   `harnessSettleStep` ran. The `harness_calls` row stayed `running`
+   forever, the one-per-session slot stayed held, and the chat was never
+   woken. The body now catches and settles the call `failed` with the
+   reason (which releases the slot and wakes the chat).
+2. A failed turn leaves its bridge process alive (it holds the port), but
+   only a COMPLETED turn saved its `resumeFrom`. The next call could not
+   reattach, spawned a second bridge, and died on `EADDRINUSE` — three
+   retries, then (1). The failed path now persists the handle too.
+   Verified on the real path: after a failed turn the next turn, given
+   that handle, reattaches and finishes (without it: `EADDRINUSE`).
+3. Together: one bad model id turned into a conversation where every later
+   cursor call hung or errored until the sandbox was destroyed.
+
+Pinned by two `x-chat` tests (a throwing step settles the call and frees
+the slot; a failed turn keeps its resume handle) via new
+`SWEATSHOP_HARNESS_MOCK` modes (`throw`, `fail-resume`).
