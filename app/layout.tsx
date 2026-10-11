@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { AgentPanel } from "@/components/agent-panel";
 import { ConversationSidebar } from "@/components/conversation-sidebar";
 import { PageContextProvider } from "@/components/page-context";
+import { NewProjectDialog } from "@/components/project/new-project";
 import { NavDrawerProvider } from "@/components/sidebar/nav-drawer";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -66,6 +67,8 @@ export default async function RootLayout({
                 {/* 0015: the agent panel — an ordinary chat that follows
                     you across pages (pushes on lg+, overlays below). */}
                 <AgentPanel />
+                {/* 0040: the New-project dialog, opened by NEW_PROJECT_EVENT. */}
+                <NewProjectDialog />
               </div>
               </NavDrawerProvider>
             </PageContextProvider>

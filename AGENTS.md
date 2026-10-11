@@ -214,7 +214,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   chat turn after persisting, max two calls per conversation). All invariants live in
   `db/organize.ts`; routes under `app/api/{folders,conversations}`; the
   sidebar is `components/sidebar/*` with native drag and drop plus a
-  "Move to…" menu; ⌘K palette shares `/api/search`.
+  "Move to…" menu; ⌘K palette shares `/api/search`. Sidebar chrome (0040):
+  ACTIONS (New chat, Agent) are buttons, PAGES (Inbox, Projects, then
+  Sandboxes and Previews) are `NavRow`s that fill when active
+  (`lib/sidebar-nav.ts` maps a pathname to its row; `/p/<id>` lights
+  Projects), Archive/Trash hang off the Conversations label's `⋯`, and the
+  footer is Settings + the theme cycler. `/projects` is the project index;
+  the New-project dialog mounts in the root layout and opens by
+  `NEW_PROJECT_EVENT` (the page button and ⌘K both dispatch it).
 - Projects & sandboxes (0004, Phases A–D + Path B shipped; 0031
   simplifications): `projects` (1+ git repos) carry their sandbox image
   directly (`projects.image_ref`; unset = `localhost/sweatshop-sandbox`,

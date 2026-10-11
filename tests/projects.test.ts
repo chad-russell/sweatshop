@@ -5,6 +5,7 @@ import {
   addProjectRepo,
   deleteProjectRows,
   getProject,
+  listProjectCards,
   renameProject,
   removeProjectRepo,
   setProjectImage,
@@ -307,3 +308,29 @@ function rows(table: string, column: string, value: string): number {
     | undefined;
   return row?.n ?? 0;
 }
+
+describe("listProjectCards (0040)", () => {
+  it("counts repos and live chats per project, by name, and rolls up needs-you", () => {
+    fixtureProject("card-b");
+    fixtureProject("card-a");
+    fixtureRepo("card-a", "one");
+    fixtureRepo("card-a", "two");
+    fixtureConversation("card_live_1", "card-a");
+    fixtureConversation("card_live_2", "card-a");
+    fixtureConversation("card_stage", "card-a", "stage");
+    fixtureConversation("card_archived", "card-a");
+    fixtureConversation("card_trashed", "card-a");
+    fixtureConversation("card_unbound", null);
+    db().update(conversations).set({ archivedAt: now }).where(eq(conversations.id, "card_archived")).run();
+    db().update(conversations).set({ trashedAt: now }).where(eq(conversations.id, "card_trashed")).run();
+
+    const cards = listProjectCards(db(), new Set(["card_live_2", "card_unbound"]));
+    const a = cards.find((c) => c.id === "card-a");
+    const b = cards.find((c) => c.id === "card-b");
+
+    expect(a).toEqual({ id: "card-a", name: "card-a", repoCount: 2, chatCount: 2, needsYou: 1 });
+    expect(b).toEqual({ id: "card-b", name: "card-b", repoCount: 0, chatCount: 0, needsYou: 0 });
+    // Sorted by name.
+    expect(cards.findIndex((c) => c.id === "card-a")).toBeLessThan(cards.findIndex((c) => c.id === "card-b"));
+  });
+});

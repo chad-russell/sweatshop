@@ -177,6 +177,53 @@ export function listProjectsWithRepos(db: Db): { id: string; name: string }[] {
     .filter((p) => withRepos.has(p.id));
 }
 
+/** One card on the /projects index (0040). */
+export interface ProjectCard {
+  id: string;
+  name: string;
+  repoCount: number;
+  /** Live conversations: not archived, not trashed, not a machine stage. */
+  chatCount: number;
+  /** Of those, how many are waiting on the user (a pending request). */
+  needsYou: number;
+}
+
+/** Projects for the index page, by name. `needsYou` is the conversation
+ *  ids loadAttention flags — passed in so this stays a pure store read. */
+export function listProjectCards(db: Db, needsYou: ReadonlySet<string> = new Set()): ProjectCard[] {
+  const repoCounts = new Map<string, number>();
+  for (const r of db.select({ p: projectRepos.projectId }).from(projectRepos).all()) {
+    repoCounts.set(r.p, (repoCounts.get(r.p) ?? 0) + 1);
+  }
+  const chats = new Map<string, { total: number; needsYou: number }>();
+  const live = db
+    .select({ id: conversations.id, projectId: conversations.projectId })
+    .from(conversations)
+    .where(
+      and(ne(conversations.kind, "stage"), isNull(conversations.archivedAt), isNull(conversations.trashedAt)),
+    )
+    .all();
+  for (const c of live) {
+    if (!c.projectId) continue;
+    const entry = chats.get(c.projectId) ?? { total: 0, needsYou: 0 };
+    entry.total += 1;
+    if (needsYou.has(c.id)) entry.needsYou += 1;
+    chats.set(c.projectId, entry);
+  }
+  return db
+    .select({ id: projects.id, name: projects.name })
+    .from(projects)
+    .all()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      repoCount: repoCounts.get(p.id) ?? 0,
+      chatCount: chats.get(p.id)?.total ?? 0,
+      needsYou: chats.get(p.id)?.needsYou ?? 0,
+    }));
+}
+
 /** Everything the project page renders, in one read. */
 export function getProjectOverview(db: Db, projectId: string) {
   const project = getProject(db, projectId);
