@@ -1,11 +1,12 @@
 "use client";
 
-import { Archive, ArrowLeft, Box, Inbox, MessageSquare, MonitorPlay, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Bot, Box, Inbox, MessageSquare, MonitorPlay, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { OPEN_PANEL_EVENT } from "@/components/agent-panel";
 import { CommandPalette } from "@/components/sidebar/command-palette";
 import { SidebarContext } from "@/components/sidebar/context";
 import { useNavDrawer } from "@/components/sidebar/nav-drawer";
@@ -244,6 +245,19 @@ export function ConversationSidebar({
             <MonitorPlay className="size-4 shrink-0 text-sidebar-foreground/60" />
             <span className="flex-1">Previews</span>
           </Link>
+          {/* Mobile only: the agent panel's floating button is md+, so the
+              drawer is where a phone reaches it. */}
+          <button
+            type="button"
+            onClick={() => {
+              closeDrawer();
+              window.dispatchEvent(new Event(OPEN_PANEL_EVENT));
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-left text-sm transition-colors hover:bg-sidebar-accent/60 md:hidden"
+          >
+            <Bot className="size-4 shrink-0 text-sidebar-foreground/60" />
+            <span className="flex-1">Agent</span>
+          </button>
           {/* 0033 B-UI: the creation half of the createProject core
               (the agent's create_project is the other). */}
           <NewProjectButton />
