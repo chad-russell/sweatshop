@@ -286,7 +286,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   getRunBinding/LIVE_STATUSES), a static `/r/<runId>` view + the run GET
   API, child-status/inspect reads, and the reaper's defensive consult of
   run rows. Migration 0047 dropped `machines` and `pr_proposals`. The
-  work surfaces now: a chat running a PLAYBOOK (ship/ticket/review), the
+  work surfaces now: a chat running a SKILL (ship/ticket/review), the
   gated tools (`create_pr`), and `start_thread` children — see those
   bullets.
 - Agent everywhere (0015; the machine tools died with machines, 0037
