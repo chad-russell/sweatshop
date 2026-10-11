@@ -24,6 +24,32 @@ export interface SandboxShellLike extends SandboxShell {
 }
 
 /**
+ * Linux caps ONE exec argument at 128 KiB (MAX_ARG_STRLEN), so a file
+ * written as a single `printf '<base64>'` fails with E2BIG past ~96 KB
+ * of content (the ACP/cursor bridge bundle is ~126 KB). Write the base64
+ * in chunks appended to a temp file, then decode once.
+ */
+const B64_CHUNK = 64 * 1024;
+
+export async function writeBytes(
+  sandbox: SandboxShellLike,
+  path: string,
+  bytes: Uint8Array,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const b64 = Buffer.from(bytes).toString("base64");
+  const quoted = JSON.stringify(path);
+  const tmp = `${quoted.slice(0, -1)}.b64.${process.pid}"`;
+  const prep = await sandbox.run(`mkdir -p "$(dirname ${quoted})" && : > ${tmp}`);
+  if (prep.exitCode !== 0) return { ok: false, error: prep.stderr };
+  for (let i = 0; i < b64.length; i += B64_CHUNK) {
+    const part = await sandbox.run(`printf %s '${b64.slice(i, i + B64_CHUNK)}' >> ${tmp}`);
+    if (part.exitCode !== 0) return { ok: false, error: part.stderr };
+  }
+  const done = await sandbox.run(`base64 -d ${tmp} > ${quoted}; rc=$?; rm -f ${tmp}; exit $rc`);
+  return done.exitCode === 0 ? { ok: true } : { ok: false, error: done.stderr };
+}
+
+/**
  * Adapt a shell-capable sandbox (0004/0005) to the AI SDK's structural
  * `Experimental_SandboxSession` contract, so WorkflowAgent's
  * `experimental_sandbox` and sandbox-aware tools work unchanged over
@@ -72,26 +98,13 @@ export function toSandboxSession(
 
     async writeTextFile(options) {
       const encoding = (options.encoding ?? "utf-8") as BufferEncoding;
-      const b64 = Buffer.from(options.content, encoding).toString("base64");
-      const result = await sandbox.run(
-        `mkdir -p $(dirname ${JSON.stringify(options.path)}) && ` +
-          `printf %s '${b64}' | base64 -d > ${JSON.stringify(options.path)}`,
-      );
-      if (result.exitCode !== 0) {
-        throw new Error(`writeTextFile failed: ${result.stderr}`);
-      }
+      const result = await writeBytes(sandbox, options.path, Buffer.from(options.content, encoding));
+      if (!result.ok) throw new Error(`writeTextFile failed: ${result.error}`);
     },
 
     async writeBinaryFile(options) {
-      // Base64 transport through the shell: quoting-safe for any bytes.
-      const b64 = Buffer.from(options.content).toString("base64");
-      const result = await sandbox.run(
-        `mkdir -p $(dirname ${JSON.stringify(options.path)}) && ` +
-          `printf %s '${b64}' | base64 -d > ${JSON.stringify(options.path)}`,
-      );
-      if (result.exitCode !== 0) {
-        throw new Error(`writeBinaryFile failed: ${result.stderr}`);
-      }
+      const result = await writeBytes(sandbox, options.path, options.content);
+      if (!result.ok) throw new Error(`writeBinaryFile failed: ${result.error}`);
     },
 
     async writeFile(options) {
@@ -109,13 +122,9 @@ export function toSandboxSession(
         merged.set(chunk, offset);
         offset += chunk.length;
       }
-      const b64 = Buffer.from(merged).toString("base64");
-      const result = await sandbox.run(
-        `mkdir -p $(dirname ${JSON.stringify(options.path)}) && ` +
-          `printf %s '${b64}' | base64 -d > ${JSON.stringify(options.path)}`,
-      );
-      if (result.exitCode !== 0) {
-        throw new Error(`writeFile failed: ${result.stderr}`);
+      const result = await writeBytes(sandbox, options.path, merged);
+      if (!result.ok) {
+        throw new Error(`writeFile failed: ${result.error}`);
       }
     },
 

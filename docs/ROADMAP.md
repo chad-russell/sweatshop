@@ -48,9 +48,9 @@ Legend: 🔴 on the go-live floor · 🟡 soon after / during the trial · ⚪ l
 - **Fallbacks**: a static chain on the stage, switching automatically on
   quota/credit/auth/rate-limit errors only (not task failures), with a visible
   banner and a record of what ran and why.
-- **Cursor** (`@ai-sdk/harness-cursor`, ACP) needs a user API key; Chad uses
-  enterprise SSO and probably has none. **Planned as blocked-on-key**, off the
-  floor.
+- **Cursor** (`@ai-sdk/harness-cursor`, ACP): ~~needs a user API key~~ —
+  superseded 2026-10-11 by docs/0038: the browser-login `auth.json` works
+  headless through the adapter (spiked). Design awaiting approval.
 
 **Sandboxes, secrets, skills**
 - **Sandbox image: image ref only** (public image or locally built), exposed in
@@ -272,7 +272,8 @@ sandboxing agent-authored HTML (iframe/origin isolation, size limits), storage
 (SQLite + S3 per the persistence north star), linking from run view, inbox and
 PR body. Deferred past launch because it needs thorough design.
 
-**3.2 Cursor harness.** Blocked on a user API key (Cursor Settings →
+**3.2 Cursor harness.** *(Superseded by docs/0038 — not blocked; browser
+login works. The text below is the original, key-based plan.)* Blocked on a user API key (Cursor Settings →
 Integrations → User API Keys; may be unavailable under SSO — check with the
 admin, or the ACP route could use an interactive login stored in the sandbox
 image). The adapter installs the Cursor CLI in the sandbox with Cursor's
