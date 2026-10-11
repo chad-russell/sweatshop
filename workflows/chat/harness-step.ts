@@ -146,6 +146,24 @@ export async function harnessAdvanceStep(input: {
   // steps then finished, so the worker loop itself is exercised.
   // Double-gated like the chat mock (workflows/chat/model.ts).
   if (process.env.SWEATSHOP_HARNESS_MOCK && process.env.NODE_ENV === "test") {
+    if (process.env.SWEATSHOP_HARNESS_MOCK === "throw") {
+      // A step that dies outright (0038: Cursor's bridge could not start).
+      const { FatalError } = await import("workflow");
+      throw new FatalError("mock harness step blew up");
+    }
+    if (process.env.SWEATSHOP_HARNESS_MOCK === "fail-resume") {
+      // A turn that FAILS but leaves a live session behind (a detached handle).
+      return {
+        state: {
+          ...input.state,
+          status: "failed",
+          error: "harness turn emitted an error",
+          resumeFrom: { mock: "resume-after-failure" },
+        } as unknown as HarnessWorkflowState,
+        text: "",
+        toolCalls: 0,
+      };
+    }
     const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
     const done = n >= 2;
     return {
@@ -274,7 +292,12 @@ export async function harnessSettleStep(input: {
     import("../../lib/chat/wake"),
   ]);
 
-  if (input.status === "completed" && input.resumeFrom) {
+  // A completed turn's handle is the cross-call continuity; a FAILED turn's
+  // is just as important when it left a live bridge behind (0038) — without
+  // it the next call cannot reattach and a second bridge collides on the
+  // port. Cancelled calls never reach here, and a handle only exists when
+  // the harness produced one.
+  if (input.resumeFrom) {
     saveHarnessResumeState(db(), input.conversationId, input.kind, input.resumeFrom as HarnessResumeFrom);
   }
   const result = clipHarnessText(input.text, 2_000);

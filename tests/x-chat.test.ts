@@ -419,6 +419,73 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "background harness call: a step that THROWS settles the call failed and frees the slot (0038 bug: it stayed running forever)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_HARNESS_MOCK = "throw";
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      try {
+        const { projects } = await import("../db/schema");
+        const { getHarnessCall } = await import("../db/harness-calls");
+        const { getActiveHarnessRun } = await import("../lib/harness-events");
+        const { startHarnessCall } = await import("../lib/chat/harness-call-start");
+        db().insert(projects).values({ id: "p_xchat_hc", name: "HC", createdAt: 0 }).onConflictDoNothing().run();
+        const id = `c_test_hcthrow_${Math.random().toString(36).slice(2, 8)}`;
+        ensureConversation(db(), id, "p_xchat_hc");
+
+        const started = await startHarnessCall({ conversationId: id, kind: "pi", task: "blow up" });
+        expect(started.ok).toBe(true);
+        if (!started.ok) return;
+
+        await waitFor(async () => getHarnessCall(db(), started.callId)?.status !== "running", "call to settle", 20_000);
+        const call = getHarnessCall(db(), started.callId)!;
+        expect(call.status).toBe("failed");
+        expect(call.error).toContain("mock harness step blew up");
+        // The one-per-session slot is released: a second call is not "busy".
+        expect(getActiveHarnessRun(id)).toBeNull();
+        // ...and the chat is told, like any other failed call.
+        await waitFor(
+          async () => listMessageTexts(db(), id).some((r) => r.role === "user" && r.text.startsWith("[pi failed]")),
+          "the failure wake",
+        );
+      } finally {
+        delete process.env.SWEATSHOP_HARNESS_MOCK;
+      }
+    },
+  );
+
+  it(
+    "background harness call: a FAILED turn still saves its resume handle, so the next call reattaches instead of spawning a second bridge (0038 bug: EADDRINUSE)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_HARNESS_MOCK = "fail-resume";
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      try {
+        const { projects } = await import("../db/schema");
+        const { getHarnessCall } = await import("../db/harness-calls");
+        const { getHarnessResumeState } = await import("../db/chat");
+        const { startHarnessCall } = await import("../lib/chat/harness-call-start");
+        db().insert(projects).values({ id: "p_xchat_hc", name: "HC", createdAt: 0 }).onConflictDoNothing().run();
+        const id = `c_test_hcresume_${Math.random().toString(36).slice(2, 8)}`;
+        ensureConversation(db(), id, "p_xchat_hc");
+
+        const started = await startHarnessCall({ conversationId: id, kind: "pi", task: "fail but leave a bridge" });
+        expect(started.ok).toBe(true);
+        if (!started.ok) return;
+        await waitFor(async () => getHarnessCall(db(), started.callId)?.status !== "running", "call to settle");
+
+        expect(getHarnessCall(db(), started.callId)?.status).toBe("failed");
+        expect(getHarnessResumeState(db(), id, "pi")).toEqual({ mock: "resume-after-failure" });
+        // The next call is handed that handle (the starter reads it from the store).
+        const next = await startHarnessCall({ conversationId: id, kind: "pi", task: "again" });
+        expect(next.ok).toBe(true);
+      } finally {
+        delete process.env.SWEATSHOP_HARNESS_MOCK;
+      }
+    },
+  );
+
+  it(
     "cancel: a hung model call cancels the run and nothing is persisted for it",
     { timeout: 30_000 },
     async () => {
