@@ -88,7 +88,7 @@ export function RoutePicker({
             aria-label={ariaLabel}
             title={value ? `${PROVIDER_LABELS[value.provider]} · ${value.model}` : label}
             className={cn(
-              "inline-flex h-8 max-w-56 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+              "inline-flex h-8 pointer-coarse:h-10 max-w-56 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
               className,
             )}
           >
@@ -155,7 +155,7 @@ export function RoutePicker({
             const thinking = event.target.value;
             onChange({ provider: value.provider, model: value.model, ...(thinking ? { thinking: thinking as ChatRoute["thinking"] } : {}) });
           }}
-          className="inline-flex h-8 items-center rounded-lg border border-border bg-transparent px-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="inline-flex h-8 pointer-coarse:h-10 items-center rounded-lg border border-border bg-transparent px-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <option value="">auto</option>
           <option value="off">off</option>

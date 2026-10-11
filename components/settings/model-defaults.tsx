@@ -32,7 +32,7 @@ const SURFACE_COPY: Record<Surface, { title: string; hint: string }> = {
 };
 
 const SELECT =
-  "h-8 rounded-lg border border-border bg-background px-2 text-sm text-foreground disabled:opacity-50";
+  "h-8 pointer-coarse:h-10 rounded-lg border border-border bg-background px-2 text-sm text-foreground disabled:opacity-50";
 
 export function ModelDefaults({ initial }: { initial: ModelsView }) {
   const [view, setView] = useState(initial);

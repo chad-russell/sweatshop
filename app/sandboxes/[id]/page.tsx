@@ -35,7 +35,7 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
         <SandboxActions sandboxId={sandbox.id} status={sandbox.status} bound={boundToSandbox(sandbox.id)} />
       </AppHeader>
 
-      <div className="flex flex-col gap-8 p-6">
+      <div className="flex flex-col gap-8 p-4 md:p-6">
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
           <dt className="text-muted-foreground">Owner</dt>
           <dd className="min-w-0">

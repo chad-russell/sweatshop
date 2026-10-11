@@ -279,7 +279,7 @@ export function HarnessSessionView({
   const failed = run.status === "failed";
 
   return (
-    <div className="mx-auto flex h-dvh w-full max-w-3xl flex-col">
+    <div className="mx-auto flex h-full w-full max-w-3xl flex-col">
       <AppHeader
         crumbs={[
           parent.projectId

@@ -25,7 +25,7 @@ export default function SandboxesPage() {
         </span>
         <RunCleanupButton />
       </AppHeader>
-      <div className="flex flex-col gap-8 p-6">
+      <div className="flex flex-col gap-8 p-4 md:p-6">
         {sandboxes.length === 0 && (
           <p className="text-sm text-muted-foreground">
             No sandboxes yet. One is created the first time a project chat runs a sandboxed tool.

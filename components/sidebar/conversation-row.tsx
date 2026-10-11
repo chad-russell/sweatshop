@@ -80,7 +80,7 @@ export function ConversationRow({
           href={href}
           draggable={false}
           title={item.title ?? item.id}
-          className="flex items-center justify-between gap-2 px-2 py-1.5"
+          className="flex items-center justify-between gap-2 px-2 py-1.5 pointer-coarse:py-2.5"
         >
           <span
             className={cn(

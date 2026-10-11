@@ -43,7 +43,7 @@ export function SearchResults({ hits }: { hits: readonly SearchHit[] }) {
             href={conversationHref({ id: hit.conversationId, kind: hit.kind })}
             title={hit.title ?? hit.conversationId}
             className={
-              "block rounded-md px-2 py-1.5 transition-colors " +
+              "block rounded-md px-2 py-1.5 pointer-coarse:py-2.5 transition-colors " +
               (pathname === conversationHref({ id: hit.conversationId, kind: hit.kind })
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "hover:bg-sidebar-accent/60")

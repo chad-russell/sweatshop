@@ -262,7 +262,7 @@ export function AgentPanel() {
           onClick={openPanel}
           aria-label="Open agent panel (⌘J)"
           title="Agent panel (⌘J)"
-          className="fixed right-4 bottom-4 z-40 inline-flex size-10 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+          className="fixed right-4 bottom-[max(8.5rem,calc(env(safe-area-inset-bottom)+7.5rem))] z-40 md:bottom-4 inline-flex size-12 md:size-10 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
         >
           <Bot className="size-5" aria-hidden />
         </button>

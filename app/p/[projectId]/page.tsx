@@ -49,7 +49,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
         </Button>
       </AppHeader>
 
-      <div className="flex flex-col gap-8 p-6">
+      <div className="flex flex-col gap-8 p-4 md:p-6">
         <ProjectNameEditor projectId={project.id} name={project.name} />
 
         <section className="flex flex-col gap-2">

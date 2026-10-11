@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { getRun, listStageRuns, MachineError } from "@/db/machines";
 import { conversations } from "@/db/schema";
+import { NavTrigger } from "@/components/sidebar/nav-drawer";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,8 @@ export default async function MachineRunPage({ params }: { params: Promise<{ run
     .where(eq(conversations.id, runId))
     .get();
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8">
+    <main className="mx-auto w-full max-w-3xl px-4 py-4 md:py-8">
+      <NavTrigger className="-ml-2 mb-2" />
       <p className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
         machine run · retired shape (0037 phase 5) · {run.id}
       </p>

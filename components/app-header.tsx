@@ -8,6 +8,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { NavTrigger } from "@/components/sidebar/nav-drawer";
 import { cn } from "@/lib/utils";
 
 export interface Crumb {
@@ -39,10 +40,13 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        "flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4",
+        // Mobile: menu trigger + breadcrumb on row one, the page's
+        // controls scroll sideways on row two. md+: one 56px row.
+        "flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b py-2 pr-3 pl-1.5 md:h-14 md:flex-nowrap md:justify-between md:gap-3 md:px-4 md:py-0",
         className,
       )}
     >
+      <NavTrigger />
       <Breadcrumb className="min-w-0 flex-1">
         <BreadcrumbList className="flex-nowrap">
           {crumbs.map((crumb, i) => {
@@ -69,7 +73,11 @@ export function AppHeader({
           })}
         </BreadcrumbList>
       </Breadcrumb>
-      {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+      {children && (
+        <div className="no-scrollbar -mx-1.5 flex w-full min-w-0 items-center gap-2 overflow-x-auto px-1.5 pb-0.5 max-md:order-last md:mx-0 md:w-auto md:shrink-0 md:overflow-visible md:px-0 md:pb-0 [&>*]:shrink-0">
+          {children}
+        </div>
+      )}
     </header>
   );
 }

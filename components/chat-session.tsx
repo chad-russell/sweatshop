@@ -222,7 +222,7 @@ function PendingPRApproval({ toolCallId }: { toolCallId: string }) {
             type="button"
             disabled={busy}
             onClick={() => void post(true)}
-            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Approve PR
           </button>
@@ -230,7 +230,7 @@ function PendingPRApproval({ toolCallId }: { toolCallId: string }) {
             type="button"
             disabled={busy}
             onClick={() => void post(false)}
-            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Deny
           </button>
@@ -306,7 +306,7 @@ function PullRequestToolCard({ part }: { part: ToolUIPart }) {
               href={url}
               target="_blank"
               rel="noreferrer"
-              className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90"
+              className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90 pointer-coarse:px-3 pointer-coarse:py-2"
             >
               View PR →
             </a>
@@ -314,7 +314,7 @@ function PullRequestToolCard({ part }: { part: ToolUIPart }) {
           <CollapsibleTrigger
             aria-label="Toggle create_pr details"
             title="Details"
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors pointer-coarse:size-10 hover:bg-accent hover:text-foreground"
           >
             <ChevronDown
               className="size-4 transition-transform group-data-[state=open]:rotate-180"
@@ -383,7 +383,7 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Your answer…"
               disabled={busy}
-              className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2.5 text-sm"
+              className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2.5 text-base pointer-coarse:h-10 md:text-sm"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && draft.trim()) void post({ answer: draft });
               }}
@@ -392,7 +392,7 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
               type="button"
               disabled={busy || !draft.trim()}
               onClick={() => void post({ answer: draft })}
-              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
             >
               Answer
             </button>
@@ -403,7 +403,7 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
               type="button"
               disabled={busy}
               onClick={() => void post({ approved: true })}
-              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
             >
               Approve
             </button>
@@ -411,7 +411,7 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
               type="button"
               disabled={busy}
               onClick={() => void post({ approved: false })}
-              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
+              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
             >
               Deny
             </button>
@@ -466,7 +466,7 @@ function GatedApprovalCard({ part }: { part: ToolUIPart }) {
             type="button"
             disabled={busy}
             onClick={() => void post(true)}
-            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Approve
           </button>
@@ -474,7 +474,7 @@ function GatedApprovalCard({ part }: { part: ToolUIPart }) {
             type="button"
             disabled={busy}
             onClick={() => void post(false)}
-            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Deny
           </button>
@@ -1169,7 +1169,7 @@ export function ChatSession({
                 <button
                   type="button"
                   onClick={handleRetry}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 text-xs font-medium transition-colors hover:bg-destructive/10"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 pointer-coarse:h-10 text-xs font-medium transition-colors hover:bg-destructive/10"
                 >
                   <RotateCcw className="size-3.5" aria-hidden />
                   Retry
@@ -1181,7 +1181,7 @@ export function ChatSession({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="w-full px-4 pt-2 pb-4">
+      <div className="w-full px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-4">
         <PromptInput onSubmit={handleSubmit} className="composer">
           <PromptInputTextarea
             ref={textareaRef}

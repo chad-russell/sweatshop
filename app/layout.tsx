@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { AgentPanel } from "@/components/agent-panel";
 import { ConversationSidebar } from "@/components/conversation-sidebar";
 import { PageContextProvider } from "@/components/page-context";
+import { NavDrawerProvider } from "@/components/sidebar/nav-drawer";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { db } from "@/db";
@@ -13,6 +14,15 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "sweatshop",
   description: "A dynamic workspace around an eve agent.",
+};
+
+// Mobile: `resizes-content` shrinks the dynamic viewport when the
+// keyboard opens, so the composer stays above it instead of the page
+// scrolling underneath.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
 };
 
 // The shell reads the conversation store on every request.
@@ -31,12 +41,13 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning className="h-full antialiased">
-      <body className="flex min-h-full flex-col">
+      <body className="flex h-full flex-col">
         <ThemeProvider>
           <TooltipProvider>
             {/* 0015: pages register what they are; the agent panel reads
                 it at send time. Covers the main column and the panel. */}
             <PageContextProvider>
+              <NavDrawerProvider>
               <div className="flex h-dvh w-full">
                 <ConversationSidebar
                   data={data}
@@ -46,13 +57,17 @@ export default async function RootLayout({
                     needsYou: attention.needsYou.size,
                   }}
                 />
-                {/* max-md gutter reserves the strip the floating sidebar
-                    trigger lives in (fixed top-left), on every page. */}
-                <main className="h-dvh min-w-0 flex-1 max-md:pl-12">{children}</main>
+                {/* The shell never scrolls (globals.css locks html/body);
+                    each page owns its own scroll region. The mobile nav
+                    trigger lives in AppHeader, not in a reserved gutter. */}
+                <main className="h-dvh min-w-0 flex-1 overflow-y-auto overscroll-contain">
+                  {children}
+                </main>
                 {/* 0015: the agent panel — an ordinary chat that follows
                     you across pages (pushes on lg+, overlays below). */}
                 <AgentPanel />
               </div>
+              </NavDrawerProvider>
             </PageContextProvider>
           </TooltipProvider>
         </ThemeProvider>

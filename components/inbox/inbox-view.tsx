@@ -1,5 +1,6 @@
 "use client";
 
+import { NavTrigger } from "@/components/sidebar/nav-drawer";
 import { CheckCheck, InboxIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
@@ -106,9 +107,10 @@ export function InboxView({ data }: { data: InboxData }) {
   const empty = needs.length === 0 && unread.length === 0;
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-8 overflow-y-auto p-6">
+    <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-8 overflow-y-auto p-4 md:p-6">
       <header className="flex items-center justify-between gap-2">
         <h1 className="flex items-center gap-2 text-lg font-medium">
+          <NavTrigger className="-ml-2" />
           <InboxIcon className="size-5" />
           Inbox
         </h1>

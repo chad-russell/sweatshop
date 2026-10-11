@@ -77,7 +77,7 @@ function sandboxLabel(
 }
 
 const SANDBOX_TRIGGER =
-  "inline-flex h-8 max-w-48 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+  "inline-flex h-8 pointer-coarse:h-10 max-w-48 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
 /**
  * 0013 sandbox picker. Choosing happens once, on a fresh conversation:
@@ -414,7 +414,7 @@ export function ChatSurface({
       projectId={activeProjectId ?? undefined}
       playbook={activePlaybookId}
       initialRoute={initialRoute}
-      className="mx-auto h-dvh max-w-3xl"
+      className="mx-auto h-full max-w-3xl"
       onAdopted={handleAdopted}
       onAddressable={handleAddressable}
       freshComposer={() => freshComposer()}
