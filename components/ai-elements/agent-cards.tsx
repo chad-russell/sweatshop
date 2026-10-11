@@ -173,7 +173,7 @@ export function ChildMeta({ status }: { status: ChildStatus }) {
   const end = status.live ? now : (status.settledAt ?? now);
   return (
     <MetaChip>
-      {status.stage && status.live ? `${status.stage} · ` : ""}
+      {status.where && status.live ? `${status.where} · ` : ""}
       {elapsed(status.startedAt, end)}
     </MetaChip>
   );
@@ -195,14 +195,14 @@ function MetaChip({ children }: { children: ReactNode }) {
 /** A started child thread (start_thread): the handle to poll/follow. */
 function threadStarted(
   output: unknown,
-): { id: string; url: string; sandbox: string; playbook: string | null } | undefined {
+): { id: string; url: string; sandbox: string; skill: string | null } | undefined {
   const o = objectOf(output);
   if (!o || o.ok !== true || typeof o.id !== "string") return undefined;
   return {
     id: o.id,
     url: typeof o.url === "string" ? o.url : `/c/${o.id}`,
     sandbox: typeof o.sandbox === "string" ? o.sandbox : "",
-    playbook: typeof o.playbook === "string" ? o.playbook : null,
+    skill: typeof o.skill === "string" ? o.skill : null,
   };
 }
 
@@ -222,7 +222,7 @@ export function StartThreadCard({
   const started = threadStarted(output);
   const i = objectOf(input);
   const prompt = typeof i?.prompt === "string" ? i.prompt : undefined;
-  const playbook = started?.playbook ?? (typeof i?.playbook === "string" ? i.playbook : null);
+  const skill = started?.skill ?? (typeof i?.skill === "string" ? i.skill : null);
   const live = useChildStatus(started?.id ?? null);
   const failedToStart = state === "error" || Boolean(failureOf(output));
   const sp = live ? childPill(live) : statePill(state, failedToStart);
@@ -231,7 +231,7 @@ export function StartThreadCard({
     <Card
       icon={GitForkIcon}
       title={state === "running" ? "Starting thread" : "Thread"}
-      subtitle={playbook ?? (started ? "plain" : "…")}
+      subtitle={skill ?? (started ? "plain" : "…")}
       extra={
         <>
           {live && <ChildMeta status={live} />}

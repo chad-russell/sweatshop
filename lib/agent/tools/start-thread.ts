@@ -4,12 +4,12 @@ import {
   ensureConversation,
   getConversation,
   setConversationParent,
-  setConversationPlaybook,
+  setConversationSkill,
 } from "@/db/chat";
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
 import { attachConversation, openConversationSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
-import { readPlaybook } from "@/lib/playbooks";
+import { readSkill } from "@/lib/skills";
 
 /**
  * 0037 phase 3: the start_thread tool's core — a fresh child chat with
@@ -36,12 +36,12 @@ export type StartThreadResult =
       url: string;
       runId: string;
       sandbox: "attached" | "own" | "none";
-      playbook: string | null;
+      skill: string | null;
       note: string;
     }
   | {
       ok: false;
-      code: "no-playbook" | "start-failed";
+      code: "no-skill" | "start-failed";
       message: string;
     };
 
@@ -49,18 +49,18 @@ export async function startThread(
   input: {
     conversationId: string;
     prompt: string;
-    playbook?: string;
+    skill?: string;
     fresh?: boolean;
     provider?: SandboxProvider;
     /** Test seam: the child's turn starter (default startChatTurn). */
     start?: (conversationId: string, text: string) => Promise<{ runId: string }>;
   },
 ): Promise<StartThreadResult> {
-  if (input.playbook && !(await readPlaybook(input.playbook))) {
+  if (input.skill && !(await readSkill(input.skill))) {
     return {
       ok: false,
-      code: "no-playbook",
-      message: `no playbook "${input.playbook}" — use_playbook lists what exists`,
+      code: "no-skill",
+      message: `no thread skill "${input.skill}" — use_skill lists what exists`,
     };
   }
   const parent = getConversation(db(), input.conversationId);
@@ -69,7 +69,7 @@ export async function startThread(
   }
   const childId = `c_t${Date.now().toString(36)}${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   ensureConversation(db(), childId, parent.projectId);
-  if (input.playbook) setConversationPlaybook(db(), childId, input.playbook);
+  if (input.skill) setConversationSkill(db(), childId, input.skill);
 
   // The sandbox choice mirrors start_machine: attached to the parent's
   // binding by default (binding the parent first if it was still
@@ -102,7 +102,7 @@ export async function startThread(
       url: `/c/${childId}`,
       runId,
       sandbox,
-      playbook: input.playbook ?? null,
+      skill: input.skill ?? null,
       note:
         `the child thread runs in the background — this conversation is woken with its ` +
         `final message when it settles (inspect ${childId}; cancel_run stops it)`,

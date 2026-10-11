@@ -34,7 +34,7 @@ export interface MessageRowMetadata {
 }
 
 /** 0022: what woke a conversation (machine run or harness call; 0037:
- *  "budget" = a playbook turn hit its step budget and continues;
+ *  "budget" = a thread-skill turn hit its step budget and continues;
  *  "thread" = a child chat started by start_thread settled). */
 export interface RunEventMeta {
   kind: "machine" | "harness" | "budget" | "thread";
@@ -80,8 +80,8 @@ export function getConversation(
   route: ChatRoute | null;
   /** 0007: set while the conversation sits in Trash (0022: no wakes). */
   trashedAt: number | null;
-  /** 0037: the thread's playbook id (null = plain chat). */
-  playbook: string | null;
+  /** 0039: the thread's skill id (null = plain chat). */
+  skill: string | null;
 } | null {
   const row = db
     .select({
@@ -89,7 +89,7 @@ export function getConversation(
       projectId: conversations.projectId,
       route: conversations.route,
       trashedAt: conversations.trashedAt,
-      playbook: conversations.playbook,
+      skill: conversations.skill,
     })
     .from(conversations)
     .where(eq(conversations.id, id))
@@ -97,9 +97,9 @@ export function getConversation(
   return row ? { ...row, route: parseStoredChatRoute(row.route) } : null;
 }
 
-/** 0037: set the thread's playbook (creation send, or use_playbook). */
-export function setConversationPlaybook(db: Db, id: string, playbook: string): void {
-  db.update(conversations).set({ playbook }).where(eq(conversations.id, id)).run();
+/** 0039: set the thread's skill (creation send, or use_skill). */
+export function setConversationSkill(db: Db, id: string, skill: string): void {
+  db.update(conversations).set({ skill }).where(eq(conversations.id, id)).run();
 }
 
 /** 0021: set (or clear, with null) the conversation's route — the chat
@@ -389,7 +389,7 @@ export function getActiveRun(db: Db, conversationId: string): string | null {
 export interface ChatChild {
   id: string;
   parentConversationId: string | null;
-  playbook: string | null;
+  skill: string | null;
   activeRunId: string | null;
   trashedAt: number | null;
   createdAt: number;
@@ -400,7 +400,7 @@ export interface ChatChild {
 const chatChildColumns = {
   id: conversations.id,
   parentConversationId: conversations.parentConversationId,
-  playbook: conversations.playbook,
+  skill: conversations.skill,
   activeRunId: conversations.activeRunId,
   trashedAt: conversations.trashedAt,
   createdAt: conversations.createdAt,

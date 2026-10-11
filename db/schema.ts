@@ -70,10 +70,10 @@ export const conversations = sqliteTable(
      *  id) | "stage" (a run's per-visit agent conversation, hidden from
      *  the sidebar, unread, and search results). */
     kind: text("kind").notNull().default("chat"),
-    /** 0037: the playbook this thread runs (docs/agent/playbooks/<id>.md);
+    /** 0039: the thread skill this conversation runs (skills/<id>/SKILL.md,
      *  null = a plain chat. Its body joins the turn instructions and
      *  raises the turn's step budget. */
-    playbook: text("playbook"),
+    skill: text("skill"),
     /** 0037 phase 3: the chat whose start_thread created this thread —
      *  the wake target when this one settles. Null = not a child. A
      *  deleted parent goes null and wakes stop. */

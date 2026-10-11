@@ -14,7 +14,7 @@ import {
   sandboxExecStep,
   startThreadStep,
   systemDocsStep,
-  bindPlaybookStep,
+  bindSkillStep,
   ghStep,
   forgejoStep,
   listProjectsStep,
@@ -133,7 +133,7 @@ export function buildChatTools(
         "work). It runs in the BACKGROUND attached to this sandbox (same checkout; fresh: true gives it " +
         "its own) and THIS conversation is woken with its final message when it settles. Put RAW " +
         "MATERIAL in the prompt — the ticket, the branch, where the evidence is — never your reasoning " +
-        "or conclusions. Optional playbook (e.g. \"review\") guides it. inspect checks on it; " +
+        "or conclusions. Optional skill (e.g. \"review\") guides it. inspect checks on it; " +
         "cancel_run stops it.",
       inputSchema: z.object({
         prompt: z
@@ -144,11 +144,11 @@ export function buildChatTools(
             "The child's whole task, standalone: the ticket/branch/diff to look at and what to return. " +
               "Raw material only — it must form its own judgment.",
           ),
-        playbook: z.string().optional().describe("Playbook id for the child (e.g. \"review\")"),
+        skill: z.string().optional().describe("Skill id for the child (e.g. \"review\")"),
         fresh: z.boolean().optional().describe("Give the child its own new sandbox instead of sharing this one"),
       }),
-      execute: ({ prompt, playbook, fresh }) =>
-        startThreadStep(conversationId, { prompt, ...(playbook ? { playbook } : {}), ...(fresh ? { fresh } : {}) }),
+      execute: ({ prompt, skill, fresh }) =>
+        startThreadStep(conversationId, { prompt, ...(skill ? { skill } : {}), ...(fresh ? { fresh } : {}) }),
     }),
 
     cancel_run: tool({
@@ -222,13 +222,13 @@ export function buildChatTools(
 
     // Capability docs (the skills-pattern v1): succinct instructions
     // point here; the depth is pulled on demand from docs/agent/.
-    use_playbook: tool({
+    use_skill: tool({
       description:
-        "Run this thread by a playbook — a runbook for a kind of work (e.g. \"ship\": ticket to approved PR). " +
-        "Call it when Chad asks for that kind of work mid-thread (\"ship it\"); the playbook then guides every " +
-        "later turn and the thread gets the background work budget. Omit id to list playbooks.",
-      inputSchema: z.object({ id: z.string().optional().describe("Playbook id; omit to list") }),
-      execute: ({ id }) => bindPlaybookStep(conversationId, id),
+        "Run this thread by a skill — a runbook for a kind of work (e.g. \"ship\": ticket to approved PR). " +
+        "Call it when Chad asks for that kind of work mid-thread (\"ship it\"); the skill then guides every " +
+        "later turn and the thread gets the background work budget. Omit id to list skills.",
+      inputSchema: z.object({ id: z.string().optional().describe("Skill id; omit to list") }),
+      execute: ({ id }) => bindSkillStep(conversationId, id),
     }),
 
     system_docs: tool({

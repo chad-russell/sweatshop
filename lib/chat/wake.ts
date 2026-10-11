@@ -41,7 +41,7 @@ export interface WakeEvent {
   kind: "harness" | "thread";
   /** hc_… / c_… — for inspect/cancel. */
   id: string;
-  /** The harness kind ("pi" / "claude") or the child thread's playbook
+  /** The harness kind ("pi" / "claude" / "cursor") or the child thread's skill
    *  ("review" — "thread" when it has none). */
   name: string;
   /** completed | failed | needs-attention | waiting. */
@@ -226,7 +226,7 @@ export async function wakeChatChildIfDue(
     {
       kind: "thread",
       id: child.id,
-      name: child.playbook ?? "thread",
+      name: child.skill ?? "thread",
       status,
       // Wider than harness calls: for a review thread the final
       // message IS the deliverable, and the smoke run showed 500 chars

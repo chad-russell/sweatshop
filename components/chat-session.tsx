@@ -763,7 +763,7 @@ export function ChatSession({
   onAdopted,
   onAddressable,
   pageContext,
-  playbook,
+  skill,
   className,
   ref,
 }: {
@@ -789,8 +789,8 @@ export function ChatSession({
   /** 0015: the page this chat is drawn on, read at send time — each send
    *  carries it as the turn's viewing note ("this"). Absent = no note. */
   pageContext?: () => ViewingContext | null;
-  /** 0037: the playbook the creating send binds (null = plain chat). */
-  playbook?: string | null;
+  /** 0039: the skill the creating send binds (null = plain chat). */
+  skill?: string | null;
   className?: string;
   ref?: Ref<ChatSessionController>;
 }) {
@@ -839,14 +839,14 @@ export function ChatSession({
   const choiceRef = useRef(sandboxChoice);
   const conversationRef = useRef({ conversationId, projectId: projectId ?? null });
   const pageContextRef = useRef(pageContext);
-  const playbookRef = useRef(playbook ?? null);
+  const skillRef = useRef(skill ?? null);
   useEffect(() => {
     routeRef.current = { touched: routeTouched, route };
     choiceRef.current = sandboxChoice;
     conversationRef.current = { conversationId, projectId: projectId ?? null };
     pageContextRef.current = pageContext;
-    playbookRef.current = playbook ?? null;
-  }, [route, routeTouched, sandboxChoice, conversationId, projectId, pageContext, playbook]);
+    skillRef.current = skill ?? null;
+  }, [route, routeTouched, sandboxChoice, conversationId, projectId, pageContext, skill]);
 
   const resumeRunRef = useRef<string | null>(null);
   // The callback runs at send time (never during render) and must see
@@ -873,7 +873,7 @@ export function ChatSession({
               // "auto" = the chat's own sandbox, the default.
               ...(choiceRef.current !== "auto" ? { sandbox: choiceRef.current } : {}),
               // 0037: creation-only server-side, like the sandbox choice.
-              ...(playbookRef.current ? { playbook: playbookRef.current } : {}),
+              ...(skillRef.current ? { skill: skillRef.current } : {}),
               ...(viewing ? { context: viewing } : {}),
               messages,
               trigger,

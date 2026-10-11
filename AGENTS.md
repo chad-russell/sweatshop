@@ -82,7 +82,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `GET /api/x/status/<id>` (`lib/child-status.ts`, all three kinds)
   polled by `useChildStatus` every
   5 s while the child is live and the tab visible, never once settled.
-- Child threads (0037 phase 3): `start_thread({prompt, playbook?,
+- Child threads (0037 phase 3): `start_thread({prompt, skill?,
   fresh?})` — every chat tool — starts a fresh child chat with its own
   context (the review shape) on the parent's project, ATTACHED to the
   parent's sandbox by default (the parent binds first if still pending;
@@ -147,24 +147,26 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   card. Live check:
   `PI_SPIKE=1` (pi on every keyed provider via the real builder) and
   `CLAUDE_SPIKE=1 CLAUDE_SPIKE_LIVE=1` (claude on a route).
-- Playbooks (0037 phase 2): markdown runbooks in
-  `docs/agent/playbooks/<id>.md` (front matter `description`; H1 =
-  title; loader `lib/playbooks.ts`, read at call time). A thread runs
-  one via `conversations.playbook` — chosen by the creating send (the
-  composer's "Chat with a playbook" picker section, project scope;
-  `?playbook=<id>`; the route rejects unknown ids before creating
-  anything) or mid-thread by the agent's `use_playbook` tool. Its body
-  joins the turn instructions and the turn's step budget rises from 50
-  to 400; a playbook turn that EXHAUSTS the budget continues in a new
-  turn through `startChatTurn` with a `runEvent` of kind `budget`
-  (chip, never Chad's words), bounded at 3 consecutive continuations
-  with no human message between (`lib/chat/budget.ts`). Catalog: `ship`
-  (ticket → `create_pr`), `ticket` (0037 phase 3: `ask_chad` plan
-  approval first, then the Ship steps, then a fresh-eyes `start_thread`
-  review with the `review` playbook before `create_pr`, findings weighed
-  in the PR body) and `review` (0037 phase 3: fresh context — inputs are
-  the ticket, the diff and the evidence from the parent's prompt; output
-  is severity-ranked findings + a verdict; it changes nothing).
+- Skills (0037's playbooks folded in by 0039): markdown runbooks in
+  `skills/<id>/SKILL.md` (front matter `description`, plus `thread: true`
+  for one bindable to a conversation; H1 = title; loader `lib/skills.ts`,
+  read at call time). A thread runs one via `conversations.skill` —
+  chosen by the creating send (the composer's "Chat with a skill"
+  picker section, project scope; `?skill=<id>`; the route rejects
+  unknown ids before creating anything) or mid-thread by the agent's
+  `use_skill` tool. Its body joins the turn instructions and the turn's
+  step budget rises from 50 to 400; a thread-skill turn that EXHAUSTS
+  the budget continues in a new turn through `startChatTurn` with a
+  `runEvent` of kind `budget` (chip, never Chad's words), bounded at 3
+  consecutive continuations with no human message between
+  (`lib/chat/budget.ts`). Catalog: `ship` (ticket → `create_pr`),
+  `ticket` (0037 phase 3: `ask_chad` plan approval first, then the Ship
+  steps, then a fresh-eyes `start_thread` review with the `review` skill
+  before `create_pr`, findings weighed in the PR body) and `review`
+  (0037 phase 3: fresh context — inputs are the ticket, the diff and the
+  evidence from the parent's prompt; output is severity-ranked findings
+  + a verdict; it changes nothing). Skills without `thread: true` are
+  reference material for later 2.3 work — never bindable.
 - Web tools (1.5): every chat has `web_search` and `web_fetch`. `web_fetch` is plain HTTP (redirects followed, 2 MiB
   download cap, 60 k character context clip, HTML stripped to text,
   textual content types only); `web_search` is Z.AI's coding-plan MCP
@@ -284,7 +286,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   getRunBinding/LIVE_STATUSES), a static `/r/<runId>` view + the run GET
   API, child-status/inspect reads, and the reaper's defensive consult of
   run rows. Migration 0047 dropped `machines` and `pr_proposals`. The
-  work surfaces now: a chat running a PLAYBOOK (ship/ticket/review), the
+  work surfaces now: a chat running a SKILL (ship/ticket/review), the
   gated tools (`create_pr`), and `start_thread` children — see those
   bullets.
 - Agent everywhere (0015; the machine tools died with machines, 0037

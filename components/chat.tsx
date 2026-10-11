@@ -13,7 +13,7 @@ import {
   type SandboxOption,
 } from "@/components/chat-session";
 import { usePageContext } from "@/components/page-context";
-import { FreshTargetPicker, usePlaybooks } from "@/components/fresh-target-picker";
+import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { shortSandboxId } from "@/lib/sandbox-id";
@@ -34,7 +34,7 @@ import { cn } from "@/lib/utils";
  * The chat page frame (0010 Phase 4; split in 0015 Phase 3): the
  * AppHeader with the model and sandbox pickers, URL behaviour (adopting
  * `/c/<id>` on first send, ⌘⇧O new chat), and the fresh composer's
- * playbook target (0037). The transcript, composer and transport
+ * skill target (0039). The transcript, composer and transport
  * live in ChatSession, which this frame and the agent panel share.
  */
 
@@ -275,7 +275,7 @@ export function ChatSurface({
   initialRoute,
   conversationTitle,
   headerExtra,
-  initialPlaybookId,
+  initialSkillId,
   projectOptions,
 }: {
   conversationId?: string;
@@ -286,8 +286,8 @@ export function ChatSurface({
   initialRoute?: ChatRoute | null;
   conversationTitle?: string | null;
   headerExtra?: React.ReactNode;
-  /** 0037: preselect this playbook (`?playbook=`; project scope only). */
-  initialPlaybookId?: string | null;
+  /** 0039: preselect this skill (`?skill=`; project scope only). */
+  initialSkillId?: string | null;
   /** 0018: pickable chat-in-project targets for the fresh composer
    *  (the ?project= param seeds the initial scope). */
   projectOptions?: { id: string; name: string }[];
@@ -322,16 +322,16 @@ export function ChatSurface({
         : { kind: "other" },
   );
 
-  // ── 0037: the fresh composer's target — a chat, in a project, by a playbook ──
-  const playbooks = usePlaybooks();
-  const [pickedPlaybookId, setPickedPlaybookId] = useState<string | null>(initialPlaybookId ?? null);
-  const activePlaybookId = !conversationId && activeProjectId ? pickedPlaybookId : null;
+  // ── 0039: the fresh composer's target — a chat, in a project, by a skill ──
+  const skills = useSkills();
+  const [pickedSkillId, setPickedSkillId] = useState<string | null>(initialSkillId ?? null);
+  const activeSkillId = !conversationId && activeProjectId ? pickedSkillId : null;
 
   /** 0018: pick (or clear) the composer's project scope; the URL
    *  follows so the scope is visible and shareable while fresh. */
   const pickProject = (id: string | null) => {
     setPickedProjectId(id);
-    setPickedPlaybookId(null);
+    setPickedSkillId(null);
     if (!conversationId) {
       window.history.replaceState(null, "", id ? `/?project=${id}` : "/");
     }
@@ -339,19 +339,19 @@ export function ChatSurface({
 
   const freshComposer = (): FreshComposerMode | undefined => {
     if (conversationId) return undefined;
-    const book = playbooks?.find((b) => b.id === activePlaybookId) ?? null;
+    const book = skills?.find((b) => b.id === activeSkillId) ?? null;
     const footer = (
       <FreshTargetPicker
         projects={projectOptions}
         selectedProjectId={activeProjectId}
         onSelectProject={pickProject}
-        playbooks={playbooks}
-        selectedPlaybookId={activePlaybookId}
-        onSelectPlaybook={setPickedPlaybookId}
+        skills={skills}
+        selectedSkillId={activeSkillId}
+        onSelectSkill={setPickedSkillId}
       />
     );
     // The picker shows when there is anything to pick (projects and/or
-    // playbooks); the default composer stands otherwise.
+    // skills); the default composer stands otherwise.
     if (!projectOptions?.length && !book) return undefined;
     return {
       emptyState: book ? (
@@ -412,7 +412,7 @@ export function ChatSurface({
       initialMessages={initialMessages}
       activeRunId={activeRunId}
       projectId={activeProjectId ?? undefined}
-      playbook={activePlaybookId}
+      skill={activeSkillId}
       initialRoute={initialRoute}
       className="mx-auto h-full max-w-3xl"
       onAdopted={handleAdopted}

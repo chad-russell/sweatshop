@@ -12,7 +12,7 @@ import type { LanguageModel } from "ai";
  * the workflow serializes the model across step boundaries, so instance
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
- * "hang" | "create-pr" | "viewing" | "playbook" | "loop") is read at call time so a test file can
+ * "hang" | "create-pr" | "viewing" | "skill" | "loop") is read at call time so a test file can
  * switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
@@ -118,15 +118,15 @@ export function scriptedChatModel(): LanguageModel {
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }
 
-      // 0037: bind a playbook mid-thread; later turns see it in the
-      // system prompt ("mock-playbook:<in-system>").
-      if (script === "playbook") {
+      // 0037/0039: bind a skill mid-thread; later turns see it in the
+      // system prompt ("mock-skill:<in-system>").
+      if (script === "skill") {
         const system = options.prompt.find((m) => m.role === "system");
-        const inSystem = system ? messageText(system).includes("# Playbook: Ship") : false;
+        const inSystem = system ? messageText(system).includes("# Skill: Ship") : false;
         if (!sawToolResult && !inSystem) {
-          return result(toolCallPart("call_playbook_1", "use_playbook", { id: "ship" }));
+          return result(toolCallPart("call_skill_1", "use_skill", { id: "ship" }));
         }
-        return result(textPart(`mock-playbook:${inSystem}`));
+        return result(textPart(`mock-skill:${inSystem}`));
       }
 
       // 0037: a turn that never stops calling tools — exhausts its budget.

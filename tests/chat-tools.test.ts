@@ -392,7 +392,7 @@ describe("0037 phase 5: the tool catalog after machines", () => {
       Object.keys(buildChatTools("c_x", { hasSandbox, hasProject }));
     expect(names(false, false)).toContain("start_thread");
     expect(names(true, true)).toContain("cancel_run");
-    expect(names(true, true)).toContain("use_playbook");
+    expect(names(true, true)).toContain("use_skill");
     for (const gone of ["start_machine", "list_machines", "get_machine", "create_machine", "edit_machine", "delete_machine"]) {
       expect(names(true, true)).not.toContain(gone);
     }

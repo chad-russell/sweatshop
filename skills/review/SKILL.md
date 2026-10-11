@@ -1,5 +1,6 @@
 ---
 description: Fresh-eyes review of a branch: read the ticket, the diff and the evidence; report findings; change nothing.
+thread: true
 ---
 # Review — fresh eyes on finished work
 

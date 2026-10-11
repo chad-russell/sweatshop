@@ -156,31 +156,33 @@ export async function createPrPreviewStep(
   return buildChatPRPreview(conversationId, input, undefined, live);
 }
 
-/** 0037: the thread's playbook (null = plain chat). */
-export async function loadPlaybookStep(
+/** 0039: the thread's skill (null = plain chat). */
+export async function loadSkillStep(
   conversationId: string,
 ): Promise<{ id: string; title: string; body: string } | null> {
   "use step";
-  const [{ db, chat }, { readPlaybook }] = await Promise.all([chatStore(), import("../../lib/playbooks")]);
-  const id = chat.getConversation(db, conversationId)?.playbook;
-  const book = id ? await readPlaybook(id) : null;
-  return book ? { id: book.id, title: book.title, body: book.body } : null;
+  const [{ db, chat }, { readSkill }] = await Promise.all([chatStore(), import("../../lib/skills")]);
+  const id = chat.getConversation(db, conversationId)?.skill;
+  const skill = id ? await readSkill(id) : null;
+  return skill ? { id: skill.id, title: skill.title, body: skill.body } : null;
 }
 
-/** 0037: list playbooks, or bind one to the thread and return its body
- *  (followed from this turn on; later turns get it as instructions). */
-export async function bindPlaybookStep(conversationId: string, id?: string): Promise<unknown> {
+/** 0039: list thread skills, or bind one to the thread and return its
+ *  body (followed from this turn on; later turns get it as instructions). */
+export async function bindSkillStep(conversationId: string, id?: string): Promise<unknown> {
   "use step";
-  const [{ db, chat }, { listPlaybooks, readPlaybook }] = await Promise.all([chatStore(), import("../../lib/playbooks")]);
-  const list = async () => (await listPlaybooks()).map((b) => ({ id: b.id, title: b.title, description: b.description }));
-  if (!id) return { ok: true, playbooks: await list() };
-  const book = await readPlaybook(id);
-  if (!book) return { ok: false, code: "unknown-playbook", message: `No playbook "${id}".`, playbooks: await list() };
-  chat.setConversationPlaybook(db, conversationId, book.id);
-  return { ok: true, id: book.id, note: "Bound to this thread — follow it from now on.", playbook: book.body };
+  const [{ db, chat }, { listThreadSkills, readSkill }] = await Promise.all([chatStore(), import("../../lib/skills")]);
+  const list = async () =>
+    (await listThreadSkills()).map((s) => ({ id: s.id, title: s.title, description: s.description }));
+  if (!id) return { ok: true, skills: await list() };
+  const skill = await readSkill(id);
+  if (!skill || !skill.thread)
+    return { ok: false, code: "unknown-skill", message: `No thread skill "${id}".`, skills: await list() };
+  chat.setConversationSkill(db, conversationId, skill.id);
+  return { ok: true, id: skill.id, note: "Bound to this thread — follow it from now on.", skill: skill.body };
 }
 
-/** 0037: continue a playbook turn that hit its step budget. */
+/** 0037/0039: continue a thread-skill turn that hit its step budget. */
 export async function continueAfterBudgetStep(conversationId: string): Promise<string> {
   "use step";
   const { continueAfterBudget } = await import("../../lib/chat/budget");
@@ -315,7 +317,7 @@ export async function cancelRunStep(runId: string): Promise<unknown> {
  *  sandbox by default) that wakes this conversation when it settles. */
 export async function startThreadStep(
   conversationId: string,
-  input: { prompt: string; playbook?: string; fresh?: boolean },
+  input: { prompt: string; skill?: string; fresh?: boolean },
 ): Promise<unknown> {
   "use step";
   const { startThread } = await import("../../lib/agent/tools/start-thread");

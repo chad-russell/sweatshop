@@ -224,7 +224,9 @@ in `harness_events`/messages, tools that manage secrets with value-blind
 shape and approval. Stretch: per-stage grants (least privilege); folding git
 credentials in.
 
-**2.3 Skills (doc 0026).** `skills/` directory in the repo, a loader, grants to
+**2.3 Skills (doc 0026; the thread half shipped as 0039 — playbooks
+folded in: `skills/<id>/SKILL.md` with `thread: true`, `lib/skills.ts`,
+`use_skill`, `?skill=`).** `skills/` directory in the repo, a loader, grants to
 projects and machines, mounting a granted skill into the sandbox where the
 harness looks for skills (check each harness: pi, claude, cursor each have
 their own skill/rules convention), agent tools to read and (with a commit)
