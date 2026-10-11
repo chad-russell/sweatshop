@@ -37,9 +37,9 @@ describe("childStatus", () => {
     const at = { machineName: "CS", machineVersion: 1, definition: def, prompt: "go", createdAt: 1, updatedAt: 1 };
     tdb.insert(machineRuns).values({ id: "mr_cs_live", status: "running", currentStage: "a", ...at }).run();
     tdb.insert(machineRuns).values({ id: "mr_cs_done", status: "completed", currentStage: null, settledAt: 5, ...at }).run();
-    expect(childStatus(tdb, "mr_cs_live")).toMatchObject({ kind: "run", status: "running", live: true, stage: "a", href: "/r/mr_cs_live" });
+    expect(childStatus(tdb, "mr_cs_live")).toMatchObject({ kind: "run", status: "running", live: true, where: "a", href: "/r/mr_cs_live" });
     const done = childStatus(tdb, "mr_cs_done");
-    expect(done).toMatchObject({ status: "completed", live: false, stage: null });
+    expect(done).toMatchObject({ status: "completed", live: false, where: null });
     expect(done?.settledAt).toBe(5);
   });
 
@@ -52,7 +52,7 @@ describe("childStatus", () => {
       kind: "thread",
       status: "running",
       live: true,
-      stage: null, // no playbook
+      where: null, // no skill
       href: "/c/c_cs_child",
       settledAt: null,
     });

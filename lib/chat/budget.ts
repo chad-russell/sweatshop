@@ -4,7 +4,7 @@ import type { MessageRowMetadata } from "@/db/chat";
 import { messages } from "@/db/schema";
 
 /**
- * 0037: a playbook turn that exhausts its step budget is still working —
+ * 0037/0039: a thread-skill turn that exhausts its step budget is still working —
  * it continues in a fresh turn through the wake path (a chip, never
  * Chad's words). Bounded: after MAX_CONTINUATIONS in a row with no human
  * message between them, the thread stops and waits (its last output is

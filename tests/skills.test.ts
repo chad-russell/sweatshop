@@ -1,20 +1,21 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { appendMessages, ensureConversation, getConversation, setConversationPlaybook } from "../db/chat";
+import { appendMessages, ensureConversation, getConversation, setConversationSkill } from "../db/chat";
 import { conversations, messages } from "../db/schema";
-import { listPlaybooks, readPlaybook } from "../lib/playbooks";
+import { listSkills, listThreadSkills, readSkill } from "../lib/skills";
 import { CONTINUE_TEXT, MAX_CONTINUATIONS, continueAfterBudget, continuationsSinceHuman } from "../lib/chat/budget";
 import { POST as postChat } from "../app/api/x/chat/route";
 
 /**
- * 0037 phase 2: playbooks (markdown runbooks bound to a thread) and the
- * bounded budget continuation of a playbook turn.
+ * 0039: skills (markdown runbooks under skills/<id>/SKILL.md; thread
+ * skills bind to a conversation) and the bounded budget continuation of
+ * a thread-skill turn (0037 phase 2, carried over).
  */
 
 const ids: string[] = [];
 function conv(name: string) {
-  const id = `c_test_pb_${name}_${Math.random().toString(36).slice(2, 8)}`;
+  const id = `c_test_sk_${name}_${Math.random().toString(36).slice(2, 8)}`;
   ensureConversation(db(), id);
   ids.push(id);
   return id;
@@ -27,32 +28,32 @@ afterAll(() => {
   }
 });
 
-describe("playbook files", () => {
+describe("skill files", () => {
   it("ship parses: title from the H1, description from front matter, body without it", async () => {
-    const ship = await readPlaybook("ship");
+    const ship = await readSkill("ship");
     expect(ship?.title).toMatch(/^Ship/);
     expect(ship?.description).toMatch(/PR/);
     expect(ship?.body.startsWith("# Ship")).toBe(true);
     expect(ship?.body).toContain("create_pr");
-    expect((await listPlaybooks()).map((b) => b.id)).toContain("ship");
+    expect((await listSkills()).map((b) => b.id)).toContain("ship");
   });
 
   it("ticket and review parse and carry their phase-3 shape", async () => {
-    const ticket = await readPlaybook("ticket");
+    const ticket = await readSkill("ticket");
     expect(ticket?.title).toMatch(/^Ticket/);
     expect(ticket?.body).toContain("ask_chad");
     expect(ticket?.body).toContain("start_thread");
     expect(ticket?.body).toContain("create_pr");
-    const review = await readPlaybook("review");
+    const review = await readSkill("review");
     expect(review?.title).toMatch(/^Review/);
     // The review thread changes nothing and reports findings.
     expect(review?.body).toContain("Change nothing");
     expect(review?.body).toMatch(/blocking/i);
-    expect((await listPlaybooks()).map((b) => b.id).sort()).toEqual(["review", "ship", "ticket"]);
+    expect((await listSkills()).map((b) => b.id).sort()).toEqual(["review", "ship", "ticket"]);
   });
 
   it("rejects traversal and unknown ids", async () => {
-    for (const bad of ["../machines", "nope", "Ship", ""]) expect(await readPlaybook(bad)).toBeNull();
+    for (const bad of ["../machines", "nope", "Ship", ""]) expect(await readSkill(bad)).toBeNull();
   });
 });
 
@@ -92,22 +93,26 @@ describe("budget continuation", () => {
   });
 });
 
-describe("chat route playbook binding", () => {
-  it("rejects an unknown playbook before creating anything", async () => {
-    const id = `c_test_pb_bad_${Math.random().toString(36).slice(2, 8)}`;
+describe("chat route skill binding", () => {
+  it("rejects an unknown skill before creating anything", async () => {
+    const id = `c_test_sk_bad_${Math.random().toString(36).slice(2, 8)}`;
     const res = await postChat(
       new Request("http://x/api/x/chat", {
         method: "POST",
-        body: JSON.stringify({ conversationId: id, text: "hi", playbook: "nope" }),
+        body: JSON.stringify({ conversationId: id, text: "hi", skill: "nope" }),
       }),
     );
     expect(res.status).toBe(400);
     expect(getConversation(db(), id)).toBeNull();
   });
 
-  it("stores the thread's playbook", () => {
+  it("stores the thread's skill, and only thread skills are bindable", async () => {
     const id = conv("store");
-    setConversationPlaybook(db(), id, "ship");
-    expect(getConversation(db(), id)?.playbook).toBe("ship");
+    setConversationSkill(db(), id, "ship");
+    expect(getConversation(db(), id)?.skill).toBe("ship");
+    // The bindable catalog is thread skills only — the flag, not the
+    // directory, decides (a plain reference skill never appears).
+    expect((await listThreadSkills()).map((s) => s.id).sort()).toEqual(["review", "ship", "ticket"]);
+    expect((await listSkills()).every((s) => typeof s.thread === "boolean")).toBe(true);
   });
 });

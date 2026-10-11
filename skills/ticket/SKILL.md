@@ -1,5 +1,6 @@
 ---
 description: Real ticket work: plan approved by Chad first, ship with tests and evidence, fresh-eyes review before the PR.
+thread: true
 ---
 # Ticket — planned work to an approved PR
 
@@ -31,7 +32,7 @@ fresh-eyes review runs before the PR.
    blocked visual check is a FINDING, not a puzzle: retry at most
    twice, attach what you saw, say so — never dig into the app's auth
    or middleware to get past it.
-4. **Fresh eyes.** Before the PR, `start_thread` with the playbook
+4. **Fresh eyes.** Before the PR, `start_thread` with the skill
    `"review"` and raw material only: the ticket text, the branch, the
    base branch, where the evidence (screenshots, test output) lives.
    Never your reasoning — the reviewer forms its own judgment. When

@@ -21,8 +21,8 @@ export interface ChildStatus {
   startedAt: number;
   /** Unix ms of the last settle (null while it has never settled). */
   settledAt: number | null;
-  /** Runs: the stage it is on; threads: their playbook. */
-  stage: string | null;
+  /** Where it is: a run's current stage, a thread's skill. */
+  where: string | null;
   /** Clipped failure reason, when there is one. */
   error: string | null;
 }
@@ -39,7 +39,7 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       href: `/h/${call.kind}/${call.conversationId}`,
       startedAt: call.createdAt,
       settledAt: call.settledAt,
-      stage: null,
+      where: null,
       error: clip(call.error),
     };
   }
@@ -59,7 +59,7 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       href: `/r/${id}`,
       startedAt: run.createdAt,
       settledAt: run.settledAt,
-      stage: run.currentStage,
+      where: run.currentStage,
       error: clip(run.error),
     };
   }
@@ -79,7 +79,7 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       href: `/c/${id}`,
       startedAt: child.createdAt,
       settledAt: live ? null : child.updatedAt,
-      stage: child.playbook,
+      where: child.skill,
       error: null,
     };
   }

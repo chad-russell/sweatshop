@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 /**
  * The fresh composer's target picker (0012 → 0037 phase 5): what a new
  * chat is — a plain chat, a chat in a project (0018), or a project
- * chat running a playbook (0037). The machine-run axis died with
+ * chat running a skill (0039). The machine-run axis died with
  * machines.
  */
 
@@ -25,21 +25,21 @@ export interface ProjectOption {
   name: string;
 }
 
-/** 0037: a playbook a project chat can run by. */
-export interface PlaybookOption {
+/** 0039: a thread skill a project chat can run by. */
+export interface SkillOption {
   id: string;
   title: string;
   description: string;
 }
 
-/** The playbook catalog, fetched once. */
-export function usePlaybooks(): PlaybookOption[] | null {
-  const [books, setBooks] = useState<PlaybookOption[] | null>(null);
+/** The thread-skill catalog, fetched once. */
+export function useSkills(): SkillOption[] | null {
+  const [books, setBooks] = useState<SkillOption[] | null>(null);
   useEffect(() => {
     let live = true;
-    void fetch("/api/playbooks", { cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<{ playbooks: PlaybookOption[] }>) : { playbooks: [] }))
-      .then(({ playbooks }) => live && setBooks(playbooks))
+    void fetch("/api/skills", { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ skills: SkillOption[] }>) : { skills: [] }))
+      .then(({ skills }) => live && setBooks(skills))
       .catch(() => live && setBooks([]));
     return () => {
       live = false;
@@ -52,22 +52,22 @@ export function FreshTargetPicker({
   projects,
   selectedProjectId,
   onSelectProject,
-  playbooks,
-  selectedPlaybookId,
-  onSelectPlaybook,
+  skills,
+  selectedSkillId,
+  onSelectSkill,
 }: {
   /** 0018: chat-in-project targets; omit to hide the project axis. */
   projects?: readonly ProjectOption[] | null;
   selectedProjectId?: string | null;
   onSelectProject?: (projectId: string | null) => void;
-  /** 0037: playbooks a project chat can run by (project scope only). */
-  playbooks?: readonly PlaybookOption[] | null;
-  selectedPlaybookId?: string | null;
-  onSelectPlaybook?: (playbookId: string | null) => void;
+  /** 0039: thread skills a project chat can run by (project scope only). */
+  skills?: readonly SkillOption[] | null;
+  selectedSkillId?: string | null;
+  onSelectSkill?: (skillId: string | null) => void;
 }) {
   const projectScoped = Boolean(selectedProjectId);
   const selectedProject = projects?.find((p) => p.id === (selectedProjectId ?? null)) ?? null;
-  const selectedBook = projectScoped ? (playbooks?.find((b) => b.id === selectedPlaybookId) ?? null) : null;
+  const selectedBook = projectScoped ? (skills?.find((b) => b.id === selectedSkillId) ?? null) : null;
   const label = selectedBook
     ? `${selectedProject?.name ?? "Project"} · ${selectedBook.title.split(" — ")[0]}`
     : (selectedProject?.name ?? "Chat");
@@ -77,7 +77,7 @@ export function FreshTargetPicker({
         <button
           type="button"
           aria-label="Send to"
-          title="Start a chat (optionally in a project, optionally by a playbook)"
+          title="Start a chat (optionally in a project, optionally by a skill)"
           className={cn(
             "inline-flex h-8 pointer-coarse:h-10 max-w-48 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
             selectedProject && "text-foreground",
@@ -127,14 +127,14 @@ export function FreshTargetPicker({
             </span>
           </DropdownMenuItem>
         )}
-        {projectScoped && playbooks && playbooks.length > 0 && onSelectPlaybook && (
+        {projectScoped && skills && skills.length > 0 && onSelectSkill && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-              Chat with a playbook
+              Chat with a skill
             </DropdownMenuLabel>
-            {playbooks.map((b) => (
-              <DropdownMenuItem key={b.id} onSelect={() => onSelectPlaybook(b.id)} className="items-start py-2">
+            {skills.map((b) => (
+              <DropdownMenuItem key={b.id} onSelect={() => onSelectSkill(b.id)} className="items-start py-2">
                 <Check className={cn("mt-0.5", b.id === selectedBook?.id ? "opacity-100" : "opacity-0")} aria-hidden />
                 <span className="flex min-w-0 flex-col">
                   <span>{b.title}</span>

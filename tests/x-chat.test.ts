@@ -506,35 +506,35 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "playbook: use_playbook binds it, and the next turn runs with it in the instructions (0037)",
+    "skill: use_skill binds it, and the next turn runs with it in the instructions (0037/0039)",
     { timeout: 30_000 },
     async () => {
-      process.env.SWEATSHOP_CHAT_MOCK = "playbook";
+      process.env.SWEATSHOP_CHAT_MOCK = "skill";
       const { getConversation } = await import("../db/chat");
-      const id = conv("playbook");
+      const id = conv("skill");
       await (await turn(id, "ship it")).returnValue;
-      expect(getConversation(db(), id)?.playbook).toBe("ship");
+      expect(getConversation(db(), id)?.skill).toBe("ship");
       expect(serialized(id)).toContain("Bound to this thread");
-      expect(serialized(id)).toContain("mock-playbook:false");
+      expect(serialized(id)).toContain("mock-skill:false");
 
       await (await turn(id, "status?")).returnValue;
-      expect(serialized(id)).toContain("mock-playbook:true");
+      expect(serialized(id)).toContain("mock-skill:true");
     },
   );
 
   it(
-    "budget: a playbook turn that exhausts its steps continues in a wake turn (0037)",
+    "budget: a thread-skill turn that exhausts its steps continues in a wake turn (0037/0039)",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_CHAT_MOCK = "loop";
-      const { setConversationPlaybook, listMessageTexts: rows } = await import("../db/chat");
+      const { setConversationSkill, listMessageTexts: rows } = await import("../db/chat");
       const id = conv("budget");
-      setConversationPlaybook(db(), id, "ship");
-      const ret = await (await start(chatTurn, [{ conversationId: id, userText: "go", playbookMaxSteps: 2 }])).returnValue;
+      setConversationSkill(db(), id, "ship");
+      const ret = await (await start(chatTurn, [{ conversationId: id, userText: "go", skillMaxSteps: 2 }])).returnValue;
       expect(ret.finishReason).toBe("tool-calls");
       // The continuation is a NEW turn (it records its own chip row; the
       // loop script would run it to 400 — the bound is unit-tested in
-      // playbooks.test.ts).
+      // skills.test.ts).
       const budgetChips = () =>
         rows(db(), id).filter((r) => r.role === "user" && r.metadata?.runEvent?.kind === "budget");
       await waitFor(async () => budgetChips().length > 0, "the continuation turn's chip");
