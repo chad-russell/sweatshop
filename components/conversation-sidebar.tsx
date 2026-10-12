@@ -1,10 +1,17 @@
 "use client";
 
-import { Archive, ArrowLeft, Bot, Box, Inbox, MessageSquare, MonitorPlay, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, Inbox, MonitorPlay, Plus, Search, Settings, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { OPEN_PANEL_EVENT } from "@/components/agent-panel";
 import { CommandPalette } from "@/components/sidebar/command-palette";
@@ -12,10 +19,9 @@ import { SidebarContext } from "@/components/sidebar/context";
 import { useNavDrawer } from "@/components/sidebar/nav-drawer";
 import { GroupSection } from "@/components/sidebar/group-section";
 import { SearchResults } from "@/components/sidebar/search-results";
+import { NavRow } from "@/components/sidebar/nav-row";
 import { ShelfView } from "@/components/sidebar/shelf-view";
-import { NewProjectButton } from "@/components/project/new-project";
 import {
-  allItems,
   type Drag,
   type Editing,
   type SidebarData,
@@ -23,6 +29,7 @@ import {
 import { useSidebarActions } from "@/components/sidebar/use-actions";
 import { useCollapsedFolders } from "@/components/sidebar/use-collapsed";
 import { useConversationSearch } from "@/components/sidebar/use-search";
+import { activeNavPage } from "@/lib/sidebar-nav";
 import { useAttentionSync } from "@/lib/use-attention-sync";
 import { useMounted } from "@/lib/use-mounted";
 
@@ -30,14 +37,13 @@ export type { SidebarData, SidebarGroup, SidebarItem } from "@/components/sideba
 
 type View = "library" | "archive" | "trash";
 
-const FOOTER_BUTTON =
-  "inline-flex items-center gap-1 rounded px-1 py-0.5 pointer-coarse:px-2.5 pointer-coarse:py-2 transition-colors hover:text-sidebar-foreground";
-
 /**
- * Conversation navigation (0002–0004, 0007, 0008): New chat, search, the
- * Inbox (what needs your attention), and per group (project, or Chats) a
- * folder tree plus the Unfiled conversations split by age. Archive and Trash are separate views from
- * the footer. Server-rendered by the layout from sqlite; every mutation
+ * Conversation navigation (0002–0004, 0007, 0008, 0040): the actions
+ * (New chat, Agent — buttons), search, the PAGES (Inbox, Projects, then
+ * Sandboxes and Previews — flat rows), and per group (project, or Chats)
+ * a folder tree plus the Unfiled conversations split by age. Archive and
+ * Trash are views behind the Conversations label's menu; the footer is
+ * Settings and the theme button. Server-rendered by the layout from sqlite; every mutation
  * goes through the organization API and refreshes the layout. A
  * conversation started mid-page triggers a layout refresh from the
  * chat surface once its session is adopted.
@@ -79,7 +85,7 @@ export function ConversationSidebar({
     project: scope,
     includeArchived: true,
   });
-  const total = useMemo(() => allItems(data.groups).length, [data.groups]);
+  const page = activeNavPage(pathname);
 
   const scopes = useMemo(
     () => [
@@ -118,26 +124,38 @@ export function ConversationSidebar({
       >
         <div className="flex items-center justify-between px-3 py-3">
           <span className="px-1 font-mono text-sm">sweatshop</span>
-          <span className="flex items-center gap-1">
-            <Link
-              href="/"
-              aria-label="New chat"
-              title="New chat (no project)"
-              className="inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            >
-              <SquarePen className="size-4" />
+          {/* Drawer mode only (the nav is otherwise hidden below md). */}
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={closeDrawer}
+            className="inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* 0040: the two ACTIONS are buttons, never rows. */}
+        <div className="flex gap-2 px-3 pb-3">
+          <Button asChild size="default" className="flex-1">
+            <Link href="/" title="New chat (no project)">
+              <Plus /> New chat
             </Link>
-            <ThemeToggle />
-            {/* Drawer mode only (the nav is otherwise hidden below md). */}
-            <button
-              type="button"
-              aria-label="Close navigation"
-              onClick={closeDrawer}
-              className="inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
-            >
-              <X className="size-4" />
-            </button>
-          </span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1"
+            onClick={() => {
+              closeDrawer();
+              window.dispatchEvent(new Event(OPEN_PANEL_EVENT));
+            }}
+          >
+            <Sparkles /> Agent
+            <kbd className="ml-0.5 hidden rounded border border-sidebar-border px-1 font-mono text-[10px] font-normal text-sidebar-foreground/50 md:inline">
+              ⌘J
+            </kbd>
+          </Button>
         </div>
 
         <div className="px-3 pb-2">
@@ -194,17 +212,10 @@ export function ConversationSidebar({
           )}
         </div>
 
-        <div className="px-3 pb-2">
-          <Link
-            href="/inbox"
-            aria-current={pathname === "/inbox" ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm transition-colors hover:bg-sidebar-accent/60",
-              pathname === "/inbox" && "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-          >
-            <Inbox className="size-4 shrink-0 text-sidebar-foreground/60" />
-            <span className="flex-1">Inbox</span>
+        {/* 0040: PAGES — flat rows that fill when active. Daily work, a
+            hairline, then infrastructure. */}
+        <div className="flex flex-col gap-0.5 px-3 pb-2">
+          <NavRow href="/inbox" icon={Inbox} label="Inbox" active={page === "inbox"}>
             {inbox.needsYou > 0 && (
               <span
                 title={`${inbox.needsYou} waiting on you`}
@@ -221,58 +232,12 @@ export function ConversationSidebar({
                 {inbox.unread}
               </span>
             )}
-          </Link>
-          <Link
-            href="/sandboxes"
-            aria-current={pathname.startsWith("/sandboxes") ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm transition-colors hover:bg-sidebar-accent/60",
-              pathname.startsWith("/sandboxes") && "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-          >
-            <Box className="size-4 shrink-0 text-sidebar-foreground/60" />
-            <span className="flex-1">Sandboxes</span>
-          </Link>
+          </NavRow>
+          <NavRow href="/projects" icon={FolderGit2} label="Projects" active={page === "projects"} />
+          <div role="separator" className="mx-1 my-1.5 h-px bg-sidebar-border" />
+          <NavRow href="/sandboxes" icon={Box} label="Sandboxes" active={page === "sandboxes"} />
           {/* 0016: long-running servers in sandboxes, and branch previews. */}
-          <Link
-            href="/previews"
-            aria-current={pathname.startsWith("/previews") ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm transition-colors hover:bg-sidebar-accent/60",
-              pathname.startsWith("/previews") && "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-          >
-            <MonitorPlay className="size-4 shrink-0 text-sidebar-foreground/60" />
-            <span className="flex-1">Previews</span>
-          </Link>
-          {/* Mobile only: the agent panel's floating button is md+, so the
-              drawer is where a phone reaches it. */}
-          <button
-            type="button"
-            onClick={() => {
-              closeDrawer();
-              window.dispatchEvent(new Event(OPEN_PANEL_EVENT));
-            }}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-left text-sm transition-colors hover:bg-sidebar-accent/60 md:hidden"
-          >
-            <Bot className="size-4 shrink-0 text-sidebar-foreground/60" />
-            <span className="flex-1">Agent</span>
-          </button>
-          {/* 0033 B-UI: the creation half of the createProject core
-              (the agent's create_project is the other). */}
-          <NewProjectButton />
-          {/* 0021: default model routes, provider availability. */}
-          <Link
-            href="/settings"
-            aria-current={pathname.startsWith("/settings") ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm transition-colors hover:bg-sidebar-accent/60",
-              pathname.startsWith("/settings") && "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-          >
-            <Settings className="size-4 shrink-0 text-sidebar-foreground/60" />
-            <span className="flex-1">Settings</span>
-          </Link>
+          <NavRow href="/previews" icon={MonitorPlay} label="Previews" active={page === "previews"} />
         </div>
 
         {actions.error && (
@@ -286,6 +251,43 @@ export function ConversationSidebar({
             </button>
           </div>
         )}
+
+        <div className="flex items-center justify-between px-4 pt-2 pb-1">
+          <span className="text-[11px] font-medium tracking-wide text-sidebar-foreground/60 uppercase">
+            {searching
+              ? `${(results ?? []).length} match${(results ?? []).length === 1 ? "" : "es"}`
+              : view === "library"
+                ? "Conversations"
+                : view === "archive"
+                  ? "Archive"
+                  : "Trash"}
+          </span>
+          {/* 0040: Archive and Trash are views of conversations, so they
+              hang off this label rather than the footer. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Conversation views"
+                className="inline-flex size-6 pointer-coarse:size-9 items-center justify-center rounded-md text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent"
+              >
+                <Ellipsis className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-44">
+              <DropdownMenuItem onSelect={() => setView(view === "archive" ? "library" : "archive")}>
+                <Archive />
+                Archive
+                <span className="ml-auto font-mono text-xs text-muted-foreground">{data.archived.length}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setView(view === "trash" ? "library" : "trash")}>
+                <Trash2 />
+                Trash
+                <span className="ml-auto font-mono text-xs text-muted-foreground">{data.trashed.length}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
           {searching ? (
@@ -304,9 +306,6 @@ export function ConversationSidebar({
                 <ArrowLeft className="size-3" />
                 Back to conversations
               </button>
-              <div className="px-2 pb-1 text-[11px] font-medium tracking-wide text-sidebar-foreground/60 uppercase">
-                {view === "archive" ? "Archive" : "Trash"}
-              </div>
               <ShelfView
                 mode={view === "archive" ? "archive" : "trash"}
                 items={view === "archive" ? data.archived : data.trashed}
@@ -315,31 +314,16 @@ export function ConversationSidebar({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-sidebar-border px-3 py-2 text-[10px] text-sidebar-foreground/60">
-          <span className="inline-flex items-center gap-1">
-            <MessageSquare className="size-3" />
-            {searching ? `${(results ?? []).length} match(es)` : `${total} in store`}
-          </span>
-          <span className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-pressed={view === "archive"}
-              onClick={() => setView(view === "archive" ? "library" : "archive")}
-              className={cn(FOOTER_BUTTON, view === "archive" && "text-sidebar-foreground")}
-            >
-              <Archive className="size-3" />
-              {data.archived.length}
-            </button>
-            <button
-              type="button"
-              aria-pressed={view === "trash"}
-              onClick={() => setView(view === "trash" ? "library" : "trash")}
-              className={cn(FOOTER_BUTTON, view === "trash" && "text-sidebar-foreground")}
-            >
-              <Trash2 className="size-3" />
-              {data.trashed.length}
-            </button>
-          </span>
+        {/* 0040: app-level only — Settings and the theme cycler. */}
+        <div className="flex items-center gap-1 border-t border-sidebar-border px-3 py-2">
+          <NavRow
+            href="/settings"
+            icon={Settings}
+            label="Settings"
+            active={page === "settings"}
+            className="flex-1"
+          />
+          <ThemeToggle />
         </div>
       </nav>
       {/* Mobile: backdrop while the drawer is open (the trigger is in

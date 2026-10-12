@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderPlus, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { FIELD, LABEL, MONO } from "@/components/form-styles";
@@ -19,8 +18,11 @@ import { cn } from "@/lib/utils";
 
 /**
  * 0033 B-UI: the New-project dialog — the UI half of the createProject
- * core (the agent's create_project is the other). Mounted as a sidebar
- * nav row; the ⌘K palette opens it through NEW_PROJECT_EVENT. Five
+ * core (the agent's create_project is the other). 0040: the dialog
+ * mounts ONCE in the root layout (`NewProjectDialog`) and opens only
+ * through NEW_PROJECT_EVENT — the Projects page button and the ⌘K
+ * palette both dispatch it (`NewProjectButton` is the page's trigger).
+ * Five
  * fields: id, name, and repo rows whose name auto-fills from the URL's
  * last path segment. On success it redirects to the project page,
  * where the work-defaults and models cards finish the setup.
@@ -39,7 +41,16 @@ const nameFromUrl = (url: string): string => {
   return last.replace(/[^a-zA-Z0-9._-]/g, "");
 };
 
+/** The Projects page's trigger: the dialog itself lives in the layout. */
 export function NewProjectButton() {
+  return (
+    <Button type="button" size="sm" onClick={() => window.dispatchEvent(new CustomEvent(NEW_PROJECT_EVENT))}>
+      <Plus /> New project
+    </Button>
+  );
+}
+
+export function NewProjectDialog() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [id, setId] = useState("");
@@ -99,15 +110,6 @@ export function NewProjectButton() {
         if (!next) setError(null);
       }}
     >
-      <DialogTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 pointer-coarse:py-2.5 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
-        >
-          <FolderPlus className="size-4 shrink-0 text-sidebar-foreground/60" />
-          <span className="flex-1 text-left">New project</span>
-        </button>
-      </DialogTrigger>
       <DialogContent>
         <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4">
           <DialogHeader>
