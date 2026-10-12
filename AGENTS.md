@@ -309,7 +309,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`components/agent-panel.tsx`, in the root layout) is an ordinary
   ChatSession (`components/chat-session.tsx` — the frame-independent
   transcript/composer/transport the page frame `components/chat.tsx`
-  shares) in a right-side frame: floating bottom-right toggle + ⌘J,
+  shares) in a right-side frame: opened by the sidebar's Agent button
+  (0040; the floating bottom-right toggle is gone) and toggled with ⌘J,
   pushes the page on lg+ / overlays below / full-screen under md,
   resizable; one current conversation in localStorage, New / Open full
   page; binds to the page's project at the creating send and never

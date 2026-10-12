@@ -16,8 +16,10 @@ import type { ChatRoute } from "@/lib/providers/route";
 /**
  * 0015 Part B — the always-available agent panel: an ordinary chat
  * (ChatSession) in a right-side frame in the root layout, so it stays
- * open across navigation. Toggled by a floating bottom-right button (md+;
- * below md the nav drawer's "Agent" row opens it) and ⌘J / Ctrl-J. It pushes the page on lg+, overlays below it, and is a
+ * open across navigation. Opened by the sidebar's Agent button (0040;
+ * it dispatches OPEN_PANEL_EVENT, also the way the mobile drawer reaches
+ * it) and toggled with ⌘J / Ctrl-J; the floating bottom-right button is
+ * gone. It pushes the page on lg+, overlays below it, and is a
  * full-screen sheet below md. The panel shows one current conversation
  * (its id in localStorage); New starts a fresh one and Open full page
  * goes to /c/<id>.
@@ -269,18 +271,6 @@ export function AgentPanel() {
 
   return (
     <>
-      {!open && (
-        <button
-          type="button"
-          onClick={openPanel}
-          aria-label="Open agent panel (⌘J)"
-          title="Agent panel (⌘J)"
-          className="fixed right-4 bottom-4 z-40 hidden size-10 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 md:inline-flex"
-        >
-          <Bot className="size-5" aria-hidden />
-        </button>
-      )}
-
       {open && (
         <aside
           aria-label="Agent panel"
