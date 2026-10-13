@@ -38,7 +38,8 @@ import { ACTIVE_RUN_STATUSES, startChatTurn } from "@/lib/chat/start-turn";
 
 /** One settled child, rendered into the parent's thread. */
 export interface WakeEvent {
-  kind: "harness" | "thread";
+  /** 0041: "plan" = Chad approved the plan in review (id = the review row). */
+  kind: "harness" | "thread" | "plan";
   /** hc_… / c_… — for inspect/cancel. */
   id: string;
   /** The harness kind ("pi" / "claude" / "cursor") or the child thread's skill

@@ -35,9 +35,10 @@ export interface MessageRowMetadata {
 
 /** 0022: what woke a conversation (machine run or harness call; 0037:
  *  "budget" = a thread-skill turn hit its step budget and continues;
- *  "thread" = a child chat started by start_thread settled). */
+ *  "thread" = a child chat started by start_thread settled; 0041:
+ *  "plan" = Chad approved the plan under review). */
 export interface RunEventMeta {
-  kind: "machine" | "harness" | "budget" | "thread";
+  kind: "machine" | "harness" | "budget" | "thread" | "plan";
   id: string;
   status: string;
 }

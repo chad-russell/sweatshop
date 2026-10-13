@@ -1,7 +1,7 @@
 # 0041 — Plan files: an async, many-round plan review, and a visible phase
 
-Status: **proposed — direction agreed with Chad in chat (2026-10-11), open
-questions resolved 2026-10-12; awaits his approval before any code.**
+Status: **approved (PR #88, 2026-10-13); implemented on
+`feat/0041-plan-files`.** Implementation notes at the end.
 
 ## Why
 
@@ -178,3 +178,21 @@ shows the same chip.
   Implementation: step 3 adds `accept_plan` beside `present_plan`, sharing
   the resolve-plan path with `/api/x/input`; a mock-LLM test covers
   approve → row resolved and deny → row still open.
+
+## Implementation notes (2026-10-13)
+
+- The PlanCard type and the pure derivations live in `lib/plan.ts`
+  (client-safe); the review rows in `db/plans.ts`; the cores in
+  `lib/agent/tools/plan.ts`; the tool definitions in
+  `workflows/chat/plan-tools.ts` (spread in with the other sandbox
+  tools); the card, Quote and phase chip in `components/plan-card.tsx`;
+  the Inbox card in `components/inbox/plan-card.tsx`.
+- The card's Approve answers a suspended `accept_plan` directly (resume +
+  resolve) rather than waking — the turn is already waiting on it, so a
+  wake would deliver the approval twice.
+- A wake that lands mid-turn is queued as a steer, whose row carries no
+  `runEvent` metadata; the transcript also recognizes the approval by its
+  rendered text (`[plan vN approved]`), pinned by a test against
+  `renderWake`.
+- An open review keeps the page's wake watch on (as background children
+  do), so an approval from the Inbox streams into an open thread.

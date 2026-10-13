@@ -16,6 +16,7 @@ import { usePageContext } from "@/components/page-context";
 import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
+import { PhaseChip } from "@/components/plan-card";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { type ConversationSandboxViewData } from "@/components/sandbox-view";
 import {
@@ -447,6 +448,8 @@ export function ChatSurface({
               />
             </>
           }
+          {/* 0041: plan → build → PR, derived from the transcript. */}
+          <PhaseChip phase={s.phase} />
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
           <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}

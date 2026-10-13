@@ -12,6 +12,7 @@ import {
   projectRepos,
   projects,
 } from "./schema";
+import { isPlanCard } from "./plans";
 
 /**
  * 0008 attention: what is waiting on the user.
@@ -53,7 +54,8 @@ export interface RequestOption {
 
 export interface PendingRequest {
   requestId: string;
-  kind: "tool-approval" | "question";
+  /** 0041: "plan" = a plan in review (hookless — the card approves it). */
+  kind: "tool-approval" | "question" | "plan";
   prompt: string;
   options: RequestOption[];
   allowFreeform: boolean;
@@ -63,16 +65,19 @@ export interface PendingRequest {
   /** 0037: runtime-built evidence (check result, screenshots) for gated
    *  tools; null for plain asks. */
   evidence: import("../lib/agent/tools/evidence").ApprovalEvidence | null;
+  /** 0041: the plan snapshot (plan reviews and accept_plan approvals). */
+  plan: import("./plans").PlanCard | null;
   /** Unix ms the request was raised. */
   at: number;
 }
 
-function parseCard(card: string | null): PendingRequest["evidence"] {
-  if (!card) return null;
+function parseCard(card: string | null): { evidence: PendingRequest["evidence"]; plan: PendingRequest["plan"] } {
+  if (!card) return { evidence: null, plan: null };
   try {
-    return JSON.parse(card) as PendingRequest["evidence"];
+    const value = JSON.parse(card) as unknown;
+    return isPlanCard(value) ? { evidence: null, plan: value } : { evidence: value as PendingRequest["evidence"], plan: null };
   } catch {
-    return null;
+    return { evidence: null, plan: null };
   }
 }
 
@@ -111,20 +116,23 @@ export function loadPendingRequests(
     // kind "question" renders the freeform question card; anything else
     // is an approval with Approve/Deny.
     const isQuestion = row.kind === "question";
+    const isPlan = row.kind === "plan";
+    const card = parseCard(row.card);
     list.push({
       requestId: row.id,
-      kind: isQuestion ? "question" : "tool-approval",
+      kind: isPlan ? "plan" : isQuestion ? "question" : "tool-approval",
       prompt: row.question,
-      options: isQuestion
+      options: isQuestion || isPlan
         ? []
         : [
             { id: "approve", label: "Approve", style: "primary" },
             { id: "deny", label: "Deny", style: "danger" },
           ],
       allowFreeform: true,
-      toolName: "ask_chad",
-      toolInput: { kind: row.kind, question: row.question },
-      evidence: parseCard(row.card),
+      toolName: isPlan ? "present_plan" : card.plan ? "accept_plan" : "ask_chad",
+      toolInput: isPlan || card.plan ? null : { kind: row.kind, question: row.question },
+      evidence: card.evidence,
+      plan: card.plan,
       at: row.createdAt,
     });
     out.set(row.conversationId, list);

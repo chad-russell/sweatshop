@@ -326,6 +326,51 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "accept-plan: chat approval is explicit — approve resolves the review, deny leaves it open (0041)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "accept-plan";
+      const { openPlanReview, planState } = await import("../db/plans");
+      const { pendingInputs } = await import("../db/schema");
+      for (const approved of [false, true]) {
+        // The mock's call id is fixed; pending_inputs ids are global.
+        db().delete(pendingInputs).where(eq(pendingInputs.id, "call_accept_1")).run();
+        const id = conv(`accept-${approved}`);
+        openPlanReview(db(), {
+          id: `call_present_${approved}`,
+          conversationId: id,
+          card: { kind: "plan", version: 3, markdown: "# p\n- [ ] a\n", checklist: { done: 0, total: 1 } },
+        });
+        const run = await turn(id, "looks good, go");
+        await waitFor(async () => {
+          try {
+            return (await getHookByToken("call_accept_1")) != null;
+          } catch {
+            return false;
+          }
+        }, "accept_plan approval hook");
+        // Suspended on Chad's click; the review is still open.
+        expect(listPendingInputs(db(), id).map((p) => p.id).sort()).toEqual(["call_accept_1", `call_present_${approved}`].sort());
+        expect(planState(db(), id).kind).toBe("review");
+        await chatApprovalHook.resume("call_accept_1", {
+          kind: "approval",
+          approved,
+          ...(approved ? {} : { comment: "split the migration out" }),
+        });
+        resolvePendingInput(db(), "call_accept_1", { approved });
+        expect((await run.returnValue).finishReason).toBe("stop");
+        if (approved) {
+          expect(planState(db(), id).kind).toBe("approved");
+          expect(serialized(id)).toContain("Chad approved plan v3");
+        } else {
+          expect(planState(db(), id).kind).toBe("review");
+          expect(serialized(id)).toContain("split the migration out");
+        }
+      }
+    },
+  );
+
+  it(
     "viewing: the send's page context becomes a system note, rides as row metadata, and survives into later turns (0015)",
     { timeout: 30_000 },
     async () => {

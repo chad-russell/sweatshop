@@ -9,6 +9,10 @@ import { chatApprovalHook } from "@/workflows/chat/hooks";
  * agent reads "Chad declined …: <text>" and keeps going in the same
  * context), a question as the answer. Approve stays an explicit button.
  *
+ * 0041: plan reviews are skipped — they never block the turn, so a
+ * message while one is open is just a message (the model decides what
+ * it is about). Approval is the explicit button or accept_plan.
+ *
  * Returns what was answered, or null when nothing was pending (the
  * caller then queues a steer as before). A hook that will not resume
  * (already answered elsewhere) is also null — never a lost message.
@@ -27,7 +31,9 @@ export async function answerPendingWithText(
   text: string,
   deps: AnswerDeps = {},
 ): Promise<PendingAnswer | null> {
-  const pending = listPendingInputs(db(), conversationId)[0];
+  // 0041: a plan review is not a suspension — typing is plan discussion
+  // (an ordinary message), never an answer to it.
+  const pending = listPendingInputs(db(), conversationId).find((p) => p.kind !== "plan");
   if (!pending) return null;
   const kind = pending.kind === "question" ? "question" : "approval";
   const payload =

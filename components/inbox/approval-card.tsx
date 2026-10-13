@@ -4,6 +4,7 @@ import { ShieldQuestion } from "lucide-react";
 import Link from "next/link";
 import { cn } from "cn";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
+import { PlanDocument } from "@/components/plan-card";
 import { Button } from "@/components/ui/button";
 import type { NeedsYouThread, PendingRequest, RequestOption } from "@/db/attention";
 import { Where } from "./where";
@@ -69,6 +70,12 @@ export function ApprovalCard({
             </pre>
           )}
           {request.evidence && <ApprovalEvidenceView evidence={request.evidence} />}
+          {request.plan && (
+            <details className="rounded-md border bg-background px-3 py-2">
+              <summary className="cursor-pointer text-xs text-muted-foreground">Read plan v{request.plan.version}</summary>
+              <PlanDocument markdown={request.plan.markdown} className="mt-2" />
+            </details>
+          )}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
