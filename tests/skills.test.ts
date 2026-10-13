@@ -41,7 +41,8 @@ describe("skill files", () => {
   it("ticket and review parse and carry their phase-3 shape", async () => {
     const ticket = await readSkill("ticket");
     expect(ticket?.title).toMatch(/^Ticket/);
-    expect(ticket?.body).toContain("ask_chad");
+    expect(ticket?.body).toContain("present_plan");
+    expect(ticket?.body).toContain("accept_plan");
     expect(ticket?.body).toContain("start_thread");
     expect(ticket?.body).toContain("create_pr");
     const review = await readSkill("review");

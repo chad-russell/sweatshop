@@ -160,13 +160,39 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `runEvent` of kind `budget` (chip, never Chad's words), bounded at 3
   consecutive continuations with no human message between
   (`lib/chat/budget.ts`). Catalog: `ship` (ticket → `create_pr`),
-  `ticket` (0037 phase 3: `ask_chad` plan approval first, then the Ship
-  steps, then a fresh-eyes `start_thread` review with the `review` skill
+  `ticket` (0037 phase 3; 0041: a PLAN.md reviewed over as many rounds
+  as it takes and approved first, then the Ship steps, then a fresh-eyes `start_thread` review with the `review` skill
   before `create_pr`, findings weighed in the PR body) and `review`
   (0037 phase 3: fresh context — inputs are the ticket, the diff and the
   evidence from the parent's prompt; output is severity-ranked findings
   + a verdict; it changes nothing). Skills without `thread: true` are
   reference material for later 2.3 work — never bindable.
+- Plan files (0041): a plan is a scratch `PLAN.md` in the conversation's
+  work root (`/work/<conv>/`, beside the checkouts — never in a PR),
+  written with `bash` like any file and never re-injected into context.
+  `present_plan` (sandboxed chats; `workflows/chat/plan-tools.ts`, core
+  `lib/agent/tools/plan.ts`) snapshots it into its tool result — that
+  result IS the version (count of prior snapshots), the diff base and
+  the durable copy — and NEVER suspends. Before approval it opens a
+  review: a HOOKLESS `pending_inputs` row of kind `plan` (store
+  `db/plans.ts`; card = the snapshot; a newer present supersedes the
+  open row, so only the latest waits) that exists only for the Inbox's
+  "needs you". `answerPendingWithText` skips plan rows: typing is plan
+  discussion, and the model decides what a message is about. Approval
+  is explicit only: the plan card's Approve (`/api/x/input`
+  `{toolCallId, approvePlan, note?}` — stale/answered versions 409)
+  resolves the row and WAKES the conversation (0022 path, runEvent
+  kind `plan`, text `[plan vN approved] — …`), or, when Chad approves in
+  chat, the agent calls `accept_plan` — itself approval-gated on the
+  ask_chad hook with the plan on its card; the card's Approve answers a
+  waiting accept_plan directly instead of waking. After approval
+  `present_plan` is a progress snapshot (`reapprove: true` reopens
+  review). The header PHASE chip (`lib/plan.ts`, pure, derived from
+  the transcript, never stored): Plan vN · needs you → Building m/n
+  (the plan's `- [ ]` checklist) → PR · needs you → PR open. Quote on
+  the plan card drops the selection into the composer as `>` lines.
+  The review skill treats `PLAN.md` as the agreed spec. No plan table,
+  no hard gate on `create_pr`, mockups are links.
 - Web tools (1.5): every chat has `web_search` and `web_fetch`. `web_fetch` is plain HTTP (redirects followed, 2 MiB
   download cap, 60 k character context clip, HTML stripped to text,
   textual content types only); `web_search` is Z.AI's coding-plan MCP
