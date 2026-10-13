@@ -35,6 +35,20 @@ export function parseChecklist(markdown: string): Checklist {
   return { done, total };
 }
 
+/** What a plan review row's card (and accept_plan's approval card) carries. */
+export interface PlanCard {
+  kind: "plan";
+  version: number;
+  markdown: string;
+  checklist: Checklist;
+  note?: string;
+}
+
+export function isPlanCard(value: unknown): value is PlanCard {
+  const v = value as Partial<PlanCard> | null | undefined;
+  return !!v && v.kind === "plan" && typeof v.version === "number" && typeof v.markdown === "string";
+}
+
 /** What present_plan returns (the snapshot) — rendered as the plan card. */
 export interface PlanSnapshot {
   ok: true;
@@ -152,16 +166,25 @@ export function derivePhase(events: readonly PhaseEvent[]): Phase | null {
   return { label: total > 0 ? `Building ${done}/${total}` : "Building", tone: "running" };
 }
 
-type LoosePart = { type: string; state?: string; output?: unknown; toolCallId?: string };
+type LoosePart = { type: string; state?: string; output?: unknown; toolCallId?: string; text?: string };
+
+/** The approval wake's text (lib/chat/wake renderWake) — matched too,
+ *  because a wake that arrives mid-turn is queued as a steer and its
+ *  row carries no runEvent metadata. */
+const APPROVAL_WAKE = /^\[plan v\d+ approved\]/;
+
+function isApprovalWake(message: UIMessage): boolean {
+  if (message.role !== "user") return false;
+  const runEvent = (message.metadata as { runEvent?: { kind?: string; status?: string } } | undefined)?.runEvent;
+  if (runEvent?.kind === "plan" && runEvent.status === "approved") return true;
+  return message.parts.some((p) => p.type === "text" && APPROVAL_WAKE.test((p as LoosePart).text ?? ""));
+}
 
 /** The phase events in a UI transcript (live or rebuilt from rows). */
 export function phaseEvents(messages: readonly UIMessage[]): PhaseEvent[] {
   const events: PhaseEvent[] = [];
   for (const message of messages) {
-    const runEvent = (message.metadata as { runEvent?: { kind?: string; status?: string } } | undefined)?.runEvent;
-    if (message.role === "user" && runEvent?.kind === "plan" && runEvent.status === "approved") {
-      events.push({ type: "plan-approved" });
-    }
+    if (isApprovalWake(message)) events.push({ type: "plan-approved" });
     for (const raw of message.parts) {
       const part = raw as LoosePart;
       if (part.type === "tool-present_plan" && part.state === "output-available" && isPlanSnapshot(part.output)) {
@@ -195,8 +218,7 @@ export function planHistory(messages: readonly UIMessage[]): PlanHistory {
   let last: { id: string; version: number; markdown: string; status: string } | null = null;
   let approvedAfterLast = false;
   for (const message of messages) {
-    const runEvent = (message.metadata as { runEvent?: { kind?: string; status?: string } } | undefined)?.runEvent;
-    if (message.role === "user" && runEvent?.kind === "plan" && runEvent.status === "approved") approvedAfterLast = true;
+    if (isApprovalWake(message)) approvedAfterLast = true;
     for (const raw of message.parts) {
       const part = raw as LoosePart;
       if (part.type === "tool-accept_plan" && part.state === "output-available") {

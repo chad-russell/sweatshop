@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, ne } from "drizzle-orm";
-import type { Checklist } from "../lib/plan";
+import { isPlanCard, type PlanCard } from "../lib/plan";
 import type { Db } from "./index";
 import { pendingInputs } from "./schema";
 
@@ -13,19 +13,7 @@ import { pendingInputs } from "./schema";
  * (superseded rows are always older than the row that superseded them).
  */
 
-/** What a plan row's card (and accept_plan's approval card) carries. */
-export interface PlanCard {
-  kind: "plan";
-  version: number;
-  markdown: string;
-  checklist: Checklist;
-  note?: string;
-}
-
-export function isPlanCard(value: unknown): value is PlanCard {
-  const v = value as Partial<PlanCard> | null | undefined;
-  return !!v && v.kind === "plan" && typeof v.version === "number" && typeof v.markdown === "string";
-}
+export { isPlanCard, type PlanCard };
 
 export interface PlanRow {
   id: string;

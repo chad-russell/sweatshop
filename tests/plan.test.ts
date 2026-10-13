@@ -6,6 +6,7 @@ import { loadPendingRequests } from "../db/attention";
 import { getPlanRow, planState } from "../db/plans";
 import { projects } from "../db/schema";
 import { answerPendingWithText } from "../lib/chat/answer-pending";
+import { renderWake } from "../lib/chat/wake";
 import {
   acceptPlanApproved,
   acceptPlanPreview,
@@ -140,6 +141,39 @@ describe("0041 plan derivations (pure)", () => {
     h = planHistory(msgs);
     expect(h.openReviewId).toBeNull();
     expect(derivePhase(phaseEvents(msgs))?.label).toBe("Building 1/3");
+
+    // A mid-turn approval arrives as a steer row: no metadata, wake text only.
+    const steered = msgs.slice(0, 1).concat({
+      id: "s1",
+      role: "user",
+      parts: [{ type: "text", text: "[plan v2 approved] — /c/x\n\nChad approved plan v2." }],
+    });
+    expect(planHistory(steered).openReviewId).toBeNull();
+    expect(derivePhase(phaseEvents(steered))?.label).toBe("Building 1/3");
+    // ...but Chad typing about the plan is not an approval.
+    const typed = msgs.slice(0, 1).concat({ id: "u2", role: "user", parts: [{ type: "text", text: "plan v2 approved? not yet" }] });
+    expect(planHistory(typed).openReviewId).toBe("p2");
+  });
+
+  it("the approval wake's rendered text is what the transcript recognizes", () => {
+    const text = renderWake({ kind: "plan", id: "p2", name: "plan v2", status: "approved", detail: "go", url: "/c/x" });
+    const msgs: UIMessage[] = [
+      {
+        id: "a",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-present_plan",
+            toolCallId: "p2",
+            state: "output-available",
+            input: {},
+            output: { ok: true, version: 2, markdown: "x", checklist: { done: 0, total: 0 }, status: "review", next: "" },
+          },
+        ] as UIMessage["parts"],
+      },
+      { id: "s", role: "user", parts: [{ type: "text", text }] },
+    ];
+    expect(planHistory(msgs).openReviewId).toBeNull();
   });
 
   it("finds present_plan snapshots in persisted model messages", () => {

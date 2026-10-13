@@ -13,6 +13,7 @@ import type {
   UnreadThread,
 } from "@/db/attention";
 import { ApprovalCard } from "./approval-card";
+import { PlanReviewCard } from "./plan-card";
 import { PreviewFailureCard } from "./preview-failure-card";
 import { QuestionCard } from "./question-card";
 import { UnreadCard } from "./unread-card";
@@ -133,6 +134,9 @@ export function InboxView({ data }: { data: InboxData }) {
           {needs.map((n) => {
             if (n.kind === "preview") {
               return <PreviewFailureCard key={n.key} item={n.item} onAnswered={answer} />;
+            }
+            if (n.request.kind === "plan") {
+              return <PlanReviewCard key={n.key} thread={n.thread} request={n.request} onAnswered={answer} />;
             }
             return n.request.kind === "question" ? (
               <QuestionCard key={n.key} thread={n.thread} request={n.request} onAnswered={answer} />

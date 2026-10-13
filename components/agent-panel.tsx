@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PhaseChip } from "@/components/plan-card";
 import { ChatSession } from "@/components/chat-session";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { usePageContextReader } from "@/components/page-context";
@@ -234,6 +235,7 @@ export function AgentPanel() {
       <span className="min-w-0 flex-1 truncate px-1 text-sm font-medium">
         {title ?? (s.adopted ? "Agent" : "New chat")}
       </span>
+      <PhaseChip phase={s.phase} className="max-sm:hidden" />
       <PreviewPill owner={s.started ? s.conversationId : null} compact />
       <Button
         variant="ghost"

@@ -45,6 +45,8 @@ import {
 import { PreviewToolCard } from "@/components/previews/preview-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
+import { PlanDocument, PlanToolCard, PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-card";
+import { derivePhase, isPlanCard, phaseEvents, planHistory, type Phase } from "@/lib/plan";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
@@ -128,6 +130,8 @@ export interface ChatSessionState {
   status: ChatStatus;
   /** Forget the composer draft (a run start consumed the text). */
   clearDraft: () => void;
+  /** 0041: the work phase derived from the transcript (plan → build → PR). */
+  phase: Phase | null;
 }
 
 /** A frame's takeover of the fresh composer (the page frame's machine
@@ -426,6 +430,77 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
   );
 }
 
+/** 0041: accept_plan waiting on Chad — the plan version it would approve,
+ *  with Approve/Deny (typing below answers it as a deny, 0037's rule). */
+function AcceptPlanCard({ part }: { part: ToolUIPart }) {
+  const [card, setCard] = useState<{ version: number; markdown: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    if (card) return;
+    let stop = false;
+    const load = async () => {
+      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(part.toolCallId)}`).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { evidence?: unknown } | null;
+      if (!stop && isPlanCard(body?.evidence)) setCard(body.evidence);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [part.toolCallId, card]);
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+      });
+      if (res.ok) setAnswered(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      <p className="text-sm font-medium">{card ? `Approve plan v${card.version}?` : "Approve the plan?"}</p>
+      <p className="text-xs text-muted-foreground">You said so in chat — the agent is waiting for an explicit approval.</p>
+      {card && (
+        <details className="rounded-md border bg-background px-2 py-1.5">
+          <summary className="cursor-pointer text-xs text-muted-foreground">Show plan v{card.version}</summary>
+          <PlanDocument markdown={card.markdown} className="mt-2" />
+        </details>
+      )}
+      {answered ? (
+        <p className="text-xs text-muted-foreground">Answered — the agent continues.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Not yet
+          </button>
+          <span className="text-xs text-muted-foreground">or type below to say what to change</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Tools whose execute asks Chad first (the ask_chad pattern inside a
  * tool): while the part is unresolved, the transcript shows the
  * approval buttons right there — same POST as the inbox card. */
@@ -621,6 +696,8 @@ function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; stat
       <span className="truncate">
         {runEvent.kind === "budget"
           ? "step budget reached · continuing"
+          : runEvent.kind === "plan"
+          ? `plan ${runEvent.status}`
           : `${runEvent.kind === "machine" ? "run" : runEvent.kind === "thread" ? "thread" : runEvent.id.split("_")[0]} ${runEvent.status} · ${runEvent.id}`}
       </span>
     </span>
@@ -684,6 +761,21 @@ export const ChatMessageView = memo(function ChatMessageView({
             }
             if (toolPart.type === "tool-create_pr") {
               return <PullRequestToolCard key={i} part={toolPart} />;
+            }
+            // 0041: the plan document and its chat-approval gate.
+            if (toolPart.type === "tool-present_plan") {
+              return (
+                <PlanToolCard
+                  key={i}
+                  toolCallId={toolPart.toolCallId}
+                  state={toolPart.state}
+                  output={toolPart.state === "output-available" ? toolPart.output : undefined}
+                  errorText={toolPart.state === "output-error" ? (toolPart.errorText ?? "tool failed") : undefined}
+                />
+              );
+            }
+            if (toolPart.type === "tool-accept_plan" && toolPart.state === "input-available") {
+              return <AcceptPlanCard key={i} part={toolPart} />;
             }
             // Gated tools (0033): the approval buttons live in the
             // transcript while the call awaits Chad; once answered the
@@ -909,7 +1001,12 @@ export function ChatSession({
   // with background work out, watch for that turn and attach to it: the
   // stored transcript (with the wake row) is swapped in, then the live
   // turn streams in like any other.
-  const awaitingWake = (adopted || selfAdopted) && !isBusy && hasBackgroundChild(messages);
+  // 0041: an open plan review also wakes this chat (on Approve), so the
+  // page watches for it the same way.
+  const plans = useMemo(() => planHistory(messages), [messages]);
+  const phase = useMemo(() => derivePhase(phaseEvents(messages)), [messages]);
+  const awaitingWake =
+    (adopted || selfAdopted) && !isBusy && (hasBackgroundChild(messages) || plans.openReviewId !== null);
   const chatRef = useRef(chat);
   useEffect(() => {
     chatRef.current = chat;
@@ -1078,7 +1175,22 @@ export function ChatSession({
     busy: isBusy,
     status,
     clearDraft: () => window.localStorage.removeItem(draftKey),
+    phase,
   };
+
+  // 0041: Quote — a plan selection lands in the composer as a `>` block.
+  const planView = useMemo<PlanView>(() => ({
+    history: plans,
+    quote: (selection) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const before = el.value.trimEnd();
+      el.value = `${before ? `${before}\n\n` : ""}${quoteBlock(selection)}`;
+      if (el.value.trim()) window.localStorage.setItem(draftKey, el.value);
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    },
+  }), [plans, draftKey]);
   const freshMode = fresh ? freshComposer?.(state) : undefined;
 
   const handleSubmit = (message: PromptInputMessage) => {
@@ -1143,6 +1255,7 @@ export function ChatSession({
             )
           )}
           <SandboxViewProvider value={sandboxView}>
+          <PlanViewProvider value={planView}>
           {messages.map((message) => (
             <ChatMessageView
               key={message.id}
@@ -1150,6 +1263,7 @@ export function ChatSession({
               conversationId={adoptedNow ? conversationId : null}
             />
           ))}
+          </PlanViewProvider>
           </SandboxViewProvider>
           {isThinking(status, messages) && (
             <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground" role="status">
