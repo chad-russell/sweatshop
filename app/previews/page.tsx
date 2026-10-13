@@ -23,7 +23,7 @@ export default async function PreviewsPage({
   const scoped = project ? (projectOptions.find((p) => p.id === project) ?? null) : null;
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
+    <div className="mx-auto flex h-full w-full max-w-(--content-max) flex-col overflow-y-auto">
       <PageContextRegistration value={{ kind: "previews" }} />
       <AppHeader
         crumbs={[{ label: "Previews" }, ...(scoped ? [{ label: scoped.name }] : [])]}

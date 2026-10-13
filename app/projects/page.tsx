@@ -17,7 +17,7 @@ export default async function ProjectsPage() {
   const cards = listProjectCards(db(), loadAttention(db()).needsYou);
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
+    <div className="mx-auto flex h-full w-full max-w-(--content-max) flex-col overflow-y-auto">
       <AppHeader crumbs={[{ label: "Projects" }]}>
         <NewProjectButton />
       </AppHeader>

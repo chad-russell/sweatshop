@@ -38,7 +38,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
   const { project, repos, credentials, setup } = overview;
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
+    <div className="mx-auto flex h-full w-full max-w-(--content-max) flex-col overflow-y-auto">
       {/* 0015: the panel's "this" on a project page. */}
       <PageContextRegistration value={{ kind: "project", id: project.id, title: project.name, projectId: project.id }} />
       <AppHeader crumbs={[{ label: project.name }]}>

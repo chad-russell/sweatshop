@@ -415,7 +415,7 @@ export function ChatSurface({
       projectId={activeProjectId ?? undefined}
       skill={activeSkillId}
       initialRoute={initialRoute}
-      className="mx-auto h-full max-w-3xl"
+      className="mx-auto h-full max-w-(--content-max)"
       onAdopted={handleAdopted}
       onAddressable={handleAddressable}
       freshComposer={() => freshComposer()}
