@@ -1,7 +1,12 @@
 import { getRun as getWorkflowRun } from "workflow/api";
 import { db } from "@/db";
 import { getHarnessCall, settleHarnessCall } from "@/db/harness-calls";
-import { getChatChild, markChatChildWoken, setActiveRun } from "@/db/chat";
+import {
+  getChatChild,
+  markChatChildWoken,
+  resolveOrphanedPendingInputs,
+  setActiveRun,
+} from "@/db/chat";
 import { recordHarnessRunEnd } from "@/lib/harness-events";
 
 /**
@@ -87,6 +92,9 @@ async function cancelChatChild(runId: string): Promise<CancelRunResult> {
   if (await workflow.exists) await workflow.cancel({ cancelReason: "cancelled by cancel_run tool" });
   setActiveRun(db(), runId, null);
   markChatChildWoken(db(), runId, child.updatedAt);
+  // The cancelled run's hooks are gone: resolve the thread's pending
+  // cards so they cannot outlive their hook (2026-10-13 inbox bug).
+  resolveOrphanedPendingInputs(db(), runId, "cancelled");
   return {
     ok: true,
     runId,

@@ -50,6 +50,17 @@ export async function POST(request: Request) {
   try {
     await chatApprovalHook.resume(body.toolCallId, payload);
   } catch (err) {
+    // The run that suspended on this hook already went terminal
+    // (cancelled/failed/expired): there is nothing to resume, and the
+    // card must not outlive its hook (2026-10-13 inbox bug — Deny
+    // 409'd forever). Resolve the row and answer OK so the card
+    // clears; anything else (transient) stays a 409.
+    const { isHookGoneError } = await import("@/lib/chat/answer-pending");
+    if (isHookGoneError(err)) {
+      const { resolvePendingInput } = await import("@/db/chat");
+      resolvePendingInput(db(), body.toolCallId, { ...payload, orphaned: "hook-gone" });
+      return NextResponse.json({ resumed: false, cleared: true });
+    }
     return NextResponse.json(
       { error: `could not resume: ${err instanceof Error ? err.message : String(err)}` },
       { status: 409 },
