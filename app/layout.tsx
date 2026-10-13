@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { AgentPanel } from "@/components/agent-panel";
+import { ContentResizer } from "@/components/content-resizer";
 import { ConversationSidebar } from "@/components/conversation-sidebar";
 import { PageContextProvider } from "@/components/page-context";
 import { NewProjectDialog } from "@/components/project/new-project";
@@ -61,9 +62,11 @@ export default async function RootLayout({
                 {/* The shell never scrolls (globals.css locks html/body);
                     each page owns its own scroll region. The mobile nav
                     trigger lives in AppHeader, not in a reserved gutter. */}
-                <main className="h-dvh min-w-0 flex-1 overflow-y-auto overscroll-contain">
-                  {children}
-                </main>
+                <ContentResizer>
+                  <main className="h-dvh min-w-0 flex-1 overflow-y-auto overscroll-contain">
+                    {children}
+                  </main>
+                </ContentResizer>
                 {/* 0015: the agent panel — an ordinary chat that follows
                     you across pages (pushes on lg+, overlays below). */}
                 <AgentPanel />

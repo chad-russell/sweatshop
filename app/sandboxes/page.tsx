@@ -18,7 +18,7 @@ export default function SandboxesPage() {
   const gone = sandboxes.filter((s) => s.status === "destroyed");
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-y-auto">
+    <div className="mx-auto flex h-full w-full max-w-(--content-max) flex-col overflow-y-auto">
       <AppHeader crumbs={[{ label: "Sandboxes" }]}>
         <span className="font-mono text-xs text-muted-foreground">
           {live.length} live{gone.length > 0 ? ` · ${gone.length} destroyed` : ""}
