@@ -360,6 +360,32 @@ export async function screenshotStep(
   return tools.attachScreenshotTool(conversationId, input);
 }
 
+/** 0041: snapshot PLAN.md into the tool result (+ open the review row). */
+export async function presentPlanStep(
+  conversationId: string,
+  toolCallId: string,
+  input: { note?: string; reapprove?: boolean },
+  live: import("ai").ModelMessage[],
+): Promise<unknown> {
+  "use step";
+  const { presentPlan } = await import("../../lib/agent/tools/plan");
+  return presentPlan(conversationId, toolCallId, input, live);
+}
+
+/** 0041: accept_plan's preview — the open review it would approve. */
+export async function acceptPlanPreviewStep(conversationId: string): Promise<unknown> {
+  "use step";
+  const { acceptPlanPreview } = await import("../../lib/agent/tools/plan");
+  return acceptPlanPreview(conversationId);
+}
+
+/** 0041: Chad approved accept_plan — resolve the review it named. */
+export async function acceptPlanApprovedStep(rowId: string, comment?: string): Promise<unknown> {
+  "use step";
+  const { acceptPlanApproved } = await import("../../lib/agent/tools/plan");
+  return acceptPlanApproved(rowId, comment);
+}
+
 /** 0013 Phase 6: read-only look at another chat, run, or stage visit. */
 export async function inspectStep(id: string): Promise<unknown> {
   "use step";

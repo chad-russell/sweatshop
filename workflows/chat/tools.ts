@@ -28,6 +28,7 @@ import {
 } from "./steps";
 import { previewTools } from "./preview-tools";
 import { screenshotTool } from "./screenshot-tool";
+import { planTools } from "./plan-tools";
 
 /**
  * 0010 tool set for the new chat runtime (0037 phase 5: the machine
@@ -381,6 +382,8 @@ export function buildChatTools(
       ...previewTools((action, input) => previewToolStep(conversationId, action, input)),
       // 0035: QA evidence shows in the conversation.
       attach_screenshot: screenshotTool((input) => screenshotStep(conversationId, input)),
+      // 0041: the plan file lives in the sandbox's work root.
+      ...planTools(conversationId),
     }),
     ...(hasSandbox && hasProject && {
       pi: tool({
