@@ -248,14 +248,19 @@ describe("pending card + typing-revises", () => {
     expect(await answerPendingWithText(conv, "hello", { resume: async () => undefined })).toBeNull();
   });
 
-  it("leaves the row pending when the hook will not resume (no lost message)", async () => {
+  it("resolves the row as orphaned when the hook will never resume, and the text is not lost (2026-10-13)", async () => {
     recordPendingInput(db(), { id: `gone_${rand}`, conversationId: conv, kind: "approval", question: "x" });
     const answered = await answerPendingWithText(conv, "text", {
       resume: async () => {
         throw new Error("hook not found");
       },
     });
+    // Nothing was answered — the caller falls through to a normal send,
+    // so the message is not lost — but the dead card is cleared.
     expect(answered).toBeNull();
-    expect(listPendingInputs(db(), conv).map((p) => p.id)).toContain(`gone_${rand}`);
+    expect(listPendingInputs(db(), conv)).toEqual([]);
+    const row = db().select().from(pendingInputs).where(eq(pendingInputs.id, `gone_${rand}`)).get()!;
+    expect(row.resolvedAt).not.toBeNull();
+    expect(JSON.parse(row.answer!)).toMatchObject({ approved: false, orphaned: "hook-gone" });
   });
 });

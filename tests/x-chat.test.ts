@@ -551,6 +551,99 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "orphaned pendings: a dead card never shadows a live one, cancel clears its cards, and a hookless Deny clears itself (2026-10-13 inbox bug)",
+    { timeout: 60_000 },
+    async () => {
+      const { recordPendingInput, setActiveRun } = await import("../db/chat");
+      const { pendingInputs } = await import("../db/schema");
+      const { POST: inputPost } = await import("../app/api/x/input/route");
+      const { POST: cancelPost } = await import("../app/api/x/chat/cancel/route");
+      // Earlier tests leave RESOLVED rows for the mock's fixed tool-call
+      // id (the row id is globally unique); free it — recordPendingInput
+      // is conflict-do-nothing, so a leftover would silently hide ours.
+      db().delete(pendingInputs).where(eq(pendingInputs.id, "call_ask_chad_1")).run();
+
+      // 1) Typing answers the LIVE pending and resolves an older card
+      // whose run already died (it would only ever resume "Hook not
+      // found", so it must not swallow the text).
+      process.env.SWEATSHOP_CHAT_MOCK = "approve";
+      const idA = conv("orphanA");
+      recordPendingInput(db(), {
+        id: "call_orphan_dead",
+        conversationId: idA,
+        kind: "approval",
+        question: "Open a PR (its run is already gone)",
+      });
+      const runA = await turn(idA, "please ask me");
+      await waitFor(
+        () => Promise.resolve(listPendingInputs(db(), idA).some((p) => p.id === "call_ask_chad_1")),
+        "this turn's own ask_chad card",
+      );
+      const { answerPendingWithText } = await import("../lib/chat/answer-pending");
+      expect(await answerPendingWithText(idA, "the dead one first")).toEqual({
+        toolCallId: "call_ask_chad_1",
+        kind: "approval",
+      });
+      const answer = JSON.parse(
+        db().select().from(pendingInputs).where(eq(pendingInputs.id, "call_orphan_dead")).get()!
+          .answer ?? "{}",
+      ) as { orphaned?: string };
+      expect(answer.orphaned).toBe("hook-gone");
+      await runA.returnValue; // denied with the text — the turn finishes
+      // The mock's fixed tool-call id is the row's primary key — free it
+      // for the next flow (recordPendingInput is conflict-do-nothing).
+      db().delete(pendingInputs).where(eq(pendingInputs.conversationId, idA)).run();
+
+      // 2) The stop button's route clears the cancelled turn's cards;
+      // a hookless plan review (0041) stays open.
+      process.env.SWEATSHOP_CHAT_MOCK = "question";
+      const idB = conv("orphanB");
+      recordPendingInput(db(), {
+        id: "plan_orphan_test",
+        conversationId: idB,
+        kind: "plan",
+        question: "Plan v1 — plan rows are hookless",
+      });
+      const runB = await turn(idB, "please ask me a question");
+      setActiveRun(db(), idB, runB.runId);
+      await waitFor(
+        () => Promise.resolve(listPendingInputs(db(), idB).some((p) => p.id === "call_ask_chad_1")),
+        "this turn's own question card",
+      );
+      const cancelBody = await (
+        await cancelPost(
+          new Request("http://x", { method: "POST", body: JSON.stringify({ conversationId: idB }) }),
+        )
+      ).json();
+      expect(cancelBody.cancelled).toBe(true);
+      expect(cancelBody.clearedPending).toBe(1); // the question card, not the plan row
+      expect(listPendingInputs(db(), idB).map((p) => p.id)).toEqual(["plan_orphan_test"]);
+      await runB.returnValue.catch(() => undefined); // cancelled, never finishes
+      db().delete(pendingInputs).where(eq(pendingInputs.conversationId, idB)).run();
+
+      // 3) The reported bug itself: a card whose run was cancelled
+      // (without the route — any cancel) answers 200 and clears.
+      process.env.SWEATSHOP_CHAT_MOCK = "approve";
+      const idC = conv("orphanC");
+      const runC = await turn(idC, "please ask me");
+      await waitFor(
+        () => Promise.resolve(listPendingInputs(db(), idC).some((p) => p.id === "call_ask_chad_1")),
+        "this turn's own ask_chad card",
+      );
+      await runC.cancel({ cancelReason: "test cancel" });
+      const deny = await inputPost(
+        new Request("http://x", {
+          method: "POST",
+          body: JSON.stringify({ toolCallId: "call_ask_chad_1", approved: false }),
+        }),
+      );
+      expect(deny.status).toBe(200);
+      expect(await deny.json()).toEqual({ resumed: false, cleared: true });
+      expect(listPendingInputs(db(), idC)).toEqual([]);
+    },
+  );
+
+  it(
     "skill: use_skill binds it, and the next turn runs with it in the instructions (0037/0039)",
     { timeout: 30_000 },
     async () => {

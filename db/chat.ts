@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import { viewingNote, type ViewingContext } from "../lib/page-context";
 import type { ChatRoute, RouteLayer } from "../lib/providers/route";
@@ -178,6 +178,41 @@ export function resolvePendingInput(
     .set({ resolvedAt: Date.now(), answer: JSON.stringify(answer) })
     .where(eq(pendingInputs.id, id))
     .run();
+}
+
+/**
+ * Resolve every unresolved non-plan pending input of a conversation
+ * whose turn can no longer resume: the hook died with its run
+ * (cancelled, failed, expired — a resume is "Hook not found"), so the
+ * inbox card must not outlive it (2026-10-13: two stuck PR approvals
+ * had no working button). Plan reviews are hookless (0041) and stay.
+ * `reason` lands in the row's answer for the record. Returns the ids
+ * cleared — an empty list means nothing was orphaned.
+ */
+export function resolveOrphanedPendingInputs(
+  db: Db,
+  conversationId: string,
+  reason: string,
+): string[] {
+  const ids = db
+    .select({ id: pendingInputs.id })
+    .from(pendingInputs)
+    .where(
+      and(
+        eq(pendingInputs.conversationId, conversationId),
+        isNull(pendingInputs.resolvedAt),
+        ne(pendingInputs.kind, "plan"),
+      ),
+    )
+    .all()
+    .map((row) => row.id);
+  if (ids.length > 0) {
+    db.update(pendingInputs)
+      .set({ resolvedAt: Date.now(), answer: JSON.stringify({ orphaned: reason }) })
+      .where(and(inArray(pendingInputs.id, ids), isNull(pendingInputs.resolvedAt)))
+      .run();
+  }
+  return ids;
 }
 
 /** 0037: a pending input's runtime-built card evidence (null = none,

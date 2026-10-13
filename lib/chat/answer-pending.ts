@@ -14,8 +14,11 @@ import { chatApprovalHook } from "@/workflows/chat/hooks";
  * it is about). Approval is the explicit button or accept_plan.
  *
  * Returns what was answered, or null when nothing was pending (the
- * caller then queues a steer as before). A hook that will not resume
- * (already answered elsewhere) is also null — never a lost message.
+ * caller then queues a steer as before). A pending whose run already
+ * went terminal (resume: "Hook not found" — the card outlived its
+ * hook, 2026-10-13) is resolved as orphaned and SKIPPED, so a dead
+ * card never shadows the live one; anything left unanswered is null —
+ * never a lost message.
  */
 export interface PendingAnswer {
   toolCallId: string;
@@ -26,6 +29,16 @@ export interface AnswerDeps {
   resume?: (token: string, payload: Parameters<typeof chatApprovalHook.resume>[1]) => Promise<unknown>;
 }
 
+/**
+ * The resume can never succeed again: the run that suspended on the
+ * hook went terminal (cancelled, failed, expired). The workflow SDK
+ * does not export the error classes, so match the message (the exact
+ * strings of HookNotFoundError / RunExpiredError).
+ */
+export function isHookGoneError(err: unknown): boolean {
+  return err instanceof Error && /hook not found|run expired/i.test(err.message);
+}
+
 export async function answerPendingWithText(
   conversationId: string,
   text: string,
@@ -33,19 +46,23 @@ export async function answerPendingWithText(
 ): Promise<PendingAnswer | null> {
   // 0041: a plan review is not a suspension — typing is plan discussion
   // (an ordinary message), never an answer to it.
-  const pending = listPendingInputs(db(), conversationId).find((p) => p.kind !== "plan");
-  if (!pending) return null;
-  const kind = pending.kind === "question" ? "question" : "approval";
-  const payload =
-    kind === "question"
-      ? { kind: "question" as const, answer: text }
-      : { kind: "approval" as const, approved: false, comment: text };
+  const pendings = listPendingInputs(db(), conversationId).filter((p) => p.kind !== "plan");
   const resume = deps.resume ?? ((token, p) => chatApprovalHook.resume(token, p));
-  try {
-    await resume(pending.id, payload);
-  } catch {
-    return null;
+  for (const pending of pendings) {
+    const kind = pending.kind === "question" ? "question" : "approval";
+    const payload =
+      kind === "question"
+        ? { kind: "question" as const, answer: text }
+        : { kind: "approval" as const, approved: false, comment: text };
+    try {
+      await resume(pending.id, payload);
+    } catch (err) {
+      if (!isHookGoneError(err)) return null; // transient — a later send retries
+      resolvePendingInput(db(), pending.id, { ...payload, orphaned: "hook-gone" });
+      continue; // the dead card resolved; the text belongs to the next pending
+    }
+    resolvePendingInput(db(), pending.id, payload);
+    return { toolCallId: pending.id, kind };
   }
-  resolvePendingInput(db(), pending.id, payload);
-  return { toolCallId: pending.id, kind };
+  return null;
 }
