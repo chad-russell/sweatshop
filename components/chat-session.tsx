@@ -46,6 +46,7 @@ import { PreviewToolCard } from "@/components/previews/preview-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
 import { PlanDocument, PlanToolCard, PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-card";
+import { DISMISS_ANSWER } from "@/lib/dismiss-answer";
 import { derivePhase, isPlanCard, phaseEvents, planHistory, type Phase } from "@/lib/plan";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
@@ -399,6 +400,15 @@ function AskChadCard({ part }: { part: ToolUIPart }) {
               className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
             >
               Answer
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              title="Answer with 'carry on without me' — the agent stops waiting"
+              onClick={() => void post({ answer: DISMISS_ANSWER })}
+              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+            >
+              Dismiss
             </button>
           </div>
         ) : (

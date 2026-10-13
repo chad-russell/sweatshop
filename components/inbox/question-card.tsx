@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { NeedsYouThread, PendingRequest } from "@/db/attention";
+import { DISMISS_ANSWER } from "@/lib/dismiss-answer";
 import { Where } from "./where";
 import { useRespond } from "./use-respond";
 
@@ -90,7 +91,16 @@ export function QuestionCard({
           </Button>
         </form>
       )}
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          title="Answer with 'carry on without me' — the agent stops waiting"
+          onClick={() => void answer({ text: DISMISS_ANSWER })}
+        >
+          Dismiss
+        </Button>
         <Button asChild size="sm" variant="ghost">
           <Link href={`/c/${thread.id}`}>Open thread</Link>
         </Button>
