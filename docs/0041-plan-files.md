@@ -1,7 +1,7 @@
 # 0041 — Plan files: an async, many-round plan review, and a visible phase
 
-Status: **proposed — direction agreed with Chad in chat (2026-10-11); this
-doc awaits his approval before any code.**
+Status: **proposed — direction agreed with Chad in chat (2026-10-11), open
+questions resolved 2026-10-12; awaits his approval before any code.**
 
 ## Why
 
@@ -31,8 +31,9 @@ This doc does the same with the smallest number of new mechanisms.
   turn. Chad's messages while a plan is open are ordinary messages. There
   is no routing rule: the model decides whether a message is about the plan,
   something else, or both, and edits the file in response.
-- **Approval is explicit.** A button (or Chad saying so plainly, which the
-  agent confirms first) is the only thing that approves. The model infers
+- **Approval is explicit.** The plan card's button, or the approval-gated
+  `accept_plan` tool when Chad says so in chat, is the only thing that
+  approves. The model infers
   what Chad means, but never infers permission.
 - **Mockups are links**, not iframes. They are published URLs (the
   artifacts site, or an attachment) cited in the plan.
@@ -137,13 +138,12 @@ shows the same chip.
   how this one lives.
 - Plain chats (no sandbox) get no `present_plan`. Ticket work always has
   a sandbox.
-- No hard gate tying `create_pr` to an approved plan (see open questions).
+- No hard gate tying `create_pr` to an approved plan (see resolved questions).
 
 ## Implementation sketch
 
 1. `lib/plan.ts`: checklist parse, the phase derivation, and a small line
-   diff (LCS; plans are small). Hand-rolled because the repo has no diff
-   dependency (open question). Pure tests.
+   diff (LCS; plans are small). Hand-rolled: no diff dependency. Pure tests.
 2. `lib/agent/tools/plan.ts` core + the `present_plan` step and tool
    definition next to the other sandbox tools (`workflows/chat/`),
    included only when the binding has a sandbox. Store tests for the
@@ -158,17 +158,23 @@ shows the same chip.
 5. Skill edits (`ticket`, `review`), an AGENTS.md bullet, the gate, then
    a real ticket run on the preview as evidence (TRIAL-RUNS).
 
-## Open questions
+## Resolved questions (Chad, 2026-10-12)
 
-- **Diff:** a hand-rolled LCS line diff (~40 lines), or the `diff`
-  package? Sketch assumes hand-rolled, per "ask before adding a
-  dependency".
-- **Hard gate:** should `create_pr` refuse when a `PLAN.md` exists but was
-  never approved? Sketch says no: the skill instructs it, and `create_pr`
-  is gated by Chad anyway. Revisit if runs show agents skipping approval.
-- **Approval by chat:** when Chad types "looks good, go", the agent asks
-  "treat that as approval?" and the next yes approves. Does that yes call
-  something, or does the agent just proceed? Sketch says proceed, and the
-  chip stays "needs you" until the button is pressed. That is honest but a
-  little odd; an `accept_plan` tool the agent calls on a clear yes is the
-  alternative.
+- **Diff:** hand-rolled LCS line diff in `lib/plan.ts` (~40 lines). No
+  new dependency.
+- **No hard gate:** `create_pr` does not refuse when a plan was never
+  approved. The skill instructs approval, and every PR is already gated
+  by Chad. Revisit only if runs show agents skipping it.
+- **Approval by chat goes through `accept_plan`, which is itself
+  approval-gated.** When Chad says "looks good, go" in the thread, the
+  agent does not proceed on its reading. It calls `accept_plan({version})`,
+  which suspends on the `ask_chad` hook with the plan version on the card
+  (the one mechanism every gated tool uses, 0034 A). Approving that card
+  resolves the open `plan` row exactly as the plan card's button does, and
+  the tool returns approved; a deny returns the comment and the review stays
+  open. Since `accept_plan` is a blocking ask, typing while it waits
+  answers it as a deny, per 0037's rule. So approval is always one explicit
+  click, from either place, and the phase chip moves only on that click.
+  Implementation: step 3 adds `accept_plan` beside `present_plan`, sharing
+  the resolve-plan path with `/api/x/input`; a mock-LLM test covers
+  approve → row resolved and deny → row still open.
