@@ -59,6 +59,8 @@ import { derivePhase, isPlanCard, phaseEvents, planHistory, type Phase } from "@
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
+import { ToolGroupView } from "@/components/ai-elements/tool-group";
+import { groupParts, type PartLike } from "@/lib/tool-groups";
 import { HarnessCard } from "@/components/harness-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -773,12 +775,7 @@ export const ChatMessageView = memo(function ChatMessageView({
     message.metadata as { runEvent?: { kind: string; id: string; status: string } } | undefined
   )?.runEvent;
 
-  return (
-    <Message from={message.role}>
-      {viewing && message.role === "user" && <ViewingChip viewing={viewing} />}
-      {runEvent && message.role === "user" && <RunEventChip runEvent={runEvent} />}
-      <MessageContent>
-        {message.parts.map((part, i) => {
+  const renderPart = (part: (typeof message.parts)[number], i: number): ReactNode => {
           if (part.type === "text") {
             return <MessageResponse key={i}>{part.text}</MessageResponse>;
           }
@@ -854,7 +851,24 @@ export const ChatMessageView = memo(function ChatMessageView({
             return <ToolCallView key={i} part={toolPart} />;
           }
           return null;
-        })}
+  };
+
+  return (
+    <Message from={message.role}>
+      {viewing && message.role === "user" && <ViewingChip viewing={viewing} />}
+      {runEvent && message.role === "user" && <RunEventChip runEvent={runEvent} />}
+      <MessageContent>
+        {groupParts(message.parts as PartLike[]).map((seg) =>
+          seg.kind === "group" ? (
+            <ToolGroupView
+              key={`g${seg.index}`}
+              group={seg}
+              render={(entry) => renderPart(message.parts[entry.index]!, entry.index)}
+            />
+          ) : (
+            renderPart(message.parts[seg.index]!, seg.index)
+          ),
+        )}
       </MessageContent>
       {(text || showTime) && (
         <MessageActions
