@@ -80,7 +80,14 @@ export function ConversationRow({
           href={href}
           draggable={false}
           title={item.title ?? item.id}
-          className="flex items-center justify-between gap-2 px-2 py-1.5 pointer-coarse:py-2.5"
+          className={cn(
+            "flex items-center justify-between gap-2 px-2 py-1.5 pointer-coarse:py-2.5",
+            // Rows with an age already clear the "⋮" button (the age hides on hover but keeps
+            // its room). Rows without one reserve the button's room while it shows, so a
+            // truncated title's "…" stops short of it instead of running into it.
+            !showAge &&
+              "group-focus-within/row:pr-9 group-hover/row:pr-9 group-has-[[data-state=open]]/row:pr-9 pointer-coarse:pr-11",
+          )}
         >
           <span
             className={cn(
