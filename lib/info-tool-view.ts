@@ -210,6 +210,15 @@ export function prettyJson(text: string): string {
   }
 }
 
+// --- note ----------------------------------------------------------------------
+
+/** The agent's note to itself: the input text, else the result with its "noted: " echo stripped. */
+export function noteView(input: unknown, output: unknown): string {
+  const fromInput = str(objectOf(input)?.note);
+  if (fromInput) return fromInput;
+  return typeof output === "string" ? output.replace(/^noted:\s*/, "").trim() : "";
+}
+
 // --- cancel_run ----------------------------------------------------------------
 
 export function cancelView(input: unknown, output: unknown): { id: string; note?: string } {

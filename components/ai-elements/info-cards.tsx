@@ -1,6 +1,6 @@
 "use client";
 
-import { BanIcon, BookOpenIcon, FolderGit2Icon, LibraryIcon, ServerCogIcon, SquareStackIcon } from "lucide-react";
+import { BanIcon, BookOpenIcon, FolderGit2Icon, LibraryIcon, ServerCogIcon, SquareStackIcon, StickyNoteIcon } from "lucide-react";
 import Link from "next/link";
 import { useMemo, type ReactNode } from "react";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
@@ -14,6 +14,7 @@ import {
   forgejoView,
   ghView,
   maskEnvValue,
+  noteView,
   projectsView,
   runKind,
   setupView,
@@ -270,6 +271,34 @@ export function QueryTerminal({ tool, state, input, output, errorText }: CardPro
       errorText={errorText}
       extra={<span className="px-1 font-mono text-[10px] text-terminal-muted">{tool === "gh" ? "github" : "forgejo"}</span>}
     />
+  );
+}
+
+// --- note ----------------------------------------------------------------------
+
+/** The agent talking to itself: a quiet tinted aside with the note as readable text — no JSON, no echoed result. */
+export function NoteCard({ state, input, output, errorText }: CardProps) {
+  const failed = state === "error";
+  const text = noteView(input, output);
+  return (
+    <div
+      className={cn(
+        "not-prose my-1 flex items-start gap-2.5 rounded-lg border border-l-2 px-3 py-2 text-card-foreground",
+        failed ? "border-destructive/40 border-l-destructive bg-destructive/5" : "border-border border-l-info bg-muted/40",
+      )}
+    >
+      <StickyNoteIcon className={cn("mt-0.5 size-4 shrink-0", failed ? "text-destructive" : "text-muted-foreground")} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {failed ? "Note failed" : state === "running" ? "Noting…" : "Note to self"}
+        </p>
+        {failed ? (
+          <p className="mt-0.5 font-mono text-[11px] text-destructive">{failureLines(output, errorText)?.[0]}</p>
+        ) : text ? (
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed">{text}</p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

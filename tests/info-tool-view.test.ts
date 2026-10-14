@@ -7,6 +7,7 @@ import {
   ghView,
   h1Of,
   maskEnvValue,
+  noteView,
   prettyJson,
   projectsView,
   runKind,
@@ -113,6 +114,14 @@ describe("ghView / forgejoView", () => {
   it("leaves non-JSON and malformed JSON alone", () => {
     expect(prettyJson("plain")).toBe("plain");
     expect(prettyJson("{broken")).toBe("{broken");
+  });
+});
+
+describe("noteView", () => {
+  it("reads the input, falls back to the result minus its echo", () => {
+    expect(noteView({ note: "hi" }, "noted: hi")).toBe("hi");
+    expect(noteView(undefined, "noted: from output")).toBe("from output");
+    expect(noteView(undefined, undefined)).toBe("");
   });
 });
 
