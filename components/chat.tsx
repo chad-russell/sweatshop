@@ -449,7 +449,7 @@ export function ChatSurface({
             </>
           }
           {/* 0041: plan → build → PR, derived from the transcript. */}
-          <PhaseChip phase={s.phase} />
+          <PhaseChip phase={s.phase} variant="header" />
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
           <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}
