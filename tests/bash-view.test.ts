@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { luminance, parseAnsi, stripAnsi } from "../lib/ansi";
-import { parseBash } from "../lib/bash-view";
+import { parseBash, splitCd } from "../lib/bash-view";
 
 describe("parseBash", () => {
   it("reads the chat tool's {exitCode, stdout, stderr}", () => {
@@ -75,5 +75,19 @@ describe("parseAnsi", () => {
   it("luminance tells light from dark literals", () => {
     expect(luminance("#ffffff")).toBeGreaterThan(0.9);
     expect(luminance("#101010")).toBeLessThan(0.05);
+  });
+});
+
+describe("splitCd", () => {
+  it("lifts a leading cd into the cwd", () => {
+    expect(splitCd("cd 360-gpl && git status")).toEqual({ cwd: "360-gpl", rest: "git status" });
+    expect(splitCd("cd /work/c_1/repo; ls\nls")).toEqual({ cwd: "/work/c_1/repo", rest: "ls\nls" });
+    expect(splitCd('cd "my dir" && ls')).toEqual({ cwd: "my dir", rest: "ls" });
+  });
+
+  it("leaves everything else alone", () => {
+    for (const c of ["ls", "echo hi && cd x && ls", "cd $HOME && ls", "cd x", "cd x &&", 'cd "$X" && ls', "cd a b && ls"]) {
+      expect(splitCd(c)).toEqual({ rest: c });
+    }
   });
 });

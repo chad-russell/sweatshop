@@ -71,3 +71,16 @@ export function parseBash(input: unknown, output: unknown, errorText?: string): 
   if (errorText) return { command, stdout: "", stderr: errorText, exitCode: undefined, hasOutput: true };
   return { command, stdout: "", stderr: "", exitCode: undefined, hasOutput: false };
 }
+
+/**
+ * A leading `cd <dir> &&` (or `;`) is navigation, not the command: the card
+ * shows the directory as a dim prompt prefix and leads with what actually ran.
+ * Only a single plain-word directory qualifies — anything with expansions,
+ * quoting tricks or a `cd` that is not first is left untouched.
+ */
+export function splitCd(command: string): { cwd?: string; rest: string } {
+  const m = /^\s*cd\s+(?:"([^"$`\\]+)"|'([^']+)'|([\w@%+=:,./~-]+))\s*(?:&&|;)\s*([\s\S]+)$/.exec(command);
+  if (!m) return { rest: command };
+  const rest = m[4]!.trimStart();
+  return rest ? { cwd: m[1] ?? m[2] ?? m[3], rest } : { rest: command };
+}

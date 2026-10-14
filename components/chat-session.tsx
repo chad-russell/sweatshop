@@ -45,6 +45,14 @@ import {
 import { PreviewToolCard } from "@/components/previews/preview-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
+import {
+  CancelRunCard,
+  DocsCard,
+  PreviewSetupCard,
+  ProjectsCard,
+  QueryTerminal,
+  SkillCard,
+} from "@/components/ai-elements/info-cards";
 import { PlanDocument, PlanToolCard, PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-card";
 import { DISMISS_ANSWER } from "@/lib/dismiss-answer";
 import { derivePhase, isPlanCard, phaseEvents, planHistory, type Phase } from "@/lib/plan";
@@ -580,6 +588,14 @@ const AGENT_TOOLS = new Set([
   "start_preview",
   "preview_status",
   "stop_preview",
+  "use_skill",
+  "system_docs",
+  "list_projects",
+  "get_preview_setup",
+  "save_preview_setup",
+  "gh",
+  "forgejo",
+  "cancel_run",
 ]);
 
 /** The designed card for a machine / run / inspect tool call, if it has one. */
@@ -605,6 +621,20 @@ function agentToolCard(part: ToolUIPart): ReactNode {
     case "preview_status":
     case "stop_preview":
       return <PreviewToolCard tool={name} {...shared} />;
+    case "use_skill":
+      return <SkillCard {...shared} />;
+    case "system_docs":
+      return <DocsCard {...shared} />;
+    case "list_projects":
+      return <ProjectsCard {...shared} />;
+    case "get_preview_setup":
+    case "save_preview_setup":
+      return <PreviewSetupCard tool={name} {...shared} />;
+    case "gh":
+    case "forgejo":
+      return <QueryTerminal tool={name} {...shared} />;
+    case "cancel_run":
+      return <CancelRunCard {...shared} />;
     default:
       return null;
   }
