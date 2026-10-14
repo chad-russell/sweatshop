@@ -5,9 +5,10 @@ import { Card, failureLines, statePill } from "@/components/ai-elements/agent-ca
 import { cn } from "@/lib/utils";
 
 /**
- * 0035: the attach_screenshot card — the image IS the body. QA evidence
- * (before/after previews, error states) renders in the conversation
- * instead of living and dying with the sandbox's /tmp.
+ * 0035: the attach_screenshot part — QA evidence (before/after previews,
+ * error states) renders in the conversation instead of living and dying
+ * with the sandbox's /tmp. A successful shot is an inline figure at its own
+ * size; running/failed calls keep the tool card.
  */
 
 interface ScreenshotView {
@@ -41,37 +42,43 @@ export function ScreenshotCard({
   const ok = result?.ok === true;
   const dims = ok && result?.width && result?.height ? `${result.width}×${result.height}` : null;
   const size = ok && result?.bytes ? `${(result.bytes / 1024).toFixed(0)} KiB` : null;
+  const caption = view?.label ?? view?.path;
+
+  // A good screenshot is a message part, not a card: a caption and the image
+  // at its own size (never stretched to the transcript's width).
+  if (ok && result?.url) {
+    return (
+      <figure className={cn("not-prose my-2 flex w-fit max-w-full flex-col gap-1.5", className)}>
+        <figcaption className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <CameraIcon className="size-3.5 shrink-0" aria-hidden />
+          {caption && <span className="min-w-0 truncate">{caption}</span>}
+          {(dims || size) && (
+            <span className="shrink-0 font-mono text-[10px]">{[dims, size].filter(Boolean).join(" · ")}</span>
+          )}
+        </figcaption>
+        <a href={result.url} target="_blank" rel="noreferrer" className="block w-fit max-w-full">
+          {/* eslint-disable-next-line @next/next/no-img-element -- static attachment file served by our API, not the image optimizer */}
+          <img
+            src={result.url}
+            alt={caption ?? "attached screenshot"}
+            className="block h-auto max-h-[420px] w-auto max-w-full rounded-md border border-border bg-background"
+          />
+        </a>
+      </figure>
+    );
+  }
+
+  // Running or failed: no image yet, so the tool card.
   return (
     <Card
       icon={CameraIcon}
       title="Screenshot"
-      subtitle={view?.label ?? view?.path}
+      subtitle={caption}
       tone={tone}
-      pill={failed ? "failed" : toolState === "running" ? stateLabel : dims ?? "attached"}
+      pill={failed ? "failed" : toolState === "running" ? stateLabel : "attached"}
       failed={failed}
       errorLines={failureLines(output, errorText)}
-      defaultOpen={!failed}
       className={className}
-    >
-      {ok && result?.url && (
-        <a href={result.url} target="_blank" rel="noreferrer" className="block">
-          {/* eslint-disable-next-line @next/next/no-img-element -- static attachment file served by our API, not the image optimizer */}
-          <img
-            src={result.url}
-            alt={view?.label ?? "attached screenshot"}
-            className={cn(
-              // Shrink-wrap the image (not w-full) so the checker only shows behind real transparency.
-              "block h-auto max-h-[420px] w-auto max-w-full border-t border-border",
-              "bg-[repeating-conic-gradient(var(--color-border)_0%_25%,transparent_0%_50%)] bg-[length:16px_16px]",
-            )}
-          />
-        </a>
-      )}
-      {(dims || size) && (
-        <div className="border-t border-border px-3 py-1.5 font-mono text-[10px] text-muted-foreground">
-          {[dims, size].filter(Boolean).join(" · ")}
-        </div>
-      )}
-    </Card>
+    />
   );
 }
