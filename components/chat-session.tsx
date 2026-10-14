@@ -47,6 +47,7 @@ import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards"
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
 import {
   CancelRunCard,
+  NoteCard,
   DocsCard,
   PreviewSetupCard,
   ProjectsCard,
@@ -598,6 +599,7 @@ const AGENT_TOOLS = new Set([
   "gh",
   "forgejo",
   "cancel_run",
+  "note",
 ]);
 
 /** The designed card for a machine / run / inspect tool call, if it has one. */
@@ -637,6 +639,8 @@ function agentToolCard(part: ToolUIPart): ReactNode {
       return <QueryTerminal tool={name} {...shared} />;
     case "cancel_run":
       return <CancelRunCard {...shared} />;
+    case "note":
+      return <NoteCard {...shared} />;
     default:
       return null;
   }
