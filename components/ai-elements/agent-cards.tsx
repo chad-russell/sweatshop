@@ -27,7 +27,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { HarnessMark } from "@/components/harness-logo";
 import { SandboxChip } from "@/components/sandbox-view";
 import { objectOf } from "@/lib/tool-fields";
-import { execOf, failureOf, inspectOf, transitionOf, type InspectView, type ToolState } from "@/lib/machine-tool-view";
+import { execOf, failureOf, inspectName, inspectOf, inspectState, oneLine, transitionOf, type InspectView, type ToolState } from "@/lib/machine-tool-view";
 import type { ChildStatus } from "@/lib/child-status";
 import { elapsed, useChildStatus } from "@/lib/use-child-status";
 import { cn } from "@/lib/utils";
@@ -267,6 +267,15 @@ function InspectBody({ view }: { view: InspectView }) {
     <div className="space-y-2.5 px-3 py-2.5 text-[12.5px]">
       {view.prompt && <p className="whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-muted-foreground">{view.prompt}</p>}
       {view.error && <p className="font-mono text-[11px] text-destructive">{view.error}</p>}
+      {!view.prompt && view.opener && (
+        <p className="line-clamp-4 whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-muted-foreground">{view.opener}</p>
+      )}
+      {view.last && (
+        <p className="flex min-w-0 items-baseline gap-2">
+          <span className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">last · {view.last.role}</span>
+          <span className="line-clamp-3 min-w-0 whitespace-pre-wrap break-words">{oneLine(view.last.text, 400)}</span>
+        </p>
+      )}
       {view.visits.length > 0 && (
         <ol className="space-y-1">
           {view.visits.map((v) => {
@@ -329,20 +338,20 @@ export function InspectCard({
 }) {
   const view = useMemo(() => inspectOf(output), [output]);
   const id = objectOf(input)?.id;
-  const failed = state === "error";
+  const failed = state === "error" || Boolean(failureOf(output));
   const sp = statePill(state, failed);
   const status = view?.status;
   const tone: Tone = failed ? "fail" : state === "running" ? "running" : status === "failed" ? "fail" : status === "running" ? "running" : status === "waiting" || status === "parked" ? "warn" : "ok";
   const href = view ? (view.kind === "run" ? `/r/${view.id}` : view.kind === "chat" ? `/c/${view.id}` : undefined) : undefined;
-  const hasBody = view && (view.prompt || view.error || view.visits.length || view.harnessRuns.length || view.messages !== undefined || view.sandbox?.startsWith("sbx_"));
+  const hasBody = view && (view.prompt || view.opener || view.last || view.error || view.visits.length || view.harnessRuns.length || view.messages !== undefined || view.sandbox?.startsWith("sbx_"));
   return (
     <Card
       icon={SearchCodeIcon}
       title="Inspected"
-      subtitle={view ? `${view.kind === "run" ? (view.machine ?? "run") : (view.title ?? view.kind)}` : typeof id === "string" ? id : "…"}
+      subtitle={view ? inspectName(view) : typeof id === "string" ? id : "…"}
       link={href ? { href, label: "Open" } : undefined}
       tone={tone}
-      pill={failed ? "failed" : state === "running" ? "running" : (status ?? (view?.busy ? "busy" : "done"))}
+      pill={failed ? "failed" : state === "running" ? "running" : view ? inspectState(view) : "done"}
       failed={failed}
       errorLines={failureLines(output, errorText)}
       defaultOpen={Boolean(view && view.visits.length > 0 && view.visits.length <= 8)}

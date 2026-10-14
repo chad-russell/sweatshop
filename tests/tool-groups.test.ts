@@ -73,9 +73,27 @@ describe("callState / callLabel", () => {
 
   it("labels a call by what it was about", () => {
     expect(callLabel(bash("cd a &&\n  ls"))).toBe("cd a &&");
-    expect(callLabel(inspect("c_9"))).toBe("c_9");
+    expect(callLabel(inspect("c_9"))).toBe("c_9 · busy");
+    expect(callLabel({ type: "tool-inspect", state: "input-available", input: { id: "c_9" } })).toBe("c_9");
     expect(callLabel(done("gh", { args: ["repo", "view", "x/y"] }))).toBe("gh repo view x/y");
     expect(callLabel(done("web_fetch", { url: "https://a.b" }))).toBe("https://a.b");
     expect(callLabel(done("list_projects", {}))).toBe("list_projects");
+  });
+});
+
+describe("inspect in a group", () => {
+  const chat = (busy: boolean) =>
+    done("inspect", { id: "c_1" }, { kind: "chat", id: "c_1", title: null, busy, tail: [{ role: "user", text: "Review the diff", at: 1 }] });
+
+  it("labels by what the chat is and where it stands, and a folded poll shows the latest state", () => {
+    expect(callLabel(chat(true))).toBe("Review the diff · working");
+    const g = groupParts([chat(true), chat(true), chat(false)])[0]!;
+    if (g.kind !== "group") throw new Error("expected group");
+    expect(g.entries).toHaveLength(1);
+    expect(callLabel(g.entries[0]!.part)).toBe("Review the diff · idle");
+  });
+
+  it("an inspect that returned kind:'error' counts as failed", () => {
+    expect(callState(done("inspect", { id: "x" }, { kind: "error", code: "unknown-id", message: "no" }))).toBe("failed");
   });
 });

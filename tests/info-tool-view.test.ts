@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { failureOf, inspectName, inspectOf, inspectState, oneLine } from "../lib/machine-tool-view";
 import {
   cancelView,
   docsView,
@@ -126,5 +127,43 @@ describe("cancelView / runKind", () => {
     expect(runKind("hc_x")).toBe("harness call");
     expect(runKind("c_x")).toBe("child thread");
     expect(runKind("mr_x")).toBe("run");
+  });
+});
+
+describe("inspect naming", () => {
+  const chat = (over: Record<string, unknown> = {}) => ({
+    kind: "chat", id: "c_tmv86hy7f1d689965eec6", title: null, busy: true, totalMessages: 3,
+    tail: [
+      { role: "user", text: "Fresh-eyes review of WYC-1591 in repo 360-gpl.\nmore", at: 1 },
+      { role: "assistant", text: "Reading the diff now", at: 2 },
+    ],
+    ...over,
+  });
+
+  it("names an untitled chat by what it was started to do, never the bare word 'chat'", () => {
+    const v = inspectOf(chat())!;
+    expect(inspectName(v)).toBe("Fresh-eyes review of WYC-1591 in repo 360-gpl.");
+    expect(inspectState(v)).toBe("working");
+    expect(v.last).toEqual({ role: "assistant", text: "Reading the diff now" });
+  });
+
+  it("prefers a title, falls back to the id, and clips long openers", () => {
+    expect(inspectName(inspectOf(chat({ title: "Column move review" }))!)).toBe("Column move review");
+    expect(inspectName(inspectOf(chat({ tail: [] }))!)).toBe("c_tmv86hy7f1d689965eec6");
+    expect(oneLine("x".repeat(200), 20)).toBe(`${"x".repeat(19)}…`);
+    expect(inspectState(inspectOf(chat({ busy: false }))!)).toBe("idle");
+  });
+
+  it("names runs and harness calls", () => {
+    expect(inspectName(inspectOf({ kind: "run", id: "mr_1", machine: "ship", status: "running" })!)).toBe("ship");
+    const call = inspectOf({ kind: "harness-call", id: "hc_1", harness: "pi", status: "running", task: "fix the thing\nplease" })!;
+    expect(inspectName(call)).toBe("pi call: fix the thing");
+    expect(inspectState(call)).toBe("running");
+  });
+
+  it("treats inspect's {kind:'error'} as a failure", () => {
+    const err = { kind: "error", code: "unknown-id", message: "nothing to inspect" };
+    expect(failureOf(err)).toEqual({ code: "unknown-id", message: "nothing to inspect", issues: [] });
+    expect(failureOf(chat())).toBeUndefined();
   });
 });

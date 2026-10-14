@@ -1,4 +1,5 @@
 import { parseBash } from "./bash-view";
+import { inspectName, inspectOf, inspectState, oneLine } from "./machine-tool-view";
 import { objectOf } from "./tool-fields";
 
 /**
@@ -68,7 +69,7 @@ export function callState(part: PartLike): CallState {
   if (part.state === "output-error" || part.state === "output-denied") return "failed";
   if (part.state === "output-available") {
     const o = objectOf(part.output);
-    if (o?.ok === false) return "failed";
+    if (o?.ok === false || o?.kind === "error") return "failed";
     // bash / sandbox_exec report failure as a non-zero exit code.
     const name = toolName(part);
     if ((name === "bash" || name === "sandbox_exec") && parseBash(part.input, part.output).exitCode) return "failed";
@@ -88,9 +89,12 @@ export function callLabel(part: PartLike): string {
     case "sandbox_exec":
       label = str(i?.command)?.split("\n").find((l) => l.trim());
       break;
-    case "inspect":
-      label = str(i?.id);
+    case "inspect": {
+      // What was inspected and where it stands — the id alone says nothing.
+      const view = inspectOf(part.output);
+      label = view ? `${oneLine(inspectName(view), 64)} · ${inspectState(view)}` : str(i?.id);
       break;
+    }
     case "gh":
       label = Array.isArray(i?.args) ? `gh ${(i.args as unknown[]).filter((a) => typeof a === "string").join(" ")}` : undefined;
       break;
