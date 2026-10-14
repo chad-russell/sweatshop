@@ -60,7 +60,8 @@ export function ScreenshotCard({
             src={result.url}
             alt={view?.label ?? "attached screenshot"}
             className={cn(
-              "max-h-[420px] w-full border-t border-border object-contain object-left-top",
+              // Shrink-wrap the image (not w-full) so the checker only shows behind real transparency.
+              "block h-auto max-h-[420px] w-auto max-w-full border-t border-border",
               "bg-[repeating-conic-gradient(var(--color-border)_0%_25%,transparent_0%_50%)] bg-[length:16px_16px]",
             )}
           />
