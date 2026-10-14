@@ -11,6 +11,7 @@ import {
   prettyJson,
   projectsView,
   runKind,
+  setupLabel,
   setupView,
   skillItems,
   skillView,
@@ -122,6 +123,19 @@ describe("noteView", () => {
     expect(noteView({ note: "hi" }, "noted: hi")).toBe("hi");
     expect(noteView(undefined, "noted: from output")).toBe("from output");
     expect(noteView(undefined, undefined)).toBe("");
+  });
+});
+
+describe("setupLabel", () => {
+  it("names the repo and port, hiding a root workDir", () => {
+    expect(setupLabel({ repo: "gpl/360-gpl", workDir: ".", port: 3006 })).toBe("360-gpl · port 3006");
+  });
+  it("appends a subdirectory", () => {
+    expect(setupLabel({ repo: "polymer/360-polymer", workDir: "apps/polymer", port: 3000 })).toBe("360-polymer/apps/polymer · port 3000");
+    expect(setupLabel({ repo: "a/b", workDir: "./web", port: 1 })).toBe("b/web · port 1");
+  });
+  it("omits what is missing", () => {
+    expect(setupLabel({ repo: "", workDir: ".", port: 0 })).toBe("");
   });
 });
 

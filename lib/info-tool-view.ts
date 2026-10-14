@@ -158,6 +158,18 @@ export function setupView(output: unknown): SetupView | null | undefined {
   };
 }
 
+/**
+ * What the preview setup is for, as a card subtitle: the repo (the part
+ * after "owner/"), plus the subdirectory when the app isn't at the repo
+ * root ("." means root, and reads as noise), then the port.
+ */
+export function setupLabel(setup: Pick<SetupView, "repo" | "workDir" | "port">): string {
+  const repo = setup.repo.split("/").pop() ?? "";
+  const dir = setup.workDir && setup.workDir !== "." && setup.workDir !== "./" ? setup.workDir.replace(/^\.\//, "") : "";
+  const where = [repo, dir].filter(Boolean).join("/");
+  return [where, setup.port ? `port ${setup.port}` : ""].filter(Boolean).join(" · ");
+}
+
 /** Env values that look like secrets are masked in the card. */
 export function maskEnvValue(key: string, value: string): string {
   return /(secret|token|password|passwd|key|credential)/i.test(key) && value && !value.startsWith("${")

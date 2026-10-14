@@ -17,6 +17,7 @@ import {
   noteView,
   projectsView,
   runKind,
+  setupLabel,
   setupView,
   skillItems,
   skillView,
@@ -212,7 +213,7 @@ export function PreviewSetupCard({ tool, state, output, errorText }: CardProps &
     <Card
       icon={ServerCogIcon}
       title={saving ? (state === "running" ? "Saving preview setup" : "Saved preview setup") : "Preview setup"}
-      subtitle={none ? "none saved yet" : setup ? `${setup.workDir} · :${setup.port}` : "…"}
+      subtitle={none ? "none saved yet" : setup ? setupLabel(setup) : "…"}
       {...pillFor(state, failed, saving ? "saved" : none ? "empty" : "loaded")}
       failed={failed}
       errorLines={failureLines(output, errorText)}
