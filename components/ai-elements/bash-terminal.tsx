@@ -4,7 +4,7 @@ import { CheckIcon, ChevronDownIcon, CopyIcon, SquareTerminalIcon } from "lucide
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { luminance, parseAnsi, stripAnsi, type AnsiColor, type AnsiSegment, type NamedColor } from "@/lib/ansi";
-import { parseBash } from "@/lib/bash-view";
+import { parseBash, splitCd } from "@/lib/bash-view";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
@@ -190,7 +190,8 @@ export function BashTerminal({
   const lineCount = stdoutLines.length + stderrLines.length;
   const hasBody = lineCount > 0;
 
-  const commandLines = view.command.split("\n");
+  const { cwd, rest } = useMemo(() => splitCd(view.command), [view.command]);
+  const commandLines = rest.split("\n");
   const plainOutput = [stripAnsi(view.stdout).trimEnd(), stripAnsi(view.stderr).trimEnd()].filter(Boolean).join("\n");
 
   // Short output reads like a real terminal — shown inline. Long output
@@ -229,6 +230,11 @@ export function BashTerminal({
 
       {/* Command, as typed */}
       <div className="group/cmd relative flex gap-2 px-3 py-2 font-mono text-[12.5px] leading-relaxed">
+        {cwd && (
+          <span className="shrink-0 select-none text-terminal-muted" title={`cd ${cwd}`}>
+            {cwd}
+          </span>
+        )}
         <span aria-hidden className="select-none text-terminal-green">
           $
         </span>
