@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, Quote } from "lucide-react";
+import { ClipboardList, ExternalLink, Quote } from "lucide-react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Card, Pill } from "@/components/ai-elements/agent-cards";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -259,15 +259,52 @@ export function PlanToolCard({
   );
 }
 
-/** The thread header's phase chip (derived from the transcript). */
-export function PhaseChip({ phase, className }: { phase: Phase | null; className?: string }) {
+/**
+ * The thread header's phase chip (derived from the transcript). `header`
+ * matches its neighbours — the route/sandbox pickers and the preview pill
+ * are h-8 rounded-lg bordered controls — keeping the status dot and tint;
+ * a PR link makes the whole control clickable. `compact` is the small pill
+ * for the agent panel's tight header.
+ */
+export function PhaseChip({
+  phase,
+  variant = "compact",
+  className,
+}: {
+  phase: Phase | null;
+  variant?: "header" | "compact";
+  className?: string;
+}) {
   if (!phase) return null;
-  const pill = <Pill tone={phase.tone} label={phase.label} />;
+  if (variant === "compact") {
+    const pill = <Pill tone={phase.tone} label={phase.label} />;
+    return phase.url ? (
+      <a href={phase.url} target="_blank" rel="noreferrer" className={cn("shrink-0", className)} title="Open the PR">
+        {pill}
+      </a>
+    ) : (
+      <span className={cn("shrink-0", className)}>{pill}</span>
+    );
+  }
+  const base = cn(
+    "inline-flex h-8 pointer-coarse:h-10 shrink-0 items-center gap-2 rounded-lg border px-2.5 text-sm whitespace-nowrap",
+    phase.tone === "running" && "border-info/30 bg-info/10 text-info",
+    phase.tone === "ok" && "border-success/30 bg-success/10 text-success",
+    phase.tone === "warn" && "border-warning/30 bg-warning/10 text-warning",
+    className,
+  );
+  const inner = (
+    <>
+      <span aria-hidden className={cn("size-1.5 rounded-full bg-current", phase.tone === "running" && "animate-pulse")} />
+      {phase.label}
+    </>
+  );
   return phase.url ? (
-    <a href={phase.url} target="_blank" rel="noreferrer" className={cn("shrink-0", className)} title="Open the PR">
-      {pill}
+    <a href={phase.url} target="_blank" rel="noreferrer" title="Open the PR" className={cn(base, "transition-colors hover:bg-success/20")}>
+      {inner}
+      <ExternalLink className="size-3.5" aria-hidden />
     </a>
   ) : (
-    <span className={cn("shrink-0", className)}>{pill}</span>
+    <span className={base}>{inner}</span>
   );
 }
