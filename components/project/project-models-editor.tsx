@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RoutePicker, shortRouteLabel } from "@/components/route-picker";
 import { LABEL } from "@/components/form-styles";
 import type { ModelsView } from "@/lib/providers/catalog-view";
@@ -77,10 +78,9 @@ export function ProjectModelsEditor({ projectId, initial }: { projectId: string;
         <div className="flex flex-wrap gap-4">
           {providers.map((p) => (
             <label key={p.id} className="flex items-center gap-1.5 text-sm">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={!project.allowedProviders || project.allowedProviders.includes(p.id)}
-                onChange={() => toggleProvider(p.id)}
+                onCheckedChange={() => toggleProvider(p.id)}
               />
               {p.label}
               {!p.available && <span className={LABEL}>(no key)</span>}
@@ -94,10 +94,9 @@ export function ProjectModelsEditor({ projectId, initial }: { projectId: string;
         <div className="flex flex-wrap gap-4">
           {harnesses.map((h) => (
             <label key={h} className="flex items-center gap-1.5 text-sm">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={!project.allowedHarnesses || project.allowedHarnesses.includes(h)}
-                onChange={() => toggleHarness(h)}
+                onCheckedChange={() => toggleHarness(h)}
               />
               {h}
               {(h === "claude" || h === "cursor") && <span className={LABEL}>(subscription)</span>}
