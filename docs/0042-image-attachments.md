@@ -1,6 +1,6 @@
 # 0042 — Image attachments in the composer
 
-Status: **proposed — awaiting Chad's approval before any code.** The UI half
+Status: **approved (PR #104, 2026-10-15); amended the same day (no vision gate).** The UI half
 of the original request (up-arrow send, model and sandbox pickers inside the
 input) is separate and already in PR #103; this doc is the image half.
 
@@ -26,10 +26,13 @@ user message is a plain string end to end.
   message row stores a reference, never the bytes. The bytes are read when the
   model is called. No base64 in sqlite and none in the workflow's recorded
   state.
-- **A model without vision blocks the send.** The composer shows an inline
-  notice and send stays disabled until the image is removed or the model is
-  switched. The catalog already has `ModelInfo.vision` (static for GLM/Gloo,
-  from `architecture.input_modalities` for OpenRouter).
+- **Images are sent best-effort; there is no vision gate** (amended
+  2026-10-15, see Resolved questions). Nothing in the composer or the server
+  blocks, warns or strips: unless we are certain a model cannot take images,
+  we try. A model that rejects one is a user error and surfaces as the
+  turn's ordinary error with the provider's message. (The catalog's
+  `ModelInfo.vision` is optional and absence means "unknown", not "no", so
+  it cannot justify a block.)
 - **Delivered after PR #103** as its own PR.
 
 ## What changes
@@ -63,10 +66,6 @@ are the text plus one `file` part per image, with
   parts (it already reads its text parts). It requires **text or at least one
   image** (today: text only), rejects unknown ids, ids already claimed by
   another conversation, and more than 4.
-- Vision is validated on the server too: when the send carries images, the
-  turn's **resolved** route (picked > conversation > project > global, as
-  `resolveRoute` does) must have `vision`. Otherwise a value-shaped 400 and
-  nothing is created. The client check is a convenience; this is the rule.
 - `startChatTurn` and `ChatTurnInput` gain `attachments?: string[]`.
   `recordUserMessage` claims them and stores the user row's `modelMessage`
   as parts: `[{ type: "text", text }, { type: "file", data:
@@ -100,13 +99,14 @@ model it rewrites each `attachment:att_…` file part in the prompt into
   it, the fallback is resolving in a dedicated step before `agent.stream`,
   which puts bytes into recorded state: acceptable for one turn, but then the
   doc is amended before shipping, not after.
-- **History never breaks.** The recipe in `ChatModelData` gains `vision:
-  boolean` (known where the route is resolved, `resolveTurnRouteStep`). When
-  false, the wrapper replaces every image part, in this turn and in history,
-  with a text part `[image omitted: this model cannot read images]`. So
-  switching mid-conversation from a vision model to GLM Flash keeps working;
-  the model just does not see old images. A missing file (deleted, restored
-  database) degrades the same way with `[image unavailable]`.
+- **Every model gets the image.** The wrapper does not consult the catalog:
+  in this turn and in history, each reference becomes bytes. Consequence,
+  accepted: switching a conversation that already holds an image to a model
+  that cannot read images makes its turns error with the provider's message
+  until the model is switched back (or a new chat is started). A missing file
+  (deleted, restored database) is the one case the wrapper handles itself: the
+  part becomes the text `[image unavailable]`, so a lost file never bricks a
+  conversation.
 - Harness tools (pi, claude, cursor) are unaffected: they get text prompts
   from the agent as before. Giving a harness the image is out of scope.
 
@@ -131,11 +131,6 @@ the existing AI Elements parts:
 - **Send** is enabled with text or images. On submit the files upload first
   (spinner on the send button, thumbnails dimmed); a failed upload keeps the
   composer intact with an error and does not send.
-- **Vision gate:** the resolved model is the picked route, else the project
-  default, else the chat default (the `ModelsView` the page already fetches).
-  Images attached and that model lacking `vision` shows "<model> can't read
-  images. Remove them or pick another model." and disables send. The same
-  check re-runs when the model picker changes.
 - **Drafts:** images live in memory (blob URLs). A reload loses them; the text
   draft persists as today.
 
@@ -150,8 +145,7 @@ so a sent image does not pop in after the fact.
 
 ## Non-goals
 
-- PDFs and other documents, audio, video. Images only, so the vision flag is
-  the whole capability story.
+- PDFs and other documents, audio, video. Images only.
 - Images on steers, on wake messages, or from the agent's own tools (0035's
   `attach_screenshot` stays as it is).
 - Client-side downscaling or HEIC conversion. Safari converts HEIC to JPEG on
@@ -169,27 +163,30 @@ One PR, in this order so each step is testable alone:
    the mock model (this decides section 3; see its fallback).
 2. Store + upload route + serving route + `attachments` migration + reaper
    sweep and purge hooks.
-3. Chat route (parts parsing, validation incl. vision) → `startChatTurn` →
-   `recordUserMessage` → wrapper rewrite and non-vision placeholder.
+3. Chat route (parts parsing and validation) → `startChatTurn` →
+   `recordUserMessage` → wrapper rewrite and missing-file placeholder.
 4. `rowsToUIMessages` + transcript rendering.
-5. Composer: `+`, thumbnails and `×`, upload-on-send, vision gate, notices.
+5. Composer: `+`, thumbnails and `×`, upload-on-send, notices.
 6. Docs: update AGENTS.md (the Architecture line on attachments) and note the
    attachment contract here.
 
 Tests: upload (magic bytes beat a lying MIME, size cap, 4-image cap, unknown
-and already-claimed ids), the chat route (text-or-image, vision rejection with
-nothing created), the wrapper (reference to bytes in the step; non-vision and
-missing-file placeholders; history with an old image on a non-vision model),
+and already-claimed ids), the chat route (text-or-image, unknown and over-limit ids
+create nothing), the wrapper (reference to bytes in the step; missing-file
+placeholder; an old image in history is resolved again on a later turn),
 `rowsToUIMessages`, the reaper sweep, and delete-forever removing files. All
 against the mock model; nothing waits on a real provider. A live check
 (`IMAGE_SPIKE=1`, opt-in like the other spikes) sends one image to a real
-vision route.
+image-capable route.
 
-## Open questions
+## Resolved questions (Chad, 2026-10-15)
 
-1. **Swept at 24 h** is a guess for unattached uploads. Is that right, or
-   should abandoned uploads go sooner (they are only created by a send that
-   then failed or was cancelled)?
-2. **Image-only sends.** The model gets just the image with no text part. A
-   few providers reject that; if the live check finds one, the route can add
-   an empty-prompt note for them. Fine to find out empirically?
+1. **Sweep unattached uploads at 24 h.** Confirmed.
+2. **Image-only sends and unsupported models: try, never pre-judge.** Send
+   what the user attached to whatever model is selected; only certainty that
+   a model cannot take images would justify refusing, and the catalog cannot
+   provide it. Attaching an image to a model that does not support it is a
+   user error. This supersedes the original "warn and block send" decision
+   and removes the server-side vision check, the composer notice and the
+   non-vision placeholder. If a provider rejects an image-only message (no
+   text part), that is found by the live check and handled then.
