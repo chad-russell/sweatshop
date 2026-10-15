@@ -80,7 +80,7 @@ export function RoutePicker({
   const canThink = !!(value && modelInfo?.reasoning);
 
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex min-w-0 shrink items-center gap-1">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
@@ -96,7 +96,7 @@ export function RoutePicker({
             <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
           </button>
         </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-0">
+      <PopoverContent align="start" className="w-80 max-w-[calc(100vw-1rem)] p-0">
         <Command>
           <CommandInput placeholder="Search models…" />
           <CommandList className="max-h-80">
