@@ -312,10 +312,19 @@ export function buildChatTools(
         }),
         execute: async (input, { toolCallId }) => {
           const preview = (await hostExecPreviewStep(conversationId, input)) as
-            | { ok: true; summary: string }
+            | { ok: true; summary: string; host: { name: string; address: string; user: string }; command: string; timeoutSec: number }
             | { ok: false; code: string; message: string };
           if (!preview.ok) return preview;
-          await pendingStep(conversationId, toolCallId, preview.summary, "approval");
+          // 0043 UX: a structured card so the inbox renders a terminal
+          // block (host + command), not the generic JSON dump.
+          await pendingStep(conversationId, toolCallId, preview.summary, "approval", {
+            type: "exec",
+            host: preview.host.name,
+            user: preview.host.user,
+            address: preview.host.address,
+            command: preview.command,
+            timeoutSec: preview.timeoutSec,
+          });
           const answer = await chatApprovalHook.create({ token: toolCallId });
           if (!(answer.kind === "approval" && answer.approved)) {
             const comment = answer.kind === "approval" ? answer.comment?.trim() : undefined;
