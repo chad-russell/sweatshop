@@ -219,7 +219,9 @@ export function FileCard({
           </span>
         )}
         {tool === "read" && total > 0 && (
-          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{total} lines</span>
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+            {view.totalLines ? `${total} of ${view.totalLines} lines` : `${total} lines`}
+          </span>
         )}
         <Pill
           tone={failed ? "fail" : state === "running" ? "running" : "ok"}

@@ -36,6 +36,8 @@ export interface FileToolView {
   /** For write: whether the file was created or overwritten, when known. */
   change?: "create" | "update";
   clipped: boolean;
+  /** For read: the file's full length, when the harness said so and this is only part of it. */
+  totalLines?: number;
 }
 
 const LANGUAGES: Record<string, string> = {
@@ -79,6 +81,37 @@ function readLines(output: string, offset: number): CodeLine[] {
     });
   }
   return lines.map((text, i) => ({ text, num: offset + i }));
+}
+
+/**
+ * claude's Read result is an envelope, not the file's text:
+ * `{"type":"text","file":{filePath,content,numLines,startLine,totalLines}}`.
+ * Unwrap it to the content (and where it starts / how long the file is).
+ * The recorder clips the whole JSON, so a long read no longer parses —
+ * recover the content with `field` and flag it clipped. Other envelope types
+ * (image, pdf, file_unchanged) carry no text to show and are not matched.
+ * pi returns plain text and never matches.
+ */
+function unwrapReadEnvelope(
+  output: string,
+): { content: string; startLine?: number; totalLines?: number; partial: boolean; clipped: boolean } | undefined {
+  if (!/^\s*\{"type"\s*:\s*"text"\s*,\s*"file"\s*:\s*\{/.test(output)) return undefined;
+  const file = objectOf(objectOf(output)?.file);
+  if (file) {
+    if (typeof file.content !== "string") return undefined;
+    const startLine = typeof file.startLine === "number" ? file.startLine : undefined;
+    const totalLines = typeof file.totalLines === "number" ? file.totalLines : undefined;
+    const numLines = typeof file.numLines === "number" ? file.numLines : undefined;
+    return {
+      content: file.content,
+      startLine,
+      totalLines,
+      partial: totalLines !== undefined && numLines !== undefined && numLines < totalLines,
+      clipped: false,
+    };
+  }
+  const content = field(output, "content");
+  return content ? { content: content.value, partial: false, clipped: content.clipped } : undefined;
 }
 
 function patchToDiff(patch: unknown): DiffLine[] | undefined {
@@ -208,8 +241,18 @@ export function parseFileTool(
       }
     }
   } else if (typeof output === "string") {
-    view.code = readLines(output, numberField(input, "offset") ?? 1);
-    view.clipped = output.endsWith("…") && output.length > HARNESS_OUTPUT_CLIP;
+    const offset = numberField(input, "offset") ?? 1;
+    const envelope = unwrapReadEnvelope(output);
+    if (envelope) {
+      view.code = readLines(envelope.content, envelope.startLine ?? offset);
+      view.clipped = envelope.clipped;
+      if (envelope.partial) view.totalLines = envelope.totalLines;
+    } else if (/^\s*\{"type"\s*:\s*"(?!text")/.test(output) && /"file"\s*:/.test(output.slice(0, 200))) {
+      // image / pdf / file_unchanged envelope: nothing textual to draw.
+    } else {
+      view.code = readLines(output, offset);
+      view.clipped = output.endsWith("…") && output.length > HARNESS_OUTPUT_CLIP;
+    }
   }
 
   for (const line of view.diff ?? []) {

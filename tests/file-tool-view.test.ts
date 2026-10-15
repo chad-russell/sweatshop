@@ -103,6 +103,45 @@ describe("parseFileTool", () => {
     expect(v.code).toEqual([{ text: '{"name":"x"}', num: 1 }]);
     expect(v.language).toBe("json");
   });
+  it("read: unwraps claude's {type:text,file:{content}} envelope into numbered code", () => {
+    const envelope = JSON.stringify({
+      type: "text",
+      file: { filePath: "src/a.ts", content: 'import x from "y";\nexport const a = 1;\n', numLines: 2, startLine: 1, totalLines: 2 },
+    });
+    const v = parseFileTool("read", { file_path: "src/a.ts" }, envelope);
+    expect(v.code).toEqual([
+      { text: 'import x from "y";', num: 1 },
+      { text: "export const a = 1;", num: 2 },
+    ]);
+    expect(v.totalLines).toBeUndefined();
+    expect(v.clipped).toBe(false);
+  });
+  it("read: a ranged envelope starts at its startLine and reports the file's length", () => {
+    const envelope = JSON.stringify({
+      type: "text",
+      file: { filePath: "a.ts", content: "foo\nbar", numLines: 2, startLine: 40, totalLines: 900 },
+    });
+    const v = parseFileTool("read", { file_path: "a.ts", offset: 40, limit: 2 }, envelope);
+    expect(v.code).toEqual([
+      { text: "foo", num: 40 },
+      { text: "bar", num: 41 },
+    ]);
+    expect(v.totalLines).toBe(900);
+  });
+  it("read: a recorder-clipped envelope still yields its content, flagged clipped", () => {
+    const clipped = '{"type":"text","file":{"filePath":"a.ts","content":"\\"use client\\";\\n\\nimport { useMemo } from \\"react\\";\\nexport fu…';
+    const v = parseFileTool("read", { file_path: "a.ts" }, clipped);
+    expect(v.code?.map((l) => l.text)).toEqual(['"use client";', "", 'import { useMemo } from "react";', "export fu"]);
+    expect(v.clipped).toBe(true);
+  });
+  it("read: a file whose own text is JSON with a type key is not mistaken for an envelope", () => {
+    const v = parseFileTool("read", { file_path: "x.json" }, '{"type":"text","other":1}');
+    expect(v.code).toEqual([{ text: '{"type":"text","other":1}', num: 1 }]);
+  });
+  it("read: non-text envelopes (image, unchanged) draw no code", () => {
+    const v = parseFileTool("read", { file_path: "a.png" }, '{"type":"file_unchanged","file":{"filePath":"a.png"}}');
+    expect(v.code).toBeUndefined();
+  });
 });
 
 describe("parseListTool", () => {
