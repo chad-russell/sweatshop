@@ -245,6 +245,36 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   runs; the route 409s an image steer). Reload maps stored parts back to
   UI file parts in `lib/chat-ui.ts`. Mock-model script `images` reports
   what the model received.
+- Hosts & the exec tool (0043): a project can list HOSTS — real machines its
+  agent may operate on over SSH (table `project_hosts`: name, address,
+  user, informational `api_base`, TOFU `host_key_fp`; managed on the
+  project page beside repos; the list IS the allow-list, projects
+  without hosts get no tool). One tool, `exec(host, command, timeout?)`
+  (core `lib/agent/tools/host.ts`, definitions in `workflows/chat/tools.ts`
+  with the project's hosts enumerated in the description): approval-gated
+  on the ask_chad path (0034 A — validate WITHOUT connecting first, the
+  card shows the exact command, typing denies with the text), runs via
+  `bash -lc` as the host's user (120 s default / 900 s max; a timeout
+  cuts the channel with partial output — the command may still be
+  running), 60 k clips per stream, value-shaped failures. Credentials
+  resolve from env by host NAME (`HOST_<NAME>_SSH_KEY_FILE` path to a
+  0600 key, `HOST_<NAME>_SSH_KEY_PASSPHRASE`, or `HOST_<NAME>_SSH_PASSWORD`
+  inline; read at process start, global across projects) — nothing enters
+  sqlite, the browser, or any sandbox: the channel is opened by the app
+  process over ssh2 (`lib/hosts/transport.ts`, loaded via `createRequire`
+  — its native addons cannot enter the workflow bundle), pooled per host,
+  host keys TOFU-pinned to the row with mismatch a hard `host-key-changed`.
+  Audit: `host_commands` (write-before-run, resolve-after; `host_id` has
+  NO FK so history survives host removal), surfaced in `inspect` and the
+  terminal `exec` card (host chip + duration). Secrets convention
+  (taught in the tool description): reference PATHS never contents; API
+  calls run as exec + curl on a host holding the credential file.
+  Deferred on purpose: bespoke verbs (deploy/rollback/restart), policy
+  modes ("yolo" auto-approve, allowlists, time-boxed grants), a `request`
+  tool, per-host kind/runbook fields, network sandboxing. Capability doc
+  `docs/agent/hosts.md`; live check `HOST_SPIKE=1` (tests/
+  host-spike.integration.test.ts — it found the warm-pool fingerprint
+  skip pre-merge).
 - Auth: LAN-only personal tool with no auth layer. **Hard rule: add a
   real verifier before any internet exposure.**
 - Persistence north star: SQLite (single db, or split where it makes
