@@ -531,6 +531,66 @@ function AcceptPlanCard({ part }: { part: ToolUIPart }) {
  * approval buttons right there — same POST as the inbox card. */
 const GATED_TOOLS = new Set(["create_project", "delete_project"]);
 
+/** 0043: an exec call waiting on Chad — approve it right here (the
+ *  inbox card posts to the same endpoint); typing below answers it as a
+ *  denial with the text as the comment (the 0037 rule). */
+function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
+  const [busy, setBusy] = useState(false);
+  const input = (part.state === "input-streaming" ? undefined : part.input) as
+    | { host?: unknown; command?: unknown; timeout?: unknown }
+    | undefined;
+  const host = typeof input?.host === "string" ? input.host : undefined;
+  const command = typeof input?.command === "string" ? input.command : undefined;
+  const timeout = typeof input?.timeout === "number" ? input.timeout : 120;
+  const answered = part.state === "output-available" || part.state === "output-error" || part.state === "output-denied";
+
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      <p className="text-sm font-medium">Run on {host ?? "a host"}?</p>
+      <div className="rounded-md border border-terminal-border bg-terminal-bg-black px-3 py-2 font-mono text-xs">
+        <div className="text-terminal-muted">{timeout}s timeout · every approved command runs via bash -lc as the host&apos;s user</div>
+        <pre className="mt-1.5 whitespace-pre-wrap text-terminal-foreground">$ {command ?? "…"}</pre>
+      </div>
+      {!answered ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Deny
+          </button>
+          <span className="text-xs text-muted-foreground">or type below to send it back with a comment</span>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Answered — the agent continues.</p>
+      )}
+    </div>
+  );
+}
+
 /** One gated tool call awaiting Chad's approval, in the transcript. */
 function GatedApprovalCard({ part }: { part: ToolUIPart }) {
   const [busy, setBusy] = useState(false);
@@ -824,6 +884,17 @@ export const ChatMessageView = memo(function ChatMessageView({
             }
             if (toolPart.type === "tool-accept_plan" && toolPart.state === "input-available") {
               return <AcceptPlanCard key={i} part={toolPart} />;
+            }
+            // 0043: exec approves inline — the buttons live in the
+            // transcript while the call awaits Chad; once answered the
+            // terminal card renders the outcome.
+            if (
+              toolPart.type === "tool-exec" &&
+              toolPart.state !== "output-available" &&
+              toolPart.state !== "output-error" &&
+              toolPart.state !== "output-denied"
+            ) {
+              return <HostExecApprovalCard key={i} part={toolPart} />;
             }
             // Gated tools (0033): the approval buttons live in the
             // transcript while the call awaits Chad; once answered the
