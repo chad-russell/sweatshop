@@ -5,7 +5,7 @@ import path from "node:path";
 import { start } from "workflow/api";
 import { db } from "../db";
 import { ensureConversation, listMessageTexts, listModelMessages } from "../db/chat";
-import { getAttachments, insertAttachment, sweepUnclaimed, UNCLAIMED_TTL_MS } from "../db/attachments";
+import { getAttachments, sweepUnclaimed, UNCLAIMED_TTL_MS } from "../db/attachments";
 import { deleteConversationForever } from "../db/organize";
 import { chatTurn } from "../workflows/chat/turn";
 import { rowsToUIMessages } from "../lib/chat-ui";
@@ -321,7 +321,5 @@ describe("reload, sweep and teardown", () => {
     await writeFile(path.join(attachmentsDir(), `${id}.png`), PNG);
     sweepUnclaimed(db(), Date.now() + 10 * UNCLAIMED_TTL_MS);
     expect(await readAttachmentFile(id)).not.toBeNull();
-    // and unused import guard
-    insertAttachment;
   });
 });

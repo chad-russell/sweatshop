@@ -1,7 +1,7 @@
 "use client";
 
 import { WorkflowChatTransport } from "@ai-sdk/workflow/client";
-import type { ChatStatus, ToolUIPart, UIMessage } from "ai";
+import type { ChatStatus, FileUIPart, ToolUIPart, UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { nanoid } from "nanoid";
 import { Check, ChevronDown, Copy, Eye, GitPullRequest, MessageSquarePlus, RotateCcw } from "lucide-react";
@@ -43,6 +43,8 @@ import {
   SandboxExecCard,
   StartThreadCard,
 } from "@/components/ai-elements/agent-cards";
+import { ComposerAddButton, ComposerAttachments, attachmentErrorMessage } from "@/components/composer-attachments";
+import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from "@/lib/attachment-ref";
 import { PreviewToolCard } from "@/components/previews/preview-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
@@ -863,6 +865,7 @@ export const ChatMessageView = memo(function ChatMessageView({
       {viewing && message.role === "user" && <ViewingChip viewing={viewing} />}
       {runEvent && message.role === "user" && <RunEventChip runEvent={runEvent} />}
       <MessageContent>
+        <MessageImages parts={message.parts} />
         {groupParts(message.parts as PartLike[]).map((seg) =>
           seg.kind === "group" ? (
             <ToolGroupView
@@ -897,6 +900,42 @@ export const ChatMessageView = memo(function ChatMessageView({
     </Message>
   );
 });
+
+/** The AI SDK's send shape requires `text`, yet its runtime adds a text part
+ *  only when one is given — so an image-only send omits it (an empty-string
+ *  text would become an empty text part). */
+function sendPayload(text: string, files: FileUIPart[], metadata?: unknown) {
+  return {
+    ...(text ? { text } : {}),
+    ...(files.length > 0 ? { files } : {}),
+    ...(metadata ? { metadata } : {}),
+  } as { text: string; files?: FileUIPart[]; metadata?: unknown };
+}
+
+/** 0042: a user message's images, above its text — click opens full size. */
+function MessageImages({ parts }: { parts: UIMessage["parts"] }) {
+  const images = parts.filter((part): part is FileUIPart => part.type === "file" && part.mediaType.startsWith("image/"));
+  if (images.length === 0) return null;
+  const many = images.length > 1;
+  return (
+    <div className={many ? "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap" : "flex"}>
+      {images.map((image, i) => (
+        <a key={i} href={image.url} target="_blank" rel="noreferrer" className="block min-w-0">
+          {/* eslint-disable-next-line @next/next/no-img-element -- our own attachment route, not the image optimizer */}
+          <img
+            src={image.url}
+            alt={image.filename ?? "attached image"}
+            className={
+              many
+                ? "aspect-square w-full rounded-md border border-border object-cover sm:size-40"
+                : "max-h-72 w-auto max-w-full rounded-md border border-border object-contain"
+            }
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
 
 /**
  * The frame-independent chat session. Drawn by the page frame
@@ -1184,7 +1223,8 @@ export function ChatSession({
   // a fresh session after its first send created the conversation.
   useMarkSeen(adoptedNow ? conversationId : null, `${messages.length}:${isBusy ? "busy" : status}`);
 
-  const lastUserText = useMemo(() => {
+  // The last thing Chad sent — its text and uploaded images — for Retry.
+  const lastUserSend = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
       if (message.role !== "user") continue;
@@ -1193,7 +1233,8 @@ export function ChatSession({
         .map((part) => part.text)
         .join("")
         .trim();
-      return text || null;
+      const files = message.parts.filter((part): part is FileUIPart => part.type === "file");
+      return text || files.length > 0 ? { text, files } : null;
     }
     return null;
   }, [messages]);
@@ -1255,10 +1296,66 @@ export function ChatSession({
   }), [plans, draftKey]);
   const freshMode = fresh ? freshComposer?.(state) : undefined;
 
-  const handleSubmit = (message: PromptInputMessage) => {
-    const text = message.text?.trim();
-    if (!text) return;
-    if (freshMode?.onSubmit?.(text)) return;
+  // 0042: images upload first (each becomes an attachment id), then the
+  // send carries them as file parts pointing at the serving route.
+  const [composerNotice, setComposerNotice] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  // A refusal notice is a passing remark, not state: it clears itself.
+  useEffect(() => {
+    if (!composerNotice) return;
+    const timer = setTimeout(() => setComposerNotice(null), 6000);
+    return () => clearTimeout(timer);
+  }, [composerNotice]);
+
+  // PromptInput clears the textarea before calling onSubmit; a refused or
+  // failed image send puts the text back so nothing typed is lost.
+  const restoreText = (text: string) => {
+    const el = textareaRef.current;
+    if (!el || !text) return;
+    el.value = text;
+    window.localStorage.setItem(draftKey, text);
+  };
+
+  const uploadImages = (files: FileUIPart[]): Promise<FileUIPart[]> =>
+    Promise.all(
+      files.map(async (file) => {
+        const blob = await (await fetch(file.url)).blob();
+        const form = new FormData();
+        form.set("file", new File([blob], file.filename ?? "image", { type: blob.type }));
+        const res = await fetch("/api/x/attachments", { method: "POST", body: form });
+        const body = (await res.json().catch(() => ({}))) as { error?: string; url?: string; mediaType?: string };
+        if (!res.ok || !body.url || !body.mediaType) {
+          throw new Error(body.error ?? `upload failed (${res.status})`);
+        }
+        return { type: "file" as const, mediaType: body.mediaType, url: body.url, filename: file.filename };
+      }),
+    );
+
+  const handleSubmit = async (message: PromptInputMessage) => {
+    const text = message.text?.trim() ?? "";
+    const images = message.files ?? [];
+    if (!text && images.length === 0) return;
+    setComposerNotice(null);
+    if (images.length === 0 && freshMode?.onSubmit?.(text)) return;
+    if (images.length > 0 && isBusy) {
+      // Steers are text-only: refuse, keep the images and the text.
+      setComposerNotice("Images can't be added while a turn is running — wait for it to finish.");
+      restoreText(text);
+      throw new Error("images while busy");
+    }
+    let files: FileUIPart[] = [];
+    if (images.length > 0) {
+      setUploading(true);
+      try {
+        files = await uploadImages(images);
+      } catch (err) {
+        setComposerNotice(`Couldn't upload the image: ${err instanceof Error ? err.message : "unknown error"}`);
+        restoreText(text);
+        throw err; // PromptInput keeps the thumbnails when onSubmit throws
+      } finally {
+        setUploading(false);
+      }
+    }
     window.localStorage.removeItem(draftKey);
     if (isBusy) {
       // A live turn: queue a steer (drained between the turn's slices).
@@ -1272,10 +1369,9 @@ export function ChatSession({
     // The optimistic user message carries the viewing context as
     // metadata, so the chip shows live (a reload reads the row's).
     const viewing = pageContextRef.current?.() ?? null;
-    void chat.sendMessage({
-      text,
-      ...(viewing ? { metadata: { viewing } } : {}),
-    });
+    void chat.sendMessage(
+      sendPayload(text, files, viewing ? { viewing } : undefined),
+    );
   };
 
   const handleStop = async () => {
@@ -1288,8 +1384,8 @@ export function ChatSession({
   };
 
   const handleRetry = () => {
-    if (!lastUserText) return;
-    void chat.sendMessage({ text: lastUserText });
+    if (!lastUserSend) return;
+    void chat.sendMessage(sendPayload(lastUserSend.text, lastUserSend.files));
   };
 
   useImperativeHandle(
@@ -1341,7 +1437,7 @@ export function ChatSession({
               className="flex flex-wrap items-center gap-3 py-2 text-sm text-destructive"
             >
               <span className="min-w-0 flex-1 break-words">{chat.error.message}</span>
-              {lastUserText && (
+              {lastUserSend && (
                 <button
                   type="button"
                   onClick={handleRetry}
@@ -1358,7 +1454,16 @@ export function ChatSession({
       </Conversation>
 
       <div className="w-full px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-4">
-        <PromptInput onSubmit={handleSubmit} className="composer">
+        <PromptInput
+          onSubmit={handleSubmit}
+          className="composer"
+          accept="image/*"
+          multiple
+          maxFiles={MAX_IMAGES_PER_MESSAGE}
+          maxFileSize={MAX_IMAGE_BYTES}
+          onError={(err) => setComposerNotice(attachmentErrorMessage(err.code))}
+        >
+          <ComposerAttachments dimmed={uploading} />
           <PromptInputTextarea
             ref={textareaRef}
             onChange={handleDraftChange}
@@ -1371,15 +1476,24 @@ export function ChatSession({
           />
           <PromptInputFooter>
             <PromptInputTools className="flex-1 overflow-hidden">
+              <ComposerAddButton disabled={isBusy} />
               {fresh ? freshMode?.footer : null}
               {composerTools?.(state)}
             </PromptInputTools>
             <PromptInputSubmit
               status={freshMode?.busy ? "submitted" : status}
               onStop={() => void handleStop()}
-            />
+              disabled={uploading}
+            >
+              {uploading ? <Spinner className="size-4" /> : undefined}
+            </PromptInputSubmit>
           </PromptInputFooter>
         </PromptInput>
+        {composerNotice && (
+          <p role="alert" className="pt-2 text-sm text-destructive">
+            {composerNotice}
+          </p>
+        )}
         {freshMode?.error && (
           <p role="alert" className="pt-2 text-sm text-destructive">
             {freshMode.error}

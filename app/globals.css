@@ -365,6 +365,12 @@
 .composer [data-slot="input-group-addon"][data-align="block-end"] {
   padding: 0 0.75rem 0.625rem;
 }
+/* 0042: the attachment thumbnails are a block-end addon too, so the rule
+   above would zero their top padding and clip the × badge; this one wins
+   on specificity. */
+.composer [data-slot="input-group-addon"][data-align="block-end"].composer-attachments {
+  padding: 0.75rem 0.75rem 0;
+}
 .composer [data-slot="input-group-addon"] button[type="submit"],
 .composer [data-slot="input-group-addon"] button[aria-label="Stop"] {
   margin-left: auto;

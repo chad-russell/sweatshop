@@ -1,6 +1,6 @@
 # 0042 — Image attachments in the composer
 
-Status: **approved (PR #104, 2026-10-15); amended the same day (no vision gate).** The UI half
+Status: **approved (PR #104, 2026-10-15); amended the same day (no vision gate); implemented on `glen/0042-images-impl`.** The UI half
 of the original request (up-arrow send, model and sandbox pickers inside the
 input) is separate and already in PR #103; this doc is the image half.
 
@@ -190,3 +190,29 @@ image-capable route.
    and removes the server-side vision check, the composer notice and the
    non-vision placeholder. If a provider rejects an image-only message (no
    text part), that is found by the live check and handled then.
+
+## Implementation notes (2026-10-15)
+
+- **The spike answered section 3, with a correction.** Declaring
+  `supportedUrls` on the model wrapper is necessary but not sufficient:
+  `WorkflowAgent` converts the prompt twice, and its first conversion
+  (in the workflow body) hard-codes `supportedUrls: {}`, so the SDK tried
+  to download `attachment:` before the model was ever consulted. The fix
+  is both halves: the wrapper's `supportedUrls` (read by `doStreamStep`'s
+  conversion) and a no-op `experimental_download` on the agent (the first
+  pass). Either alone fails with `URL scheme must be http, https, or data`.
+- Bytes in recorded state are tested, not assumed: run-state payloads are
+  `devl`/`zstd`-prefixed base64 inside event JSON, so the canary test
+  decodes them and requires both that the reference IS there and that the
+  image's bytes (raw and base64) are not.
+- The fs-using resolver is a `"use step"` function (`steps.ts`), not a
+  dynamic import: the workflow bundler rejects Node modules reachable from
+  workflow code, including through the model wrapper.
+- The mock model sees v4 prompts as tagged `{type:"data"|"url"}` parts;
+  the real zhipu (v3) wrapper path gets bare bytes (`attachment-parts.ts`
+  hands each spec version its own shape). Only the v4 path has a test; a
+  live `IMAGE_SPIKE=1` check against a v3 route is still owed.
+- Touch: the `×` is always visible under `(hover: none)`/coarse pointer
+  and fades in on hover or focus otherwise. Verified in headless Chromium
+  with real pointer capabilities (`--blink-settings`), because CDP media
+  emulation does not drive Tailwind's `hover:`/`pointer-coarse:` variants.
