@@ -216,6 +216,35 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `/api/attachments/[id]` (`ATTACHMENTS_DIR` relocates the root); the
   transcript renders it as an image card (click = full size). Core
   `lib/agent/tools/screenshot.ts`.
+- Image attachments (0042): the composer takes images by `+` menu, paste
+  or drop (AI Elements prompt-input state; ≤ 4 per message, ≤ 10 MiB,
+  PNG/JPEG/WebP/GIF decided by magic bytes, `lib/attachments.ts`).
+  `POST /api/x/attachments` stores one at `data/attachments/<id>.<ext>`
+  (same root and `att_<hex>` ids as 0035, served by
+  `/api/attachments/[id]` for every extension) with an `attachments` row
+  (`db/attachments.ts`), UNCLAIMED until a send names it; unclaimed rows
+  older than 24 h are swept on the reaper tick (`instrumentation-node.ts`)
+  and a conversation's rows + files go with `deleteConversationForever`.
+  The browser uploads on send, then the chat message carries `file` parts
+  whose url is the serving path; the chat route reads the ids
+  (`checkClaimable`), `startChatTurn` passes `attachments`, and
+  `recordUserMessage` claims them and stores the user row as
+  `[text, {type:"file", data:"attachment:<id>", mediaType}]` — a
+  REFERENCE, never bytes (`messages.text` keeps the text). Bytes appear
+  only inside `SerializableChatModel.doStream` (a step): it swaps each
+  reference for the file's bytes (`workflows/chat/steps.ts`
+  `resolveAttachmentPartsStep` → `lib/chat/attachment-parts.ts`), after
+  declaring `attachment:` in its `supportedUrls` AND the turn's agent
+  passes `experimental_download: async () => nulls` (WorkflowAgent
+  hard-codes `supportedUrls: {}` for its first conversion pass; both are
+  required or the SDK tries to fetch the scheme). Recorded workflow state
+  therefore holds references only (a test decodes it and asserts that).
+  No vision gate: images go to whatever model is selected and a model
+  that rejects one is the user's error; a missing file becomes the text
+  `[image unavailable]`. Steers are text-only (`+` disabled while a turn
+  runs; the route 409s an image steer). Reload maps stored parts back to
+  UI file parts in `lib/chat-ui.ts`. Mock-model script `images` reports
+  what the model received.
 - Auth: LAN-only personal tool with no auth layer. **Hard rule: add a
   real verifier before any internet exposure.**
 - Persistence north star: SQLite (single db, or split where it makes

@@ -1,3 +1,4 @@
+import { parseAttachmentRef } from "@/lib/attachment-ref";
 import type { ModelMessage, UIMessage } from "ai";
 import type { MessageRowMetadata } from "@/db/chat";
 
@@ -92,10 +93,22 @@ export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
           : message.content
               .map((part) => (part.type === "text" ? part.text : ""))
               .join("");
+      // 0042: stored `attachment:<id>` image parts come back as UI file
+      // parts pointing at the serving route (shown above the text).
+      const images =
+        typeof message.content === "string"
+          ? []
+          : message.content.flatMap((part) => {
+              if (part.type !== "file" || typeof part.data !== "string") return [];
+              const id = parseAttachmentRef(part.data);
+              return id
+                ? [{ type: "file" as const, mediaType: part.mediaType, url: `/api/attachments/${id}` }]
+                : [];
+            });
       out.push({
         id: row.id,
         role: "user",
-        parts: [{ type: "text", text }],
+        parts: [...images, ...(text || images.length === 0 ? [{ type: "text" as const, text }] : [])],
         metadata: meta(row),
       });
       continue;

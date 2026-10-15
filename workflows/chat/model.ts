@@ -6,6 +6,7 @@ import type {
 import type { LanguageModel } from "ai";
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { scriptedChatModel } from "./mock-model";
+import { resolveAttachmentPartsStep } from "./steps";
 import { chatLanguageModel } from "../../lib/providers/registry";
 import type { ChatRoute } from "../../lib/providers/route";
 
@@ -64,14 +65,29 @@ export class SerializableChatModel {
   get modelId() {
     return this.inner.modelId;
   }
+  /** 0042: claim `attachment:` image references as natively supported, so
+   *  the SDK passes them through to doStream (where withImages swaps in the
+   *  bytes) instead of trying to download the scheme. The inner model's own
+   *  entries are kept. (WorkflowAgent's first conversion pass is covered by
+   *  the turn's experimental_download; doStreamStep's second one reads this.) */
   get supportedUrls() {
-    return this.inner.supportedUrls;
+    return Promise.resolve(this.inner.supportedUrls).then((inner) => {
+      const base = (inner ?? {}) as Record<string, RegExp[]>;
+      return { ...base, "image/*": [...(base["image/*"] ?? []), /^attachment:/] };
+    });
   }
-  doGenerate(options: LanguageModelV4CallOptions) {
-    return this.inner.doGenerate?.(options as never);
+  async doGenerate(options: LanguageModelV4CallOptions) {
+    return this.inner.doGenerate?.((await this.withImages(options)) as never);
   }
-  doStream(options: LanguageModelV4CallOptions) {
-    return this.inner.doStream(options as never);
+  async doStream(options: LanguageModelV4CallOptions) {
+    return this.inner.doStream((await this.withImages(options)) as never);
+  }
+
+  /** 0042: swap `attachment:` references for the image bytes, right before
+   *  the provider call — doStream runs inside a step (Node), so the bytes
+   *  never enter the workflow's recorded state. */
+  private async withImages(options: LanguageModelV4CallOptions): Promise<LanguageModelV4CallOptions> {
+    return { ...options, prompt: await resolveAttachmentPartsStep(options.prompt, this.specificationVersion) };
   }
 
   static [WORKFLOW_SERIALIZE](instance: SerializableChatModel) {

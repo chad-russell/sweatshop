@@ -7,6 +7,7 @@ import {
   type BoundSandbox,
 } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
+import { attachmentsDir } from "@/lib/attachments";
 
 /**
  * 0035: the screenshot attach core. A PNG that already exists in the
@@ -34,10 +35,8 @@ export interface ScreenshotDeps {
   dir?: string;
 }
 
-/** The one attachment root: data/attachments (ATTACHMENTS_DIR overrides). */
-export function attachmentsDir(): string {
-  return process.env.ATTACHMENTS_DIR ?? path.join(process.cwd(), "data", "attachments");
-}
+// 0042: the attachment root moved to lib/attachments (shared with uploads).
+export { attachmentsDir };
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

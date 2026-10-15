@@ -25,6 +25,8 @@ import { attachConversation } from "@/lib/sandboxes/binding";
 import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
 import { answerPendingWithText } from "@/lib/chat/answer-pending";
 import { readSkill } from "@/lib/skills";
+import { checkClaimable } from "@/db/attachments";
+import { MAX_IMAGES_PER_MESSAGE, parseAttachmentRef } from "@/lib/attachments";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +59,7 @@ export async function POST(request: Request) {
     context?: unknown;
     /** 0039, creation only: the skill this thread runs. */
     skill?: unknown;
-    messages?: { role: string; parts?: { type: string; text?: string }[] }[];
+    messages?: { role: string; parts?: { type: string; text?: string; url?: string }[] }[];
   };
   const transportText = body.messages
     ?.filter((m) => m.role === "user")
@@ -65,6 +67,13 @@ export async function POST(request: Request) {
     ?.parts?.flatMap((part) => (part.type === "text" ? [part.text ?? ""] : []))
     .join("");
   const text = (body.text ?? transportText ?? "").trim();
+  // 0042: uploaded images ride as file parts whose url is the serving
+  // path (/api/attachments/att_…); the ids are all the server needs.
+  const attachmentIds = (body.messages?.filter((m) => m.role === "user").at(-1)?.parts ?? []).flatMap((part) => {
+    if (part.type !== "file" || typeof part.url !== "string") return [];
+    const id = part.url.split("/").pop() ?? "";
+    return [parseAttachmentRef(`attachment:${id}`) ?? `invalid:${id}`];
+  });
   // WorkflowChatTransport callers (`messages` present) need the turn's UI
   // stream plus an `x-workflow-run-id` header; plain fetch callers (steer)
   // get JSON.
@@ -78,11 +87,25 @@ export async function POST(request: Request) {
           headers: { "x-workflow-run-id": runId },
         })
       : NextResponse.json({ runId, steered });
-  if (!body.conversationId || !text) {
+  if (!body.conversationId || (!text && attachmentIds.length === 0)) {
     return NextResponse.json(
-      { error: "conversationId and non-empty text are required" },
+      { error: "conversationId and non-empty text (or an image) are required" },
       { status: 400 },
     );
+  }
+  if (attachmentIds.length > MAX_IMAGES_PER_MESSAGE) {
+    return NextResponse.json(
+      { error: `at most ${MAX_IMAGES_PER_MESSAGE} images per message` },
+      { status: 400 },
+    );
+  }
+  const badId = attachmentIds.find((id) => id.startsWith("invalid:"));
+  if (badId) {
+    return NextResponse.json({ error: `bad attachment id ${badId.slice(8)}` }, { status: 400 });
+  }
+  const claim = checkClaimable(db(), attachmentIds, body.conversationId);
+  if (!claim.ok) {
+    return NextResponse.json({ error: claim.error }, { status: 400 });
   }
   if (body.sandbox != null && !isValidSandboxChoice(body.sandbox)) {
     return NextResponse.json({ error: "invalid sandbox choice" }, { status: 400 });
@@ -149,6 +172,12 @@ export async function POST(request: Request) {
       // typed text as the ANSWER — a revise for approvals (denied with
       // the text as the comment), the reply for questions. A steer would
       // only drain after the hook resolves, i.e. never.
+      if (attachmentIds.length > 0) {
+        return NextResponse.json(
+          { error: "images can't be added while a turn is running — wait for it to finish" },
+          { status: 409 },
+        );
+      }
       const answered = await answerPendingWithText(body.conversationId, text);
       if (answered) {
         // Transport callers re-attach to the live turn's stream; plain
@@ -167,6 +196,8 @@ export async function POST(request: Request) {
     text,
     // 0015: invalid/absent context simply sends no note.
     parseViewingContext(body.context) ?? undefined,
+    undefined,
+    attachmentIds,
   );
   return respond(run.runId, false);
 }

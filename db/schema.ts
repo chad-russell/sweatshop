@@ -161,6 +161,25 @@ export const steerQueue = sqliteTable(
   (table) => [index("steer_queue_conversation_idx").on(table.conversationId)],
 );
 
+/**
+ * 0042: images attached to chat messages. The bytes live on disk under
+ * data/attachments (`<id>.<ext>`); the message row references the id.
+ * An upload is unclaimed (`conversation_id` null) until a send claims it;
+ * unclaimed rows older than 24 h are swept with their file. (0035's
+ * screenshots are plain files with no row here.)
+ */
+export const attachments = sqliteTable(
+  "attachments",
+  {
+    id: text("id").primaryKey(),
+    mediaType: text("media_type").notNull(),
+    bytes: integer("bytes").notNull(),
+    conversationId: text("conversation_id").references(() => conversations.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [index("attachments_conversation_idx").on(table.conversationId)],
+);
+
 export type Folder = typeof folders.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;

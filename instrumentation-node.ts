@@ -46,6 +46,19 @@ function startReaper(g: Globals) {
     } catch (err) {
       console.error("[sandbox-reaper] pass failed", err);
     }
+    // 0042: abandoned image uploads (unclaimed past 24 h) ride the same tick.
+    try {
+      const [{ db }, { sweepUnclaimed }, { removeAttachmentFiles }] = await Promise.all([
+        import("./db"),
+        import("./db/attachments"),
+        import("./lib/attachments"),
+      ]);
+      const swept = sweepUnclaimed(db());
+      await Promise.all(swept.map(removeAttachmentFiles));
+      if (swept.length > 0) console.log(`[attachments] swept ${swept.length} abandoned upload(s)`);
+    } catch (err) {
+      console.error("[attachments] sweep failed", err);
+    }
   };
   console.log(`[sandbox-reaper] every ${REAP_INTERVAL_MS / 60_000} min (first pass in ${REAP_FIRST_PASS_MS / 1000}s)`);
   const first = setTimeout(pass, REAP_FIRST_PASS_MS);

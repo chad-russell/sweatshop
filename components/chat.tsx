@@ -80,6 +80,9 @@ function sandboxLabel(
 const SANDBOX_TRIGGER =
   "inline-flex h-8 pointer-coarse:h-10 max-w-48 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
+/** In the composer footer the pickers read as quiet text, not boxed buttons. */
+const COMPOSER_PICKER = "min-w-0 shrink border-transparent px-2 max-w-40 sm:max-w-56";
+
 /**
  * 0013 sandbox picker. Choosing happens once, on a fresh conversation:
  * its own new sandbox (created on first use), none, or attach to an
@@ -95,8 +98,10 @@ function SandboxPicker({
   sandboxes,
   view,
   hasProject,
+  className,
 }: {
   choice: string;
+  className?: string;
   /** Only a fresh conversation can choose. */
   editable: boolean;
   onSelect: (choice: string) => void;
@@ -118,13 +123,13 @@ function SandboxPicker({
             type="button"
             aria-label="Sandbox"
             title="Where this conversation's bash / pi / claude calls run (fixed for this conversation)"
-            className={SANDBOX_TRIGGER}
+            className={cn(SANDBOX_TRIGGER, className)}
           >
             <span className="truncate">{label}</span>
             <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-1rem)]">
           <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
             <span className="text-xs font-medium text-foreground">{label}</span>
             {bound && (
@@ -165,13 +170,13 @@ function SandboxPicker({
           type="button"
           aria-label="Sandbox"
           title="Where this conversation's bash / pi / claude calls will run — chosen once, now"
-          className={SANDBOX_TRIGGER}
+          className={cn(SANDBOX_TRIGGER, className)}
         >
           <span className="truncate">{label}</span>
           <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-96">
+      <DropdownMenuContent align="start" className="w-96 max-w-[calc(100vw-1rem)]">
         {hasProject && (
           <DropdownMenuItem onSelect={() => onSelect("auto")} className="items-start py-2">
             <Check
@@ -419,6 +424,28 @@ export function ChatSurface({
       onAdopted={handleAdopted}
       onAddressable={handleAddressable}
       freshComposer={() => freshComposer()}
+      composerTools={(s) => (
+        <>
+          <RoutePicker
+            ariaLabel="Chat model"
+            className={COMPOSER_PICKER}
+            value={s.route}
+            onChange={s.selectRoute}
+            view={models}
+            inheritLabel={shortRouteLabel(models?.project?.defaultRoute ?? models?.defaults.chat ?? null, models)}
+          />
+          <SandboxPicker
+            className={COMPOSER_PICKER}
+            choice={s.sandboxChoice}
+            editable={!s.started}
+            onSelect={s.setSandboxChoice}
+            onOpen={s.loadSandboxes}
+            sandboxes={s.sandboxes}
+            view={s.sandboxView}
+            hasProject={Boolean(activeProjectId)}
+          />
+        </>
+      )}
       header={(s) => (
         <AppHeader
           crumbs={[
@@ -428,26 +455,6 @@ export function ChatSurface({
             { label: conversationTitle ?? "New chat" },
           ]}
         >
-          {
-            <>
-              <RoutePicker
-                ariaLabel="Chat model"
-                value={s.route}
-                onChange={s.selectRoute}
-                view={models}
-                inheritLabel={shortRouteLabel(models?.project?.defaultRoute ?? models?.defaults.chat ?? null, models)}
-              />
-              <SandboxPicker
-                choice={s.sandboxChoice}
-                editable={!s.started}
-                onSelect={s.setSandboxChoice}
-                onOpen={s.loadSandboxes}
-                sandboxes={s.sandboxes}
-                view={s.sandboxView}
-                hasProject={Boolean(activeProjectId)}
-              />
-            </>
-          }
           {/* 0041: plan → build → PR, derived from the transcript. */}
           <PhaseChip phase={s.phase} variant="header" />
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}

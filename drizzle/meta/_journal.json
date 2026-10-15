@@ -344,6 +344,13 @@
       "when": 1791733071626,
       "tag": "0048_skill_column",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1792072719813,
+      "tag": "0049_image_attachments",
+      "breakpoints": true
     }
   ]
 }
