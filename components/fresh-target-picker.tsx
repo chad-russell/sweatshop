@@ -94,7 +94,7 @@ export function FreshTargetPicker({
           <ChevronsUpDown className="size-3.5 shrink-0" aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent align="start" className="w-72 max-w-[calc(100vw-1rem)]">
         {projects && onSelectProject ? (
           <>
             <DropdownMenuItem onSelect={() => onSelectProject(null)} className="items-start py-2">

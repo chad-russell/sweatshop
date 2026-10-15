@@ -36,6 +36,7 @@ import {
   type PromptInputMessage,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import {
   InspectCard,
@@ -910,6 +911,7 @@ export function ChatSession({
   frameId,
   header,
   freshComposer,
+  composerTools,
   onAdopted,
   onAddressable,
   pageContext,
@@ -929,6 +931,8 @@ export function ChatSession({
   header?: (state: ChatSessionState) => ReactNode;
   /** The frame's takeover of the fresh composer (the machine target). */
   freshComposer?: (state: ChatSessionState) => FreshComposerMode | undefined;
+  /** The frame's controls inside the composer footer (model, sandbox). */
+  composerTools?: (state: ChatSessionState) => ReactNode;
   /** Fired once when a send adopts the client-generated conversation id
    *  (the turn may still be live — do not move to another route here). */
   onAdopted?: (conversationId: string) => void;
@@ -1366,7 +1370,10 @@ export function ChatSession({
             autoFocus
           />
           <PromptInputFooter>
-            {fresh ? (freshMode?.footer ?? <span />) : <span />}
+            <PromptInputTools className="flex-1 overflow-hidden">
+              {fresh ? freshMode?.footer : null}
+              {composerTools?.(state)}
+            </PromptInputTools>
             <PromptInputSubmit
               status={freshMode?.busy ? "submitted" : status}
               onStop={() => void handleStop()}
