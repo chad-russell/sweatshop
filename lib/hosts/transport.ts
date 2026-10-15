@@ -97,6 +97,15 @@ function evictClient(entry: Pooled | undefined): void {
 function connect(req: HostExecRequest): Promise<Pooled> {
   const existing = pool.get(req.hostId);
   if (existing) {
+    // The pool verifies at connect time, but the per-call expectation
+    // must still hold — a caller handing us a different pinned
+    // fingerprint never succeeds against this host (spike step 3 found
+    // the pool silently skipping the check).
+    if (req.expectedFingerprint !== null && existing.fingerprint !== req.expectedFingerprint) {
+      return Promise.reject(
+        new Error(`host key for ${req.username}@${req.host} does not match the pinned fingerprint`),
+      );
+    }
     return Promise.resolve(existing);
   }
   return new Promise((resolve, reject) => {
@@ -158,7 +167,9 @@ export const ssh2Transport: HostTransport = {
       const message = err instanceof Error ? err.message : String(err);
       // ssh2 reports a hostVerifier rejection as a generic handshake
       // error — name it for what the core needs to say.
-      const changed = req.expectedFingerprint !== null && /verification|man-in-the-middle|handshake/i.test(message);
+      const changed =
+        req.expectedFingerprint !== null &&
+        /verification|man-in-the-middle|handshake|pinned fingerprint/i.test(message);
       return {
         ok: false,
         code: changed ? "host-key-changed" : "connect-failed",
