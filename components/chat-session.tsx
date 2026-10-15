@@ -40,6 +40,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import {
   InspectCard,
+  HostExecCard,
   SandboxExecCard,
   StartThreadCard,
 } from "@/components/ai-elements/agent-cards";
@@ -591,6 +592,7 @@ const AGENT_TOOLS = new Set([
   "start_thread",
   "inspect",
   "sandbox_exec",
+  "exec",
   "start_preview",
   "preview_status",
   "stop_preview",
@@ -624,6 +626,8 @@ function agentToolCard(part: ToolUIPart): ReactNode {
       return <InspectCard {...shared} />;
     case "sandbox_exec":
       return <SandboxExecCard {...shared} />;
+    case "exec":
+      return <HostExecCard {...shared} />;
     case "start_preview":
     case "preview_status":
     case "stop_preview":
