@@ -111,6 +111,34 @@ describe("needs you", () => {
     expect(loadAttention(tdb).needsYou.has(id)).toBe(false);
   });
 
+  it("an exec approval carries its structured ask (terminal block, no JSON dump)", () => {
+    const id = convId();
+    say(id, "assistant", "checking the host", 1000);
+    recordPendingInput(tdb, {
+      id: "call_exec1",
+      conversationId: id,
+      kind: "approval",
+      question: "exec on bee — crussell@10.10.0.12 (120s timeout)\n\n$ hostname",
+      card: {
+        type: "exec",
+        host: "bee",
+        user: "crussell",
+        address: "10.10.0.12",
+        command: "hostname",
+        timeoutSec: 120,
+      },
+    });
+    const requests = loadPendingRequests(tdb).get(id) ?? [];
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      requestId: "call_exec1",
+      toolName: "exec",
+      toolInput: null,
+      exec: { host: "bee", user: "crussell", address: "10.10.0.12", command: "hostname", timeoutSec: 120 },
+    });
+    resolvePendingInput(tdb, "call_exec1", { approved: true });
+  });
+
   it("pending inputs populate needs-you and clear on resolve", () => {
     const id = convId();
     say(id, "assistant", "chat reply", 1000);

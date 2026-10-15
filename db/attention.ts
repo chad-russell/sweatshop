@@ -67,17 +67,37 @@ export interface PendingRequest {
   evidence: import("../lib/agent/tools/evidence").ApprovalEvidence | null;
   /** 0041: the plan snapshot (plan reviews and accept_plan approvals). */
   plan: import("./plans").PlanCard | null;
+  /** 0043: an exec approval's structured ask (renders as a terminal
+   * block — host, command, timeout — instead of the JSON dump). */
+  exec: { host: string; user: string; address: string; command: string; timeoutSec: number } | null;
   /** Unix ms the request was raised. */
   at: number;
 }
 
-function parseCard(card: string | null): { evidence: PendingRequest["evidence"]; plan: PendingRequest["plan"] } {
-  if (!card) return { evidence: null, plan: null };
+export function isExecCard(value: unknown): value is NonNullable<PendingRequest["exec"]> {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.type === "exec" &&
+    typeof v.host === "string" &&
+    typeof v.user === "string" &&
+    typeof v.address === "string" &&
+    typeof v.command === "string" &&
+    typeof v.timeoutSec === "number"
+  );
+}
+
+function parseCard(
+  card: string | null,
+): { evidence: PendingRequest["evidence"]; plan: PendingRequest["plan"]; exec: PendingRequest["exec"] } {
+  if (!card) return { evidence: null, plan: null, exec: null };
   try {
     const value = JSON.parse(card) as unknown;
-    return isPlanCard(value) ? { evidence: null, plan: value } : { evidence: value as PendingRequest["evidence"], plan: null };
+    if (isPlanCard(value)) return { evidence: null, plan: value, exec: null };
+    if (isExecCard(value)) return { evidence: null, plan: null, exec: value };
+    return { evidence: value as PendingRequest["evidence"], plan: null, exec: null };
   } catch {
-    return { evidence: null, plan: null };
+    return { evidence: null, plan: null, exec: null };
   }
 }
 
@@ -129,10 +149,12 @@ export function loadPendingRequests(
             { id: "deny", label: "Deny", style: "danger" },
           ],
       allowFreeform: true,
-      toolName: isPlan ? "present_plan" : card.plan ? "accept_plan" : "ask_chad",
-      toolInput: isPlan || card.plan ? null : { kind: row.kind, question: row.question },
+      toolName: isPlan ? "present_plan" : card.plan ? "accept_plan" : card.exec ? "exec" : "ask_chad",
+      // 0043: an exec ask renders its own block — no generic JSON dump.
+      toolInput: isPlan || card.plan || card.exec ? null : { kind: row.kind, question: row.question },
       evidence: card.evidence,
       plan: card.plan,
+      exec: card.exec,
       at: row.createdAt,
     });
     out.set(row.conversationId, list);
