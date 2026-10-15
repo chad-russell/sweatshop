@@ -12,7 +12,7 @@ import path from "node:path";
 
 /** The one attachment root: data/attachments (ATTACHMENTS_DIR overrides). */
 export function attachmentsDir(): string {
-  return process.env.ATTACHMENTS_DIR ?? path.join(process.cwd(), "data", "attachments");
+  return process.env.ATTACHMENTS_DIR ?? path.join(/* turbopackIgnore: true */ process.cwd(), "data", "attachments");
 }
 
 export {
@@ -51,7 +51,7 @@ export const newAttachmentId = () => `att_${randomBytes(9).toString("hex")}`;
 export async function writeAttachmentFile(id: string, mediaType: ImageMediaType, data: Uint8Array): Promise<string> {
   const dir = attachmentsDir();
   await mkdir(dir, { recursive: true });
-  const file = path.join(dir, `${id}.${IMAGE_EXTENSIONS[mediaType]}`);
+  const file = path.join(/* turbopackIgnore: true */ dir, `${id}.${IMAGE_EXTENSIONS[mediaType]}`);
   await writeFile(file, data);
   return file;
 }
@@ -60,7 +60,7 @@ export async function writeAttachmentFile(id: string, mediaType: ImageMediaType,
 export async function readAttachmentFile(id: string): Promise<{ data: Uint8Array; mediaType: ImageMediaType; file: string } | null> {
   if (!isAttachmentId(id)) return null;
   for (const [ext, mediaType] of Object.entries(MEDIA_BY_EXT)) {
-    const file = path.join(attachmentsDir(), `${id}.${ext}`);
+    const file = path.join(/* turbopackIgnore: true */ attachmentsDir(), `${id}.${ext}`);
     try {
       return { data: new Uint8Array(await readFile(file)), mediaType, file };
     } catch {
@@ -74,7 +74,7 @@ export async function readAttachmentFile(id: string): Promise<{ data: Uint8Array
 export async function removeAttachmentFiles(id: string): Promise<void> {
   if (!isAttachmentId(id)) return;
   await Promise.all(
-    Object.keys(MEDIA_BY_EXT).map((ext) => unlink(path.join(attachmentsDir(), `${id}.${ext}`)).catch(() => undefined)),
+    Object.keys(MEDIA_BY_EXT).map((ext) => unlink(path.join(/* turbopackIgnore: true */ attachmentsDir(), `${id}.${ext}`)).catch(() => undefined)),
   );
 }
 
@@ -83,7 +83,7 @@ export function removeAttachmentFilesSync(id: string): void {
   if (!isAttachmentId(id)) return;
   for (const ext of Object.keys(MEDIA_BY_EXT)) {
     try {
-      unlinkSync(path.join(attachmentsDir(), `${id}.${ext}`));
+      unlinkSync(path.join(/* turbopackIgnore: true */ attachmentsDir(), `${id}.${ext}`));
     } catch {
       // absent
     }
