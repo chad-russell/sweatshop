@@ -229,25 +229,32 @@ export function BashTerminal({
       </div>
 
       {/* Command, as typed */}
-      <div className="group/cmd relative flex gap-2 px-3 py-2 font-mono text-[12.5px] leading-relaxed">
+      {/* Narrow screens stack the cwd above the prompt line so a long path
+          can't squeeze the command into a sliver; sm+ keeps one row. */}
+      <div className="group/cmd relative flex flex-col px-3 py-2 font-mono text-[12.5px] leading-relaxed sm:flex-row sm:gap-2">
         {cwd && (
-          <span className="shrink-0 select-none text-terminal-muted" title={`cd ${cwd}`}>
+          <span
+            className="min-w-0 select-none break-all pr-6 text-terminal-muted sm:max-w-[50%] sm:shrink-0 sm:pr-0"
+            title={`cd ${cwd}`}
+          >
             {cwd}
           </span>
         )}
-        <span aria-hidden className="select-none text-terminal-green">
-          $
-        </span>
-        <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-words">
-          {commandLines.map((line, i) => (
-            <span key={i} className="block">
-              {line || " "}
-              {running && i === commandLines.length - 1 && (
-                <span aria-hidden className="ml-0.5 inline-block h-[1.1em] w-[0.5ch] translate-y-[0.2em] animate-pulse bg-terminal-foreground/80" />
-              )}
-            </span>
-          ))}
-        </pre>
+        <div className="flex min-w-0 flex-1 gap-2">
+          <span aria-hidden className="select-none text-terminal-green">
+            $
+          </span>
+          <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-words">
+            {commandLines.map((line, i) => (
+              <span key={i} className="block">
+                {line || " "}
+                {running && i === commandLines.length - 1 && (
+                  <span aria-hidden className="ml-0.5 inline-block h-[1.1em] w-[0.5ch] translate-y-[0.2em] animate-pulse bg-terminal-foreground/80" />
+                )}
+              </span>
+            ))}
+          </pre>
+        </div>
         {view.command && (
           <CopyButton
             text={view.command}
