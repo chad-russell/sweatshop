@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
+import { removeAttachmentFilesSync } from "../lib/attachments";
+import { deleteConversationAttachments } from "./attachments";
 import type { Db } from "./index";
 import {
   chatHarnessState,
@@ -316,6 +318,7 @@ export function setTrashed(db: Db, id: string, trashed: boolean) {
  */
 export function deleteConversationForever(db: Db, id: string): string[] {
   const owned: string[] = [];
+  const attachmentIds: string[] = [];
   db.transaction((tx) => {
     const row = getConversation(tx, id);
     const sessions = [id];
@@ -348,12 +351,15 @@ export function deleteConversationForever(db: Db, id: string): string[] {
       // Everything else that FKs the conversation (found live
       // 2026-10-08: a purged harness chat or an answered approval
       // threw FOREIGN KEY — these were never part of the teardown).
+      // 0042: its image rows go (files are removed after the commit).
+      attachmentIds.push(...deleteConversationAttachments(tx, sid));
       tx.delete(steerQueue).where(eq(steerQueue.conversationId, sid)).run();
       tx.delete(chatHarnessState).where(eq(chatHarnessState.conversationId, sid)).run();
       tx.delete(pendingInputs).where(eq(pendingInputs.conversationId, sid)).run();
       tx.delete(conversations).where(eq(conversations.id, sid)).run();
     }
   });
+  for (const attId of attachmentIds) removeAttachmentFilesSync(attId);
   return owned;
 }
 

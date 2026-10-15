@@ -1,14 +1,12 @@
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import path from "node:path";
-import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
-import { attachmentsDir } from "@/lib/agent/tools/screenshot";
+import { isAttachmentId, readAttachmentFile } from "@/lib/attachments";
 
 /**
- * 0035: serve an attached screenshot (data/attachments/<id>.png, written
- * by lib/agent/tools/screenshot). Ids are generated (att_<hex>), so the
- * charset check is the whole traversal story; files are immutable.
+ * Serve an attachment: 0035's screenshots (att_<hex>.png) and 0042's
+ * uploaded images (png/jpg/webp/gif). Ids are generated (att_<hex>), so
+ * the charset check is the whole traversal story; files are immutable.
+ * The type comes from the file's extension, which only our own writers
+ * (magic-byte checked at upload) ever choose.
  */
 
 export async function GET(
@@ -16,22 +14,17 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  if (!/^att_[a-z0-9]+$/.test(id)) {
+  if (!isAttachmentId(id)) {
     return NextResponse.json({ error: "bad id" }, { status: 400 });
   }
-  const file = path.join(attachmentsDir(), `${id}.png`);
-  try {
-    const info = await stat(file);
-    if (!info.isFile()) throw new Error("not a file");
-    const stream = Readable.toWeb(createReadStream(file)) as ReadableStream;
-    return new NextResponse(stream, {
-      headers: {
-        "content-type": "image/png",
-        "content-length": String(info.size),
-        "cache-control": "public, max-age=31536000, immutable",
-      },
-    });
-  } catch {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
-  }
+  const found = await readAttachmentFile(id);
+  if (!found) return NextResponse.json({ error: "not found" }, { status: 404 });
+  return new NextResponse(Buffer.from(found.data), {
+    headers: {
+      "content-type": found.mediaType,
+      "content-length": String(found.data.byteLength),
+      "cache-control": "public, max-age=31536000, immutable",
+      "x-content-type-options": "nosniff",
+    },
+  });
 }

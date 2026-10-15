@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai";
+import type { ModelMessage, UserContent } from "ai";
 import { chatStore } from "./deps";
 
 /**
@@ -49,19 +49,39 @@ export async function recordUserMessage(
   seq: number,
   viewing?: import("../../lib/page-context").ViewingContext,
   runEvent?: import("../../db/chat").RunEventMeta,
-): Promise<void> {
+  /** 0042: uploaded image ids riding this send. */
+  attachmentIds?: string[],
+): Promise<UserContent> {
   "use step";
   const { db, chat } = await chatStore();
+  // 0042: the row stores `attachment:<id>` references (never bytes); the
+  // returned content is what the turn feeds the model for this send.
+  let content: UserContent = text;
+  if (attachmentIds && attachmentIds.length > 0) {
+    const store = await import("../../db/attachments");
+    const { attachmentRef } = await import("../../lib/attachments");
+    store.claimAttachments(db, attachmentIds, conversationId);
+    const rows = store.getAttachments(db, attachmentIds);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    content = [
+      ...(text ? [{ type: "text" as const, text }] : []),
+      ...attachmentIds.flatMap((id) => {
+        const row = byId.get(id);
+        return row ? [{ type: "file" as const, data: attachmentRef(id), mediaType: row.mediaType }] : [];
+      }),
+    ];
+  }
   chat.appendMessages(db, conversationId, [
     {
       id: `t_${conversationId}_${seq}`,
       role: "user",
       text,
-      modelMessage: { role: "user", content: text },
+      modelMessage: { role: "user", content },
       ...(viewing ? { metadata: { viewing } } : {}),
       ...(runEvent ? { metadata: { runEvent } } : {}),
     },
   ]);
+  return content;
 }
 
 /**
@@ -503,4 +523,19 @@ function textOf(message: ModelMessage): string {
     })
     .join("")
     .trim();
+}
+
+/**
+ * 0042: swap `attachment:<id>` file parts for image bytes. A step so the
+ * fs-using resolver stays out of the workflow bundle; the model wrapper
+ * calls it from inside doStream, which is already a step body, so it runs
+ * inline and the bytes never reach recorded workflow state.
+ */
+export async function resolveAttachmentPartsStep(
+  prompt: import("@ai-sdk/provider").LanguageModelV4CallOptions["prompt"],
+  specificationVersion: "v3" | "v4",
+): Promise<import("@ai-sdk/provider").LanguageModelV4CallOptions["prompt"]> {
+  "use step";
+  const { resolveAttachmentParts } = await import("../../lib/chat/attachment-parts");
+  return resolveAttachmentParts(prompt, specificationVersion);
 }

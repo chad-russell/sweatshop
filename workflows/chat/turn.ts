@@ -41,6 +41,8 @@ const THREAD_SKILL_MAX_STEPS = 400;
 export interface ChatTurnInput {
   conversationId: string;
   userText: string;
+  /** 0042: ids of uploaded images riding this send (claimed on record). */
+  attachments?: string[];
   /** 0013: the conversation has a sandbox binding (pending or bound);
    *  false omits the sandboxed tools. */
   hasSandbox?: boolean;
@@ -71,7 +73,14 @@ export async function chatTurn(input: ChatTurnInput) {
   const { conversationId, userText } = input;
 
   const history = await loadTurnHistory(conversationId);
-  await recordUserMessage(conversationId, userText, history.length, input.viewing, input.runEvent);
+  const userContent = await recordUserMessage(
+    conversationId,
+    userText,
+    history.length,
+    input.viewing,
+    input.runEvent,
+    input.attachments,
+  );
 
   // 0021: resolved per turn (a picker change or a /settings swap takes
   // effect on the next turn); recorded on the turn's assistant row.
@@ -87,6 +96,11 @@ export async function chatTurn(input: ChatTurnInput) {
     instructions: skill
       ? `${INSTRUCTIONS}\n\n# Skill: ${skill.title}\n\nThis thread runs the "${skill.id}" skill — follow it.\n\n${skill.body}`
       : INSTRUCTIONS,
+    // 0042: WorkflowAgent hard-codes supportedUrls: {}, so the SDK would try
+    // to fetch every URL part itself. Returning null passes `attachment:`
+    // references through untouched; the model wrapper resolves them to
+    // bytes inside its step (never into recorded workflow state).
+    experimental_download: async (requests) => requests.map(() => null),
     tools: buildChatTools(conversationId, {
       hasSandbox: input.hasSandbox ?? true,
       hasProject: input.hasProject ?? true,
@@ -100,7 +114,7 @@ export async function chatTurn(input: ChatTurnInput) {
   let messages: ModelMessage[] = [
     ...history,
     ...(input.viewing ? [{ role: "user" as const, content: viewingNote(input.viewing) }] : []),
-    { role: "user", content: userText },
+    { role: "user", content: userContent },
   ];
   let finishReason: string = "stop";
   let stored = 0;

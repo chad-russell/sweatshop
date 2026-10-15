@@ -29,6 +29,8 @@ export async function startChatTurn(
   viewing?: ViewingContext,
   /** 0022: marks the row as a wake message (transcript chip). */
   runEvent?: RunEventMeta,
+  /** 0042: uploaded image ids riding this send. */
+  attachments?: string[],
 ): Promise<{ runId: string }> {
   const conversation = getConversation(db(), conversationId);
   if (!conversation) throw new Error(`no conversation ${conversationId}`);
@@ -37,6 +39,7 @@ export async function startChatTurn(
     {
       conversationId,
       userText: text,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
       hasSandbox: getConversationBinding(db(), conversationId)?.kind !== "none",
       hasProject: !!conversation.projectId,
       ...(viewing ? { viewing } : {}),

@@ -183,6 +183,33 @@ export function scriptedChatModel(): LanguageModel {
         return result(textPart(`mock-viewing:${notes}`));
       }
 
+      // 0042: report what the model received for each image part — the
+      // resolved bytes' size and media type, or the placeholder text.
+      if (script === "images") {
+        const seen: string[] = [];
+        for (const m of options.prompt) {
+          if (m.role !== "user" || typeof m.content === "string") continue;
+          for (const part of m.content) {
+            if (part.type === "file") {
+              // v4 prompts carry tagged data ({type:"data"|"url"}); accept bare
+              // bytes/URLs too.
+              let d = part.data as unknown;
+              const tagged = d as { type?: string; data?: unknown; url?: unknown } | null;
+              if (tagged && typeof tagged === "object" && !(d instanceof Uint8Array) && !(d instanceof URL)) {
+                d = tagged.type === "url" ? tagged.url : tagged.data;
+              }
+              if (d instanceof Uint8Array) seen.push(`bytes:${d.byteLength}:${part.mediaType}`);
+              else if (d instanceof URL) seen.push(`url:${d.toString()}`);
+              else if (typeof d === "string") seen.push(`string:${d.slice(0, 40)}`);
+              else seen.push(`other:${typeof d}`);
+            } else if (part.type === "text" && part.text.startsWith("[image")) {
+              seen.push(part.text);
+            }
+          }
+        }
+        return result(textPart(`mock-images:${seen.join("|")}`));
+      }
+
       // plain: reply with the user-message count — proves the turn loaded
       // the conversation's full persisted history.
       return result(textPart(`mock-reply:${userTexts(options.prompt).length}`));
