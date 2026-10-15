@@ -7,6 +7,7 @@ import {
   type RunEventMeta,
 } from "@/db/chat";
 import { getConversationBinding } from "@/db/sandboxes";
+import { listProjectHosts } from "@/db/hosts";
 import type { ViewingContext } from "@/lib/page-context";
 import { chatTurn } from "@/workflows/chat/turn";
 
@@ -42,6 +43,17 @@ export async function startChatTurn(
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
       hasSandbox: getConversationBinding(db(), conversationId)?.kind !== "none",
       hasProject: !!conversation.projectId,
+      // 0043: the host allow-list rides the input (empty for no hosts).
+      ...(conversation.projectId
+        ? {
+            hosts: listProjectHosts(db(), conversation.projectId).map((h) => ({
+              name: h.name,
+              address: h.address,
+              user: h.user,
+              apiBase: h.apiBase,
+            })),
+          }
+        : {}),
       ...(viewing ? { viewing } : {}),
       ...(runEvent ? { runEvent } : {}),
     },

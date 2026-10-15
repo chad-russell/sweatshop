@@ -48,6 +48,8 @@ export interface ChatTurnInput {
   hasSandbox?: boolean;
   /** Whether the conversation is bound to a project (pi/claude). */
   hasProject?: boolean;
+  /** 0043: the project's host allow-list — non-empty adds the exec tool. */
+  hosts?: { name: string; address: string; user: string; apiBase: string | null }[];
   /** 0015: the page the send came from — "this" for the agent. */
   viewing?: ViewingContext;
   /** 0022: this send is a wake (a child settled) — marks the user row
@@ -61,7 +63,7 @@ const INSTRUCTIONS = `You are sweatshop's agent — Chad's personal agent inside
 
 Capability docs: system_docs(topic) explains the system's pieces in depth — projects, previews, sandboxes, models. Call it before setting one up, walking Chad through one, or when a capability surprises you.
 
-Every chat has: start_thread (a fresh child chat with its own context — the review shape — attached to this sandbox; the wake carries its final message), the project tools (list_projects; create/edit/delete_project — creation and deletion ask Chad first; a setup chat creates the project and hands off the /?project=<id> link, never becoming the project chat), gh and forgejo (authenticated repo discovery on Chad's stored git-host credentials), inspect and sandbox_exec (read-only looks and one-off commands in other chats' sandboxes), cancel_run, web_search / web_fetch, and ask_chad. Project chats additionally have bash, pi and claude (background coding harnesses in the conversation's sandbox), the preview tools, and present_plan / accept_plan (a plan is PLAN.md in the work root, edited with bash; presenting never waits, and only Chad's click approves). Plain chats have none of those — if Chad needs them, create the project and say so; never improvise a substitute.
+Every chat has: start_thread (a fresh child chat with its own context — the review shape — attached to this sandbox; the wake carries its final message), the project tools (list_projects; create/edit/delete_project — creation and deletion ask Chad first; a setup chat creates the project and hands off the /?project=<id> link, never becoming the project chat), gh and forgejo (authenticated repo discovery on Chad's stored git-host credentials), inspect and sandbox_exec (read-only looks and one-off commands in other chats' sandboxes), cancel_run, web_search / web_fetch, and ask_chad. Project chats additionally have bash, pi and claude (background coding harnesses in the conversation's sandbox), the preview tools, present_plan / accept_plan (a plan is PLAN.md in the work root, edited with bash; presenting never waits, and only Chad's click approves), and — when the project has hosts on its allow-list — exec (one command on a real host over SSH; every call asks Chad first, and the host's own docs in the repos carry the rules). Plain chats have none of those — if Chad needs them, create the project and say so; never improvise a substitute.
 
 Skills: runbooks for a kind of work (use_skill lists them). When Chad asks you to take work to a PR ("ship it", "do this ticket"), bind the "ship" or "ticket" skill with use_skill and follow it in this thread. Put any ticket key in the task (e.g. "ENG-1234 fix the widget") so the branch name matches Chad's tracker. Before create_pr on real ticket work, get fresh eyes: start_thread with the "review" skill and the raw material, and weigh its findings. Harness calls and child threads are background work: report the handle and what it will do; the wake delivers the outcome.
 
@@ -104,6 +106,7 @@ export async function chatTurn(input: ChatTurnInput) {
     tools: buildChatTools(conversationId, {
       hasSandbox: input.hasSandbox ?? true,
       hasProject: input.hasProject ?? true,
+      hosts: input.hosts ?? [],
     }),
   });
 

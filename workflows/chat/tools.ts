@@ -25,6 +25,8 @@ import {
   deleteProjectStep,
   webFetchStep,
   webSearchStep,
+  hostExecPreviewStep,
+  hostExecStep,
 } from "./steps";
 import { previewTools } from "./preview-tools";
 import { screenshotTool } from "./screenshot-tool";
@@ -53,9 +55,15 @@ import { planTools } from "./plan-tools";
  */
 export function buildChatTools(
   conversationId: string,
-  sandbox: { hasSandbox: boolean; hasProject: boolean } = { hasSandbox: true, hasProject: true },
+  sandbox: {
+    hasSandbox: boolean;
+    hasProject: boolean;
+    /** 0043: the project's host allow-list — empty (or absent) omits exec. */
+    hosts?: { name: string; address: string; user: string; apiBase: string | null }[];
+  } = { hasSandbox: true, hasProject: true },
 ) {
   const { hasSandbox, hasProject } = sandbox;
+  const hosts = sandbox.hosts ?? [];
   return {
     ask_chad: tool({
       description:
@@ -273,6 +281,55 @@ export function buildChatTools(
         params: z.record(z.string(), z.string()).optional().describe("Query parameters"),
       }),
       execute: ({ path, params }) => forgejoStep(path, params ?? {}),
+    }),
+
+    // 0043: the host channel — a project with hosts on its allow-list
+    // gets exec; every call is approval-gated (the create_pr mechanism,
+    // 0034 A: validate without connecting, then Chad decides, then run).
+    ...(hasProject && hosts.length > 0 && {
+      exec: tool({
+        description:
+          "Run a command on a real host over SSH, as the host's user, via bash -lc — every call waits for Chad's " +
+          "approval with the exact command on his card. This project's hosts: " +
+          hosts
+            .map((h) => `${h.name} (${h.user}@${h.address}${h.apiBase ? `, API ${h.apiBase}` : ""})`)
+            .join("; ") +
+          ". Before acting on a host, read its docs in the project's repos (AGENTS.md / hosts READMEs — they carry " +
+          "the SSH notes and lockout rules) and treat lockout-sensitive services (sshd, networking, nebula, gateway " +
+          "caddy) per those rules. Secrets: reference PATHS, never contents — e.g. " +
+          'curl -H "Authorization: Bearer $(cat /path/to/token)"; API calls run as curl on a host that holds the ' +
+          "credential. Verify what you changed afterward (systemctl is-active, journalctl tails, curl the service).",
+        inputSchema: z.object({
+          host: z.string().min(1).describe("Host name from this project's list"),
+          command: z.string().min(1).max(20_000).describe("The bash command to run on the host"),
+          timeout: z
+            .number()
+            .int()
+            .positive()
+            .max(900)
+            .optional()
+            .describe("Wall-clock seconds before the channel is cut (default 120, max 900)"),
+        }),
+        execute: async (input, { toolCallId }) => {
+          const preview = (await hostExecPreviewStep(conversationId, input)) as
+            | { ok: true; summary: string }
+            | { ok: false; code: string; message: string };
+          if (!preview.ok) return preview;
+          await pendingStep(conversationId, toolCallId, preview.summary, "approval");
+          const answer = await chatApprovalHook.create({ token: toolCallId });
+          if (!(answer.kind === "approval" && answer.approved)) {
+            const comment = answer.kind === "approval" ? answer.comment?.trim() : undefined;
+            return {
+              ok: false as const,
+              code: comment ? ("changes-requested" as const) : ("denied" as const),
+              message: comment
+                ? `Chad rejected the command with a comment — nothing ran. Address it, then call exec again: ${comment}`
+                : "Chad declined — nothing ran on the host",
+            };
+          }
+          return hostExecStep(conversationId, input);
+        },
+      }),
     }),
 
     // 0033 Phase B: project tools — the setup chat's real powers. UI

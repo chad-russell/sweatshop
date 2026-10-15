@@ -539,3 +539,25 @@ export async function resolveAttachmentPartsStep(
   const { resolveAttachmentParts } = await import("../../lib/chat/attachment-parts");
   return resolveAttachmentParts(prompt, specificationVersion);
 }
+
+/** 0043: validate an exec proposal and build the approval card text
+ *  (validates WITHOUT connecting — Chad never approves an exec that
+ *  cannot run). */
+export async function hostExecPreviewStep(
+  conversationId: string,
+  input: import("../../lib/agent/tools/host").HostExecInput,
+): Promise<unknown> {
+  "use step";
+  const { hostExecPreview } = await import("../../lib/agent/tools/host");
+  return hostExecPreview(conversationId, input);
+}
+
+/** 0043: run the approved exec — audit row, transport, TOFU pin, clip. */
+export async function hostExecStep(
+  conversationId: string,
+  input: import("../../lib/agent/tools/host").HostExecInput,
+): Promise<unknown> {
+  "use step";
+  const { hostExecRun } = await import("../../lib/agent/tools/host");
+  return hostExecRun(conversationId, input);
+}
