@@ -560,7 +560,7 @@ function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
   return (
     <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
       <p className="text-sm font-medium">Run on {host ?? "a host"}?</p>
-      <div className="rounded-md border border-terminal-border bg-terminal-bg-black px-3 py-2 font-mono text-xs">
+      <div className="rounded-md border border-terminal-border bg-terminal px-3 py-2 font-mono text-xs">
         <div className="text-terminal-muted">{timeout}s timeout · every approved command runs via bash -lc as the host&apos;s user</div>
         <pre className="mt-1.5 whitespace-pre-wrap text-terminal-foreground">$ {command ?? "…"}</pre>
       </div>

@@ -11,7 +11,7 @@ import type { NeedsYouThread, PendingRequest, RequestOption } from "@/db/attenti
 /** 0043: an exec ask — host line + the command as it will run, not JSON. */
 function ExecAsk({ exec }: { exec: NonNullable<PendingRequest["exec"]> }) {
   return (
-    <div className="rounded-md border border-terminal-border bg-terminal-bg-black px-3 py-2 font-mono text-xs">
+    <div className="rounded-md border border-terminal-border bg-terminal px-3 py-2 font-mono text-xs">
       <div className="flex flex-wrap items-center gap-x-2 text-terminal-muted">
         <span className="text-terminal-foreground">{exec.user}@{exec.host}</span>
         <span aria-hidden>·</span>
