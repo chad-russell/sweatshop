@@ -360,3 +360,138 @@ export function ProjectDangerZone({ projectId, name }: { projectId: string; name
     </div>
   );
 }
+
+interface Host {
+  id: string;
+  name: string;
+  address: string;
+  user: string;
+  apiBase: string | null;
+  hostKeyFp: string | null;
+}
+
+/** 0043: the project's host allow-list — plain rows; credentials live in
+ *  the app's env (the env-var names show next to each row), never here. */
+export function ProjectHostsEditor({ projectId, hosts }: { projectId: string; hosts: Host[] }) {
+  const router = useRouter();
+  const { busy, error, note, setNote, call } = useApi();
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [user, setUser] = useState("");
+  const [apiBase, setApiBase] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const envVar = (host: string) => `HOST_${host.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_SSH_KEY_FILE`;
+
+  const add = () =>
+    call(
+      () =>
+        fetch(`/api/projects/${encodeURIComponent(projectId)}/hosts`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name, address, user, ...(apiBase.trim() ? { apiBase } : {}) }),
+        }),
+      () => {
+        setName("");
+        setAddress("");
+        setUser("");
+        setApiBase("");
+        setAdding(false);
+        setNote("Host added — set its credential env var if you haven't.");
+        router.refresh();
+      },
+    );
+
+  const remove = (hostId: string, hostName: string) =>
+    call(
+      () =>
+        fetch(
+          `/api/projects/${encodeURIComponent(projectId)}/hosts?hostId=${encodeURIComponent(hostId)}`,
+          { method: "DELETE" },
+        ),
+      () => {
+        setNote(`Removed ${hostName} (its command history stays).`);
+        router.refresh();
+      },
+    );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+        {hosts.map((host) => (
+          <li key={host.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="font-medium">{host.name}</span>
+              <span className="flex flex-wrap items-center gap-x-2 font-mono text-xs text-muted-foreground">
+                <span>
+                  {host.user}@{host.address}
+                </span>
+                {host.apiBase && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>API {host.apiBase}</span>
+                  </>
+                )}
+                <span aria-hidden>·</span>
+                <span>{envVar(host.name)}</span>
+                {host.hostKeyFp && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>{host.hostKeyFp.slice(0, 17)}…</span>
+                  </>
+                )}
+              </span>
+            </span>
+            <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => remove(host.id, host.name)}>
+              Remove
+            </Button>
+          </li>
+        ))}
+        {hosts.length === 0 && (
+          <li className="px-3 py-2 text-sm text-muted-foreground">
+            No hosts — this project&apos;s chats have no exec tool until one is added.
+          </li>
+        )}
+      </ul>
+
+      {adding ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+          <div className="grid grid-cols-[1fr_1fr_1fr_2fr] gap-3">
+            <label className={FIELD} htmlFor="host-name">
+              <span className={LABEL}>Name (also the env-var key)</span>
+              <Input id="host-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="bee" className={MONO} />
+            </label>
+            <label className={FIELD} htmlFor="host-address">
+              <span className={LABEL}>Address</span>
+              <Input id="host-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="10.10.0.12" className={MONO} />
+            </label>
+            <label className={FIELD} htmlFor="host-user">
+              <span className={LABEL}>User</span>
+              <Input id="host-user" value={user} onChange={(e) => setUser(e.target.value)} placeholder="crussell" className={MONO} />
+            </label>
+            <label className={FIELD} htmlFor="host-api">
+              <span className={LABEL}>API base (optional)</span>
+              <Input id="host-api" value={apiBase} onChange={(e) => setApiBase(e.target.value)} placeholder="http://192.168.20.51:8123" className={MONO} />
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" disabled={busy || !name.trim() || !address.trim() || !user.trim()} onClick={add}>
+              Add host
+            </Button>
+            <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setAdding(true)}>
+            Add host
+          </Button>
+        </div>
+      )}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {note && <p className="text-sm text-muted-foreground">{note}</p>}
+    </div>
+  );
+}

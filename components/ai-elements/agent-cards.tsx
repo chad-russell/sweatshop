@@ -362,6 +362,43 @@ export function InspectCard({
 }
 
 /** sandbox_exec is a bash call in disguise: the terminal card, labelled with where it ran. */
+export function HostExecCard({
+  state,
+  input,
+  output,
+  errorText,
+}: {
+  state: ToolState;
+  input: unknown;
+  output?: unknown;
+  errorText?: string;
+}) {
+  const obj = objectOf(output);
+  const ok = obj && obj.ok === true && typeof obj.exitCode === "number" ? obj : undefined;
+  const host = objectOf(input)?.host;
+  const duration = ok && typeof obj?.durationMs === "number" ? `${(obj.durationMs / 1000).toFixed(1)}s` : undefined;
+  return (
+    <BashTerminal
+      className="my-1"
+      state={state === "running" ? "input-available" : state === "error" ? "output-error" : "output-available"}
+      input={objectOf(input)}
+      output={ok ? { exitCode: ok.exitCode, stdout: ok.stdout, stderr: ok.stderr } : undefined}
+      errorText={errorText ?? failureLines(output)?.join("\n")}
+      extra={
+        typeof host === "string" ? (
+          <span
+            title={`exec on ${host}`}
+            className="rounded-full border border-terminal-border px-2 py-0.5 font-mono text-[10px] text-terminal-muted"
+          >
+            {host}
+            {duration ? ` · ${duration}` : ""}
+          </span>
+        ) : undefined
+      }
+    />
+  );
+}
+
 export function SandboxExecCard({
   state,
   input,

@@ -8,6 +8,7 @@ import {
   type BoundSandbox,
 } from "@/db/sandboxes";
 import { conversations, harnessCalls, harnessEvents, harnessRuns, machineRuns } from "@/db/schema";
+import { listHostCommands } from "@/db/host-commands";
 import { clipOutput } from "@/lib/agent/tools/bash";
 import { openSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
@@ -31,6 +32,7 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
 const TAIL_MESSAGES = 20;
 const MESSAGE_CLIP = 1_500;
 const HARNESS_EVENTS = 30;
+const HOST_COMMANDS = 10;
 
 function clip(text: string | null | undefined, limit: number): string {
   if (!text) return "";
@@ -81,6 +83,19 @@ function harnessActivity(sessionId: string) {
       ...(e.text ? { text: clip(e.text, 300) } : {}),
     }));
   return { runs, recentEvents: events };
+}
+
+/** 0043: the conversation's recent host-channel commands (audit trail). */
+function hostActivity(conversationId: string) {
+  const rows = listHostCommands(db(), conversationId, HOST_COMMANDS);
+  if (rows.length === 0) return null;
+  return rows.map((c) => ({
+    host: c.hostName,
+    command: clip(c.command, 400),
+    exit: c.exitCode,
+    ran: c.resolvedAt !== null,
+    at: c.createdAt,
+  }));
 }
 
 export type InspectResult = Record<string, unknown>;
@@ -186,6 +201,7 @@ export function inspectTarget(id: string): InspectResult {
     busy: Boolean(row.activeRunId),
     ...transcriptTail(id),
     harness: harnessActivity(id),
+    hostCommands: hostActivity(id),
   };
   if (row.kind === "stage") {
     const runId = id.replace(/_\d+$/, "");

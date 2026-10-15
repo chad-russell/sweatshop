@@ -376,9 +376,71 @@ export const gitCredentials = sqliteTable("git_credentials", {
   createdAt: integer("created_at").notNull(),
 });
 
+/**
+ * 0043: a host this project's agent may operate on — the allow-list
+ * behind the `exec` tool. `api_base` is informational only (where the
+ * host's HTTP API lives, surfaced in the tool description); nothing
+ * mechanical reads it. No `kind`: what a host IS comes from the
+ * project's repos (their AGENTS.md/READMEs), never from here.
+ * `host_key_fp` pins the SSH server key (TOFU on first connect).
+ */
+export const projectHosts = sqliteTable(
+  "project_hosts",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id),
+    /** Lowercase kebab — also names the credential env vars (0043). */
+    name: text("name").notNull(),
+    /** SSH target, `host` or `host:port` (prefer Nebula IPs). */
+    address: text("address").notNull(),
+    /** Remote user the command runs as. */
+    user: text("user").notNull(),
+    apiBase: text("api_base"),
+    /** sha256:fingerprint of the pinned SSH host key, once connected. */
+    hostKeyFp: text("host_key_fp"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("project_hosts_project_idx").on(table.projectId),
+    uniqueIndex("project_hosts_project_name_uq").on(table.projectId, table.name),
+  ],
+);
+
+/**
+ * 0043: the audit trail — one row per approved `exec`, written BEFORE
+ * the command runs and resolved after (a crash mid-command still shows
+ * the attempt). `host_id` has NO foreign key on purpose: removing a
+ * host deletes nothing historical, so the row denormalizes `host_name`
+ * and survives the registry entry.
+ */
+export const hostCommands = sqliteTable(
+  "host_commands",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    /** Registry id at write time; stale after the host row is removed. */
+    hostId: text("host_id").notNull(),
+    hostName: text("host_name").notNull(),
+    command: text("command").notNull(),
+    exitCode: integer("exit_code"),
+    /** Combined clipped stdout+stderr, written at resolve. */
+    output: text("output"),
+    durationMs: integer("duration_ms"),
+    createdAt: integer("created_at").notNull(),
+    resolvedAt: integer("resolved_at"),
+  },
+  (table) => [index("host_commands_conversation_idx").on(table.conversationId)],
+);
+
 export type Project = typeof projects.$inferSelect;
 export type ProjectRepo = typeof projectRepos.$inferSelect;
 export type GitCredential = typeof gitCredentials.$inferSelect;
+export type ProjectHost = typeof projectHosts.$inferSelect;
+export type HostCommand = typeof hostCommands.$inferSelect;
 
 
 /**

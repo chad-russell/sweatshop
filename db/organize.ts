@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { removeAttachmentFilesSync } from "../lib/attachments";
 import { deleteConversationAttachments } from "./attachments";
+import { hostCommands } from "./schema";
 import type { Db } from "./index";
 import {
   chatHarnessState,
@@ -356,6 +357,8 @@ export function deleteConversationForever(db: Db, id: string): string[] {
       tx.delete(steerQueue).where(eq(steerQueue.conversationId, sid)).run();
       tx.delete(chatHarnessState).where(eq(chatHarnessState.conversationId, sid)).run();
       tx.delete(pendingInputs).where(eq(pendingInputs.conversationId, sid)).run();
+      // 0043: its host-command audit rows go with the conversation.
+      tx.delete(hostCommands).where(eq(hostCommands.conversationId, sid)).run();
       tx.delete(conversations).where(eq(conversations.id, sid)).run();
     }
   });

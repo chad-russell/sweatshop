@@ -3,6 +3,7 @@ import type { Db } from "./index";
 import {
   conversations,
   folders,
+  projectHosts,
   gitCredentials,
   machineRuns,
   previewEvents,
@@ -392,6 +393,9 @@ export function deleteProjectRows(db: Db, projectId: string): ProjectResult<{ co
     tx.delete(folders).where(eq(folders.projectId, projectId)).run();
     tx.delete(previewSetups).where(eq(previewSetups.projectId, projectId)).run();
     tx.delete(projectRepos).where(eq(projectRepos.projectId, projectId)).run();
+    // 0043: the host allow-list goes with the project (its audit rows
+    // already went via deleteConversationForever above).
+    tx.delete(projectHosts).where(eq(projectHosts.projectId, projectId)).run();
     tx.delete(projects).where(eq(projects.id, projectId)).run();
   });
 

@@ -9,6 +9,7 @@ import { NewPreviewForm } from "@/components/previews/new-preview";
 import { PreviewList } from "@/components/previews/preview-list";
 import {
   ProjectDangerZone,
+  ProjectHostsEditor,
   ProjectImageEditor,
   ProjectNameEditor,
   ProjectReposEditor,
@@ -18,6 +19,7 @@ import { ProjectModelsEditor } from "@/components/project/project-models-editor"
 import { db } from "@/db";
 import { modelsView } from "@/lib/providers/catalog-view";
 import { getProjectOverview } from "@/db/projects";
+import { listProjectHosts } from "@/db/hosts";
 import { resolveCredential } from "@/lib/git-hosts";
 import { GIT_HOSTS } from "@/lib/git-hosts/hosts";
 
@@ -61,6 +63,22 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
               name: repo.name,
               url: repo.url,
               host: resolveCredential(repo.url, credentials, GIT_HOSTS)?.host.kind ?? null,
+            }))}
+          />
+        </section>
+
+        {/* 0043: the host allow-list behind the exec tool. */}
+        <section className="flex flex-col gap-2">
+          <h2 className={SECTION}>Hosts</h2>
+          <ProjectHostsEditor
+            projectId={project.id}
+            hosts={listProjectHosts(db(), project.id).map((host) => ({
+              id: host.id,
+              name: host.name,
+              address: host.address,
+              user: host.user,
+              apiBase: host.apiBase,
+              hostKeyFp: host.hostKeyFp,
             }))}
           />
         </section>
