@@ -1,0 +1,66 @@
+/* ------------------------------------------------------------------ */
+/* cal — vendored from design/cal/DESIGN.md. Clean light canvas, black */
+/* primary CTAs, hairlines, soft 12px radii, blue focus.               */
+/* ------------------------------------------------------------------ */
+[data-theme="cal"] {
+  --background: #ffffff;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #111111;
+  --muted: #f5f5f5;
+  --muted-foreground: #6b7280;
+  --accent: #f3f4f6;
+  --accent-foreground: #111111;
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --ring: #3b82f6;
+  --chart-1: #111111;
+  --chart-2: #3b82f6;
+  --chart-3: #10b981;
+  --chart-4: #f59e0b;
+  --chart-5: #ec4899;
+  --radius: 0.75rem;
+  --sidebar: #f8f9fa;
+  --sidebar-foreground: #111111;
+  --sidebar-primary: #111111;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e5e7eb;
+  --sidebar-accent-foreground: #111111;
+  --sidebar-border: #e5e7eb;
+  --sidebar-ring: #3b82f6;
+  --success: #047857;
+  --warning: #92400e;
+  --info: #1d4ed8;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
+  /* terminal surface: soft gray, darker than the card; ANSI hues deepened for contrast */
+  --terminal: #f9fafb;
+  --terminal-foreground: #27272a;
+  --terminal-muted: #71717a;
+  --terminal-border: #e5e7eb;
+  --terminal-red: #b91c1c;
+  --terminal-green: #15803d;
+  --terminal-yellow: #a16207;
+  --terminal-blue: #1d4ed8;
+  --terminal-magenta: #7e22ce;
+  --terminal-cyan: #0e7490;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #52525b;
+  --terminal-white: #a1a1aa;
+  --terminal-ink: #0b0d12;
+  --terminal-bg-black: #3f3f46;
+  --terminal-bg-red: #ef4444;
+  --terminal-bg-green: #22c55e;
+  --terminal-bg-yellow: #eab308;
+  --terminal-bg-blue: #3b82f6;
+  --terminal-bg-magenta: #c084fc;
+  --terminal-bg-cyan: #22d3ee;
+  --terminal-bg-white: #e4e4e7;
+}

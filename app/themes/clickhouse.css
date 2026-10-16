@@ -1,0 +1,67 @@
+/* ------------------------------------------------------------------ */
+/* clickhouse — DEFAULT. Vendored from design/clickhouse/DESIGN.md.    */
+/* Near-pure black canvas, electric yellow brand voltage (#faff69),    */
+/* hairline borders, tight technical radii.                            */
+/* ------------------------------------------------------------------ */
+[data-theme="clickhouse"] {
+  --background: #0a0a0a;
+  --foreground: #ffffff;
+  --card: #1a1a1a;
+  --card-foreground: #ffffff;
+  --popover: #242424;
+  --popover-foreground: #ffffff;
+  --primary: #faff69;
+  --primary-foreground: #0a0a0a;
+  --secondary: #242424;
+  --secondary-foreground: #ffffff;
+  --muted: #1a1a1a;
+  --muted-foreground: #888888;
+  --accent: #242424;
+  --accent-foreground: #ffffff;
+  --destructive: #ff6b6b;
+  --destructive-foreground: #0a0a0a;
+  --border: #2a2a2a;
+  --input: #3a3a3a;
+  --ring: #faff69;
+  --chart-1: #faff69;
+  --chart-2: #22c55e;
+  --chart-3: #3b82f6;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
+  --radius: 0.5rem;
+  --sidebar: #0a0a0a;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #faff69;
+  --sidebar-primary-foreground: #0a0a0a;
+  --sidebar-accent: #1a1a1a;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2a2a2a;
+  --sidebar-ring: #faff69;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --info: #60a5fa;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
+  /* terminal surface: dark theme */
+  --terminal: #000000;
+  --terminal-foreground: #d4d7dd;
+  --terminal-muted: #6b7280;
+  --terminal-border: #2a2a2a;
+  --terminal-red: #f87171;
+  --terminal-green: #4ade80;
+  --terminal-yellow: #fbbf24;
+  --terminal-blue: #60a5fa;
+  --terminal-magenta: #c084fc;
+  --terminal-cyan: #22d3ee;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #6b7280;
+  --terminal-white: #f4f4f5;
+  --terminal-ink: #0b0d12;
+  --terminal-bg-black: #3f3f46;
+  --terminal-bg-red: #ef4444;
+  --terminal-bg-green: #22c55e;
+  --terminal-bg-yellow: #eab308;
+  --terminal-bg-blue: #3b82f6;
+  --terminal-bg-magenta: #c084fc;
+  --terminal-bg-cyan: #22d3ee;
+  --terminal-bg-white: #e4e4e7;
+}
