@@ -1,0 +1,150 @@
+# sweatshop deploy pipeline (0045) — merge to main ships.
+#
+# checks — the repo gate (typecheck/lint/test) in a throwaway container
+# on the bees nix-host runner (jobs run as crussell). NEVER via ./dev:
+# its node_modules volume is shared with the LIVE service on bee, and a
+# CI npm ci would clobber the running app's dependencies.
+#
+# deploy — push-to-main and dispatch only (PRs never deploy): drift-check
+# bee's deploy checkout, then run scripts/ci-deploy.sh inside the
+# `sweatshop-deploy` transient user unit on bee. The unit — not this
+# job's SSH channel — owns the stop→build→start window, so a runner
+# restart or ssh drop mid-deploy cannot leave the service down
+# (2026-10-16 lesson; same pattern as cn's detached bees self-switch).
+# ci-deploy.sh refuses to run outside that unit.
+#
+# workflow_dispatch with inputs.sha = rollback to an older commit (or
+# retry; a no-op when the sha is already live). This Forgejo build has
+# no re-run API — dispatch is the retry path, as in cn's deploy.yml.
+#
+# Failures ping the sweatshop-ci ntfy topic (ntfy on bees :8090).
+name: deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'commit to deploy (rollback: an older sha; empty = this ref HEAD)'
+        required: false
+        default: ''
+
+# Never two deploys at once; queue instead of cancelling (a cancelled
+# mid-deploy run is worse than a queued one).
+concurrency:
+  group: sweatshop-deploy
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: nix-host
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        run: |
+          set -eu
+          git init -q .
+          git remote add origin "https://${GITHUB_ACTOR}:${{ secrets.GITHUB_TOKEN }}@git.crussell.io/chad/sweatshop.git"
+          git fetch --depth 1 origin "+${GITHUB_REF}:"
+          git checkout --detach FETCH_HEAD
+
+      - name: Gate (typecheck, lint, test)
+        run: |
+          set -eu
+          podman build -q -t sweatshop-ci -f Containerfile.dev . >/dev/null
+          # Throwaway deps in the job workspace; only the npm cache
+          # persists. The native-rebuild list mirrors scripts/ci-deploy.sh
+          # (better-sqlite3 and friends ship binding.gyp beside prebuilds;
+          # --ignore-scripts + targeted rebuilds, 2026-10-07 lesson).
+          podman run --rm \
+            -v "$PWD":/workspace \
+            -v sweatshop-ci-npm-cache:/root/.npm \
+            -w /workspace \
+            sweatshop-ci \
+            sh -lc 'npm ci --no-audit --no-fund --ignore-scripts \
+              && npm rebuild esbuild @swc/core unrs-resolver @mongodb-js/zstd cbor-extract protobufjs \
+              && npm run typecheck \
+              && npm run lint \
+              && npm run test'
+
+  deploy:
+    needs: checks
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: nix-host
+    timeout-minutes: 30
+    steps:
+      - name: Resolve target sha
+        id: target
+        run: |
+          set -eu
+          sha="${{ inputs.sha }}"
+          [ -n "$sha" ] || sha="${GITHUB_SHA}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "::notice::target ${sha}"
+
+      - name: Drift check (bee)
+        id: drift
+        run: |
+          set -eu
+          target="${{ steps.target.outputs.sha }}"
+          live=$(ssh -o IdentitiesOnly=yes -o ConnectTimeout=8 crussell@10.10.0.12 \
+            'git -C ~/ss/sweatshop rev-parse HEAD' 2>/dev/null || echo unreachable)
+          echo "live=$live"
+          if [ "$live" = "$target" ]; then
+            if ssh -o IdentitiesOnly=yes -o ConnectTimeout=8 crussell@10.10.0.12 \
+              'curl -fsS -m 5 -o /dev/null http://localhost:3300/api/attention'; then
+              echo "up=0" >> "$GITHUB_OUTPUT"
+              echo "::notice::$target already live and healthy — no-op"
+            else
+              echo "up=1" >> "$GITHUB_OUTPUT"
+              echo "::notice::sha live but NOT healthy — re-running deploy path"
+            fi
+          else
+            echo "up=1" >> "$GITHUB_OUTPUT"
+            echo "::notice::drift ($live → $target) — deploying"
+          fi
+
+      - name: Deploy (transient unit on bee)
+        if: steps.drift.outputs.up == '1'
+        run: |
+          set -eu
+          ssh -o IdentitiesOnly=yes crussell@10.10.0.12 '
+            set -eu
+            cd ~/ss/sweatshop
+            git cat-file -e "${{ steps.target.outputs.sha }}^{commit}" 2>/dev/null \
+              || git fetch --quiet origin
+            /run/wrappers/bin/sudo systemd-run \
+              --machine=crussell@.host --user --collect --wait \
+              --unit=sweatshop-deploy --setenv=SWEATSHOP_DEPLOY_UNIT=1 \
+              /run/current-system/sw/bin/bash \
+              scripts/ci-deploy.sh "${{ steps.target.outputs.sha }}"
+          '
+
+      - name: Verify healthy
+        if: steps.drift.outputs.up == '1'
+        run: |
+          set -eu
+          for i in $(seq 1 30); do
+            if ssh -o IdentitiesOnly=yes crussell@10.10.0.12 \
+              'curl -fsS -m 5 -o /dev/null http://localhost:3300/api/attention'; then
+              echo "healthy"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::not healthy 150s after deploy"
+          exit 1
+
+      - name: Notify (ntfy sweatshop-ci)
+        if: always()
+        run: |
+          sha7=$(echo "${{ steps.target.outputs.sha || github.sha }}" | cut -c1-7)
+          if [ "${{ job.status }}" = success ]; then
+            curl -s -H "Title: sweatshop deploy OK" \
+              -d "live: ${sha7}" http://127.0.0.1:8090/sweatshop-ci || true
+          else
+            curl -s -H "Title: sweatshop deploy FAILED" -H "Priority: urgent" -H "Tags: warning" \
+              -d "target ${sha7} — logs: https://git.crussell.io/chad/sweatshop/actions" \
+              http://127.0.0.1:8090/sweatshop-ci || true
+          fi

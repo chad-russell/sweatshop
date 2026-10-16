@@ -21,8 +21,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (git.crussell.io, pushed as the `glen` account; this checkout's
   `core.sshCommand` selects the key). `main` is this repo; the
   prototype's history lives on as `archive/prototype` + its `v0.*` tags.
-  Agents work on branches and open PRs; Chad merges; `scripts/deploy.sh`
-  ships merged `main`.
+  Agents work on branches and open PRs; Chad merges; the Forgejo deploy
+  workflow (0045) ships merged `main`.
 - **Commits:** conventional commits — `type(scope): subject` (feat, fix,
   docs, chore, refactor…). Commit often enough that history reads as a
   logical sequence of small steps.
@@ -589,14 +589,27 @@ ONE instance (0020) — no dev server, no second checkout:
   at boot. Logs: `journalctl --user -u sweatshop` (agent shells need
   `XDG_RUNTIME_DIR=/run/user/1000`).
 - **This checkout is the deploy checkout.** It tracks `main` on Forgejo
-  (`origin`, chad/sweatshop) and moves ONLY through `scripts/deploy.sh`
-  (fast-forward → `data/backups/pre-<sha>.db` snapshot → stop → `npm ci`
-  + `next build` + `db:migrate` → start → health check; a failed build
-  restores the previous commit). `scripts/deploy.sh <sha>` rolls back. A
-  host script on purpose — sandboxed agents cannot redeploy the app.
+  (`origin`, chad/sweatshop) and moves ONLY through the deploy workflow
+  (`.forgejo/workflows/deploy.yml`, 0045): merge to `main` → checks →
+  `scripts/ci-deploy.sh` inside the `sweatshop-deploy` transient user
+  unit (fast-forward → `data/backups/pre-<sha>.db` snapshot → stop →
+  `npm ci` + `next build` + `db:migrate` → start → health check; a
+  failed build restores the previous commit; a sha that is already live
+  and healthy is a no-op). Rollback = Actions UI → deploy → Run
+  workflow with the sha. `ci-deploy.sh` refuses to run outside the
+  transient unit — deploys are never launched by hand or by the app's
+  agents (2026-10-16: the app ran the old `scripts/deploy.sh` through
+  the 0043 exec host seam; the deploy's own stop step killed its
+  caller, twice, leaving the service down).
 - **Changing sweatshop** = an ordinary project: a sandboxed chat on
-  the `sweatshop` project opens a PR (`create_pr`); after merge,
-  deploy. dsh is the emergency path when a deploy breaks the app.
+  the `sweatshop` project opens a PR (`create_pr`); the merge ships it.
+  dsh is the emergency path when a deploy breaks the app — create the
+  transient unit by hand:
+  `/run/wrappers/bin/sudo systemd-run --machine=crussell@.host --user
+  --collect --wait --unit=sweatshop-deploy
+  --setenv=SWEATSHOP_DEPLOY_UNIT=1
+  /run/current-system/sw/bin/bash
+  ~/ss/sweatshop/scripts/ci-deploy.sh <sha>`.
 - **State** is all under `data/` (backed up nightly by bee's restic, plus
   a `VACUUM INTO` snapshot at `data/backups/nightly.db` an hour before):
   `sweatshop.db` (+WAL), `workflow-data/` (the Workflow SDK local world —
@@ -612,7 +625,7 @@ ONE instance (0020) — no dev server, no second checkout:
   `--env-file`; node_modules in the `sweatshop-node-modules` volume,
   SHARED with the running service — never `./dev install` on bee (it
   changes the live app's dependencies under it); dependency changes land
-  by PR and `scripts/deploy.sh` runs `npm ci` while the service is stopped. The host rootless podman socket is mounted at
+  by PR and `scripts/ci-deploy.sh` runs `npm ci` while the service is stopped. The host rootless podman socket is mounted at
   `/var/run/docker.sock` (sandboxes are sibling containers), and every
   invocation joins the private `sweatshop-harness` network (0006).
 - Agent shells must run podman under escalated (full-access) file

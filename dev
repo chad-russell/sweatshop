@@ -4,9 +4,9 @@
 # named volume so the host tree never contains dependencies.
 #
 # The app itself is NOT run from here (0020): the `sweatshop` rootless user
-# quadlet serves a production build of this checkout, and
-# scripts/deploy.sh is the only way that checkout moves. This wrapper is
-# for one-off commands — the gate, migrations, a shell.
+# quadlet serves a production build of this checkout, and the Forgejo
+# deploy workflow (0045) is the only way that checkout moves. This
+# wrapper is for one-off commands — the gate, migrations, a shell.
 #
 #   ./dev install      npm install inside the container
 #   ./dev exec -- CMD  one-off CMD in a container with the same mounts
@@ -72,7 +72,7 @@ case "${1:-}" in
     shift
     [[ "${1:-}" == "--" ]] && shift
     # DEV_EXEC_NAME names the container so a caller can remove it
-    # (scripts/deploy.sh stops a build that will not exit).
+    # (scripts/ci-deploy.sh stops a build that will not exit).
     exec podman run --rm ${DEV_EXEC_NAME:+--name "$DEV_EXEC_NAME"} "${common_args[@]}" "$IMAGE" "$@"
     ;;
   shell)
