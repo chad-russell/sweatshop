@@ -537,9 +537,10 @@ const GATED_TOOLS = new Set(["create_project", "delete_project"]);
 function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
   const [busy, setBusy] = useState(false);
   const input = (part.state === "input-streaming" ? undefined : part.input) as
-    | { host?: unknown; command?: unknown; timeout?: unknown }
+    | { host?: unknown; command?: unknown; description?: unknown; timeout?: unknown }
     | undefined;
   const host = typeof input?.host === "string" ? input.host : undefined;
+  const description = typeof input?.description === "string" && input.description.trim() ? input.description.trim() : undefined;
   const command = typeof input?.command === "string" ? input.command : undefined;
   const timeout = typeof input?.timeout === "number" ? input.timeout : 120;
   const answered = part.state === "output-available" || part.state === "output-error" || part.state === "output-denied";
@@ -559,7 +560,10 @@ function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
 
   return (
     <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
-      <p className="text-sm font-medium">Run on {host ?? "a host"}?</p>
+      <p className="text-sm font-medium">
+        Run on {host ?? "a host"}?
+        {description && <span className="ml-1.5 font-normal text-muted-foreground">{description}</span>}
+      </p>
       <div className="rounded-md border border-terminal-border bg-terminal px-3 py-2 font-mono text-xs">
         <div className="text-terminal-muted">{timeout}s timeout · every approved command runs via bash -lc as the host&apos;s user</div>
         <pre className="mt-1.5 whitespace-pre-wrap text-terminal-foreground">$ {command ?? "…"}</pre>

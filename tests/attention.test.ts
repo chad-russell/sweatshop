@@ -126,6 +126,7 @@ describe("needs you", () => {
         address: "10.10.0.12",
         command: "hostname",
         timeoutSec: 120,
+        description: "Check which host answers",
       },
     });
     const requests = loadPendingRequests(tdb).get(id) ?? [];
@@ -134,7 +135,14 @@ describe("needs you", () => {
       requestId: "call_exec1",
       toolName: "exec",
       toolInput: null,
-      exec: { host: "bee", user: "crussell", address: "10.10.0.12", command: "hostname", timeoutSec: 120 },
+      exec: {
+        host: "bee",
+        user: "crussell",
+        address: "10.10.0.12",
+        command: "hostname",
+        timeoutSec: 120,
+        description: "Check which host answers",
+      },
     });
     resolvePendingInput(tdb, "call_exec1", { approved: true });
   });

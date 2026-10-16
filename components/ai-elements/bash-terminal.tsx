@@ -146,7 +146,8 @@ function StatusPill({ tone, label }: { tone: Tone; label: string }) {
 
 /**
  * A bash tool call drawn as a terminal session: a window bar (icon, name,
- * exit-code pill), the command as typed at a `$` prompt, and the output
+ * the caller's one-line description when it gave one, exit-code pill),
+ * the command as typed at a `$` prompt, and the output
  * below it — stderr in red, ANSI colours honoured. Output collapses to a
  * one-line summary; the command is always visible.
  */
@@ -212,9 +213,14 @@ export function BashTerminal({
       {/* Window bar */}
       <div className="flex items-center gap-2 border-b border-terminal-border px-3 py-1.5">
         <SquareTerminalIcon className="size-4 shrink-0 text-terminal-muted" aria-hidden />
-        <span className="font-mono text-xs text-terminal-muted">bash</span>
+        <span className="shrink-0 font-mono text-xs text-terminal-muted">bash</span>
+        {view.description && (
+          <span className="min-w-0 truncate text-xs text-terminal-foreground" title={view.description}>
+            {view.description}
+          </span>
+        )}
         <StatusPill tone={tone} label={label} />
-        <span className="ml-auto flex items-center gap-1">
+        <span className="ml-auto flex shrink-0 items-center gap-1">
           {extra}
           {hasBody && (
             <CollapsibleTrigger

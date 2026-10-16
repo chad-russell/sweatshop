@@ -69,7 +69,15 @@ export interface PendingRequest {
   plan: import("./plans").PlanCard | null;
   /** 0043: an exec approval's structured ask (renders as a terminal
    * block — host, command, timeout — instead of the JSON dump). */
-  exec: { host: string; user: string; address: string; command: string; timeoutSec: number } | null;
+  exec: {
+    host: string;
+    user: string;
+    address: string;
+    command: string;
+    timeoutSec: number;
+    /** The agent's "what this is for" line (absent on older rows). */
+    description?: string;
+  } | null;
   /** Unix ms the request was raised. */
   at: number;
 }
@@ -83,7 +91,8 @@ export function isExecCard(value: unknown): value is NonNullable<PendingRequest[
     typeof v.user === "string" &&
     typeof v.address === "string" &&
     typeof v.command === "string" &&
-    typeof v.timeoutSec === "number"
+    typeof v.timeoutSec === "number" &&
+    (v.description === undefined || typeof v.description === "string")
   );
 }
 

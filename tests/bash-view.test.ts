@@ -5,8 +5,19 @@ import { parseBash, splitCd } from "../lib/bash-view";
 describe("parseBash", () => {
   it("reads the chat tool's {exitCode, stdout, stderr}", () => {
     expect(parseBash({ command: "ls" }, { exitCode: 2, stdout: "a", stderr: "b" })).toEqual({
-      command: "ls", stdout: "a", stderr: "b", exitCode: 2, hasOutput: true,
+      command: "ls", description: undefined, stdout: "a", stderr: "b", exitCode: 2, hasOutput: true,
     });
+  });
+
+  it("reads the optional description, collapsing whitespace and dropping blanks", () => {
+    expect(parseBash({ command: "ls", description: " List\n the  repo " }, undefined).description).toBe("List the repo");
+    expect(parseBash({ command: "ls", description: "  " }, undefined).description).toBeUndefined();
+    expect(parseBash({ command: "ls", description: 7 }, undefined).description).toBeUndefined();
+  });
+
+  it("recovers a description from clipped JSON only when its string closed", () => {
+    expect(parseBash('{"command":"ls","description":"List \\"all\\" files"', undefined).description).toBe('List "all" files');
+    expect(parseBash('{"command":"ls","description":"List al', undefined).description).toBeUndefined();
   });
 
   it("reads harness text output and its (exit N) suffix", () => {

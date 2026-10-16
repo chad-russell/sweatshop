@@ -73,6 +73,8 @@ describe("callState / callLabel", () => {
 
   it("labels a call by what it was about", () => {
     expect(callLabel(bash("cd a &&\n  ls"))).toBe("cd a &&");
+    expect(callLabel(done("bash", { command: "rg -n x", description: " Find  callers of x " }))).toBe("Find callers of x");
+    expect(callLabel(done("sandbox_exec", { target: "c_1", command: "ls", description: "" }))).toBe("ls");
     expect(callLabel(inspect("c_9"))).toBe("c_9 · busy");
     expect(callLabel({ type: "tool-inspect", state: "input-available", input: { id: "c_9" } })).toBe("c_9");
     expect(callLabel(done("gh", { args: ["repo", "view", "x/y"] }))).toBe("gh repo view x/y");

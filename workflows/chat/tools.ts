@@ -32,6 +32,17 @@ import { previewTools } from "./preview-tools";
 import { screenshotTool } from "./screenshot-tool";
 import { planTools } from "./plan-tools";
 
+/** The shell tools' (bash, sandbox_exec, exec) "what this is for" line —
+ *  the card's title, so Chad reads intent before the command. */
+const commandDescription = z
+  .string()
+  .min(1)
+  .max(120)
+  .describe(
+    "What this command is for, in 5-10 words of active voice — e.g. \"Run the store tests\", " +
+      "\"Find callers of resolveRoute\". Shown to Chad as the call's title.",
+  );
+
 /**
  * 0010 tool set for the new chat runtime (0037 phase 5: the machine
  * tools are gone — machines were deleted). Built per conversation by
@@ -192,6 +203,7 @@ export function buildChatTools(
       inputSchema: z.object({
         target: z.string().min(1).describe("Sandbox id (sbx_…), chat id (c_…), or run id (mr_…)"),
         command: z.string().min(1).max(20_000).describe("The bash command to run."),
+        description: commandDescription,
         workDir: z.string().optional().describe("Override the working directory (absolute path)"),
       }),
       execute: ({ target, command, workDir }) => sandboxExecStep(target, command, workDir),
@@ -302,6 +314,7 @@ export function buildChatTools(
         inputSchema: z.object({
           host: z.string().min(1).describe("Host name from this project's list"),
           command: z.string().min(1).max(20_000).describe("The bash command to run on the host"),
+          description: commandDescription,
           timeout: z
             .number()
             .int()
@@ -324,6 +337,7 @@ export function buildChatTools(
             address: preview.host.address,
             command: preview.command,
             timeoutSec: preview.timeoutSec,
+            ...(input.description ? { description: input.description } : {}),
           });
           const answer = await chatApprovalHook.create({ token: toolCallId });
           if (!(answer.kind === "approval" && answer.approved)) {
@@ -441,6 +455,7 @@ export function buildChatTools(
           "works in the sandbox and directory it attached to).",
         inputSchema: z.object({
           command: z.string().max(20_000).describe("The bash command to run."),
+          description: commandDescription,
         }),
         execute: ({ command }) => bashStep(conversationId, command),
       }),
