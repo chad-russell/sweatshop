@@ -3,16 +3,44 @@
 @import "shadcn/tailwind.css";
 
 /*
- * Theming contract (see DESIGN.md): a theme is a complete set of the
- * variables below under a `[data-theme="..."]` block (or :root/.dark for
- * the shadcn defaults). The tokens map 1:1 to shadcn's semantic set, plus
- * sweatshop's status trio (success/warning/info). Components use semantic
- * tokens only — never raw colors — so any token set can restyle the app;
- * that discipline is what keeps VSCode-theme imports possible later.
+ * One file per theme (docs/0044); registry in lib/themes.ts.
+ * ORDER MATTERS: nova.css (the :root fallback) must come FIRST — on
+ * <html> the :root and [data-theme] selectors have equal specificity,
+ * so the later file wins and a trailing :root block would clobber every
+ * theme before it. tests/themes.test.ts enforces this.
+ */
+@import "./themes/nova.css";
+@import "./themes/clickhouse.css";
+@import "./themes/everforest.css";
+@import "./themes/nord.css";
+@import "./themes/gruvbox.css";
+@import "./themes/cal.css";
+
+/*
+ * Theming contract (DESIGN.md + docs/0044-themes.md): a theme is a complete
+ * set of the variables in app/themes/<id>.css under
+ * `[data-theme="<id>"]` (:root above is nova, the fallback). The registry
+ * is lib/themes.ts; tests/themes.test.ts enforces completeness. Components
+ * use semantic tokens only — never raw colors — so any token set can
+ * restyle the app; that discipline is what keeps VSCode-theme imports
+ * possible later.
  */
 
 /* dark: variants activate for the legacy .dark class AND clickhouse */
-@custom-variant dark (&:where(.dark, .dark *, [data-theme="clickhouse"], [data-theme="clickhouse"] *));
+@custom-variant dark (
+  &:where(
+    .dark,
+    .dark *,
+    [data-theme="clickhouse"],
+    [data-theme="clickhouse"] *,
+    [data-theme="everforest"],
+    [data-theme="everforest"] *,
+    [data-theme="nord"],
+    [data-theme="nord"] *,
+    [data-theme="gruvbox"],
+    [data-theme="gruvbox"] *
+  )
+);
 
 @theme inline {
   --color-background: var(--background);
@@ -85,210 +113,8 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* ------------------------------------------------------------------ */
-/* nova — shadcn default light (baseline theme)                        */
-/* ------------------------------------------------------------------ */
-:root {
-  /* Width of the centered content column (components/content-resizer.tsx
-     overrides it on <html> when dragged): 48rem on laptops, growing with
-     the viewport on big screens. */
-  --content-max: clamp(48rem, 52vw, 110rem);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.505 0.213 27.518);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --success: #047857;
-  --warning: #92400e;
-  --info: #1d4ed8;
-  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
-  /* terminal surface: soft gray, darker than the card; ANSI hues deepened for contrast */
-  --terminal: #f9fafb;
-  --terminal-foreground: #27272a;
-  --terminal-muted: #71717a;
-  --terminal-border: #e5e7eb;
-  --terminal-red: #b91c1c;
-  --terminal-green: #15803d;
-  --terminal-yellow: #a16207;
-  --terminal-blue: #1d4ed8;
-  --terminal-magenta: #7e22ce;
-  --terminal-cyan: #0e7490;
-  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
-  --terminal-black: #52525b;
-  --terminal-white: #a1a1aa;
-  --terminal-ink: #0b0d12;
-  --terminal-bg-black: #3f3f46;
-  --terminal-bg-red: #ef4444;
-  --terminal-bg-green: #22c55e;
-  --terminal-bg-yellow: #eab308;
-  --terminal-bg-blue: #3b82f6;
-  --terminal-bg-magenta: #c084fc;
-  --terminal-bg-cyan: #22d3ee;
-  --terminal-bg-white: #e4e4e7;
-}
 
-/* ------------------------------------------------------------------ */
-/* clickhouse — DEFAULT. Vendored from design/clickhouse/DESIGN.md.    */
-/* Near-pure black canvas, electric yellow brand voltage (#faff69),    */
-/* hairline borders, tight technical radii.                            */
-/* ------------------------------------------------------------------ */
-[data-theme="clickhouse"] {
-  --background: #0a0a0a;
-  --foreground: #ffffff;
-  --card: #1a1a1a;
-  --card-foreground: #ffffff;
-  --popover: #242424;
-  --popover-foreground: #ffffff;
-  --primary: #faff69;
-  --primary-foreground: #0a0a0a;
-  --secondary: #242424;
-  --secondary-foreground: #ffffff;
-  --muted: #1a1a1a;
-  --muted-foreground: #888888;
-  --accent: #242424;
-  --accent-foreground: #ffffff;
-  --destructive: #ff6b6b;
-  --destructive-foreground: #0a0a0a;
-  --border: #2a2a2a;
-  --input: #3a3a3a;
-  --ring: #faff69;
-  --chart-1: #faff69;
-  --chart-2: #22c55e;
-  --chart-3: #3b82f6;
-  --chart-4: #f59e0b;
-  --chart-5: #ef4444;
-  --radius: 0.375rem;
-  --sidebar: #0a0a0a;
-  --sidebar-foreground: #ffffff;
-  --sidebar-primary: #faff69;
-  --sidebar-primary-foreground: #0a0a0a;
-  --sidebar-accent: #1a1a1a;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #2a2a2a;
-  --sidebar-ring: #faff69;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --info: #60a5fa;
-  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
-  /* terminal surface: dark theme */
-  --terminal: #000000;
-  --terminal-foreground: #d4d7dd;
-  --terminal-muted: #6b7280;
-  --terminal-border: #2a2a2a;
-  --terminal-red: #f87171;
-  --terminal-green: #4ade80;
-  --terminal-yellow: #fbbf24;
-  --terminal-blue: #60a5fa;
-  --terminal-magenta: #c084fc;
-  --terminal-cyan: #22d3ee;
-  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
-  --terminal-black: #6b7280;
-  --terminal-white: #f4f4f5;
-  --terminal-ink: #0b0d12;
-  --terminal-bg-black: #3f3f46;
-  --terminal-bg-red: #ef4444;
-  --terminal-bg-green: #22c55e;
-  --terminal-bg-yellow: #eab308;
-  --terminal-bg-blue: #3b82f6;
-  --terminal-bg-magenta: #c084fc;
-  --terminal-bg-cyan: #22d3ee;
-  --terminal-bg-white: #e4e4e7;
-}
 
-/* ------------------------------------------------------------------ */
-/* cal — vendored from design/cal/DESIGN.md. Clean light canvas, black */
-/* primary CTAs, hairlines, soft 12px radii, blue focus.               */
-/* ------------------------------------------------------------------ */
-[data-theme="cal"] {
-  --background: #ffffff;
-  --foreground: #111111;
-  --card: #ffffff;
-  --card-foreground: #111111;
-  --popover: #ffffff;
-  --popover-foreground: #111111;
-  --primary: #111111;
-  --primary-foreground: #ffffff;
-  --secondary: #f5f5f5;
-  --secondary-foreground: #111111;
-  --muted: #f5f5f5;
-  --muted-foreground: #6b7280;
-  --accent: #f3f4f6;
-  --accent-foreground: #111111;
-  --destructive: #b91c1c;
-  --destructive-foreground: #ffffff;
-  --border: #e5e7eb;
-  --input: #e5e7eb;
-  --ring: #3b82f6;
-  --chart-1: #111111;
-  --chart-2: #3b82f6;
-  --chart-3: #10b981;
-  --chart-4: #f59e0b;
-  --chart-5: #ec4899;
-  --radius: 0.75rem;
-  --sidebar: #f8f9fa;
-  --sidebar-foreground: #111111;
-  --sidebar-primary: #111111;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e5e7eb;
-  --sidebar-accent-foreground: #111111;
-  --sidebar-border: #e5e7eb;
-  --sidebar-ring: #3b82f6;
-  --success: #047857;
-  --warning: #92400e;
-  --info: #1d4ed8;
-  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
-  /* terminal surface: soft gray, darker than the card; ANSI hues deepened for contrast */
-  --terminal: #f9fafb;
-  --terminal-foreground: #27272a;
-  --terminal-muted: #71717a;
-  --terminal-border: #e5e7eb;
-  --terminal-red: #b91c1c;
-  --terminal-green: #15803d;
-  --terminal-yellow: #a16207;
-  --terminal-blue: #1d4ed8;
-  --terminal-magenta: #7e22ce;
-  --terminal-cyan: #0e7490;
-  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
-  --terminal-black: #52525b;
-  --terminal-white: #a1a1aa;
-  --terminal-ink: #0b0d12;
-  --terminal-bg-black: #3f3f46;
-  --terminal-bg-red: #ef4444;
-  --terminal-bg-green: #22c55e;
-  --terminal-bg-yellow: #eab308;
-  --terminal-bg-blue: #3b82f6;
-  --terminal-bg-magenta: #c084fc;
-  --terminal-bg-cyan: #22d3ee;
-  --terminal-bg-white: #e4e4e7;
-}
 
 @layer base {
   * {

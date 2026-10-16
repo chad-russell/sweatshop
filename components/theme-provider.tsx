@@ -2,12 +2,7 @@
 
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 import type { ComponentProps } from "react";
-
-export const THEMES = [
-  { value: "clickhouse", label: "ClickHouse" },
-  { value: "cal", label: "Cal.com" },
-  { value: "nova", label: "Nova" },
-] as const;
+import { DEFAULT_THEME, THEMES } from "@/lib/themes";
 
 export function ThemeProvider({
   children,
@@ -16,8 +11,8 @@ export function ThemeProvider({
   return (
     <NextThemesProvider
       attribute="data-theme"
-      defaultTheme="clickhouse"
-      themes={THEMES.map((t) => t.value)}
+      defaultTheme={DEFAULT_THEME}
+      themes={THEMES.map((t) => t.id)}
       enableSystem={false}
       {...props}
     >

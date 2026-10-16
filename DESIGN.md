@@ -7,13 +7,19 @@ theme was derived from.
 ## Themes
 
 A theme is a complete set of CSS custom properties under
-`[data-theme="<name>"]` in `src/app/globals.css`, selected at runtime via the
-`data-theme` attribute (persisted by next-themes). Current themes:
+`[data-theme="<id>"]` in `app/themes/<id>.css` (imported by
+`app/globals.css`), selected at runtime via the `data-theme` attribute
+(persisted by next-themes). The registry — which themes exist, their labels
+and dark/light kind — is `lib/themes.ts`; `tests/themes.test.ts` enforces
+that registry and CSS never drift (docs/0044). Current themes:
 
 | theme        | feel                                              | source                          |
 | ------------ | ------------------------------------------------- | ------------------------------- |
-| `clickhouse` | **default.** Near-black canvas, electric yellow `#faff69`, hairlines, tight radii | `design/clickhouse/DESIGN.md` |
-| `cal`        | clean white canvas, black CTAs, hairlines, soft 12px radii, blue focus | `design/cal/DESIGN.md`        |
+| `clickhouse` | **default.** Near-black canvas, electric yellow `#faff69`, hairlines, tight radii (0.5rem) | `design/clickhouse/DESIGN.md` |
+| `everforest` | medium-dark greens, sage primary `#a7c080`, soft radii | Everforest (sainnhe)      |
+| `nord`       | polar night `#2e3440`, frost blue primary `#88c0d0`, soft radii | Nord (arcticicestudio) |
+| `gruvbox`    | warm retro groove, yellow primary `#fabd2f`, 0.5rem radii | Gruvbox (morhetz)         |
+| `cal`        | clean white canvas, black CTAs, hairlines, soft 12px radii, blue focus | `design/cal/DESIGN.md` |
 | `nova`       | shadcn baseline light (fallback + regression baseline) | shadcn default palette       |
 
 The token set is shadcn's semantic contract (background, foreground, card,
