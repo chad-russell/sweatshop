@@ -1,6 +1,6 @@
 # 0020 — Production run mode and backups
 
-Status: **approved 2026-10-07 (Chad); phases 1–3 shipped 2026-10-07, phase 4 (first nightly restic check) pending.** Phase 0 of `docs/ROADMAP.md`.
+Status: **approved 2026-10-07 (Chad); phases 1–3 shipped 2026-10-07, phase 4 (first nightly restic check) pending.** Phase 0 of `docs/ROADMAP.md`. §"Deploying" superseded by 0045 (Forgejo Actions pipeline) 2026-10-16.
 
 ## Goal
 
