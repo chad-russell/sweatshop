@@ -1,37 +1,54 @@
 #!/usr/bin/env bash
-# Deploy sweatshop on bee (0020): the checkout this script lives in is the
-# deploy checkout, and the `sweatshop` rootless user quadlet serves it.
+# ci-deploy.sh — the deploy body of the Forgejo Actions pipeline (0045).
+# It runs ONLY inside the `sweatshop-deploy` transient user unit on bee,
+# created by the workflow (or by hand for a dsh emergency). The workflow
+# EXTRACTS this file from the target commit (`git show <sha>:scripts/
+# ci-deploy.sh`) — the deploy checkout's working tree may not contain it
+# yet (the bootstrap the first run hit), and what runs must be exactly
+# the target's version. It refuses every other invocation: an
+# interactive shell or an app exec channel must never own the
+# stop→build→start window. 2026-10-16: the app's agent ran the old
+# scripts/deploy.sh through the 0043 exec seam; the deploy's own stop
+# step killed its caller and the deploy died mid-build — twice. The
+# fixed unit name also serializes deploys (a second systemd-run fails
+# while one runs), with flock as the belt to those braces.
 #
-#   scripts/deploy.sh           fast-forward to origin/main and deploy
-#   scripts/deploy.sh <ref>     deploy a specific commit (rollback)
+#   cd ~/ss/sweatshop && git show <sha>:scripts/ci-deploy.sh \
+#     > /tmp/sweatshop-ci-deploy.sh
+#   /run/wrappers/bin/sudo systemd-run \
+#     --machine=crussell@.host --user --collect --wait \
+#     --unit=sweatshop-deploy --setenv=SWEATSHOP_DEPLOY_UNIT=1 \
+#     /run/current-system/sw/bin/bash \
+#     /tmp/sweatshop-ci-deploy.sh <sha>
 #
-# Steps: refuse a dirty tree → resolve the target → snapshot the db
-# (data/backups/pre-<sha>.db, newest 10 kept) → stop the service → move
-# the checkout → npm ci + next build + db:migrate in a one-off container →
-# start → wait for /api/attention. A failed build or migrate puts the
-# previous commit back, rebuilds it, and starts it again; restore the
-# pre-<sha> snapshot by hand only if a migration had already applied.
-#
-# A host script on purpose: sweatshop's own sandboxed agents cannot run
-# it, so the app never redeploys itself.
+# <sha> is the commit to deploy: merge runs pass origin/main's sha,
+# dispatch rollbacks pass an older one. Steps (from scripts/deploy.sh,
+# deleted by 0045): refuse a dirty tree → resolve the target → snapshot
+# the db → stop → npm ci + next build + db:migrate in a one-off
+# container → start → health check; a failed build restores the
+# previous commit, rebuilds it, and starts it again.
 set -euo pipefail
 
+[[ "${SWEATSHOP_DEPLOY_UNIT:-}" == "1" ]] || {
+  echo "ci-deploy.sh runs only inside the sweatshop-deploy transient unit (0045)." >&2
+  echo "Deploys happen through the Forgejo Actions workflow; nothing else may start one." >&2
+  exit 64
+}
+[[ $# -eq 1 ]] || { echo "usage: ci-deploy.sh <sha>" >&2; exit 64; }
+
 # The deploy moves the checkout this script lives in, and bash reads a
-# script lazily as it runs — so a deploy that changed deploy.sh executed a
-# mix of old and new lines (2026-10-07: the old build() ran, and the
-# service went down). Re-exec from a private copy first, so the whole run
-# is the version that started.
+# script lazily as it runs — a deploy that changed this file must
+# execute the version that started (deploy.sh, 2026-10-07). Re-exec from
+# a private copy first.
 if [[ -z "${SWEATSHOP_DEPLOY_COPY:-}" ]]; then
-  copy="$(mktemp "${TMPDIR:-/tmp}/sweatshop-deploy.XXXXXX")"
+  copy="$(mktemp "${TMPDIR:-/tmp}/sweatshop-ci-deploy.XXXXXX")"
   cp "${BASH_SOURCE[0]}" "$copy"
-  export SWEATSHOP_DEPLOY_COPY="$copy"
-  export SWEATSHOP_DEPLOY_ROOT
-  SWEATSHOP_DEPLOY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  export SWEATSHOP_DEPLOY_COPY="$copy" SWEATSHOP_DEPLOY_UNIT=1
   exec bash "$copy" "$@"
 fi
 trap 'rm -f "$SWEATSHOP_DEPLOY_COPY"' EXIT
 
-ROOT="$SWEATSHOP_DEPLOY_ROOT"
+ROOT=/home/crussell/ss/sweatshop
 cd "$ROOT"
 UNIT=sweatshop
 URL="${SWEATSHOP_URL:-http://localhost:3300}"
@@ -44,21 +61,27 @@ die() { printf '\033[31m[deploy]\033[0m %s\n' "$*" >&2; exit 1; }
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 user_systemctl() { systemctl --user "$@"; }
 
+exec 9>"$ROOT/data/.deploy.lock"
+flock -n 9 || die "another deploy holds the lock"
+
+target="$1"
+git rev-parse --verify --quiet "${target}^{commit}" >/dev/null || git fetch --quiet origin
+git rev-parse --verify "${target}^{commit}" >/dev/null \
+  || die "unknown commit even after fetch: $target"
+target="$(git rev-parse "${target}^{commit}")"
+short="$(git rev-parse --short "$target")"
+
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   die "checkout has local changes — the deploy checkout only moves through this script"
 fi
-
 previous="$(git rev-parse HEAD)"
-if [[ $# -ge 1 ]]; then
-  git fetch --quiet origin
-  target="$(git rev-parse --verify "$1^{commit}")"
-else
-  git fetch --quiet origin
-  git merge-base --is-ancestor HEAD origin/main \
-    || die "HEAD is not an ancestor of origin/main (diverged) — resolve by hand"
-  target="$(git rev-parse origin/main)"
+
+healthy() { curl -fsS -m 5 -o /dev/null "$URL/api/attention" 2>/dev/null; }
+
+if [[ "$target" == "$previous" ]] && healthy; then
+  say "already at $short and healthy — nothing to do"
+  exit 0
 fi
-short="$(git rev-parse --short "$target")"
 say "deploying $short (from $(git rev-parse --short "$previous"))"
 
 # npm ci runs with --ignore-scripts: npm synthesizes `node-gyp rebuild`
@@ -66,7 +89,8 @@ say "deploying $short (from $(git rev-parse --short "$previous"))"
 # beside its bundled prebuilds/*.node, so a plain `npm ci` tries to compile
 # it — and the image has no python/g++ (the first deploy failed exactly so,
 # 2026-10-07). Then rebuild only the packages whose install scripts fetch a
-# platform binary. Keep this list in sync with `npm install-scripts ls`.
+# platform binary. Keep this list in sync with `npm install-scripts ls`
+# AND the checks job in .forgejo/workflows/deploy.yml.
 NATIVE_REBUILD="esbuild @swc/core unrs-resolver @mongodb-js/zstd cbor-extract protobufjs"
 
 # `next build` can finish its work — summary printed, .next complete —
@@ -135,18 +159,16 @@ wait_healthy() {
 say "stopping $UNIT"
 user_systemctl stop "$UNIT" || true
 
-if [[ $# -ge 1 && "$target" != "$(git rev-parse origin/main)" ]]; then
-  git checkout --quiet --detach "$target"
-else
+if [[ "$target" == "$(git rev-parse origin/main)" ]]; then
   git checkout --quiet main && git merge --quiet --ff-only "$target"
+else
+  git checkout --quiet --detach "$target"
 fi
-# NOTE: anything below runs from the private copy made at the top, so it
-# is always the deploy.sh that started — even when this deploy changed it.
 
 if ! build; then
   say "build or migrate failed — restoring $(git rev-parse --short "$previous")"
   git checkout --quiet --detach "$previous"
-  build || die "rebuild of the previous commit failed too — the service is DOWN; fix the build, then: systemctl --user start $UNIT"
+  build || die "rebuild of the previous commit failed too — the service is DOWN; fix the build, then re-run the deploy workflow"
   user_systemctl start "$UNIT"
   wait_healthy || die "previous version did not come back healthy — the service is DOWN"
   die "deploy of $short failed; $(git rev-parse --short "$previous") is serving again (if a migration ran, restore data/backups/pre-$short.db)"
