@@ -303,6 +303,18 @@ and the harness session page (0011); harness tool-approval cards (0006);
 enforce `network_policy`; push webhooks for follows; preview per PR; VM tier
 extras (0017); harness SSE; usage/cost visibility per provider/run.
 
+## Polish backlog (Chad, 2026-10-16)
+
+The system is proven; this phase is small improvements. Branch `glen/polish-agent-routing` carries items 1–6. Tick them here as they merge.
+
+1. **AGENTS.md reaches every agent.** Live check (2026-10-16): pi and claude load nothing, and their cwd is the work root. Cursor loads no AGENTS.md, only the `.cursor/rules` from Chad's Cursor account. Fix: add repo AGENTS.md files to the top-level instructions, and write a work-root AGENTS.md/CLAUDE.md for the harnesses.
+2. **Sandbox for repo work, host for live state.** With hosts configured, the agent ran repo work over `exec`. Fix: a routing rule in the instructions and the `exec` tool description.
+3. **Host auto-approve toggle.** One toggle per chat that stays on until Chad turns it off; every command is still audited, and a card shows "auto-approved". Commands touching lockout-sensitive services still ask.
+4. **Steer coding toward harnesses.** A prompt rule plus a line in the `bash` tool description. A reminder after N bash calls in a row is deferred until use shows it's needed.
+5. **More than one harness per chat.** One active call per kind, max 3 at once. Every bridge uses fixed port 4000 and settled bridges keep holding it (seen live: cursor EADDRINUSE). Fix: a port per kind, and reap bridges when a call settles.
+6. **Sidebar tree for parent/child chats.** Nest `start_thread` children under their parent (`parent_conversation_id`) with expand/collapse; a collapsed parent shows a running badge when anything under it is running.
+7. **Context-window meter per chat** (not yet scheduled). Show how full the context is, as other harnesses do. Groundwork: `lib/providers/catalog.ts` already has each model's `contextWindow`; turn usage is not stored today. Needs: store each model step's `usage.inputTokens` (the last step's input tokens ≈ current context size) on the assistant row; a meter in the chat header (used / window, %, warning color near the limit); for harness calls, the harness's own usage per session if its events carry it. Open question: what happens when a chat nears the limit (warn only, or offer compaction / a fresh thread with a summary).
+
 ## Open questions
 
 - **Releases and migrations**: proposed in 0020 (deploy script:

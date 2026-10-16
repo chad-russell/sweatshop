@@ -301,7 +301,9 @@ export function buildChatTools(
     ...(hasProject && hosts.length > 0 && {
       exec: tool({
         description:
-          "Run a command on a real host over SSH, as the host's user, via bash -lc — every call waits for Chad's " +
+          "Repo work happens in your sandbox, never here — exec is only for live state on a real host " +
+          "(check, restart, roll back, read logs); never edit a repo checkout on a host, and never open a PR " +
+          "from one. Run a command on a real host over SSH, as the host's user, via bash -lc — every call waits for Chad's " +
           "approval with the exact command on his card. This project's hosts: " +
           hosts
             .map((h) => `${h.name} (${h.user}@${h.address}${h.apiBase ? `, API ${h.apiBase}` : ""})`)
@@ -452,7 +454,8 @@ export function buildChatTools(
         description:
           "Run a bash command in this conversation's sandbox, in its working directory (a project " +
           "chat's own sandbox is created on first use with the repos cloned there; an attached chat " +
-          "works in the sandbox and directory it attached to).",
+          "works in the sandbox and directory it attached to). Look around and check work with it " +
+          "(read, grep, git, tests, builds, diffs); hand a real code change to a harness instead.",
         inputSchema: z.object({
           command: z.string().max(20_000).describe("The bash command to run."),
           description: commandDescription,

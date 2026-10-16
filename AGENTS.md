@@ -476,6 +476,29 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `./dev exec -- sh -c 'PREVIEW_E2E=1 npx vitest run tests/preview-first-fill.integration.test.ts'`
   (0019: the New-preview first-fill path on real podman + a git-daemon
   upstream), `SERVICES_SPIKE=1` (0017 services substrate).
+- Repo AGENTS.md for agents (no design doc — approved in chat, 2026-10-16):
+  live testing showed none of pi, claude, cursor, or the top-level chat
+  agent itself ever read a project repo's AGENTS.md unprompted. Two
+  fixes, same caps (`lib/agent/repo-docs.ts`: 24 KB per file, a `cat
+  <path>` pointer when cut). The top-level agent: at turn start, when the
+  conversation has a project AND its sandbox is already BOUND (never
+  provisioned just for this — pending/none reads nothing),
+  `loadRepoDocsStep` (`workflows/chat/steps.ts`, thin wrapper over the
+  plain `loadRepoDocs` in `lib/agent/tools/repo-docs.ts`) reads each repo's
+  AGENTS.md and `buildInstructions` (`workflows/chat/instructions.ts`,
+  pulled out of turn.ts, pure and unit-tested) appends them as `# Repo
+  instructions: <repo> (<path>)` sections, capped at 48 KB total (a repo
+  that would not fit is dropped whole with its own `cat` pointer). The
+  harnesses, which start with cwd at the work root rather than inside a
+  repo: `setupProjectWorkspace` (`lib/sandboxes/workspace.ts`) writes
+  `<root>/AGENTS.md` and `<root>/CLAUDE.md` (identical content, built by
+  the pure `buildWorkRootDoc`, overwritten on every setup) — a short
+  header, the repo list, then each repo's AGENTS.md inlined. Same turn,
+  `buildInstructions` also adds the harness/host routing paragraphs: bash
+  for looking around and checking work, a harness for any real code
+  change (always, when the chat has a sandbox), and — when the project
+  has hosts — exec for live host state only, never repo edits or PRs
+  (mirrored in the `bash`/`exec` tool descriptions, `workflows/chat/tools.ts`).
 
 - Previews (0016): a preview is a long-running HTTP server in a
   sandbox, owned by the SANDBOX (outlives the turn/run/stage that
