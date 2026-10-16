@@ -12,6 +12,9 @@ import type { NeedsYouThread, PendingRequest, RequestOption } from "@/db/attenti
 function ExecAsk({ exec }: { exec: NonNullable<PendingRequest["exec"]> }) {
   return (
     <div className="rounded-md border border-terminal-border bg-terminal px-3 py-2 font-mono text-xs">
+      {exec.description && (
+        <p className="mb-1 font-sans text-[13px] font-medium text-terminal-foreground">{exec.description}</p>
+      )}
       <div className="flex flex-wrap items-center gap-x-2 text-terminal-muted">
         <span className="text-terminal-foreground">{exec.user}@{exec.host}</span>
         <span aria-hidden>·</span>

@@ -7,6 +7,9 @@
 
 export interface BashView {
   command: string;
+  /** The caller's one-line "what this is for" (the chat shell tools'
+   *  optional `description`); absent for harness calls and older rows. */
+  description: string | undefined;
   stdout: string;
   stderr: string;
   exitCode: number | undefined;
@@ -44,14 +47,35 @@ function commandOf(input: unknown): string {
   return "";
 }
 
+/** The optional `description` — same clipped-JSON tolerance as the command. */
+export function descriptionOf(input: unknown): string | undefined {
+  const obj = asObject(input);
+  let raw: string | undefined;
+  if (obj) raw = typeof obj.description === "string" ? obj.description : undefined;
+  else if (typeof input === "string") {
+    const m = /"description"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(input);
+    if (m) {
+      try {
+        raw = JSON.parse(`"${m[1]}"`) as string;
+      } catch {
+        raw = m[1];
+      }
+    }
+  }
+  const text = raw?.replace(/\s+/g, " ").trim();
+  return text ? text : undefined;
+}
+
 const EXIT_SUFFIX = /\n*\(exit (-?\d+)\)\s*$/;
 
 export function parseBash(input: unknown, output: unknown, errorText?: string): BashView {
   const command = commandOf(input);
+  const description = descriptionOf(input);
   const obj = asObject(output);
   if (obj && ("stdout" in obj || "stderr" in obj || "exitCode" in obj)) {
     return {
       command,
+      description,
       stdout: typeof obj.stdout === "string" ? obj.stdout : "",
       stderr: typeof obj.stderr === "string" ? obj.stderr : "",
       exitCode: typeof obj.exitCode === "number" ? obj.exitCode : undefined,
@@ -62,14 +86,15 @@ export function parseBash(input: unknown, output: unknown, errorText?: string): 
     const m = EXIT_SUFFIX.exec(output);
     return {
       command,
+      description,
       stdout: m ? output.slice(0, m.index) : output,
       stderr: "",
       exitCode: m ? Number(m[1]) : undefined,
       hasOutput: true,
     };
   }
-  if (errorText) return { command, stdout: "", stderr: errorText, exitCode: undefined, hasOutput: true };
-  return { command, stdout: "", stderr: "", exitCode: undefined, hasOutput: false };
+  if (errorText) return { command, description, stdout: "", stderr: errorText, exitCode: undefined, hasOutput: true };
+  return { command, description, stdout: "", stderr: "", exitCode: undefined, hasOutput: false };
 }
 
 /**

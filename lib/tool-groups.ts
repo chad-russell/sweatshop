@@ -1,4 +1,4 @@
-import { parseBash } from "./bash-view";
+import { descriptionOf, parseBash } from "./bash-view";
 import { inspectName, inspectOf, inspectState, oneLine } from "./machine-tool-view";
 import { objectOf } from "./tool-fields";
 
@@ -87,7 +87,8 @@ export function callLabel(part: PartLike): string {
   switch (name) {
     case "bash":
     case "sandbox_exec":
-      label = str(i?.command)?.split("\n").find((l) => l.trim());
+      // The caller's own "what this is for" beats the command's first line.
+      label = descriptionOf(part.input) ?? str(i?.command)?.split("\n").find((l) => l.trim());
       break;
     case "inspect": {
       // What was inspected and where it stands — the id alone says nothing.
