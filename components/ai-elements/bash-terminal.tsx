@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon, ChevronDownIcon, CopyIcon, SquareTerminalIcon } from "lucide-react";
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { luminance, parseAnsi, stripAnsi, type AnsiColor, type AnsiSegment, type NamedColor } from "@/lib/ansi";
 import { parseBash, splitCd } from "@/lib/bash-view";
@@ -117,9 +117,6 @@ function CopyButton({ text, label, className }: { text: string; label: string; c
   );
 }
 
-/** Output up to this many lines is shown without a click. */
-const SHOW_INLINE_LINES = 12;
-
 type Tone = "running" | "ok" | "fail";
 
 function StatusPill({ tone, label }: { tone: Tone; label: string }) {
@@ -145,11 +142,12 @@ function StatusPill({ tone, label }: { tone: Tone; label: string }) {
 }
 
 /**
- * A bash tool call drawn as a terminal session: a window bar (icon, name,
- * the caller's one-line description when it gave one, exit-code pill),
- * the command as typed at a `$` prompt, and the output
- * below it — stderr in red, ANSI colours honoured. Output collapses to a
- * one-line summary; the command is always visible.
+ * A bash tool call drawn as a terminal session. Collapsed it is one
+ * header row like the other agent cards — icon, the caller's description
+ * (else the command's first line), the extra chip (sandbox / host), the
+ * exit pill with the output's line count, a chevron. Open, it shows the
+ * command as typed at a `$` prompt and the output below it — stderr in
+ * red, ANSI colours honoured.
  */
 export function BashTerminal({
   state,
@@ -195,10 +193,17 @@ export function BashTerminal({
   const commandLines = rest.split("\n");
   const plainOutput = [stripAnsi(view.stdout).trimEnd(), stripAnsi(view.stderr).trimEnd()].filter(Boolean).join("\n");
 
-  // Short output reads like a real terminal — shown inline. Long output
-  // starts collapsed (the line count in the bar expands it) unless the
-  // command failed, when the output is what you came for.
-  const [open, setOpen] = useState(hasBody && (failed || lineCount <= SHOW_INLINE_LINES));
+  // Collapsed is the header alone (the Fetch card's shape): what the call
+  // was for, where it ran, how it ended. The command and output open on a
+  // click — or by themselves when Chad must read them: a failure, or a
+  // command awaiting his approval.
+  const [open, setOpen] = useState(failed || awaiting);
+  // A live call that ends in failure opens itself (it mounted closed).
+  useEffect(() => {
+    if (failed || awaiting) setOpen(true);
+  }, [failed, awaiting]);
+  const headline = view.description ?? (rest.split("\n").find((l) => l.trim()) ?? "").trim();
+  const pillLabel = hasBody && !running && !awaiting ? `${label} · ${lineCount} ${lineCount === 1 ? "line" : "lines"}` : label;
 
   return (
     <Collapsible
@@ -210,69 +215,75 @@ export function BashTerminal({
         className,
       )}
     >
-      {/* Window bar */}
-      <div className="flex items-center gap-2 border-b border-terminal-border px-3 py-1.5">
-        <SquareTerminalIcon className="size-4 shrink-0 text-terminal-muted" aria-hidden />
-        <span className="shrink-0 font-mono text-xs text-terminal-muted">bash</span>
-        {view.description && (
-          <span className="min-w-0 truncate text-xs text-terminal-foreground" title={view.description}>
-            {view.description}
-          </span>
-        )}
-        <StatusPill tone={tone} label={label} />
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          {extra}
-          {hasBody && (
-            <CollapsibleTrigger
-              aria-label={open ? "Hide output" : "Show output"}
-              className="flex items-center gap-1 rounded p-1 font-mono text-[10px] text-terminal-muted transition-colors hover:bg-terminal-foreground/10 hover:text-terminal-foreground"
+      {/* Header — the whole bar toggles; links/buttons inside keep their own clicks. */}
+      <div
+        className="flex cursor-pointer items-center gap-2.5 px-3 py-2"
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest("a,button")) return;
+          setOpen((o) => !o);
+        }}
+      >
+        <SquareTerminalIcon className={cn("size-4 shrink-0", failed ? "text-terminal-red" : "text-terminal-muted")} aria-hidden />
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <span className="shrink-0 font-mono text-xs text-terminal-muted">bash</span>
+          {headline && (
+            <span
+              className={cn("min-w-0 truncate text-[12.5px] font-medium", !view.description && "font-mono")}
+              title={view.description ? `${view.description}\n\n$ ${view.command}` : view.command}
             >
-              {lineCount} {lineCount === 1 ? "line" : "lines"}
-              <ChevronDownIcon className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
-            </CollapsibleTrigger>
+              {headline}
+            </span>
           )}
-        </span>
-      </div>
-
-      {/* Command, as typed */}
-      {/* Narrow screens stack the cwd above the prompt line so a long path
-          can't squeeze the command into a sliver; sm+ keeps one row. */}
-      <div className="group/cmd relative flex flex-col px-3 py-2 font-mono text-[12.5px] leading-relaxed sm:flex-row sm:gap-2">
-        {cwd && (
-          <span
-            className="min-w-0 select-none break-all pr-6 text-terminal-muted sm:max-w-[50%] sm:shrink-0 sm:pr-0"
-            title={`cd ${cwd}`}
-          >
-            {cwd}
-          </span>
-        )}
-        <div className="flex min-w-0 flex-1 gap-2">
-          <span aria-hidden className="select-none text-terminal-green">
-            $
-          </span>
-          <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-words">
-            {commandLines.map((line, i) => (
-              <span key={i} className="block">
-                {line || " "}
-                {running && i === commandLines.length - 1 && (
-                  <span aria-hidden className="ml-0.5 inline-block h-[1.1em] w-[0.5ch] translate-y-[0.2em] animate-pulse bg-terminal-foreground/80" />
-                )}
-              </span>
-            ))}
-          </pre>
         </div>
-        {view.command && (
-          <CopyButton
-            text={view.command}
-            label="Copy command"
-            className="absolute right-2 top-1.5 opacity-0 focus-visible:opacity-100 group-hover/cmd:opacity-100"
-          />
-        )}
+        {extra}
+        <StatusPill tone={tone} label={pillLabel} />
+        <CollapsibleTrigger
+          aria-label={open ? "Hide command and output" : "Show command and output"}
+          className="-mr-1 rounded p-1 text-terminal-muted transition-colors hover:bg-terminal-foreground/10 hover:text-terminal-foreground"
+        >
+          <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+        </CollapsibleTrigger>
       </div>
 
-      {/* Output */}
-      {hasBody ? (
-        <CollapsibleContent>
+      <CollapsibleContent className="border-t border-terminal-border">
+        {/* Command, as typed */}
+        {/* Narrow screens stack the cwd above the prompt line so a long path
+            can't squeeze the command into a sliver; sm+ keeps one row. */}
+        <div className="group/cmd relative flex flex-col px-3 py-2 font-mono text-[12.5px] leading-relaxed sm:flex-row sm:gap-2">
+          {cwd && (
+            <span
+              className="min-w-0 select-none break-all pr-6 text-terminal-muted sm:max-w-[50%] sm:shrink-0 sm:pr-0"
+              title={`cd ${cwd}`}
+            >
+              {cwd}
+            </span>
+          )}
+          <div className="flex min-w-0 flex-1 gap-2">
+            <span aria-hidden className="select-none text-terminal-green">
+              $
+            </span>
+            <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-words">
+              {commandLines.map((line, i) => (
+                <span key={i} className="block">
+                  {line || " "}
+                  {running && i === commandLines.length - 1 && (
+                    <span aria-hidden className="ml-0.5 inline-block h-[1.1em] w-[0.5ch] translate-y-[0.2em] animate-pulse bg-terminal-foreground/80" />
+                  )}
+                </span>
+              ))}
+            </pre>
+          </div>
+          {view.command && (
+            <CopyButton
+              text={view.command}
+              label="Copy command"
+              className="absolute right-2 top-1.5 opacity-0 focus-visible:opacity-100 group-hover/cmd:opacity-100"
+            />
+          )}
+        </div>
+
+        {/* Output */}
+        {hasBody ? (
           <div className="group/out relative border-t border-terminal-border">
             <pre className="max-h-80 overflow-auto px-3 py-2 pl-[calc(0.75rem+1ch+0.5rem)] font-mono text-[12px] leading-relaxed">
               {stdoutLines.map((segments, i) => (
@@ -292,12 +303,12 @@ export function BashTerminal({
               className="absolute right-2 top-1.5 opacity-0 focus-visible:opacity-100 group-hover/out:opacity-100"
             />
           </div>
-        </CollapsibleContent>
-      ) : view.hasOutput && !running ? (
-        <p className="border-t border-terminal-border px-3 py-1.5 font-mono text-[11px] italic text-terminal-muted">
-          no output
-        </p>
-      ) : null}
+        ) : view.hasOutput && !running ? (
+          <p className="border-t border-terminal-border px-3 py-1.5 font-mono text-[11px] italic text-terminal-muted">
+            no output
+          </p>
+        ) : null}
+      </CollapsibleContent>
     </Collapsible>
   );
 }
