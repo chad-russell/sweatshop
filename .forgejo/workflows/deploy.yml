@@ -119,11 +119,18 @@ jobs:
             cd ~/ss/sweatshop
             git cat-file -e "${{ steps.target.outputs.sha }}^{commit}" 2>/dev/null \
               || git fetch --quiet origin
+            # Extract the deploy body FROM THE TARGET COMMIT: the deploy
+            # checkout'"'"'s working tree may not contain it yet (it might
+            # still be on the branch being deployed — the bootstrap the
+            # first run hit). The script re-execs from a private copy, so
+            # what runs is always exactly the target'"'"'s version.
+            git show "${{ steps.target.outputs.sha }}:scripts/ci-deploy.sh" \
+              > /tmp/sweatshop-ci-deploy.sh
             /run/wrappers/bin/sudo systemd-run \
               --machine=crussell@.host --user --collect --wait \
               --unit=sweatshop-deploy --setenv=SWEATSHOP_DEPLOY_UNIT=1 \
               /run/current-system/sw/bin/bash \
-              scripts/ci-deploy.sh "${{ steps.target.outputs.sha }}"
+              /tmp/sweatshop-ci-deploy.sh "${{ steps.target.outputs.sha }}"
           '
 
       - name: Verify healthy

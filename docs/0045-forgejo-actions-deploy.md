@@ -93,10 +93,15 @@ concurrency:
   only): resolve target sha → `ssh bee` as crussell → **drift check**:
   read the deploy checkout's `HEAD` on bee; if it already equals the
   target and `/api/attention` answers, the run is a no-op (cn's
-  build-diff analog) → else create the transient unit and poll:
+  build-diff analog) → else fetch the sha into the deploy checkout's
+  object store, **extract the deploy body from the target commit**
+  (`git show <sha>:scripts/ci-deploy.sh` — the working tree may not
+  contain it yet; the bootstrap the first run hit), and run it in the
+  transient unit:
   `ssh bee '/run/wrappers/bin/sudo systemd-run --machine=crussell@.host
   --user --collect --wait --unit=sweatshop-deploy
-  /run/current-system/sw/bin/bash ~/ss/sweatshop/scripts/ci-deploy.sh <sha>'`
+  --setenv=SWEATSHOP_DEPLOY_UNIT=1 /run/current-system/sw/bin/bash
+  /tmp/sweatshop-ci-deploy.sh <sha>'`
   then verify `/api/attention` 200.
 - **Notify**: ntfy (bees `:8090`) topic `sweatshop-ci` — urgent ping on
   failure with a link to the run; quiet or low-priority note on

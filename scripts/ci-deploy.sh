@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 # ci-deploy.sh — the deploy body of the Forgejo Actions pipeline (0045).
 # It runs ONLY inside the `sweatshop-deploy` transient user unit on bee,
-# created by the workflow (or by hand for a dsh emergency). It refuses
-# every other invocation: an interactive shell or an app exec channel
-# must never own the stop→build→start window. 2026-10-16: the app's
-# agent ran the old scripts/deploy.sh through the 0043 exec seam; the
-# deploy's own stop step killed its caller and the deploy died mid-build
-# — twice. The fixed unit name also serializes deploys (a second
-# systemd-run fails while one runs), with flock as the belt to those
-# braces.
+# created by the workflow (or by hand for a dsh emergency). The workflow
+# EXTRACTS this file from the target commit (`git show <sha>:scripts/
+# ci-deploy.sh`) — the deploy checkout's working tree may not contain it
+# yet (the bootstrap the first run hit), and what runs must be exactly
+# the target's version. It refuses every other invocation: an
+# interactive shell or an app exec channel must never own the
+# stop→build→start window. 2026-10-16: the app's agent ran the old
+# scripts/deploy.sh through the 0043 exec seam; the deploy's own stop
+# step killed its caller and the deploy died mid-build — twice. The
+# fixed unit name also serializes deploys (a second systemd-run fails
+# while one runs), with flock as the belt to those braces.
 #
+#   cd ~/ss/sweatshop && git show <sha>:scripts/ci-deploy.sh \
+#     > /tmp/sweatshop-ci-deploy.sh
 #   /run/wrappers/bin/sudo systemd-run \
 #     --machine=crussell@.host --user --collect --wait \
 #     --unit=sweatshop-deploy --setenv=SWEATSHOP_DEPLOY_UNIT=1 \
 #     /run/current-system/sw/bin/bash \
-#     ~/ss/sweatshop/scripts/ci-deploy.sh <sha>
+#     /tmp/sweatshop-ci-deploy.sh <sha>
 #
 # <sha> is the commit to deploy: merge runs pass origin/main's sha,
 # dispatch rollbacks pass an older one. Steps (from scripts/deploy.sh,

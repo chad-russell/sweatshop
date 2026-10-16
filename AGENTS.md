@@ -603,13 +603,13 @@ ONE instance (0020) — no dev server, no second checkout:
   caller, twice, leaving the service down).
 - **Changing sweatshop** = an ordinary project: a sandboxed chat on
   the `sweatshop` project opens a PR (`create_pr`); the merge ships it.
-  dsh is the emergency path when a deploy breaks the app — create the
-  transient unit by hand:
-  `/run/wrappers/bin/sudo systemd-run --machine=crussell@.host --user
-  --collect --wait --unit=sweatshop-deploy
-  --setenv=SWEATSHOP_DEPLOY_UNIT=1
-  /run/current-system/sw/bin/bash
-  ~/ss/sweatshop/scripts/ci-deploy.sh <sha>`.
+  dsh is the emergency path when a deploy breaks the app — extract the
+  script from the target commit and create the transient unit by hand:
+  `cd ~/ss/sweatshop && git show <sha>:scripts/ci-deploy.sh >
+  /tmp/sweatshop-ci-deploy.sh && /run/wrappers/bin/sudo systemd-run
+  --machine=crussell@.host --user --collect --wait --unit=sweatshop-deploy
+  --setenv=SWEATSHOP_DEPLOY_UNIT=1 /run/current-system/sw/bin/bash
+  /tmp/sweatshop-ci-deploy.sh <sha>`.
 - **State** is all under `data/` (backed up nightly by bee's restic, plus
   a `VACUUM INTO` snapshot at `data/backups/nightly.db` an hour before):
   `sweatshop.db` (+WAL), `workflow-data/` (the Workflow SDK local world —
