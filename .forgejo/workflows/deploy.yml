@@ -45,8 +45,12 @@ jobs:
       - name: Checkout
         run: |
           set -eu
+          export GIT_TERMINAL_PROMPT=0
+          # GITHUB_ACTOR is unset on pull_request events (cn ci.yml's
+          # lesson): fall back to the token-auth username or the URL
+          # carries an empty user and fetch dies on auth.
           git init -q .
-          git remote add origin "https://${GITHUB_ACTOR}:${{ secrets.GITHUB_TOKEN }}@git.crussell.io/chad/sweatshop.git"
+          git remote add origin "https://${GITHUB_ACTOR:-x-access-token}:${{ secrets.GITHUB_TOKEN }}@git.crussell.io/chad/sweatshop.git"
           git fetch --depth 1 origin "+${GITHUB_REF}:"
           git checkout --detach FETCH_HEAD
 
