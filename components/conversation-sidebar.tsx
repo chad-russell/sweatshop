@@ -1,11 +1,9 @@
 "use client";
 
-import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, Inbox, MonitorPlay, Plus, Search, Settings, Sparkles, Trash2, X } from "lucide-react";
-import Link from "next/link";
+import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, Inbox, MonitorPlay, Search, Settings, Trash2, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +11,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { OPEN_PANEL_EVENT } from "@/components/agent-panel";
 import { CommandPalette } from "@/components/sidebar/command-palette";
 import { SidebarContext } from "@/components/sidebar/context";
 import { useNavDrawer } from "@/components/sidebar/nav-drawer";
@@ -38,8 +35,8 @@ export type { SidebarData, SidebarGroup, SidebarItem } from "@/components/sideba
 type View = "library" | "archive" | "trash";
 
 /**
- * Conversation navigation (0002–0004, 0007, 0008, 0040): the actions
- * (New chat, Agent — buttons), search, the PAGES (Inbox, Projects, then
+ * Conversation navigation (0002–0004, 0007, 0008, 0040): search, the
+ * PAGES (Inbox, Projects, then
  * Sandboxes and Previews — flat rows), and per group (project, or Chats)
  * a folder tree plus the Unfiled conversations split by age. Archive and
  * Trash are views behind the Conversations label's menu; the footer is
@@ -133,29 +130,6 @@ export function ConversationSidebar({
           >
             <X className="size-4" />
           </button>
-        </div>
-
-        {/* 0040: the two ACTIONS are buttons, never rows. */}
-        <div className="flex gap-2 px-3 pb-3">
-          <Button asChild size="default" className="flex-1">
-            <Link href="/" title="New chat (no project)">
-              <Plus /> New chat
-            </Link>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1"
-            onClick={() => {
-              closeDrawer();
-              window.dispatchEvent(new Event(OPEN_PANEL_EVENT));
-            }}
-          >
-            <Sparkles /> Agent
-            <kbd className="ml-0.5 hidden rounded border border-sidebar-border px-1 font-mono text-[10px] font-normal text-sidebar-foreground/50 md:inline">
-              ⌘J
-            </kbd>
-          </Button>
         </div>
 
         <div className="px-3 pb-2">
