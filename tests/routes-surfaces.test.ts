@@ -93,8 +93,17 @@ describe("global defaults write path", () => {
   });
 
   it("claude defaults take model/effort, never a provider", () => {
-    expect(setDefaultRoute(db(), "claude", { harness: "claude", model: "opus", effort: "high" }).ok).toBe(true);
-    expect(setDefaultRoute(db(), "claude", { harness: "claude", provider: "gloo" }).ok).toBe(false);
+    // The route is only valid when the claude token is configured; stub
+    // it so the gate does not depend on the host env (CI runs bare).
+    const prev = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-token";
+    try {
+      expect(setDefaultRoute(db(), "claude", { harness: "claude", model: "opus", effort: "high" }).ok).toBe(true);
+      expect(setDefaultRoute(db(), "claude", { harness: "claude", provider: "gloo" }).ok).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = prev;
+    }
   });
 });
 
