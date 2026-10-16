@@ -1,0 +1,66 @@
+/* ------------------------------------------------------------------ */
+/* nord — dark. arcticicestudio's Nord: polar night bg, frost blues,   */
+/* snow white fg. Vendor palette, mapped to tokens.                    */
+/* ------------------------------------------------------------------ */
+[data-theme="nord"] {
+  --background: #2e3440;
+  --foreground: #eceff4;
+  --card: #333b4a;
+  --card-foreground: #eceff4;
+  --popover: #3b4252;
+  --popover-foreground: #eceff4;
+  --primary: #88c0d0;
+  --primary-foreground: #2e3440;
+  --secondary: #3b4252;
+  --secondary-foreground: #eceff4;
+  --muted: #3b4252;
+  --muted-foreground: #a9b1c1;
+  --accent: #434c5e;
+  --accent-foreground: #eceff4;
+  --destructive: #bf616a;
+  --destructive-foreground: #eceff4;
+  --border: #3b4252;
+  --input: #434c5e;
+  --ring: #88c0d0;
+  --chart-1: #88c0d0;
+  --chart-2: #a3be8c;
+  --chart-3: #ebcb8b;
+  --chart-4: #d08770;
+  --chart-5: #b48ead;
+  --radius: 0.625rem;
+  --sidebar: #2e3440;
+  --sidebar-foreground: #eceff4;
+  --sidebar-primary: #88c0d0;
+  --sidebar-primary-foreground: #2e3440;
+  --sidebar-accent: #3b4252;
+  --sidebar-accent-foreground: #eceff4;
+  --sidebar-border: #3b4252;
+  --sidebar-ring: #88c0d0;
+  --success: #a3be8c;
+  --warning: #ebcb8b;
+  --info: #81a1c1;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
+  /* terminal surface: nord ANSI (nord0 bg, snow fg) */
+  --terminal: #272c36;
+  --terminal-foreground: #e5e9f0;
+  --terminal-muted: #a9b1c1;
+  --terminal-border: #3b4252;
+  --terminal-red: #bf616a;
+  --terminal-green: #a3be8c;
+  --terminal-yellow: #ebcb8b;
+  --terminal-blue: #81a1c1;
+  --terminal-magenta: #b48ead;
+  --terminal-cyan: #8fbcbb;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #4c566a;
+  --terminal-white: #eceff4;
+  --terminal-ink: #2e3440;
+  --terminal-bg-black: #4c566a;
+  --terminal-bg-red: #bf616a;
+  --terminal-bg-green: #a3be8c;
+  --terminal-bg-yellow: #ebcb8b;
+  --terminal-bg-blue: #81a1c1;
+  --terminal-bg-magenta: #b48ead;
+  --terminal-bg-cyan: #8fbcbb;
+  --terminal-bg-white: #eceff4;
+}

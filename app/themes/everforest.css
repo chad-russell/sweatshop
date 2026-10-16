@@ -1,0 +1,66 @@
+/* ------------------------------------------------------------------ */
+/* everforest — dark (medium). sainnhe's Everforest: muted greens,     */
+/* sage primary, soft contrast. Vendor palette, mapped to tokens.      */
+/* ------------------------------------------------------------------ */
+[data-theme="everforest"] {
+  --background: #2b3339;
+  --foreground: #d3c6aa;
+  --card: #323c41;
+  --card-foreground: #d3c6aa;
+  --popover: #3a454a;
+  --popover-foreground: #d3c6aa;
+  --primary: #a7c080;
+  --primary-foreground: #2b3339;
+  --secondary: #3a454a;
+  --secondary-foreground: #d3c6aa;
+  --muted: #323c41;
+  --muted-foreground: #9da9a0;
+  --accent: #3a454a;
+  --accent-foreground: #d3c6aa;
+  --destructive: #e67e80;
+  --destructive-foreground: #2b3339;
+  --border: #414b50;
+  --input: #4a555b;
+  --ring: #a7c080;
+  --chart-1: #a7c080;
+  --chart-2: #83c092;
+  --chart-3: #7fbbb3;
+  --chart-4: #d699b6;
+  --chart-5: #e69875;
+  --radius: 0.625rem;
+  --sidebar: #2b3339;
+  --sidebar-foreground: #d3c6aa;
+  --sidebar-primary: #a7c080;
+  --sidebar-primary-foreground: #2b3339;
+  --sidebar-accent: #323c41;
+  --sidebar-accent-foreground: #d3c6aa;
+  --sidebar-border: #414b50;
+  --sidebar-ring: #a7c080;
+  --success: #83c092;
+  --warning: #dbbc7f;
+  --info: #7fbbb3;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
+  /* terminal surface: everforest ANSI on the editor background */
+  --terminal: #272e33;
+  --terminal-foreground: #d3c6aa;
+  --terminal-muted: #9da9a0;
+  --terminal-border: #414b50;
+  --terminal-red: #e67e80;
+  --terminal-green: #83c092;
+  --terminal-yellow: #dbbc7f;
+  --terminal-blue: #7fbbb3;
+  --terminal-magenta: #d699b6;
+  --terminal-cyan: #83c092;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #7a8478;
+  --terminal-white: #d3c6aa;
+  --terminal-ink: #2b3339;
+  --terminal-bg-black: #4f585e;
+  --terminal-bg-red: #e67e80;
+  --terminal-bg-green: #83c092;
+  --terminal-bg-yellow: #dbbc7f;
+  --terminal-bg-blue: #7fbbb3;
+  --terminal-bg-magenta: #d699b6;
+  --terminal-bg-cyan: #83c092;
+  --terminal-bg-white: #d3c6aa;
+}

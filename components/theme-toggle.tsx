@@ -1,41 +1,58 @@
 "use client";
 
-import { Palette } from "lucide-react";
+import { Check, Palette } from "lucide-react";
 import { useTheme } from "next-themes";
-import { THEMES } from "@/components/theme-provider";
+import { THEMES } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import { useMounted } from "@/lib/use-mounted";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 /**
- * Minimal theme cycler: clickhouse → cal → nova. A dropdown can replace it
- * when there are enough themes to warrant one.
+ * Theme picker (docs/0044): dropdown over the registry in lib/themes.ts.
+ * The old cycler was replaced once the registry grew past a handful of
+ * themes.
  *
  * Deliberately no `disabled` attribute before mount: it was the one
  * attribute that differed between server and client render and tripped a
- * hydration warning. The click is simply a no-op until mounted.
+ * hydration warning (lesson from the cycler it replaces).
  */
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme();
   const mounted = useMounted();
 
-  const current = mounted ? (theme ?? "clickhouse") : null;
-  const next =
-    current === null
-      ? null
-      : THEMES[(THEMES.findIndex((t) => t.value === current) + 1) % THEMES.length];
+  const current = mounted ? (theme ?? THEMES[0].id) : null;
 
   return (
-    <button
-      type="button"
-      aria-label={next ? `Switch theme to ${next.label}` : "Switch theme"}
-      title={next ? `Theme: ${current} → ${next.value}` : "Switch theme"}
-      onClick={() => next && setTheme(next.value)}
-      className={cn(
-        "inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        className,
-      )}
-    >
-      <Palette className="size-4" />
-    </button>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="Switch theme"
+        title="Switch theme"
+        className={cn(
+          "inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          className,
+        )}
+      >
+        <Palette className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" side="bottom">
+        {THEMES.map((t) => (
+          <DropdownMenuItem
+            key={t.id}
+            onSelect={() => setTheme(t.id)}
+            aria-checked={current === t.id}
+          >
+            <Check
+              className={cn("size-4", current === t.id ? "opacity-100" : "opacity-0")}
+            />
+            {t.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
