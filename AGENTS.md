@@ -413,7 +413,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   locked thread groups (docs/0046-thread-groups.md): `moveConversation`,
   `setArchived`/`setTrashed`, and `deleteConversationForever` normalize
   the dragged id to its topmost ancestor and apply to the whole group
-  (root + every descendant, cycle-safe walks in `db/organize.ts`);
+  (root + every descendant over BOTH child kinds — start_thread chats
+  via `conversations.parent_conversation_id` and historical machine runs
+  via `machine_runs.parent_conversation_id` — one shared parent-edge
+  map, cycle-safe walks in `db/organize.ts`);
   children copy the parent's `folderId` at creation
   (`setConversationParent`; migration `0053_group_locking.sql` re-files
   already-diverged data) — a family files, shelves, and dies together.

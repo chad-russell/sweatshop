@@ -84,6 +84,45 @@ function childConvo(parentId: string, updatedAt = Date.now()) {
   return id;
 }
 
+/** A historical machine run child: a kind:"run" conversation (the id IS
+ * the machine_runs id) linked to its parent chat via
+ * machine_runs.parent_conversation_id — the only home of that edge. */
+function runConvo(parentChatId: string) {
+  n += 1;
+  const id = `mr_org_${n}`;
+  const parent = tdb
+    .select({ projectId: conversations.projectId })
+    .from(conversations)
+    .where(eq(conversations.id, parentChatId))
+    .get()!;
+  tdb
+    .insert(conversations)
+    .values({
+      id,
+      title: `run ${n}`,
+      projectId: parent.projectId,
+      kind: "run",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+  tdb
+    .insert(machineRuns)
+    .values({
+      id,
+      status: "completed",
+      machineName: "R",
+      machineVersion: 1,
+      definition: "{}",
+      prompt: "go",
+      parentConversationId: parentChatId,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+  return id;
+}
+
 describe("folders", () => {
   it("creates nested folders and inherits the parent's group", () => {
     const top = createFolder(tdb, { projectId: "org-a", parentId: null, name: "Spikes" });
@@ -318,6 +357,43 @@ describe("locked thread groups (0046)", () => {
     expect(tdb.select().from(conversations).where(eq(conversations.id, kid)).get()).toBeUndefined();
     expect(tdb.select().from(messages).where(eq(messages.conversationId, root)).all()).toEqual([]);
     expect(tdb.select().from(messages).where(eq(messages.conversationId, kid)).all()).toEqual([]);
+  });
+
+  it("a historical machine run locks to its parent chat (machine_runs edge)", () => {
+    const chat = convo("org-a");
+    const run = runConvo(chat);
+    const folder = (id: string) =>
+      tdb.select().from(conversations).where(eq(conversations.id, id)).get()?.folderId;
+    const f = createFolder(tdb, { projectId: "org-a", parentId: null, name: "Lock-Run" });
+    // Dragging the CHAT files the run too.
+    moveConversation(tdb, chat, f.id);
+    expect(folder(chat)).toBe(f.id);
+    expect(folder(run)).toBe(f.id);
+    // Dragging the RUN normalizes up to the chat and files the family.
+    const f2 = createFolder(tdb, { projectId: "org-a", parentId: null, name: "Lock-Run-2" });
+    moveConversation(tdb, run, f2.id);
+    expect(folder(chat)).toBe(f2.id);
+    expect(folder(run)).toBe(f2.id);
+    // Trashing the chat trashes the run; restore from either side clears.
+    setTrashed(tdb, chat, true);
+    const trashed = (id: string) =>
+      tdb.select().from(conversations).where(eq(conversations.id, id)).get()?.trashedAt;
+    expect(trashed(run)).not.toBeNull();
+    setTrashed(tdb, run, false);
+    expect(trashed(chat)).toBeNull();
+  });
+
+  it("delete-forever on the chat purges its run conversation AND the machine_runs row", () => {
+    const chat = convo("org-a");
+    const run = runConvo(chat);
+    tdb.insert(messages).values({
+      id: `evt_m_${run}`, conversationId: run, role: "user", text: "run msg", at: 1,
+    }).run();
+    deleteConversationForever(tdb, chat);
+    expect(tdb.select().from(conversations).where(eq(conversations.id, chat)).get()).toBeUndefined();
+    expect(tdb.select().from(conversations).where(eq(conversations.id, run)).get()).toBeUndefined();
+    expect(tdb.select().from(machineRuns).where(eq(machineRuns.id, run)).get()).toBeUndefined();
+    expect(tdb.select().from(messages).where(eq(messages.conversationId, run)).all()).toEqual([]);
   });
 
   it("a corrupted parent cycle cannot hang a move — something sane still files", () => {

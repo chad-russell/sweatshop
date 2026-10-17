@@ -26,10 +26,14 @@ conversation could have children, but nothing below the read model did:
 The invariant lives in `db/organize.ts`, so drag, the "Move to…" menu,
 and the API all get it free:
 
-- A thread **group** is a root conversation plus every descendant via
-  `conversations.parent_conversation_id` (both walks carry a visited
-  set, so a corrupted parent cycle cannot loop; it stops at the node
-  before the repeat).
+- A thread **group** is a root conversation plus every descendant, over
+  BOTH child kinds: a `start_thread` chat
+  (`conversations.parent_conversation_id`) and a historical machine run
+  (`machine_runs.parent_conversation_id` — a run conversation's id IS
+  its machine_runs id, and that column is the link's only home). Both
+  walks share one parent-edge map, so the up-walk and down-walk agree;
+  each carries a visited set, so a corrupted parent cycle cannot loop
+  (it stops at the node before the repeat).
 - `moveConversation` normalizes the dragged id to the topmost ancestor
   and files the **whole group** — root and every descendant — in one
   transaction. The cross-group check runs against the ROOT's project.
@@ -41,9 +45,11 @@ and the API all get it free:
   keeps its machine_runs purge path (0012).
 - `setConversationParent` (db/chat.ts) copies the parent's `folderId`
   onto the child at creation — groups never diverge at the source.
-- Migration `0053_group_locking.sql` (data-only, recursive CTE) re-files
-  every existing child to its root ancestor's folder, fixing Chad's
-  already-diverged state on deploy.
+- Migration `0053_group_locking.sql` (data-only) re-files every existing
+  child to its root ancestor's folder, fixing Chad's already-diverged
+  state on deploy: a recursive CTE for chat children, then a single join
+  for runs (one level — a run is never itself a parent) that files each
+  run to its parent chat's already-rooted folder.
 
 The UI needs no changes for locking: drops and menus already call
 `moveConversation(id)`, and the store normalizes.

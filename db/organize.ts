@@ -129,6 +129,32 @@ export function folderSubtreeIds(db: Conn, rootId: string): string[] {
 }
 
 /**
+ * 0046: every conversation's parent edge as ONE map, so the up-walk and
+ * the down-walk always agree. Two edge kinds (review fix: runs must
+ * lock too): a start_thread child's conversations.parent_conversation_id,
+ * and a kind:"run" conversation's machine_runs.parent_conversation_id —
+ * a run's id IS its machine_runs id, and that column is the link's only
+ * home. The conversations edge wins on a conflict (none is realistic).
+ */
+function conversationParentEdges(db: Conn): Map<string, string> {
+  const parent = new Map<string, string>();
+  for (const row of db
+    .select({ id: machineRuns.id, parentId: machineRuns.parentConversationId })
+    .from(machineRuns)
+    .where(isNotNull(machineRuns.parentConversationId))
+    .all()) {
+    parent.set(row.id, row.parentId!);
+  }
+  for (const row of db
+    .select({ id: conversations.id, parentId: conversations.parentConversationId })
+    .from(conversations)
+    .all()) {
+    if (row.parentId) parent.set(row.id, row.parentId);
+  }
+  return parent;
+}
+
+/**
  * 0046 locked thread groups: the topmost ancestor of `id` — `id` itself
  * when it has no parent. A visited set stops a corrupted parent cycle
  * from looping: the walk ends at the node just before the repeat, which
@@ -136,15 +162,11 @@ export function folderSubtreeIds(db: Conn, rootId: string): string[] {
  */
 function rootConversationId(db: Conn, id: string): string {
   getConversation(db, id);
+  const parent = conversationParentEdges(db);
   const seen = new Set<string>([id]);
   let cursor = id;
   for (;;) {
-    const parentId =
-      db
-        .select({ parentId: conversations.parentConversationId })
-        .from(conversations)
-        .where(eq(conversations.id, cursor))
-        .get()?.parentId ?? null;
+    const parentId = parent.get(cursor) ?? null;
     if (parentId === null || seen.has(parentId)) return cursor;
     seen.add(parentId);
     cursor = parentId;
@@ -154,16 +176,12 @@ function rootConversationId(db: Conn, id: string): string {
 /** 0046: the root AND every descendant conversation id (recursive; a
  *  visited set keeps a corrupted parent cycle from looping). */
 function conversationGroupIds(db: Conn, rootId: string): string[] {
-  const rows = db
-    .select({ id: conversations.id, parentId: conversations.parentConversationId })
-    .from(conversations)
-    .all();
+  const parent = conversationParentEdges(db);
   const children = new Map<string, string[]>();
-  for (const row of rows) {
-    if (!row.parentId) continue;
-    const list = children.get(row.parentId) ?? [];
-    list.push(row.id);
-    children.set(row.parentId, list);
+  for (const [childId, parentId] of parent) {
+    const list = children.get(parentId) ?? [];
+    list.push(childId);
+    children.set(parentId, list);
   }
   const out: string[] = [];
   const seen = new Set<string>();
