@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, CircleSlash, CircleX, Hand, Loader2 } from "lucide-react";
+import { CircleAlert, CircleSlash, CircleX, Hand, Loader2 } from "lucide-react";
 import { cn } from "cn";
 
 /** 0012: statuses where a run is still working (trash cancels it).
@@ -13,7 +13,8 @@ export function isLiveRun(item: { kind: string; runStatus?: string | null }): bo
 /**
  * A run row's status at a glance: spinning while running, a hand at a
  * human gate, then its outcome. The attention dot still carries
- * unread / needs-you; this says what the run is doing.
+ * unread / needs-you; this says what the run is doing. 0046: completed
+ * shows no glyph — done is the quiet default, only work and trouble mark.
  */
 export function RunGlyph({ status, className }: { status: string | null; className?: string }) {
   const base = cn("size-3.5 shrink-0", className);
@@ -25,7 +26,7 @@ export function RunGlyph({ status, className }: { status: string | null; classNa
     case "needs-attention":
       return <CircleAlert aria-label="Needs attention" className={cn(base, "text-warning")} />;
     case "completed":
-      return <CircleCheck aria-label="Completed" className={cn(base, "text-success")} />;
+      return null;
     case "failed":
       return <CircleX aria-label="Failed" className={cn(base, "text-destructive")} />;
     default:
