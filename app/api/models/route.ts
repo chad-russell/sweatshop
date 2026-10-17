@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { modelsView } from "@/lib/providers/catalog-view";
 import { ensureOpenRouterCatalog } from "@/lib/providers/openrouter";
+import { ensureModelPrices } from "@/lib/usage/prices-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +16,6 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const projectId = new URL(request.url).searchParams.get("projectId");
   await ensureOpenRouterCatalog(db());
+  await ensureModelPrices(db());
   return NextResponse.json(modelsView(db(), projectId));
 }
