@@ -36,7 +36,7 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       kind: "harness",
       status: call.status,
       live: call.status === "running",
-      href: `/h/${call.kind}/${call.conversationId}`,
+      href: `/h/${call.kind}/${call.conversationId}/${call.id}`,
       startedAt: call.createdAt,
       settledAt: call.settledAt,
       where: null,

@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { openDb } from "../db";
 import { createHarnessCall } from "../db/harness-calls";
 import { buildSidebarTree } from "../lib/sidebar-tree";
+import { conversationHref } from "../lib/conversation-href";
 import {
   OrganizeError,
   TRASH_RETENTION_MS,
@@ -505,6 +506,15 @@ describe("loadSidebar", () => {
     expect(items.find((i) => i.id === long.id)?.title).toBe(`${"x".repeat(59)}…`);
     expect(items.find((i) => i.id === blank.id)?.title).toBe("cursor");
     expect(items.find((i) => i.id === blank.id)?.harness).toBe("cursor");
+  });
+
+  it("two calls of one harness under one conversation get distinct hrefs (0046)", () => {
+    const c = convo("org-side");
+    const a = createHarnessCall(tdb, { conversationId: c, kind: "pi", task: "first" }, 1_000);
+    const b = createHarnessCall(tdb, { conversationId: c, kind: "pi", task: "second" }, 2_000);
+    const g = loadSidebar(tdb).groups.find((gr) => gr.project?.id === "org-side")!;
+    const hrefs = g.unfiled.filter((i) => i.id === a.id || i.id === b.id).map(conversationHref);
+    expect(hrefs.sort()).toEqual([`/h/pi/${c}/${a.id}`, `/h/pi/${c}/${b.id}`].sort());
   });
 
   it("a historical run nests under the chat that started it (machine_runs link, 0046)", () => {

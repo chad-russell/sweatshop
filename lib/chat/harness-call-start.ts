@@ -155,7 +155,7 @@ export async function startHarnessCall(
   return {
     ok: true,
     callId: call.id,
-    eventsUrl: `/h/${input.kind}/${input.conversationId}`,
+    eventsUrl: `/h/${input.kind}/${input.conversationId}/${call.id}`,
     note:
       `running in the background in this conversation's sandbox — the result arrives here as a ` +
       `"[${input.kind} finished]" message; inspect ${call.id} for progress, cancel_run to stop it`,

@@ -51,7 +51,7 @@ export interface WakeEvent {
   status: string;
   /** Clipped outcome (completed) or reason; absent for terse events. */
   detail?: string | null;
-  /** Where to look: /h/<kind>/<conversationId> or /c/<id>. */
+  /** Where to look: /h/<kind>/<conversationId>/<callId> or /c/<id>. */
   url: string;
   /** 0040 phase 3: the FULL result's size and where it was saved — present
    *  whenever there is a full result to report (harness/thread settles
@@ -230,7 +230,7 @@ export async function wakeCallIfDue(
         call.status === "failed"
           ? (call.error ?? null)
           : clipText(call.result, WAKE_DETAIL_CAP, { id: call.id, file: call.resultFile }),
-      url: `/h/${call.kind}/${call.conversationId}`,
+      url: `/h/${call.kind}/${call.conversationId}/${call.id}`,
       ...(call.status === "completed" && call.result
         ? { result: { chars: call.result.length, file: call.resultFile } }
         : {}),
