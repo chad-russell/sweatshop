@@ -425,8 +425,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   only, never a conversations row — every count stays conversation-only,
   `kind !== "harness"`), nests historical `kind: "run"` rows under their
   `machine_runs.parent_conversation_id`, and both render through the
-  same tree: harness rows open `/h/<harness>/<conv>`
-  (`conversationHref`), show the run glyph, and are locked (no row menu,
+  same tree: harness rows open their own call at
+  `/h/<harness>/<conv>/<callId>` (`conversationHref`; events scoped to
+  the call's window — the bare session URL was shared by every call of
+  a harness, co-selecting rows), show the run glyph (none once
+  completed), and are locked (no row menu,
   not draggable). Search results
   (`db/search.ts`, both the sidebar list and ⌘K) and the Archive/Trash
   shelves stay flat — a breadcrumb already says where a shelved item came
