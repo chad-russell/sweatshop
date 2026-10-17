@@ -272,7 +272,14 @@ export async function harnessSettleStep(input: {
   conversationId: string;
   kind: "pi" | "claude" | "cursor";
   status: "completed" | "failed";
+  /** The whole step-by-step log, joined — kept for harness_events (the
+   *  per-step "step-end" events already carry each step's own text; this
+   *  one more lands on the terminal "end" event). */
   text: string;
+  /** 0040 phase 3: the harness's FINAL message (harness-call.ts's
+   *  resultText) — what the result, the result file, and the wake
+   *  actually deliver. */
+  finalText: string;
   toolCalls: number;
   error?: string;
   resumeFrom?: unknown;
@@ -283,13 +290,15 @@ export async function harnessSettleStep(input: {
     { saveHarnessResumeState },
     { recordHarnessEvent, recordHarnessRunEnd, clipHarnessText },
     { settleHarnessCall },
-    { wakeConversation },
+    { wakeConversation, clipText, WAKE_DETAIL_CAP },
+    { saveResultFile, RESULT_FILE_CAP },
   ] = await Promise.all([
     import("../../db"),
     import("../../db/chat"),
     import("../../lib/harness-events"),
     import("../../db/harness-calls"),
     import("../../lib/chat/wake"),
+    import("../../lib/chat/result-file"),
   ]);
 
   // A completed turn's handle is the cross-call continuity; a FAILED turn's
@@ -300,13 +309,17 @@ export async function harnessSettleStep(input: {
   if (input.resumeFrom) {
     saveHarnessResumeState(db(), input.conversationId, input.kind, input.resumeFrom as HarnessResumeFrom);
   }
-  const result = clipHarnessText(input.text, 2_000);
+  // 0040 phase 3: stored (and delivered) whole, up to the same 60 k cap
+  // as the result file (the web_fetch context limit) — no longer 2 000.
+  const result = clipHarnessText(input.finalText, RESULT_FILE_CAP);
   const settled = settleHarnessCall(db(), input.callId, {
     status: input.status,
     ...(input.status === "completed" ? { result } : {}),
     error: input.error ?? null,
   });
-  recordHarnessEvent(input.conversationId, input.kind, { kind: "end" });
+  // The full step-by-step log finds a home here (each step's own text
+  // already landed on its own "step-end" event as the call progressed).
+  recordHarnessEvent(input.conversationId, input.kind, { kind: "end", text: clipHarnessText(input.text, 500) });
   if (settled) {
     // A racing cancel already released the slot with its own end record.
     recordHarnessRunEnd(
@@ -316,13 +329,28 @@ export async function harnessSettleStep(input: {
       input.status,
       input.error,
     );
+    // 0040 phase 3: the full result goes to a file in THIS chat's own
+    // sandbox (a harness call has no separate "parent" — it already runs
+    // in the conversation it wakes) — only when there is one to write
+    // and the call actually completed (a failure's useful information is
+    // the error, already delivered inline).
+    const resultFile =
+      input.status === "completed" && input.finalText
+        ? await saveResultFile(input.conversationId, input.callId, input.finalText)
+        : null;
     await wakeConversation(input.conversationId, {
       kind: "harness",
       id: input.callId,
       name: input.kind,
       status: input.status,
-      detail: input.status === "failed" ? (input.error ?? null) : clipHarnessText(input.text, 500),
+      detail:
+        input.status === "failed"
+          ? (input.error ?? null)
+          : clipText(input.finalText, WAKE_DETAIL_CAP, { id: input.callId, file: resultFile }),
       url: `/h/${input.kind}/${input.conversationId}`,
+      ...(input.status === "completed" && input.finalText
+        ? { result: { chars: input.finalText.length, file: resultFile } }
+        : {}),
     });
   }
 }

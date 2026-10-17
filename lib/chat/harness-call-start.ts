@@ -28,6 +28,21 @@ import { harnessCall } from "@/workflows/chat/harness-call";
  * tests off the workflow runtime and podman.
  */
 
+/**
+ * 0040 phase 3: appended to every harness task (pi/claude/cursor, the
+ * one place `task` becomes the workflow's prompt) so the delivered
+ * result is the harness's own closing statement — not whatever it was
+ * doing mid-tool-call when the step loop happened to end (harness-call.ts
+ * takes the LAST step's text as the result; this is what makes that
+ * step's text worth taking).
+ */
+export function withResultInstruction(task: string): string {
+  return (
+    `${task}\n\nEnd with a final message that is your result: what changed (per file), ` +
+    "test results, open questions. It is delivered verbatim to the caller; do not end on a progress note."
+  );
+}
+
 export type StartHarnessCallResult =
   | {
       ok: true;
@@ -122,7 +137,7 @@ export async function startHarnessCall(
       callId: call.id,
       conversationId: input.conversationId,
       kind: input.kind,
-      task: input.task,
+      task: withResultInstruction(input.task),
       route,
       ...(resumeFrom ? { resumeFrom } : {}),
     });

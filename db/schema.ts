@@ -588,7 +588,10 @@ export const harnessCalls = sqliteTable(
     task: text("task").notNull(),
     /** running | completed | failed | cancelled */
     status: text("status").notNull(),
-    /** Clipped final text (completed) — the wake's detail. */
+    /** 0040 phase 3: the harness's final message (completed only), up to
+     *  60 k chars — the database's own full copy; the wake clips it
+     *  further (lib/chat/wake.ts WAKE_DETAIL_CAP) and points at the
+     *  result file for the rest. */
     result: text("result"),
     error: text("error"),
     /** 0012/0022: the Workflow SDK run executing the call (cancel). */

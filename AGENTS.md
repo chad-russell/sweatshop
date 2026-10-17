@@ -66,9 +66,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the browser bundle). Approvals are `defineHook` suspensions answered
   via `/api/x/input`; the model instance crosses step boundaries through
   `SerializableChatModel` (@workflow/serde class protocol).
-- Wakes (0022): when a child settles — a background harness call
-  (completed/failed) or a child thread (0037 phase 3) — the chat that
-  started it is nudged through
+- Wakes (0022; full results 0040 phase 3): when a child settles — a
+  background harness call (completed/failed) or a child thread (0037
+  phase 3) — the chat that started it is nudged through
   exactly the path a human send takes (`lib/chat/wake.ts`): mid-turn
   the message queues as steer, idle `startChatTurn` starts a turn. The
   wake is a user row with `metadata.runEvent`, rendered as a transcript
@@ -82,6 +82,39 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `GET /api/x/status/<id>` (`lib/child-status.ts`, all three kinds)
   polled by `useChildStatus` every
   5 s while the child is live and the tab visible, never once settled.
+  The result is never cut to a stub: a harness call's result
+  (`harness_calls.result`) and a thread's `lastAssistantReport`
+  (`db/chat.ts` — the newest assistant row with real text, skipping
+  `[tool …]`-only placeholder rows) are each kept up to 60 k chars; the
+  wake's own inline detail is wider too (`WAKE_DETAIL_CAP = 16_000`,
+  `lib/chat/wake.ts`, shared by both kinds — was 500 / 2 000). Past that,
+  `clipText` ends with a pointer: to the saved result file when one
+  exists, else `inspect <id>`. The full text (whatever didn't fit) is
+  also saved to the PARENT conversation's own sandbox, bound-only and
+  best-effort (`saveResultFile`, `lib/chat/result-file.ts` — mirrors
+  `loadRepoDocs`'s "never provision just to look" rule: a pending/none
+  binding or any write failure logs a warning and returns null, never
+  blocking or failing the wake), at
+  `<parentWorkDir>/.sweatshop/results/<id>.md` (`id` = the `hc_…` id, or
+  `<childId>-<settledAt>` for a thread, so a re-woken child's later
+  report never overwrites an earlier one). `inspect` reports the same
+  path (`resultFile`) for `hc_…` calls and, derived the same
+  deterministic way from the child's last settle, for `c_…` chats —
+  only when the relevant binding is bound, with a note otherwise. A
+  harness call's result is its LAST step's own text, not every step's
+  text joined (`workflows/chat/harness-call.ts`'s `resultText`) — if
+  the final step itself produced no text, an earlier step's is used,
+  prefixed to say so; every harness task gets an appended instruction
+  to end with a real final message
+  (`withResultInstruction`, `lib/chat/harness-call-start.ts`, the one
+  place task becomes the workflow prompt for pi/claude/cursor alike). A
+  thread turn that hits its own step budget mid-tool-call is marked
+  `metadata.exhausted` on that turn's LAST assistant row
+  (`workflows/chat/steps.ts`'s `persistTurn`, durable so the sweep path
+  sees it too) — `lastAssistantReport` reports it separately from the
+  text itself (the exhausting row is often just a dangling placeholder),
+  and `wakeChatChildIfDue` reports the wake's status as "ran out of
+  steps" instead of "finished".
 - Child threads (0037 phase 3): `start_thread({prompt, skill?,
   fresh?})` — every chat tool — starts a fresh child chat with its own
   context (the review shape) on the parent's project, ATTACHED to the
@@ -94,8 +127,17 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   live turn, so the wake fires at the turn's end (`wakeParentStep`,
   after the budget decision — a continuing child still reads as
   working) and in the sweep (crash recovery), carrying the child's last
-  assistant message (a review's findings). A child that never produced
-  output is stamped woken silently.
+  REAL assistant report (see Wakes above — a review's findings, never a
+  placeholder). A child that never produced any real text is stamped
+  woken silently. 0040 phase 3: a child gets the thread-skill step
+  budget (400, `workflows/chat/turn.ts`'s `resolveMaxSteps`) even with
+  no skill bound — `ChatTurnInput.hasParent`, set from
+  `conversations.parent_conversation_id` in
+  `lib/chat/start-turn.ts` — so a follow-up thread with no skill cannot
+  exhaust mid-tool-call at the plain-chat 50; the budget CONTINUATION
+  (re-firing a new turn on exhaustion) stays skill-only, so an
+  un-skilled child that runs out just reports it once, never re-fires
+  itself unattended.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
   `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
   TSX; themes `clickhouse` (default), `cal`, `nova`.

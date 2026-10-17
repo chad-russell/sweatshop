@@ -43,6 +43,14 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     ...(input.resumeFrom ? { resumeFrom: input.resumeFrom } : {}),
   } as HarnessWorkflowState;
   let text = "";
+  // 0040 phase 3: the result is the harness's FINAL message, not every
+  // step's text joined together (a smoke run showed the joined log
+  // reading "Now let's look at…" — mid-thought, never the actual
+  // conclusion). `lastStepHadText` tracks whether the step that produced
+  // `finalText` was the very last one; if not, an earlier step's text is
+  // all there is, and it is prefixed to say so.
+  let finalText = "";
+  let lastStepHadText = false;
   let toolCalls = 0;
   let steps = 0;
   // do…while: the fresh state is "not_started", so a plain while never
@@ -52,7 +60,11 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     do {
       const r = await harnessAdvanceStep({ callId, conversationId, kind, route, state });
       state = r.state;
-      if (r.text) text += (text ? "\n\n" : "") + r.text;
+      lastStepHadText = Boolean(r.text);
+      if (r.text) {
+        text += (text ? "\n\n" : "") + r.text;
+        finalText = r.text;
+      }
       toolCalls += r.toolCalls;
       steps += 1;
     } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
@@ -70,6 +82,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       kind,
       status: "failed",
       text,
+      finalText: resultText(finalText, lastStepHadText),
       toolCalls,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -83,6 +96,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       kind,
       status: "failed",
       text,
+      finalText: resultText(finalText, lastStepHadText),
       toolCalls,
       error: state.error ?? `${kind} turn failed`,
       // A failed turn can leave a LIVE session behind (the bridge process
@@ -100,6 +114,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       kind,
       status: "failed",
       text,
+      finalText: resultText(finalText, lastStepHadText),
       toolCalls,
       error: "harness requested a tool approval (unsupported in v1)",
     });
@@ -112,6 +127,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       kind,
       status: "failed",
       text,
+      finalText: resultText(finalText, lastStepHadText),
       toolCalls,
       error: `exceeded ${MAX_STEPS} agent steps`,
     });
@@ -125,8 +141,18 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     kind,
     status: "completed",
     text,
+    finalText: resultText(finalText, lastStepHadText),
     toolCalls,
     resumeFrom: state.resumeFrom,
   });
   return { status: "completed" };
+}
+
+/** The result text: the last step's own text verbatim when IT is the one
+ *  that ended the call; otherwise an earlier step's text (the only text
+ *  there is), prefixed to say the final step itself was silent. Empty
+ *  when no step ever produced any text. */
+export function resultText(finalText: string, lastStepHadText: boolean): string {
+  if (!finalText) return "";
+  return lastStepHadText ? finalText : `(final step had no text; last text was:)\n\n${finalText}`;
 }

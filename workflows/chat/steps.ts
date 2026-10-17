@@ -499,23 +499,34 @@ export async function persistTurn(
   skip: number,
   /** 0021: recorded on the turn's first assistant row ("what actually ran"). */
   route?: import("../../db/chat").MessageRowMetadata["route"],
-  opts: { from?: number; final?: boolean } = {},
+  opts: { from?: number; final?: boolean; exhausted?: boolean } = {},
 ): Promise<number> {
   "use step";
   const { db, chat } = await chatStore();
   const from = Math.max(opts.from ?? skip, skip);
   const firstAssistant = messages.findIndex((m, i) => i >= skip && m.role === "assistant");
+  // 0040 phase 3: the LAST assistant row of the turn so far — tagged
+  // `exhausted` only when this slice is the one that hit the step
+  // budget (turn.ts passes opts.exhausted for that slice only). Found
+  // the same way firstAssistant is, just from the other end.
+  let lastAssistant = -1;
+  messages.forEach((m, i) => {
+    if (i >= skip && m.role === "assistant") lastAssistant = i;
+  });
   const tail: import("../../db/chat").NewMessageRow[] = [];
   messages.forEach((message, i) => {
     // System messages are injected viewing notes (and the agent's
     // instructions) — model input only, never persisted as rows.
     if (i < from || message.role === "system") return;
+    const metadata: import("../../db/chat").MessageRowMetadata = {};
+    if (route && i === firstAssistant) metadata.route = route;
+    if (opts.exhausted && i === lastAssistant) metadata.exhausted = true;
     tail.push({
       id: `m_${conversationId}_${skip}_${i - skip}`,
       role: message.role === "assistant" ? "assistant" : message.role === "tool" ? "tool" : "user",
       text: textOf(message),
       modelMessage: message,
-      ...(route && i === firstAssistant ? { metadata: { route } } : {}),
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     });
   });
   chat.appendMessages(db, conversationId, tail);

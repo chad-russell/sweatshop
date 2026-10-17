@@ -40,6 +40,15 @@ const MAX_STEPS = 50;
 /** 0037/0039: a thread-skill thread works unattended — harness-stage parity. */
 const THREAD_SKILL_MAX_STEPS = 400;
 
+/** Pulled out of the workflow body so the budget choice is unit-testable
+ *  without driving a turn: a skill or a start_thread child (0040 phase 3)
+ *  gets the thread budget (400, or the test override), everyone else
+ *  gets the plain 50 — never overridable (skillMaxSteps is test-only and
+ *  only meaningful on the thread budget). */
+export function resolveMaxSteps(hasSkillOrParent: boolean, skillMaxSteps?: number): number {
+  return hasSkillOrParent ? (skillMaxSteps ?? THREAD_SKILL_MAX_STEPS) : MAX_STEPS;
+}
+
 export interface ChatTurnInput {
   conversationId: string;
   userText: string;
@@ -52,6 +61,10 @@ export interface ChatTurnInput {
   hasProject?: boolean;
   /** 0043: the project's host allow-list — non-empty adds the exec tool. */
   hosts?: { name: string; address: string; user: string; apiBase: string | null }[];
+  /** 0040 phase 3: a start_thread child (parent_conversation_id set) —
+   *  gets the thread step budget (400) even with no skill, so a
+   *  follow-up thread cannot run out at the plain-chat 50. */
+  hasParent?: boolean;
   /** 0015: the page the send came from — "this" for the agent. */
   viewing?: ViewingContext;
   /** 0022: this send is a wake (a child settled) — marks the user row
@@ -83,7 +96,11 @@ export async function chatTurn(input: ChatTurnInput) {
   // 0039: a thread running a skill gets its runbook in the
   // instructions and the background budget.
   const skill = await loadSkillStep(conversationId);
-  const maxSteps = skill ? (input.skillMaxSteps ?? THREAD_SKILL_MAX_STEPS) : MAX_STEPS;
+  // 0040 phase 3: a child thread gets the background budget too, even
+  // with no skill bound — the budget CONTINUATION below stays skill-only
+  // (an un-skilled child that runs out just reports it, never re-fires
+  // itself unattended).
+  const maxSteps = resolveMaxSteps(Boolean(skill) || Boolean(input.hasParent), input.skillMaxSteps);
   // Live testing showed none of pi/claude/cursor, nor this agent, ever
   // read a project repo's AGENTS.md on their own — this appendix is the
   // top-level agent's fix (setupProjectWorkspace's work-root doc is the
@@ -153,21 +170,29 @@ export async function chatTurn(input: ChatTurnInput) {
       });
       messages = stripLeadingSystem(result.messages);
       finishReason = result.finishReason;
-      // Each finished slice lands in sqlite now — a long turn is visible
-      // (inspect, monitors, reloads) while it runs, not only at its end.
-      stored += await persistTurn(conversationId, messages, skip, resolved, {
-        from: skip + stored,
-        final: false,
-      });
 
       // The turn ends when the latest assistant message asks for no tools.
+      // Computed BEFORE persisting this slice (0040 phase 3): when this
+      // is the LAST possible step and it still wants tools, the turn is
+      // about to end by running out of budget, not by the model's
+      // choice — tag that slice's own persist so the row carries it
+      // durably (the wake, in-run or swept later, reads it back).
       const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
       const wantsTools =
         lastAssistant != null &&
         Array.isArray(lastAssistant.content) &&
         lastAssistant.content.some((part) => part.type === "tool-call");
+      const exhaustedThisSlice = wantsTools && step === maxSteps - 1;
+      // Each finished slice lands in sqlite now — a long turn is visible
+      // (inspect, monitors, reloads) while it runs, not only at its end.
+      stored += await persistTurn(conversationId, messages, skip, resolved, {
+        from: skip + stored,
+        final: false,
+        exhausted: exhaustedThisSlice,
+      });
+
       if (!wantsTools) break;
-      if (step === maxSteps - 1) exhausted = true;
+      if (exhaustedThisSlice) exhausted = true;
     }
 
     // The rest of the tail (normally nothing) and the active-run clear.

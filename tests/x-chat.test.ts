@@ -446,9 +446,11 @@ describe("0010 spike: chat turn workflow", () => {
 
         await waitFor(async () => getHarnessCall(db(), started.callId)?.status !== "running", "call to settle");
         const call = getHarnessCall(db(), started.callId)!;
-        // It RAN: both scripted steps' text, not an empty instant "completed".
+        // It RAN both scripted steps, but the result is the FINAL step's
+        // own text (0040 phase 3), not every step's text joined — the
+        // first step's text never made it to a human-facing result.
         expect(call.status).toBe("completed");
-        expect(call.result).toContain("mock-harness-step:1");
+        expect(call.result).not.toContain("mock-harness-step:1");
         expect(call.result).toContain("mock-harness-step:2");
         // ...and woke the chat with that result.
         await waitFor(
