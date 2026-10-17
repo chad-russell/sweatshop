@@ -508,6 +508,31 @@ describe("loadSidebar", () => {
     expect(items.find((i) => i.id === blank.id)?.harness).toBe("cursor");
   });
 
+  it("threadStatus marks a child whose newest assistant row is exhausted (0046)", () => {
+    const top = convo("org-side");
+    const tired = convo("org-side");
+    const fine = convo("org-side");
+    const recovered = convo("org-side");
+    for (const c of [tired, fine, recovered]) {
+      tdb.update(conversations).set({ parentConversationId: top }).where(eq(conversations.id, c)).run();
+    }
+    const msg = (c: string, i: number, role: string, metadata: string | null) =>
+      tdb.insert(messages).values({ id: `m_ts_${c}_${i}`, conversationId: c, role, text: "x", metadata, at: i }).run();
+    msg(top, 1, "assistant", JSON.stringify({ exhausted: true })); // top-level: ignored
+    msg(tired, 1, "assistant", null);
+    msg(tired, 2, "assistant", JSON.stringify({ exhausted: true }));
+    msg(tired, 3, "user", null); // a later user row doesn't hide it
+    msg(fine, 1, "assistant", "not json");
+    msg(recovered, 1, "assistant", JSON.stringify({ exhausted: true }));
+    msg(recovered, 2, "assistant", null); // only the newest counts
+    const items = loadSidebar(tdb).groups.find((g) => g.project?.id === "org-side")!.unfiled;
+    const status = (id: string) => items.find((i) => i.id === id)?.threadStatus;
+    expect(status(tired)).toBe("exhausted");
+    expect(status(fine)).toBeNull();
+    expect(status(recovered)).toBeNull();
+    expect(status(top)).toBeNull();
+  });
+
   it("two calls of one harness under one conversation get distinct hrefs (0046)", () => {
     const c = convo("org-side");
     const a = createHarnessCall(tdb, { conversationId: c, kind: "pi", task: "first" }, 1_000);
