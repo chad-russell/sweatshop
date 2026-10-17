@@ -119,6 +119,10 @@ export function inspectTarget(id: string): InspectResult {
       task: clip(call.task, 1_000),
       ...(call.error ? { error: clip(call.error, 500) } : {}),
       ...(call.result ? { result: clip(call.result, 1_500) } : {}),
+      // 0040 phase 3 (review fix): the path `harnessSettleStep` actually
+      // wrote, read back verbatim — never derived/guessed, so this is
+      // never a path `cat` 404s on.
+      ...(call.resultFile ? { resultFile: call.resultFile } : {}),
       conversation: call.conversationId,
       eventsUrl: `/h/${call.kind}/${call.conversationId}`,
       sandbox: binding?.kind === "bound" ? sandboxSummary(binding) : null,
@@ -128,7 +132,15 @@ export function inspectTarget(id: string): InspectResult {
   }
 
   const row = db()
-    .select({ id: conversations.id, kind: conversations.kind, title: conversations.title, projectId: conversations.projectId, activeRunId: conversations.activeRunId })
+    .select({
+      id: conversations.id,
+      kind: conversations.kind,
+      title: conversations.title,
+      projectId: conversations.projectId,
+      activeRunId: conversations.activeRunId,
+      parentConversationId: conversations.parentConversationId,
+      resultFile: conversations.resultFile,
+    })
     .from(conversations)
     .where(eq(conversations.id, id))
     .get();
@@ -213,6 +225,13 @@ export function inspectTarget(id: string): InspectResult {
       binding?.kind === "bound"
         ? sandboxSummary(binding)
         : { state: binding?.kind === "pending" ? "pending (created on first use)" : "none" },
+    // 0040 phase 3 (review fix): only for a start_thread child
+    // (row.parentConversationId set) — the path its LAST settle actually
+    // wrote into the parent's sandbox, read back verbatim from
+    // `conversations.result_file` (`wakeChatChildIfDue` is the only
+    // writer). Never derived/guessed: null means no file exists, not
+    // "couldn't compute one."
+    ...(row.parentConversationId ? { resultFile: row.resultFile } : {}),
   };
 }
 

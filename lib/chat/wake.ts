@@ -5,7 +5,7 @@ import {
   getActiveRun,
   getChatChild,
   getConversation,
-  lastAssistantText,
+  lastAssistantReport,
   listWakableChatChildren,
   markChatChildWoken,
   setActiveRun,
@@ -15,6 +15,8 @@ import {
 import { markCallWoken, CALL_SETTLED_STATUSES } from "@/db/harness-calls";
 import type { HarnessCall } from "@/db/schema";
 import { ACTIVE_RUN_STATUSES, startChatTurn } from "@/lib/chat/start-turn";
+import { saveResultFile, type NoResultFileReason } from "@/lib/chat/result-file";
+import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /**
  * 0022: the wake primitive. When a child settles — a background harness
@@ -45,12 +47,20 @@ export interface WakeEvent {
   /** The harness kind ("pi" / "claude" / "cursor") or the child thread's skill
    *  ("review" — "thread" when it has none). */
   name: string;
-  /** completed | failed | needs-attention | waiting. */
+  /** completed | failed | ran out of steps | needs-attention | waiting. */
   status: string;
   /** Clipped outcome (completed) or reason; absent for terse events. */
   detail?: string | null;
   /** Where to look: /h/<kind>/<conversationId> or /c/<id>. */
   url: string;
+  /** 0040 phase 3: the FULL result's size and where it was saved — present
+   *  whenever there is a full result to report (harness/thread settles
+   *  with real content), absent for everything else (plan events, a
+   *  child that never produced output). `file` is null when nothing was
+   *  saved; `reason` says why (unbound vs. write-failed) when known — the
+   *  sweep path for a harness call only has the persisted path, never the
+   *  reason, so it is absent there (review fix: never guess one). */
+  result?: { chars: number; file: string | null; reason?: NoResultFileReason };
 }
 
 export interface WakeDeps {
@@ -62,26 +72,59 @@ export interface WakeDeps {
     text: string,
     runEvent: RunEventMeta,
   ) => Promise<unknown>;
+  /** Test seam: the sandbox provider behind the result-file write
+   *  (lib/chat/result-file.ts) — same seam as loadRepoDocs. */
+  resultFileProvider?: SandboxProvider;
 }
+
+/** 0040 phase 3: how much of a full result rides inline on the wake
+ *  message before it defers to the saved file — shared by harness and
+ *  thread wakes (was 500 / 2 000 respectively). About 4k tokens: enough
+ *  for any review or summary seen so far, still bounded if a child
+ *  dumps a log. */
+export const WAKE_DETAIL_CAP = 16_000;
 
 const STATUS_WORD: Record<string, string> = {
   completed: "finished",
   failed: "failed",
+  "ran out of steps": "ran out of steps",
   "needs-attention": "needs attention",
   waiting: "waiting for your input",
 };
 
-/** Clip a wake's detail (was lib/machines/brief — deleted in phase 5). */
-export function clipText(text: string | null | undefined, max: number): string {
+/** Clip a wake's detail (was lib/machines/brief — deleted in phase 5).
+ *  Points at the full-result file when one was saved, else inspect. */
+export function clipText(text: string | null | undefined, max: number, pointer?: { id: string; file: string | null }): string {
   if (!text) return "";
-  return text.length > max ? `${text.slice(0, max)}\n…[clipped ${text.length - max} chars]` : text;
+  if (text.length <= max) return text;
+  const cut = text.length - max;
+  const where = pointer
+    ? pointer.file
+      ? ` — full result: ${pointer.file}`
+      : ` — no file saved; inspect ${pointer.id}`
+    : "";
+  return `${text.slice(0, max)}\n…[${cut} more chars${where}]`;
 }
+
+const NO_RESULT_FILE_REASON: Record<NoResultFileReason, string> = {
+  unbound: "no bound sandbox",
+  "write-failed": "write failed",
+};
 
 /** The message the model sees (and the row text). Short and standalone. */
 export function renderWake(event: WakeEvent): string {
   const word = STATUS_WORD[event.status] ?? event.status;
   const lines = [`[${event.name} ${word}] — ${event.url}`];
   if (event.detail) lines.push("", event.detail);
+  if (event.result) {
+    const reason = event.result.reason ? ` (${NO_RESULT_FILE_REASON[event.result.reason]})` : "";
+    lines.push(
+      "",
+      event.result.file
+        ? `full result (${event.result.chars} chars): ${event.result.file} — read or grep it with bash`
+        : `no result file saved${reason}`,
+    );
+  }
   return lines.join("\n");
 }
 
@@ -160,6 +203,15 @@ export async function sweepWakes(deps: WakeDeps = {}): Promise<number> {
 /**
  * 0022 cut 2: wake a harness call's conversation if its settle is
  * undelivered. The call's conversation is its parent by construction.
+ *
+ * 0040 phase 3 (review fix): this is the SWEEP/recovery path — the result
+ * file (if any) was already written, and its path (or null) already
+ * persisted on the row, at settle time (`harnessSettleStep`). This never
+ * re-derives, re-writes, or re-opens the sandbox — it reads
+ * `call.resultFile` back verbatim, so it can only ever report a path that
+ * really exists. It has no `reason` for a missing file (that lived only
+ * in the settle-time `saveResultFile` call, not persisted) — the message
+ * just says "no result file saved" with no parenthetical.
  */
 export async function wakeCallIfDue(
   call: HarnessCall,
@@ -174,8 +226,14 @@ export async function wakeCallIfDue(
       id: call.id,
       name: call.kind,
       status: call.status,
-      detail: call.status === "failed" ? (call.error ?? null) : call.result,
+      detail:
+        call.status === "failed"
+          ? (call.error ?? null)
+          : clipText(call.result, WAKE_DETAIL_CAP, { id: call.id, file: call.resultFile }),
       url: `/h/${call.kind}/${call.conversationId}`,
+      ...(call.status === "completed" && call.result
+        ? { result: { chars: call.result.length, file: call.resultFile } }
+        : {}),
     },
     deps,
   );
@@ -213,16 +271,39 @@ export async function wakeChatChildIfDue(
     setActiveRun(db(), child.id, null); // stale, like the route's sweep
   }
   if ((child.wokenSettledAt ?? -1) >= child.updatedAt) return "skipped";
-  const last = lastAssistantText(db(), child.id);
-  // No turn ever produced output (start_thread failed to start, or the
-  // turn died before its first slice) — nothing to report. Stamp woken
-  // so the sweep stops re-reading it; a later human/child turn that
-  // lands messages makes it due again.
-  if (status === "completed" && last == null) {
+  const report = lastAssistantReport(db(), child.id);
+  // No turn ever produced any REAL text (start_thread failed to start,
+  // the turn died before its first slice, or ran out of steps on its
+  // very first, placeholder-only step) — nothing to report. Stamp woken
+  // (and clear any earlier settle's result file — it is not THIS
+  // settle's) so the sweep stops re-reading it; a later human/child turn
+  // that lands messages makes it due again.
+  if (status === "completed" && report == null) {
     markChatChildWoken(db(), child.id, child.updatedAt);
     return "skipped";
   }
-  const outcome = await wakeConversation(
+  // 0040 phase 3: the turn ended by hitting its step budget, not by the
+  // model choosing to stop — distinct from both a clean finish and an
+  // actual failure.
+  if (status === "completed" && report?.exhausted) status = "ran out of steps";
+  // 0040 phase 3 (review fix): this IS the one and only attempt at this
+  // settle — the same function runs for both the in-run wake
+  // (wakeParentStep) and the sweep recovery, guarded by the
+  // wokenSettledAt check above, so there is no separate "settle" moment
+  // to race or duplicate the write from (unlike harness calls). The
+  // outcome's path (or null) is persisted below — inspect reads that
+  // back, never a derived guess. A re-woken child's later report cannot
+  // overwrite an earlier settle's file: the settle timestamp in the id
+  // makes each one unique.
+  const outcome = report
+    ? await saveResultFile(child.parentConversationId, `${child.id}-${child.updatedAt}`, report.text, deps.resultFileProvider)
+    : null;
+  const result = outcome
+    ? outcome.path === null
+      ? { chars: report!.text.length, file: null, reason: outcome.reason }
+      : { chars: outcome.chars, file: outcome.path }
+    : undefined;
+  const wakeOutcome = await wakeConversation(
     child.parentConversationId,
     {
       kind: "thread",
@@ -232,13 +313,14 @@ export async function wakeChatChildIfDue(
       // Wider than harness calls: for a review thread the final
       // message IS the deliverable, and the smoke run showed 500 chars
       // truncating it mid-findings. The rest is one inspect away.
-      detail: last ? clipText(last, 2000) : null,
+      detail: report ? clipText(report.text, WAKE_DETAIL_CAP, { id: child.id, file: outcome?.path ?? null }) : null,
       url: `/c/${child.id}`,
+      ...(result ? { result } : {}),
     },
     deps,
   );
-  markChatChildWoken(db(), child.id, child.updatedAt);
-  return outcome === "gone" ? "skipped" : "woke";
+  markChatChildWoken(db(), child.id, child.updatedAt, outcome?.path ?? null);
+  return wakeOutcome === "gone" ? "skipped" : "woke";
 }
 
 /** Read the child fresh (the turn-end path) and wake if due. */

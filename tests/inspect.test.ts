@@ -1,7 +1,8 @@
 import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
-import { appendMessages, ensureConversation } from "../db/chat";
+import { appendMessages, ensureConversation, markChatChildWoken, setConversationParent } from "../db/chat";
+import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
 import { getConversationBinding, getLease, markDestroyed } from "../db/sandboxes";
 import { projects } from "../db/schema";
 import { inspectTarget, resolveSandboxTarget, sandboxExec } from "../lib/agent/tools/inspect";
@@ -216,5 +217,72 @@ describe("0013 tool availability", () => {
     const tools = Object.keys(buildChatTools("c_x", { hasSandbox: false, hasProject: false }));
     expect(tools).toEqual(expect.arrayContaining(["inspect", "sandbox_exec"]));
     expect(tools).not.toContain("bash");
+  });
+});
+
+/**
+ * 0040 phase 3 (review fix): `resultFile` is read back from the durable
+ * column each writer sets (`harnessSettleStep` / `wakeChatChildIfDue`),
+ * never derived or guessed — inspect must report a path only when one
+ * was actually written, and otherwise say so plainly, never silently
+ * point at a file that does not exist.
+ */
+ensureConversation(db(), "c_insp_rf_parent", "p_insp");
+
+describe("0040 phase 3: inspect's resultFile (review fix)", () => {
+  it("hc_: present when a file was actually written", () => {
+    const call = createHarnessCall(db(), { conversationId: "c_insp_rf_parent", kind: "pi", task: "x" });
+    settleHarnessCall(db(), call.id, { status: "completed", result: "done", resultFile: "/work/c_insp_rf_parent/.sweatshop/results/x.md" });
+    expect(inspectTarget(call.id)).toMatchObject({ resultFile: "/work/c_insp_rf_parent/.sweatshop/results/x.md" });
+  });
+
+  it("hc_: absent for an empty result (never attempted a write)", () => {
+    const call = createHarnessCall(db(), { conversationId: "c_insp_rf_parent", kind: "pi", task: "x" });
+    settleHarnessCall(db(), call.id, { status: "completed", result: "" });
+    expect(inspectTarget(call.id)).not.toHaveProperty("resultFile");
+  });
+
+  it("hc_: absent when the write failed (resultFile left null despite a real result)", () => {
+    const call = createHarnessCall(db(), { conversationId: "c_insp_rf_parent", kind: "pi", task: "x" });
+    settleHarnessCall(db(), call.id, { status: "completed", result: "done", resultFile: null });
+    expect(inspectTarget(call.id)).not.toHaveProperty("resultFile");
+  });
+
+  it("c_: present when the child's last settle actually wrote one", () => {
+    ensureConversation(db(), "c_insp_child_ok", "p_insp");
+    setConversationParent(db(), "c_insp_child_ok", "c_insp_rf_parent");
+    markChatChildWoken(db(), "c_insp_child_ok", Date.now(), "/work/c_insp_rf_parent/.sweatshop/results/c_insp_child_ok-1.md");
+    expect(inspectTarget("c_insp_child_ok")).toMatchObject({
+      resultFile: "/work/c_insp_rf_parent/.sweatshop/results/c_insp_child_ok-1.md",
+    });
+  });
+
+  it("c_: null (not absent) for a silent child — never settled any report", () => {
+    ensureConversation(db(), "c_insp_child_silent", "p_insp");
+    setConversationParent(db(), "c_insp_child_silent", "c_insp_rf_parent");
+    // setConversationParent pre-stamps woken; no markChatChildWoken call
+    // ever ran (nothing to report) — the column stays at its default.
+    expect(inspectTarget("c_insp_child_silent")).toMatchObject({ resultFile: null });
+  });
+
+  it("c_: null for a cancelled child", () => {
+    ensureConversation(db(), "c_insp_child_cancelled", "p_insp");
+    setConversationParent(db(), "c_insp_child_cancelled", "c_insp_rf_parent");
+    // A prior settle's file must not survive a later cancel.
+    markChatChildWoken(db(), "c_insp_child_cancelled", Date.now(), "/work/c_insp_rf_parent/.sweatshop/results/stale.md");
+    markChatChildWoken(db(), "c_insp_child_cancelled", Date.now() + 1); // cancel_run's own call shape — no file
+    expect(inspectTarget("c_insp_child_cancelled")).toMatchObject({ resultFile: null });
+  });
+
+  it("c_: null when the write failed", () => {
+    ensureConversation(db(), "c_insp_child_failed", "p_insp");
+    setConversationParent(db(), "c_insp_child_failed", "c_insp_rf_parent");
+    markChatChildWoken(db(), "c_insp_child_failed", Date.now(), null);
+    expect(inspectTarget("c_insp_child_failed")).toMatchObject({ resultFile: null });
+  });
+
+  it("not a field at all for a non-child chat", () => {
+    ensureConversation(db(), "c_insp_not_a_child", "p_insp");
+    expect(inspectTarget("c_insp_not_a_child")).not.toHaveProperty("resultFile");
   });
 });

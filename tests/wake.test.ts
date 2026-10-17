@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { openDb } from "../db";
+import type { Experimental_SandboxSession } from "ai";
+import { db, openDb } from "../db";
 import {
   appendMessages,
   ensureConversation,
@@ -10,7 +11,7 @@ import {
   setActiveRun,
   setConversationParent,
 } from "../db/chat";
-import { conversations } from "../db/schema";
+import { conversations, projects } from "../db/schema";
 import { createHarnessCall, getHarnessCall, settleHarnessCall } from "../db/harness-calls";
 import { eq } from "drizzle-orm";
 import {
@@ -23,6 +24,34 @@ import {
   type WakeEvent,
 } from "../lib/chat/wake";
 import { cancelRunTool } from "../lib/agent/tools/cancel-run";
+import { runBash } from "../lib/agent/tools/bash";
+import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
+
+/** Minimal fake sandbox — binds on first bash use, "writes" result files
+ *  by just accepting the write command (same shape as tests/result-file.test.ts). */
+class FakeSandboxProvider implements SandboxProvider {
+  readonly kind = "fake";
+  private n = 0;
+  create(): Promise<SandboxHandle> {
+    this.n += 1;
+    return Promise.resolve(this.handle(`fake-${this.n}`));
+  }
+  attach(ref: string): SandboxHandle {
+    return this.handle(ref);
+  }
+  async stop() {}
+  async resume() {}
+  async destroy() {}
+  private handle(ref: string): SandboxHandle {
+    return {
+      ref,
+      run: () => Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
+      spawn: (() => {
+        throw new Error("spawn not needed here");
+      }) as unknown as Experimental_SandboxSession["spawn"],
+    };
+  }
+}
 
 /**
  * 0022 cut 1 — the wake primitive, its routing (steer vs new turn), the
@@ -147,6 +176,52 @@ describe("wakeCallIfDue: two harness calls settling close together (0038 amendme
   });
 });
 
+describe("wakeCallIfDue: wide cap and the result-file pointer (0040 phase 3)", () => {
+  it("carries a long result in full under the 16k cap", async () => {
+    const parent = chatId();
+    ensureConversation(tdb, parent, null);
+    const long = "FINDING ".repeat(700).trim();
+    const call = createHarnessCall(tdb, { conversationId: parent, kind: "pi", task: "a" });
+    settleHarnessCall(tdb, call.id, { status: "completed", result: long });
+    const { deps, started } = seams();
+    await expect(wakeCallIfDue(getHarnessCall(tdb, call.id)!, deps)).resolves.toBe("woke");
+    expect(started[0]!.text).toContain(long);
+    expect(started[0]!.text).not.toContain("more chars");
+  });
+
+  it("points at the already-written result file — reads harness_calls.result_file back verbatim, never re-derives or re-writes", async () => {
+    const parent = chatId();
+    ensureConversation(tdb, parent, null);
+    const long = "FINDING ".repeat(5_000).trim();
+    const call = createHarnessCall(tdb, { conversationId: parent, kind: "pi", task: "a" });
+    const resultFile = `/work/${parent}/.sweatshop/results/${call.id}.md`;
+    // Simulates what harnessSettleStep already did at settle time — the
+    // sweep path must never call saveResultFile itself.
+    settleHarnessCall(tdb, call.id, { status: "completed", result: long, resultFile });
+    const { deps, started } = seams();
+    await expect(wakeCallIfDue(getHarnessCall(tdb, call.id)!, deps)).resolves.toBe("woke");
+    const text = started[0]!.text;
+    expect(text.length).toBeLessThan(long.length);
+    expect(text).toContain("more chars");
+    expect(text).toContain(`full result (${long.length} chars): ${resultFile}`);
+  });
+
+  it("no recorded file: points at inspect in the clip, and says so with no reason (the sweep never learned why)", async () => {
+    const parent = chatId();
+    ensureConversation(tdb, parent, null);
+    const long = "FINDING ".repeat(5_000).trim();
+    const call = createHarnessCall(tdb, { conversationId: parent, kind: "pi", task: "a" });
+    settleHarnessCall(tdb, call.id, { status: "completed", result: long }); // resultFile stays null
+    const { deps, started } = seams();
+    await expect(wakeCallIfDue(getHarnessCall(tdb, call.id)!, deps)).resolves.toBe("woke");
+    const text = started[0]!.text;
+    expect(text).toContain("more chars");
+    expect(text).toContain(`no file saved; inspect ${call.id}`);
+    expect(text).toContain("no result file saved");
+    expect(text).not.toContain("no result file saved (");
+  });
+});
+
 describe("sweepWakes", () => {
   it("delivers unwoken child settles and stamps them", async () => {
     const { child } = settledChild();
@@ -236,15 +311,68 @@ describe("child threads (0037 phase 3)", () => {
     expect(listWakableChatChildren(tdb).map((c) => c.id)).not.toContain(child);
   });
 
-  it("carries the child's findings at a wider clip than run wakes", async () => {
-    const long = "FINDING ".repeat(700); // ~5.6k chars — a real review report
+  it("carries the child's findings in full when under the wide 16k cap", async () => {
+    // lastAssistantReport trims the stored text, so the report the wake
+    // sees drops the fixture string's trailing space.
+    const long = "FINDING ".repeat(700).trim(); // ~5.6k chars — a real review report
     const { child } = settledChild({ text: long });
     const { deps, started } = seams();
     await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("woke");
     const text = started[0]!.text;
-    expect(text).toContain("[clipped");
+    expect(text).toContain(long);
+    expect(text).not.toContain("more chars");
+  });
+
+  it("clips past WAKE_DETAIL_CAP and points at the saved result file", async () => {
+    const long = "FINDING ".repeat(5_000).trim(); // ~40k chars — over the 16k cap
+    const { child, parent } = settledChild({ text: long });
+    db().insert(projects).values({ id: "p_wk_clip", name: "WkClip", createdAt: 0 }).onConflictDoNothing().run();
+    db().update(conversations).set({ projectId: "p_wk_clip" }).where(eq(conversations.id, parent)).run();
+    const provider = new FakeSandboxProvider();
+    await runBash(parent, "pwd", provider); // bind the parent's sandbox
+    const { deps, started } = seams();
+    deps.resultFileProvider = provider;
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("woke");
+    const text = started[0]!.text;
     expect(text.length).toBeLessThan(long.length);
-    expect(text.length).toBeGreaterThan(2000); // the full findings, not a 500-char stub
+    expect(text).toContain("more chars");
+    expect(text).toContain(`full result (${long.length} chars): /work/${parent}/.sweatshop/results/`);
+    expect(text).toContain("read or grep it with bash");
+  });
+
+  it("clips past WAKE_DETAIL_CAP and points at inspect when there is no bound sandbox to save into", async () => {
+    const long = "FINDING ".repeat(5_000).trim();
+    const { child } = settledChild({ text: long });
+    const { deps, started } = seams();
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("woke");
+    const text = started[0]!.text;
+    expect(text).toContain("more chars");
+    expect(text).toContain(`no file saved; inspect ${child}`);
+    expect(text).toContain("no result file saved (no bound sandbox)");
+  });
+
+  it("reports an exhausted child's wake as \"ran out of steps\"", async () => {
+    const { child } = settledChild({ text: null });
+    appendMessages(tdb, child, [
+      {
+        id: `${child}_earlier`,
+        role: "assistant",
+        text: "partial findings before the budget ran out",
+        modelMessage: { role: "assistant", content: "x" },
+      },
+      {
+        id: `${child}_exhausted`,
+        role: "assistant",
+        text: "[tool bash]",
+        modelMessage: { role: "assistant", content: "x" },
+        metadata: { exhausted: true },
+      },
+    ]);
+    tdb.update(conversations).set({ updatedAt: Date.now() + 2000 }).where(eq(conversations.id, child)).run();
+    const { deps, started } = seams();
+    await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("woke");
+    expect(started[0]!.text).toContain("[thread ran out of steps]");
+    expect(started[0]!.meta).toEqual({ kind: "thread", id: child, status: "ran out of steps" });
   });
 
   it("skips a cancelled stale row without waking", async () => {

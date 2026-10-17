@@ -43,6 +43,9 @@ export async function startChatTurn(
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
       hasSandbox: getConversationBinding(db(), conversationId)?.kind !== "none",
       hasProject: !!conversation.projectId,
+      // 0040 phase 3: a start_thread child gets the thread step budget
+      // even with no skill bound.
+      hasParent: !!conversation.parentConversationId,
       // 0043: the host allow-list rides the input (empty for no hosts).
       ...(conversation.projectId
         ? {

@@ -31,6 +31,11 @@ export interface MessageRowMetadata {
    *  transcript chip, never read back as model input; the text IS the
    *  model input). */
   runEvent?: RunEventMeta;
+  /** 0040 phase 3: on the turn's LAST assistant row — the turn ended by
+   *  hitting its step budget, not by the model choosing to stop (so that
+   *  row's text is often just a dangling `[tool …]` placeholder). Durable
+   *  so the sweep path sees it too, not only the in-run wake. */
+  exhausted?: boolean;
 }
 
 /** 0022: what woke a conversation (machine run or harness call; 0037:
@@ -83,6 +88,9 @@ export function getConversation(
   trashedAt: number | null;
   /** 0039: the thread's skill id (null = plain chat). */
   skill: string | null;
+  /** 0037 phase 3: the start_thread parent, when this is a child (0040
+   *  phase 3: a child gets the thread step budget even with no skill). */
+  parentConversationId: string | null;
 } | null {
   const row = db
     .select({
@@ -91,6 +99,7 @@ export function getConversation(
       route: conversations.route,
       trashedAt: conversations.trashedAt,
       skill: conversations.skill,
+      parentConversationId: conversations.parentConversationId,
     })
     .from(conversations)
     .where(eq(conversations.id, id))
@@ -511,19 +520,69 @@ export function setConversationParent(db: Db, id: string, parentConversationId: 
     .run();
 }
 
-export function markChatChildWoken(db: Db, id: string, at: number): void {
-  db.update(conversations).set({ wokenSettledAt: at }).where(eq(conversations.id, id)).run();
+/** `resultFile` is the path `saveResultFile` actually wrote for THIS
+ *  settle, or null — review fix (0040 phase 3): every settle (including
+ *  one with nothing to report) overwrites it, so it never outlives the
+ *  settle it describes; `inspect` reads it verbatim instead of guessing. */
+export function markChatChildWoken(db: Db, id: string, at: number, resultFile: string | null = null): void {
+  db.update(conversations).set({ wokenSettledAt: at, resultFile }).where(eq(conversations.id, id)).run();
 }
 
-/** The child's last assistant text — the wake's detail (a review
- *  thread's findings). Null when it never produced output. */
-export function lastAssistantText(db: Db, conversationId: string): string | null {
-  const row = db
-    .select({ text: messages.text })
+/** Strip `[tool <name>]` placeholder tokens (textOf's stand-in for a
+ *  tool-call with no text, workflows/chat/steps.ts) and surrounding
+ *  whitespace — what is left is "real" text, if anything is. */
+function stripToolPlaceholders(text: string): string {
+  return text.replace(/\[tool [^\]]*\]/g, "").trim();
+}
+
+/** A malformed metadata blob (legacy/imported data) must never throw
+ *  inside a wake — at turn-end that is wakeParentStep, inside the
+ *  child's own turn workflow. Review fix: not exhausted beats a crash. */
+function safeParseMetadata(raw: string | null): MessageRowMetadata | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as MessageRowMetadata;
+  } catch {
+    return null;
+  }
+}
+
+/** A generous ceiling on how many of a child's assistant rows
+ *  `lastAssistantReport` ever scans — review fix: an unbounded select ran
+ *  on every due-wake check (including the 30 s sweep), and a 400-step
+ *  thread with a placeholder-only tail or no report at all scanned its
+ *  entire history every time. Far past any real turn's assistant-row
+ *  count; only a pathological thread would ever hit it. */
+const LAST_ASSISTANT_REPORT_SCAN_LIMIT = 1_000;
+
+/** A child's most recent real report: the newest assistant row with text
+ *  that isn't only `[tool …]` placeholders, and whether the NEWEST
+ *  assistant row overall (which may be a later, textless placeholder)
+ *  was marked exhausted (0040 phase 3: the turn hit its step budget
+ *  mid-tool-call rather than the model choosing to stop). */
+export interface AssistantReport {
+  text: string;
+  exhausted: boolean;
+}
+
+/** The child's last REAL assistant report — the wake's detail (a review
+ *  thread's findings). Null when it never produced any real text (a
+ *  turn that died before its first slice, or ran out of steps on its
+ *  very first, placeholder-only step). */
+export function lastAssistantReport(db: Db, conversationId: string): AssistantReport | null {
+  const rows = db
+    .select({ text: messages.text, metadata: messages.metadata })
     .from(messages)
     .where(sql`${messages.conversationId} = ${conversationId} and ${messages.role} = 'assistant'`)
     .orderBy(sql`rowid desc`)
-    .limit(1)
-    .get();
-  return row?.text ?? null;
+    .limit(LAST_ASSISTANT_REPORT_SCAN_LIMIT)
+    .all();
+  if (rows.length === 0) return null;
+  const newest = safeParseMetadata(rows[0]!.metadata);
+  const exhausted = newest?.exhausted === true;
+  for (const row of rows) {
+    const text = stripToolPlaceholders(row.text);
+    if (text) return { text, exhausted };
+  }
+  return null;
 }

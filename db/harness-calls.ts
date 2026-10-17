@@ -67,7 +67,15 @@ export function setCallWorkflowRun(db: Db, id: string, workflowRunId: string): v
 export function settleHarnessCall(
   db: Db,
   id: string,
-  set: { status: "completed" | "failed" | "cancelled"; result?: string | null; error?: string | null },
+  set: {
+    status: "completed" | "failed" | "cancelled";
+    result?: string | null;
+    error?: string | null;
+    /** Review fix (0040 phase 3): the path actually written by
+     *  `saveResultFile` — null when none was (sweep reads this back,
+     *  never re-derives or re-writes it). */
+    resultFile?: string | null;
+  },
   now = Date.now(),
 ): boolean {
   const settled = set.status !== "cancelled";
@@ -77,12 +85,20 @@ export function settleHarnessCall(
       status: set.status,
       result: set.result ?? null,
       error: set.error ?? null,
+      resultFile: set.resultFile ?? null,
       ...(settled ? { settledAt: now } : {}),
       updatedAt: now,
     })
     .where(and(eq(harnessCalls.id, id), eq(harnessCalls.status, "running")))
     .run().changes;
   return changes > 0;
+}
+
+/** Record the path `saveResultFile` actually wrote, AFTER settling —
+ *  called only once a settle has won the race (a cancel that settled
+ *  first must never have a harness call's late file attributed to it). */
+export function setCallResultFile(db: Db, id: string, resultFile: string | null): void {
+  db.update(harnessCalls).set({ resultFile }).where(eq(harnessCalls.id, id)).run();
 }
 
 export function markCallWoken(db: Db, id: string, settledAt: number): void {

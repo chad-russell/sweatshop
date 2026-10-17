@@ -85,6 +85,12 @@ export const conversations = sqliteTable(
      *  its parent (wake-once-per-settle idempotency; the tick sweep
      *  re-fires anything missed — crash, restart). */
     wokenSettledAt: integer("woken_settled_at"),
+    /** 0040 phase 3 (review fix): the path `saveResultFile` actually wrote
+     *  for this child's LATEST settle — null when none was written
+     *  (unbound parent, a failed write, or nothing to report). Set
+     *  exactly once per settle by `wakeChatChildIfDue`, the only writer;
+     *  `inspect` reads it verbatim instead of guessing a path. */
+    resultFile: text("result_file"),
     /** 0043 amendment: this chat's `exec` calls run without asking —
      *  except lockout-sensitive commands, which always ask. A toggle,
      *  not a timer: stays on until turned off. Guard rail, not a
@@ -588,8 +594,17 @@ export const harnessCalls = sqliteTable(
     task: text("task").notNull(),
     /** running | completed | failed | cancelled */
     status: text("status").notNull(),
-    /** Clipped final text (completed) — the wake's detail. */
+    /** 0040 phase 3: the harness's final message (completed only), up to
+     *  60 k chars — the database's own full copy; the wake clips it
+     *  further (lib/chat/wake.ts WAKE_DETAIL_CAP) and points at the
+     *  result file for the rest. */
     result: text("result"),
+    /** 0040 phase 3 (review fix): the path `saveResultFile` actually
+     *  wrote at settle time — null when none was written (unbound,
+     *  write failed, or the call had no final text). Set exactly once,
+     *  by `harnessSettleStep`; the sweep (`wakeCallIfDue`) reads it back
+     *  verbatim instead of re-deriving or re-writing it. */
+    resultFile: text("result_file"),
     error: text("error"),
     /** 0012/0022: the Workflow SDK run executing the call (cancel). */
     workflowRunId: text("workflow_run_id"),
