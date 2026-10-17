@@ -30,10 +30,15 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+/** Conversations only — a synthetic harness row (0046) rides along in
+ *  the same list as its conversation but never counts. */
+const conversationsOnly = (items: readonly { kind: string }[]): number =>
+  items.filter((i) => i.kind !== "harness").length;
+
 function folderCount(group: SidebarGroup): number {
   const below = (nodes: SidebarGroup["folders"]): number =>
-    nodes.reduce((n, node) => n + node.items.length + below(node.folders), 0);
-  return group.unfiled.length + below(group.folders);
+    nodes.reduce((n, node) => n + conversationsOnly(node.items) + below(node.folders), 0);
+  return conversationsOnly(group.unfiled) + below(group.folders);
 }
 
 /**
@@ -181,7 +186,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
               <Layers className="size-3 shrink-0 text-sidebar-foreground/60" />
               <span className={HEADING}>Unfiled</span>
               <span className="font-mono text-[10px] text-sidebar-foreground/40">
-                {group.unfiled.length}
+                {conversationsOnly(group.unfiled)}
               </span>
               {!unfiledOpen && (
                 <AttentionDot
@@ -191,7 +196,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
               )}
             </button>
             {unfiledOpen &&
-              (group.unfiled.length === 0 ? (
+              (conversationsOnly(group.unfiled) === 0 ? (
                 <p
                   className="px-2 py-1 text-xs text-sidebar-foreground/40"
                   style={{ paddingLeft: 8 + 2 * INDENT }}

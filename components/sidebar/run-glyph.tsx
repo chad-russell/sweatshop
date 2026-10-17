@@ -1,11 +1,13 @@
 import { CircleAlert, CircleCheck, CircleSlash, CircleX, Hand, Loader2 } from "lucide-react";
 import { cn } from "cn";
 
-/** 0012: statuses where a run is still working (trash cancels it). */
+/** 0012: statuses where a run is still working (trash cancels it).
+ * 0046: synthetic harness rows share the treatment — a running harness
+ *  call keeps its parent's tree live. */
 const LIVE = new Set(["running", "waiting"]);
 
 export function isLiveRun(item: { kind: string; runStatus?: string | null }): boolean {
-  return item.kind === "run" && LIVE.has(item.runStatus ?? "");
+  return (item.kind === "run" || item.kind === "harness") && LIVE.has(item.runStatus ?? "");
 }
 
 /**

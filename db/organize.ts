@@ -8,6 +8,7 @@ import {
   chatHarnessState,
   conversations,
   folders,
+  harnessCalls,
   harnessEvents,
   harnessRuns,
   machineRuns,
@@ -484,6 +485,11 @@ export interface SidebarItem {
   unread: boolean;
   /** 0008: a pending approval/question is waiting on the user. */
   needsYou: boolean;
+  /** 0046: the harness name ("pi" | "claude" | "cursor") when kind is
+   *  "harness" — a synthetic row for a harness_calls entry (no
+   *  conversations row exists), carried so the row can build its href
+   *  (/h/<harness>/<owning conversation>). Null for conversations. */
+  harness?: string | null;
 }
 
 /** Rolled-up attention counts for a collapsible container. */
@@ -533,6 +539,19 @@ export interface SidebarData {
 
 const SHELF_LIMIT = 200;
 
+/** 0046: a synthetic harness row's title — the first line of the call's
+ * task, clipped (the full task lives on the session page); the harness
+ * name when the task has no usable first line. */
+const HARNESS_TITLE_MAX = 60;
+
+function harnessCallTitle(task: string, kind: string): string {
+  const firstLine = task.split("\n", 1)[0]?.trim() ?? "";
+  if (firstLine.length > HARNESS_TITLE_MAX) {
+    return `${firstLine.slice(0, HARNESS_TITLE_MAX - 1)}…`;
+  }
+  return firstLine.length > 0 ? firstLine : kind;
+}
+
 /** Which conversations carry a dot (see db/attention.ts loadAttention). */
 export interface AttentionFlags {
   unread: ReadonlySet<string>;
@@ -575,6 +594,51 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
   const runStatus = new Map(
     db.select({ id: machineRuns.id, status: machineRuns.status }).from(machineRuns).all().map((r) => [r.id, r.status]),
   );
+  // 0046: historical runs nest under the chat that started them — their
+  // parent link lives in machine_runs (0022), not the conversations
+  // column. Read-time join only, applied in toItem below.
+  const runParent = new Map(
+    db
+      .select({ id: machineRuns.id, parentId: machineRuns.parentConversationId })
+      .from(machineRuns)
+      .where(isNotNull(machineRuns.parentConversationId))
+      .all()
+      .map((r) => [r.id, r.parentId!]),
+  );
+  // 0046: one synthetic row per harness call, injected next to its
+  // owning conversation wherever that conversation lands (a folder's
+  // items or Unfiled) so buildSidebarTree nests it. Read-model only —
+  // never a conversations row — so every COUNT stays conversation-only.
+  const harnessByConversation = new Map<string, SidebarItem[]>();
+  for (const call of db
+    .select({
+      id: harnessCalls.id,
+      conversationId: harnessCalls.conversationId,
+      kind: harnessCalls.kind,
+      task: harnessCalls.task,
+      status: harnessCalls.status,
+      createdAt: harnessCalls.createdAt,
+      updatedAt: harnessCalls.updatedAt,
+    })
+    .from(harnessCalls)
+    .all()) {
+    const item: SidebarItem = {
+      id: call.id,
+      title: harnessCallTitle(call.task, call.kind),
+      updatedAt: call.updatedAt,
+      createdAt: call.createdAt,
+      kind: "harness",
+      runStatus: call.status,
+      parentConversationId: call.conversationId,
+      activeRunId: null,
+      unread: false,
+      needsYou: false,
+      harness: call.kind,
+    };
+    const list = harnessByConversation.get(call.conversationId);
+    if (list) list.push(item);
+    else harnessByConversation.set(call.conversationId, [item]);
+  }
 
   const projectName = new Map(projectRows.map((p) => [p.id, p.name]));
   const shelved = (
@@ -612,11 +676,21 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     createdAt: r.createdAt,
     kind: r.kind,
     runStatus: r.kind === "run" ? (runStatus.get(r.id) ?? null) : null,
-    parentConversationId: r.parentConversationId,
+    // 0046: a run conversation's tree parent comes from machine_runs.
+    parentConversationId:
+      r.parentConversationId ?? (r.kind === "run" ? (runParent.get(r.id) ?? null) : null),
     activeRunId: r.activeRunId,
     unread: flags.unread.has(r.id),
     needsYou: flags.needsYou.has(r.id),
   });
+
+  // 0046: append a conversation's synthetic harness rows to its own
+  // list (they are never roots — the parent is present by construction).
+  const withHarnessSessions = (rows: SidebarItem[]): SidebarItem[] => {
+    const out = [...rows];
+    for (const item of rows) out.push(...(harnessByConversation.get(item.id) ?? []));
+    return out;
+  };
 
   const buildGroup = (
     projectId: string | null,
@@ -630,13 +704,16 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
         .filter((f) => f.parentId === parentId)
         .map((f) => {
           const subfolders = build(f.id);
-          const items = groupConversations
+          // Counts and activity stay conversation-only (0046): the
+          // synthetic harness rows ride along but never count.
+          const conversationItems = groupConversations
             .filter((r) => r.folderId === f.id)
             .map(toItem)
             .sort((a, b) => b.updatedAt - a.updatedAt);
+          const items = withHarnessSessions(conversationItems);
           const activityAt = Math.max(
             f.createdAt,
-            ...items.map((i) => i.updatedAt),
+            ...conversationItems.map((i) => i.updatedAt),
             ...subfolders.map((s) => s.activityAt),
           );
           return {
@@ -645,7 +722,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
             activityAt,
             folders: subfolders,
             items,
-            count: items.length + subfolders.reduce((n, s) => n + s.count, 0),
+            count: conversationItems.length + subfolders.reduce((n, s) => n + s.count, 0),
             attention: sumAttention(items, subfolders.map((s) => s.attention)),
           };
         })
@@ -654,10 +731,11 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     const tree = build(null);
     // A conversation whose folder vanished (should not happen) still
     // surfaces as unfiled rather than disappearing.
-    const unfiled = groupConversations
+    const unfiledConversations = groupConversations
       .filter((r) => !r.folderId || !folderIds.has(r.folderId))
       .map(toItem)
       .sort((a, b) => b.updatedAt - a.updatedAt);
+    const unfiled = withHarnessSessions(unfiledConversations);
     return {
       folders: tree,
       unfiled,
