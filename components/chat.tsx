@@ -17,6 +17,7 @@ import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { PhaseChip } from "@/components/plan-card";
+import { StatsDrawer } from "@/components/stats-drawer";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { type ConversationSandboxViewData } from "@/components/sandbox-view";
 import {
@@ -514,6 +515,8 @@ export function ChatSurface({
         >
           {/* 0041: plan → build → PR, derived from the transcript. */}
           <PhaseChip phase={s.phase} variant="header" />
+          {/* 0047: group cost, tokens, and time. Hidden until the chat exists. */}
+          {conversationId ? <StatsDrawer conversationId={conversationId} /> : null}
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
           <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}
