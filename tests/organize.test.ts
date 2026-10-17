@@ -57,6 +57,112 @@ function code(fn: () => unknown): string | null {
   }
 }
 
+/** A child conversation (start_thread shape): same project as its
+ * parent, linked via parent_conversation_id. */
+function childConvo(parentId: string, updatedAt = Date.now()) {
+  n += 1;
+  const id = `wrun_org_${n}`;
+  const parent = tdb
+    .select({ projectId: conversations.projectId })
+    .from(conversations)
+    .where(eq(conversations.id, parentId))
+    .get()!;
+  tdb
+    .insert(conversations)
+    .values({
+      id,
+      title: `t${n}`,
+      projectId: parent.projectId,
+      parentConversationId: parentId,
+      createdAt: updatedAt,
+      updatedAt,
+    })
+    .run();
+  return id;
+}
+
+describe("locked thread groups (0046)", () => {
+  it("dragging a grandchild moves the whole group to the new folder", () => {
+    const f = createFolder(tdb, { projectId: "org-a", parentId: null, name: "Lock-Group" });
+    const root = convo("org-a");
+    const mid = childConvo(root);
+    const leaf = childConvo(mid);
+    moveConversation(tdb, leaf, f.id);
+    const folder = (id: string) =>
+      tdb.select().from(conversations).where(eq(conversations.id, id)).get()?.folderId;
+    expect(folder(root)).toBe(f.id);
+    expect(folder(mid)).toBe(f.id);
+    expect(folder(leaf)).toBe(f.id);
+    // Unfiling a child unfiles the group too.
+    moveConversation(tdb, mid, null);
+    expect(folder(root)).toBeNull();
+    expect(folder(leaf)).toBeNull();
+  });
+
+  it("still rejects cross-group moves from a child (the check uses the root's project)", () => {
+    const root = convo("org-b");
+    const kid = childConvo(root);
+    const fa = createFolder(tdb, { projectId: "org-a", parentId: null, name: "Lock-X" });
+    expect(code(() => moveConversation(tdb, kid, fa.id))).toBe("cross-group");
+  });
+
+  it("archive and trash cascade to descendants; restore clears the group", () => {
+    const root = convo("org-a");
+    const kid = childConvo(root);
+    const grand = childConvo(kid);
+    setArchived(tdb, grand, true);
+    const archived = (id: string) =>
+      tdb.select().from(conversations).where(eq(conversations.id, id)).get()?.archivedAt;
+    expect(archived(root)).not.toBeNull();
+    expect(archived(kid)).not.toBeNull();
+    expect(archived(grand)).not.toBeNull();
+    setArchived(tdb, root, false);
+    expect(archived(root)).toBeNull();
+    expect(archived(grand)).toBeNull();
+
+    setTrashed(tdb, kid, true);
+    const trashed = (id: string) =>
+      tdb.select().from(conversations).where(eq(conversations.id, id)).get()?.trashedAt;
+    expect(trashed(root)).not.toBeNull();
+    expect(trashed(grand)).not.toBeNull();
+    setTrashed(tdb, grand, false);
+    expect(trashed(root)).toBeNull();
+    expect(trashed(kid)).toBeNull();
+  });
+
+  it("delete-forever purges the whole group, from any member", () => {
+    const root = convo("org-a");
+    const kid = childConvo(root);
+    for (const id of [root, kid]) {
+      tdb.insert(messages).values({
+        id: `evt_m_${id}`, conversationId: id, role: "user", text: "group purge", at: 1,
+      }).run();
+    }
+    // Deleting the CHILD takes the root with it (the dragged id is
+    // normalized to the group's root).
+    deleteConversationForever(tdb, kid);
+    expect(tdb.select().from(conversations).where(eq(conversations.id, root)).get()).toBeUndefined();
+    expect(tdb.select().from(conversations).where(eq(conversations.id, kid)).get()).toBeUndefined();
+    expect(tdb.select().from(messages).where(eq(messages.conversationId, root)).all()).toEqual([]);
+    expect(tdb.select().from(messages).where(eq(messages.conversationId, kid)).all()).toEqual([]);
+  });
+
+  it("a corrupted parent cycle cannot hang a move — something sane still files", () => {
+    const a = convo("org-a");
+    const b = childConvo(a);
+    // Raw corruption: point a's parent at b, closing a 2-node cycle.
+    tdb.update(conversations).set({ parentConversationId: b }).where(eq(conversations.id, a)).run();
+    const f = createFolder(tdb, { projectId: "org-a", parentId: null, name: "Lock-Cycle" });
+    expect(() => moveConversation(tdb, a, f.id)).not.toThrow();
+    const folder = (id: string) =>
+      tdb.select().from(conversations).where(eq(conversations.id, id)).get()?.folderId;
+    // Both members of the cycle get filed — the walk stops at the node
+    // before the repeat and the group covers everything reachable.
+    expect(folder(a)).toBe(f.id);
+    expect(folder(b)).toBe(f.id);
+  });
+});
+
 describe("folders", () => {
   it("creates nested folders and inherits the parent's group", () => {
     const top = createFolder(tdb, { projectId: "org-a", parentId: null, name: "Spikes" });

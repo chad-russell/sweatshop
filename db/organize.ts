@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { removeAttachmentFilesSync } from "../lib/attachments";
 import { deleteConversationAttachments } from "./attachments";
 import { hostCommands } from "./schema";
@@ -121,6 +121,56 @@ export function folderSubtreeIds(db: Conn, rootId: string): string[] {
   const stack = [rootId];
   while (stack.length > 0) {
     const id = stack.pop()!;
+    out.push(id);
+    stack.push(...(children.get(id) ?? []));
+  }
+  return out;
+}
+
+/**
+ * 0046 locked thread groups: the topmost ancestor of `id` — `id` itself
+ * when it has no parent. A visited set stops a corrupted parent cycle
+ * from looping: the walk ends at the node just before the repeat, which
+ * is as far "up" as the data honestly goes.
+ */
+function rootConversationId(db: Conn, id: string): string {
+  getConversation(db, id);
+  const seen = new Set<string>([id]);
+  let cursor = id;
+  for (;;) {
+    const parentId =
+      db
+        .select({ parentId: conversations.parentConversationId })
+        .from(conversations)
+        .where(eq(conversations.id, cursor))
+        .get()?.parentId ?? null;
+    if (parentId === null || seen.has(parentId)) return cursor;
+    seen.add(parentId);
+    cursor = parentId;
+  }
+}
+
+/** 0046: the root AND every descendant conversation id (recursive; a
+ *  visited set keeps a corrupted parent cycle from looping). */
+function conversationGroupIds(db: Conn, rootId: string): string[] {
+  const rows = db
+    .select({ id: conversations.id, parentId: conversations.parentConversationId })
+    .from(conversations)
+    .all();
+  const children = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.parentId) continue;
+    const list = children.get(row.parentId) ?? [];
+    list.push(row.id);
+    children.set(row.parentId, list);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
     out.push(id);
     stack.push(...(children.get(id) ?? []));
   }
@@ -253,17 +303,23 @@ export function deleteFolder(db: Db, id: string) {
   });
 }
 
-/** File a conversation into a folder of its own group; null = unfile. */
+/** File a conversation into a folder of its own group; null = unfile.
+ * 0046 locked thread groups: the dragged id is normalized to its
+ * topmost ancestor and the folder lands on the root AND every
+ * descendant — dragging a parent or any child moves the family
+ * together, so filing can never split a group. */
 export function moveConversation(
   db: Db,
   conversationId: string,
   folderId: string | null,
 ) {
   db.transaction((tx) => {
-    const conversation = getConversation(tx, conversationId);
+    const dragged = getConversation(tx, conversationId);
+    const rootId = rootConversationId(tx, conversationId);
+    const root = rootId === conversationId ? dragged : getConversation(tx, rootId);
     if (folderId) {
       const folder = getFolder(tx, folderId);
-      if (folder.projectId !== conversation.projectId) {
+      if (folder.projectId !== root.projectId) {
         throw new OrganizeError(
           "cross-group",
           "a conversation can only be filed in its own project's folders",
@@ -274,7 +330,7 @@ export function moveConversation(
     // "last activity", and sorting must not reshuffle on housekeeping.
     tx.update(conversations)
       .set({ folderId })
-      .where(eq(conversations.id, conversationId))
+      .where(inArray(conversations.id, conversationGroupIds(tx, rootId)))
       .run();
   });
 }
@@ -289,20 +345,27 @@ export function renameConversation(db: Db, id: string, rawTitle: string) {
     .run();
 }
 
+/** Archive/unarchive — 0046: the stamp cascades to the whole locked
+ * group (root + descendants), so a shelf never orphans a child. */
 export function setArchived(db: Db, id: string, archived: boolean) {
-  getConversation(db, id);
-  db.update(conversations)
-    .set({ archivedAt: archived ? Date.now() : null })
-    .where(eq(conversations.id, id))
-    .run();
+  db.transaction((tx) => {
+    const ids = conversationGroupIds(tx, rootConversationId(tx, id));
+    tx.update(conversations)
+      .set({ archivedAt: archived ? Date.now() : null })
+      .where(inArray(conversations.id, ids))
+      .run();
+  });
 }
 
+/** Trash/untrash — 0046: same group cascade as archiving. */
 export function setTrashed(db: Db, id: string, trashed: boolean) {
-  getConversation(db, id);
-  db.update(conversations)
-    .set({ trashedAt: trashed ? Date.now() : null })
-    .where(eq(conversations.id, id))
-    .run();
+  db.transaction((tx) => {
+    const ids = conversationGroupIds(tx, rootConversationId(tx, id));
+    tx.update(conversations)
+      .set({ trashedAt: trashed ? Date.now() : null })
+      .where(inArray(conversations.id, ids))
+      .run();
+  });
 }
 
 /**
@@ -311,6 +374,9 @@ export function setTrashed(db: Db, id: string, trashed: boolean) {
  * conversation takes its whole run with it — the machine_runs row (its
  * visits cascade), each visit's session (`<runId>_<seq>`: stage
  * conversations and harness activity) — so purge leaves no orphans.
+ * 0046 locked groups: the dragged id's root + every descendant join the
+ * purge; a run-kind session anywhere in the group keeps its machine_runs
+ * path above.
  *
  * 0013: returns the sandbox ids the purged run OWNED (an inherited one
  * belongs to its owner). The store is synchronous and cannot reach the
@@ -321,26 +387,37 @@ export function deleteConversationForever(db: Db, id: string): string[] {
   const owned: string[] = [];
   const attachmentIds: string[] = [];
   db.transaction((tx) => {
-    const row = getConversation(tx, id);
-    const sessions = [id];
-    if (row.kind === "run") {
+    getConversation(tx, id);
+    const sessions = conversationGroupIds(tx, rootConversationId(tx, id));
+    const pending = [...sessions];
+    while (pending.length > 0) {
+      const sid = pending.shift()!;
+      const kind = tx
+        .select({ kind: conversations.kind })
+        .from(conversations)
+        .where(eq(conversations.id, sid))
+        .get()?.kind;
+      if (kind !== "run") continue;
       const run = tx
         .select({ sandboxId: machineRuns.sandboxId, owner: machineRuns.sandboxOwner })
         .from(machineRuns)
-        .where(eq(machineRuns.id, id))
+        .where(eq(machineRuns.id, sid))
         .get();
       if (run?.sandboxId && run.owner) owned.push(run.sandboxId);
-      const visitSessions = sql`glob ${`${id}_[0-9]*`}`;
+      const visitSessions = sql`glob ${`${sid}_[0-9]*`}`;
       for (const c of tx
         .select({ id: conversations.id })
         .from(conversations)
         .where(sql`${conversations.id} ${visitSessions}`)
         .all()) {
-        if (!sessions.includes(c.id)) sessions.push(c.id);
+        if (!sessions.includes(c.id)) {
+          sessions.push(c.id);
+          pending.push(c.id);
+        }
       }
       tx.delete(harnessEvents).where(sql`${harnessEvents.sessionId} ${visitSessions}`).run();
       tx.delete(harnessRuns).where(sql`${harnessRuns.sessionId} ${visitSessions}`).run();
-      tx.delete(machineRuns).where(eq(machineRuns.id, id)).run();
+      tx.delete(machineRuns).where(eq(machineRuns.id, sid)).run();
     }
     for (const sid of sessions) {
       tx.delete(messages).where(eq(messages.conversationId, sid)).run();
