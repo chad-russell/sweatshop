@@ -160,7 +160,9 @@ function conversationParentEdges(db: Conn): Map<string, string> {
  * from looping: the walk ends at the node just before the repeat, which
  * is as far "up" as the data honestly goes.
  */
-function rootConversationId(db: Conn, id: string): string {
+/** 0047: exported for the stats read (the group rollup resolves the
+ *  root the same way the sidebar lock does). */
+export function rootConversationId(db: Conn, id: string): string {
   getConversation(db, id);
   const parent = conversationParentEdges(db);
   const seen = new Set<string>([id]);
@@ -175,7 +177,9 @@ function rootConversationId(db: Conn, id: string): string {
 
 /** 0046: the root AND every descendant conversation id (recursive; a
  *  visited set keeps a corrupted parent cycle from looping). */
-function conversationGroupIds(db: Conn, rootId: string): string[] {
+/** 0047: exported for the stats read — the conversation group over both
+ *  child kinds (start_thread chats + historical run conversations). */
+export function conversationGroupIds(db: Conn, rootId: string): string[] {
   const parent = conversationParentEdges(db);
   const children = new Map<string, string[]>();
   for (const [childId, parentId] of parent) {
