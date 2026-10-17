@@ -34,6 +34,11 @@ and the API all get it free:
   walks share one parent-edge map, so the up-walk and down-walk agree;
   each carries a visited set, so a corrupted parent cycle cannot loop
   (it stops at the node before the repeat).
+- The trash reaper interacts with the cascade: a trashed group expires
+  as a unit (one stamp, stamped together), and the first member's
+  `deleteConversationForever` purges the rest — `purgeExpiredTrash`
+  tolerates an id already gone (skips `not-found`), so the sweep in the
+  layout render path never throws mid-batch.
 - `moveConversation` normalizes the dragged id to the topmost ancestor
   and files the **whole group** — root and every descendant — in one
   transaction. The cross-group check runs against the ROOT's project.

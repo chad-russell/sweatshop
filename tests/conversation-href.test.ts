@@ -21,4 +21,11 @@ describe("conversationHref", () => {
       conversationHref({ id: "hc_2", kind: "harness", harness: "claude", parentConversationId: "wrun_9" }),
     ).toBe("/h/claude/wrun_9");
   });
+
+  it("falls back to the ordinary mapping when a harness row lacks its harness name", () => {
+    // Unreachable from loadSidebar (it always sets the field), but the
+    // function is pure and exported — never emit a broken /h//<id> URL.
+    expect(conversationHref({ id: "wrun_5", kind: "harness" })).toBe("/c/wrun_5");
+    expect(conversationHref({ id: "hc_3", kind: "harness", harness: null })).toBe("/c/hc_3");
+  });
 });

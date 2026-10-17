@@ -463,7 +463,12 @@ export function deleteConversationForever(db: Db, id: string): string[] {
 }
 
 /** Lazy retention sweep: purges expired trash and returns the sandbox
- *  ids the purged runs owned (the caller destroys them). */
+ *  ids the purged runs owned (the caller destroys them). 0046: a trashed
+ *  GROUP expires together (setTrashed cascades the stamp), and the first
+ *  member's deleteConversationForever purges the rest — so an id may
+ *  already be gone when its row comes up. Skipping those keeps the
+ *  reaper (app/layout.tsx's render path) from throwing; the batch's
+ *  later rows and owned-sandbox ids still go through. */
 export function purgeExpiredTrash(db: Db, now: number = Date.now()): string[] {
   const expired = db
     .select({ id: conversations.id })
@@ -475,7 +480,18 @@ export function purgeExpiredTrash(db: Db, now: number = Date.now()): string[] {
       ),
     )
     .all();
-  return expired.flatMap(({ id }) => deleteConversationForever(db, id));
+  const owned: string[] = [];
+  for (const { id } of expired) {
+    try {
+      owned.push(...deleteConversationForever(db, id));
+    } catch (err) {
+      // Already purged as part of an earlier member's group cascade —
+      // nothing left to do for this id.
+      if (err instanceof OrganizeError && err.code === "not-found") continue;
+      throw err;
+    }
+  }
+  return owned;
 }
 
 // ---------------------------------------------------------------------
@@ -488,7 +504,9 @@ export interface SidebarItem {
   /** 0040 phase 2: when it was created — children sort oldest-first by
    *  this (lib/sidebar-tree.ts), independent of updatedAt's recency sort. */
   createdAt: number;
-  /** 0012: "chat" | "run" (stage rows never reach the sidebar). */
+  /** 0012: "chat" | "run" (stage rows never reach the sidebar); 0046
+   *  also "harness" — synthetic read-model rows for harness_calls
+   *  sessions injected by loadSidebar, with no conversations row. */
   kind: string;
   /** 0012: the run's status for run rows; null for chats. */
   runStatus: string | null;

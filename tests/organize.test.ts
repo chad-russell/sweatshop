@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { openDb } from "../db";
 import { createHarnessCall } from "../db/harness-calls";
 import { buildSidebarTree } from "../lib/sidebar-tree";
@@ -394,6 +394,22 @@ describe("locked thread groups (0046)", () => {
     expect(tdb.select().from(conversations).where(eq(conversations.id, run)).get()).toBeUndefined();
     expect(tdb.select().from(machineRuns).where(eq(machineRuns.id, run)).get()).toBeUndefined();
     expect(tdb.select().from(messages).where(eq(messages.conversationId, run)).all()).toEqual([]);
+  });
+
+  it("purgeExpiredTrash tolerates an expired GROUP: no throw, all rows gone (review fix)", () => {
+    // The group expires together (setTrashed cascades the stamp), so
+    // the reaper's batch lists parent AND child — the first delete
+    // purges both, and the second id is already gone. That used to
+    // throw "conversation … not found" out of the layout render path.
+    const root = convo("org-a");
+    const kid = childConvo(root);
+    setTrashed(tdb, root, true);
+    const expired = Date.now() - TRASH_RETENTION_MS - 1000;
+    tdb.update(conversations).set({ trashedAt: expired })
+      .where(inArray(conversations.id, [root, kid])).run();
+    expect(() => purgeExpiredTrash(tdb, Date.now())).not.toThrow();
+    expect(tdb.select().from(conversations).where(eq(conversations.id, root)).get()).toBeUndefined();
+    expect(tdb.select().from(conversations).where(eq(conversations.id, kid)).get()).toBeUndefined();
   });
 
   it("a corrupted parent cycle cannot hang a move — something sane still files", () => {

@@ -15,8 +15,11 @@ export function conversationHref(item: {
   /** 0046: the owning conversation for kind "harness" rows. */
   parentConversationId?: string | null;
 }): string {
-  if (item.kind === "harness") {
-    return `/h/${item.harness ?? ""}/${item.parentConversationId ?? item.id}`;
+  // A harness row without its harness name can't build a /h/ URL —
+  // fall through to the ordinary mapping (unreachable from loadSidebar,
+  // but this is a pure exported function).
+  if (item.kind === "harness" && item.harness) {
+    return `/h/${item.harness}/${item.parentConversationId ?? item.id}`;
   }
   return item.kind === "run" ? `/r/${item.id}` : `/c/${item.id}`;
 }
