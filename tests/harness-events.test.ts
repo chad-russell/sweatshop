@@ -41,6 +41,19 @@ describe("harness event store (0006)", () => {
     ]);
   });
 
+  it("fromAt/toAt scope events to one call's window, inclusive (0046)", async () => {
+    const { db } = await import("../db");
+    const { harnessEvents } = await import("../db/schema");
+    for (const at of [100, 200, 300, 400]) {
+      db().insert(harnessEvents).values({ sessionId: "wrun_hw", harness: "pi", at, kind: "step-end", text: `t${at}` }).run();
+    }
+    const texts = (o: { fromAt?: number; toAt?: number }) =>
+      getHarnessEvents("wrun_hw", "pi", o).events.map((e) => e.text);
+    expect(texts({ fromAt: 200, toAt: 300 })).toEqual(["t200", "t300"]);
+    expect(texts({ fromAt: 300 })).toEqual(["t300", "t400"]);
+    expect(texts({ toAt: 100 })).toEqual(["t100"]);
+  });
+
   it("tail returns the newest events, oldest-first", () => {
     for (let i = 0; i < 6; i += 1) {
       recordHarnessEvent("wrun_h4", "pi", { kind: "step-end", text: `t${i}` });
