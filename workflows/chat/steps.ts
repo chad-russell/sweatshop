@@ -568,12 +568,26 @@ export async function hostExecPreviewStep(
   return hostExecPreview(conversationId, input);
 }
 
-/** 0043: run the approved exec — audit row, transport, TOFU pin, clip. */
+/** 0043: run the approved (or auto-approved) exec — audit row, transport,
+ *  TOFU pin, clip. */
 export async function hostExecStep(
   conversationId: string,
   input: import("../../lib/agent/tools/host").HostExecInput,
+  /** 0043 amendment: this call skipped ask_chad under the chat's toggle. */
+  autoApproved = false,
 ): Promise<unknown> {
   "use step";
   const { hostExecRun } = await import("../../lib/agent/tools/host");
-  return hostExecRun(conversationId, input);
+  return hostExecRun(conversationId, input, undefined, autoApproved);
+}
+
+/**
+ * 0043 amendment: this chat's exec-approval toggle, read on EVERY exec
+ * call (not cached per turn) so flipping it takes effect on the very
+ * next command.
+ */
+export async function getHostAutoApproveStep(conversationId: string): Promise<boolean> {
+  "use step";
+  const { db, chat } = await chatStore();
+  return chat.getHostAutoApprove(db, conversationId);
 }

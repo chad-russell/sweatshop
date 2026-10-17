@@ -269,9 +269,26 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   terminal `exec` card (host chip + duration). Secrets convention
   (taught in the tool description): reference PATHS never contents; API
   calls run as exec + curl on a host holding the credential file.
-  Deferred on purpose: bespoke verbs (deploy/rollback/restart), policy
-  modes ("yolo" auto-approve, allowlists, time-boxed grants), a `request`
-  tool, per-host kind/runbook fields, network sandboxing. Capability doc
+  Auto-approve (amendment, Chad's decision: one simple toggle, no time
+  limit): `conversations.host_auto_approve` — the composer's switch
+  (`components/chat.tsx`, shown once the chat exists and its project has
+  hosts; `GET`/`PATCH /api/conversations/[id]` reads/sets it, optimistic
+  with revert-on-failure). The `exec` tool reads it fresh on EVERY call
+  (`getHostAutoApproveStep`, never cached per turn — flipping it takes
+  effect on the very next command): on, and the command is not
+  lockout-sensitive, it skips `pendingStep`/the hook and runs straight
+  through (`hostExecStep(…, autoApproved: true)`); off, or the command IS
+  lockout-sensitive, it asks exactly as before. Lockout-sensitive
+  (`lib/hosts/lockout.ts`, `isLockoutSensitiveCommand`) is a
+  case-insensitive, word-boundary match on sshd/ssh.service/ssh.socket,
+  networkd/NetworkManager, nftables/iptables/firewall, nebula, caddy,
+  reboot/shutdown/poweroff, `nixos-rebuild switch|boot`, and `ip
+  link|addr|route` — a GUARD RAIL against the tool wording its way into a
+  lockout, not a security boundary. `host_commands.auto_approved` records
+  which commands ran that way; the terminal card shows an "auto-approved"
+  chip. Still deferred on purpose: bespoke verbs (deploy/rollback/
+  restart), allowlists / time-boxed grants, a `request` tool, per-host
+  kind/runbook fields, network sandboxing. Capability doc
   `docs/agent/hosts.md`; live check `HOST_SPIKE=1` (tests/
   host-spike.integration.test.ts — it found the warm-pool fingerprint
   skip pre-merge).

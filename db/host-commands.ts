@@ -16,6 +16,9 @@ export interface NewHostCommand {
   hostId: string;
   hostName: string;
   command: string;
+  /** 0043 amendment: this command skipped ask_chad under the chat's
+   *  auto-approve toggle. Default false — an explicit approval. */
+  autoApproved?: boolean;
 }
 
 export function recordHostCommand(db: Db, row: NewHostCommand): void {

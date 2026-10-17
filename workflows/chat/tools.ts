@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "./hooks";
 import { startHarnessCallStep } from "./harness-step";
+import { isLockoutSensitiveCommand } from "../../lib/hosts/lockout";
 import {
   bashStep,
   cancelRunStep,
@@ -25,6 +26,7 @@ import {
   deleteProjectStep,
   webFetchStep,
   webSearchStep,
+  getHostAutoApproveStep,
   hostExecPreviewStep,
   hostExecStep,
 } from "./steps";
@@ -303,8 +305,9 @@ export function buildChatTools(
         description:
           "Repo work happens in your sandbox, never here — exec is only for live state on a real host " +
           "(check, restart, roll back, read logs); never edit a repo checkout on a host, and never open a PR " +
-          "from one. Run a command on a real host over SSH, as the host's user, via bash -lc — every call waits for Chad's " +
-          "approval with the exact command on his card. This project's hosts: " +
+          "from one. Run a command on a real host over SSH, as the host's user, via bash -lc — calls wait for " +
+          "Chad's approval with the exact command on his card, unless he has turned on auto-approve for this " +
+          "chat (lockout-sensitive commands always ask). This project's hosts: " +
           hosts
             .map((h) => `${h.name} (${h.user}@${h.address}${h.apiBase ? `, API ${h.apiBase}` : ""})`)
             .join("; ") +
@@ -330,6 +333,14 @@ export function buildChatTools(
             | { ok: true; summary: string; host: { name: string; address: string; user: string }; command: string; timeoutSec: number }
             | { ok: false; code: string; message: string };
           if (!preview.ok) return preview;
+          // 0043 amendment: read fresh on every call (not cached per turn)
+          // so flipping the chat's toggle takes effect on the very next
+          // command; a lockout-sensitive command always asks regardless
+          // (a guard rail, not a security boundary).
+          const autoApprove = await getHostAutoApproveStep(conversationId);
+          if (autoApprove && !isLockoutSensitiveCommand(preview.command)) {
+            return hostExecStep(conversationId, input, true);
+          }
           // 0043 UX: a structured card so the inbox renders a terminal
           // block (host + command), not the generic JSON dump.
           await pendingStep(conversationId, toolCallId, preview.summary, "approval", {
@@ -352,7 +363,7 @@ export function buildChatTools(
                 : "Chad declined — nothing ran on the host",
             };
           }
-          return hostExecStep(conversationId, input);
+          return hostExecStep(conversationId, input, false);
         },
       }),
     }),

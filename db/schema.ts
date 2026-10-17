@@ -85,6 +85,11 @@ export const conversations = sqliteTable(
      *  its parent (wake-once-per-settle idempotency; the tick sweep
      *  re-fires anything missed — crash, restart). */
     wokenSettledAt: integer("woken_settled_at"),
+    /** 0043 amendment: this chat's `exec` calls run without asking —
+     *  except lockout-sensitive commands, which always ask. A toggle,
+     *  not a timer: stays on until turned off. Guard rail, not a
+     *  security boundary. */
+    hostAutoApprove: integer("host_auto_approve", { mode: "boolean" }).notNull().default(false),
   },
   (table) => [
     index("conversations_updated_at_idx").on(table.updatedAt),
@@ -432,6 +437,9 @@ export const hostCommands = sqliteTable(
     durationMs: integer("duration_ms"),
     createdAt: integer("created_at").notNull(),
     resolvedAt: integer("resolved_at"),
+    /** 0043 amendment: this command skipped ask_chad under the chat's
+     *  auto-approve toggle (never true for a lockout-sensitive command). */
+    autoApproved: integer("auto_approved", { mode: "boolean" }).notNull().default(false),
   },
   (table) => [index("host_commands_conversation_idx").on(table.conversationId)],
 );

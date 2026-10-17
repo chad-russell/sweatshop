@@ -377,6 +377,8 @@ export function HostExecCard({
   const ok = obj && obj.ok === true && typeof obj.exitCode === "number" ? obj : undefined;
   const host = objectOf(input)?.host;
   const duration = ok && typeof obj?.durationMs === "number" ? `${(obj.durationMs / 1000).toFixed(1)}s` : undefined;
+  // 0043 amendment: ran without asking, under the chat's auto-approve toggle.
+  const autoApproved = ok?.autoApproved === true;
   return (
     <BashTerminal
       className="my-1"
@@ -386,12 +388,22 @@ export function HostExecCard({
       errorText={errorText ?? failureLines(output)?.join("\n")}
       extra={
         typeof host === "string" ? (
-          <span
-            title={`exec on ${host}`}
-            className="rounded-full border border-terminal-border px-2 py-0.5 font-mono text-[10px] text-terminal-muted"
-          >
-            {host}
-            {duration ? ` · ${duration}` : ""}
+          <span className="flex items-center gap-1.5">
+            <span
+              title={`exec on ${host}`}
+              className="rounded-full border border-terminal-border px-2 py-0.5 font-mono text-[10px] text-terminal-muted"
+            >
+              {host}
+              {duration ? ` · ${duration}` : ""}
+            </span>
+            {autoApproved && (
+              <span
+                title="Ran without asking — this chat's auto-approve toggle is on"
+                className="rounded-full border border-terminal-border px-2 py-0.5 font-mono text-[10px] text-terminal-muted"
+              >
+                auto-approved
+              </span>
+            )}
           </span>
         ) : undefined
       }
