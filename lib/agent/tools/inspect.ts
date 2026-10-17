@@ -124,7 +124,7 @@ export function inspectTarget(id: string): InspectResult {
       // never a path `cat` 404s on.
       ...(call.resultFile ? { resultFile: call.resultFile } : {}),
       conversation: call.conversationId,
-      eventsUrl: `/h/${call.kind}/${call.conversationId}`,
+      eventsUrl: `/h/${call.kind}/${call.conversationId}/${call.id}`,
       sandbox: binding?.kind === "bound" ? sandboxSummary(binding) : null,
       ...(events ? { recentEvents: events.recentEvents } : {}),
       hint: "cancel_run stops it; the conversation is woken when it settles.",

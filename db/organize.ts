@@ -526,6 +526,10 @@ export interface SidebarItem {
    *  conversations row exists), carried so the row can build its href
    *  (/h/<harness>/<owning conversation>). Null for conversations. */
   harness?: string | null;
+  /** 0046: a child thread whose newest assistant row is marked
+   *  `metadata.exhausted` (its last turn ran out of steps) — the ⚠ glyph.
+   *  Null otherwise and for every non-child row. */
+  threadStatus?: "exhausted" | null;
 }
 
 /** Rolled-up attention counts for a collapsible container. */
@@ -676,6 +680,23 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     else harnessByConversation.set(call.conversationId, [item]);
   }
 
+  // 0046: child threads whose last turn ran out of steps. ONE batched
+  // query over child conversations only, reading just each child's
+  // newest assistant row (max rowid) — never a transcript scan.
+  const exhaustedChildren = new Set(
+    db
+      .all<{ id: string }>(sql`
+        select m.conversation_id as id from messages m
+        join (
+          select mm.conversation_id as cid, max(mm.rowid) as rid
+          from messages mm join conversations c on c.id = mm.conversation_id
+          where c.parent_conversation_id is not null and mm.role = 'assistant'
+          group by mm.conversation_id
+        ) newest on m.rowid = newest.rid
+        where json_valid(m.metadata) and json_extract(m.metadata, '$.exhausted') = 1`)
+      .map((r) => r.id),
+  );
+
   const projectName = new Map(projectRows.map((p) => [p.id, p.name]));
   const shelved = (
     rows: typeof conversationRows,
@@ -718,6 +739,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     activeRunId: r.activeRunId,
     unread: flags.unread.has(r.id),
     needsYou: flags.needsYou.has(r.id),
+    threadStatus: exhaustedChildren.has(r.id) ? "exhausted" : null,
   });
 
   // 0046: append a conversation's synthetic harness rows to its own

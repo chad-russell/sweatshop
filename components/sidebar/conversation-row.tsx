@@ -3,6 +3,7 @@
 import { Archive, ChevronRight, Loader2, Pencil, Trash2 } from "lucide-react";
 import { conversationHref } from "@/lib/conversation-href";
 import { defaultExpanded, hasActiveDescendant } from "@/lib/sidebar-tree";
+import { ChildGlyph } from "./child-glyph";
 import { RunGlyph, isLiveRun } from "./run-glyph";
 import Link from "next/link";
 import { cn } from "cn";
@@ -141,7 +142,7 @@ export function ConversationRow({
                   className={hasChildren ? undefined : "-ml-1"}
                 />
                 {item.kind === "run" && <RunGlyph status={item.runStatus} />}
-                {locked && <RunGlyph status={item.runStatus} />}
+                <ChildGlyph item={item} />
                 <span className="truncate">
                   {item.title ?? (
                     <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>

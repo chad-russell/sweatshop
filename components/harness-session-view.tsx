@@ -230,8 +230,12 @@ export function HarnessSessionView({
   initialEvents,
   parent,
   sandbox,
+  call,
 }: {
   initialRun: HarnessRun;
+  /** 0046: set on the per-call page — scopes polling to the call's window
+   *  so an old call never appends a later call's events. */
+  call?: { id: string; task: string; status: string; createdAt: number; settledAt: number | null };
   initialEvents: readonly HarnessEvent[];
   /** Where this session works: its chat's recorded sandbox or the run's. */
   sandbox: SandboxLink | null;
@@ -254,6 +258,10 @@ export function HarnessSessionView({
         const after = events.length > 0 ? events[events.length - 1].id : 0;
         const params = new URLSearchParams({ harness: run.kind });
         if (after > 0) params.set("after", String(after));
+        if (call) {
+          params.set("from", String(call.createdAt));
+          if (call.settledAt !== null) params.set("to", String(call.settledAt));
+        }
         const res = await fetch(
           `/api/harness/${run.sessionId}?${params.toString()}`,
           { cache: "no-store" },
@@ -273,10 +281,13 @@ export function HarnessSessionView({
       }
     }, 2000);
     return () => clearInterval(timer);
-  }, [run.status, run.sessionId, run.kind, events]);
+  }, [run.status, run.sessionId, run.kind, events, call]);
 
-  const running = run.status === "running";
-  const failed = run.status === "failed";
+  // On a per-call page a settled call shows its own status, not the
+  // session's latest.
+  const status = call && call.status !== "running" ? call.status : run.status;
+  const running = status === "running";
+  const failed = status === "failed";
 
   return (
     <div className="mx-auto flex h-full w-full max-w-(--content-max) flex-col">
@@ -313,11 +324,16 @@ export function HarnessSessionView({
           )}
           {running && <Loader2 className="size-3.5 animate-spin text-info" aria-hidden />}
           <span className={cn(running ? "text-info" : failed ? "text-destructive" : "text-success")}>
-            {run.status}
+            {status}
           </span>
         </span>
       </AppHeader>
-      {failed && run.error && (
+      {call?.task && (
+        <div className="mx-4 mt-3">
+          <TaskQuote className="text-foreground">{call.task}</TaskQuote>
+        </div>
+      )}
+      {failed && run.error && !call && (
         <p className="mx-4 mt-3 break-words rounded-md bg-destructive/10 px-2 py-1 font-mono text-[11px] text-destructive">
           {run.error}
         </p>

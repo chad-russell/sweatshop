@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { harnessEvents, harnessRuns } from "@/db/schema";
 
@@ -74,12 +74,19 @@ export interface HarnessEventPage {
  * returns only events appended after that id (incremental polling);
  * `limit` bounds each page so long sessions stream in windows instead
  * of truncating at a hard cap (0006). `tail` returns the newest `limit`
- * events instead of the oldest.
+ * events instead of the oldest. `fromAt`/`toAt` (inclusive, Unix ms)
+ * scope the log to one harness call's time window (0046 per-call view).
  */
 export function getHarnessEvents(
   sessionId: string,
   harness: HarnessKind = "pi",
-  options: { afterId?: number; limit?: number; tail?: boolean } = {},
+  options: {
+    afterId?: number;
+    limit?: number;
+    tail?: boolean;
+    fromAt?: number;
+    toAt?: number;
+  } = {},
 ): HarnessEventPage {
   const limit = Math.min(Math.max(options.limit ?? 500, 1), 1000);
   const filters = [
@@ -89,6 +96,8 @@ export function getHarnessEvents(
   if (options.afterId !== undefined) {
     filters.push(gt(harnessEvents.id, options.afterId));
   }
+  if (options.fromAt !== undefined) filters.push(gte(harnessEvents.at, options.fromAt));
+  if (options.toAt !== undefined) filters.push(lte(harnessEvents.at, options.toAt));
   if (options.tail) {
     // The newest `limit` events, still returned oldest-first — what a live
     // "what is it doing now" peek wants, without paging from the start.

@@ -1,14 +1,6 @@
 import { notFound, permanentRedirect } from "next/navigation";
-import { eq } from "drizzle-orm";
-import { HarnessSessionView } from "@/components/harness-session-view";
-import { db } from "@/db";
-import { sandboxForHarnessSession } from "@/db/sandbox-view";
-import { conversations, projects } from "@/db/schema";
-import {
-  getHarnessEvents,
-  getHarnessRun,
-  isHarnessKind,
-} from "@/lib/harness-events";
+import { getHarnessRun, isHarnessKind } from "@/lib/harness-events";
+import { renderHarnessSession } from "../render-session";
 
 export const dynamic = "force-dynamic";
 
@@ -29,37 +21,7 @@ export default async function HarnessSessionPage({
   // Canonical shape: /h/<harness>/<sessionId>.
   if (isHarnessKind(harness)) {
     const run = getHarnessRun(sessionId, harness);
-    if (run) {
-      const page = getHarnessEvents(sessionId, harness);
-      // The parent conversation anchors the breadcrumb (the session id
-      // IS the conversation id); it may be gone, so everything degrades.
-      const parent = db()
-        .query.conversations.findFirst({
-          where: eq(conversations.id, sessionId),
-        })
-        .sync();
-      const project = parent?.projectId
-        ? db()
-            .query.projects.findFirst({
-              where: eq(projects.id, parent.projectId),
-            })
-            .sync()
-        : undefined;
-      return (
-        <HarnessSessionView
-          initialRun={run}
-          initialEvents={page.events}
-          sandbox={sandboxForHarnessSession(db(), sessionId)}
-          parent={{
-            id: sessionId,
-            title: parent?.title ?? null,
-            exists: !!parent,
-            projectId: project?.id ?? null,
-            projectName: project?.name ?? null,
-          }}
-        />
-      );
-    }
+    if (run) return renderHarnessSession(sessionId, harness, run);
   }
 
   // Legacy two-segment shape (0006): /h/<eveSessionId>/<harness> — the

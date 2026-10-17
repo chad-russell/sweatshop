@@ -73,8 +73,36 @@ Read-model only — no rows are created:
   for free.
 - Historical runs (`kind: "run"`) get their tree parent from
   `machine_runs.parent_conversation_id` by a read-time join.
-- `conversationHref`: a harness row opens `/h/<harness>/<conversation>`
-  (the call's conversationId is its harness session id, 0010).
+- `conversationHref`: a harness row opens its own call,
+  `/h/<harness>/<conversation>/<callId>` (a path segment, so active
+  matching on `usePathname` works). Amended after #119: the first cut
+  opened the session URL `/h/<harness>/<conversation>`, which every call
+  of that harness in the conversation shared — clicking one co-selected
+  them all. The per-call page (`app/h/[harness]/[sessionId]/[callId]`)
+  checks the call belongs to that session + harness and renders the same
+  session view with events scoped to the call's window
+  (`created_at ≤ at ≤ settled_at`, inclusive; `getHarnessEvents`
+  `fromAt`/`toAt`, API `?from=&to=`, polling passes it through). The
+  session URL still works unchanged; per-call links elsewhere (child
+  status, wake url, `inspect`, the start result's eventsUrl) use the
+  per-call URL.
+- Child-row status glyphs (pure `childGlyphKind`, `lib/child-glyph.ts`;
+  icons in `components/sidebar/child-glyph.tsx`; semantic tokens only):
+
+  | Row | Running | Done | Failed | Cancelled |
+  | --- | --- | --- | --- | --- |
+  | Harness call | spinner | that harness's mark, muted | ✕ | ⊘ |
+  | Child thread (chat with a parent) | spinner (`activeRunId`) | lucide `Bot`, muted | — | — |
+  | Historical run | `RunGlyph`, unchanged (none once completed) | | | |
+
+  A child thread whose newest assistant row carries `metadata.exhausted`
+  (its last turn ran out of steps) shows ⚠ (`CircleAlert`, warning)
+  instead of the Bot — `SidebarItem.threadStatus`, computed in
+  `loadSidebar` by one batched query over child conversations reading
+  only each one's max-rowid assistant row. Top-level conversations get
+  no glyph. Cancelled threads have no persisted signal (`cancel_run`
+  only clears `active_run_id` and stamps `woken_settled_at`, like a
+  normal settle), so they show the Bot.
 - `ConversationRow` renders the status glyph and link for harness rows,
   but **no row menu and not draggable** — a session is locked to its
   conversation; organizing one individually would break group locking.

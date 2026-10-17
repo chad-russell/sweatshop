@@ -25,7 +25,7 @@ describe("childStatus", () => {
       kind: "harness",
       status: "running",
       live: true,
-      href: "/h/pi/c_cs",
+      href: `/h/pi/c_cs/${call.id}`,
       settledAt: null,
     });
     settleHarnessCall(tdb, call.id, { status: "failed", error: "boom" });

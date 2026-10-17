@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  * Harness visibility (0005/0006): run status + the structured event log
  * for one conversation's harness session — every model step, tool call,
  * input, and output as it happened (events land live; poll
- * incrementally with ?after=<lastEventId>).
+ * incrementally with ?after=<lastEventId>). ?from=/&to= (Unix ms,
+ * inclusive) scope it to one call's window (0046 per-call view).
  */
 export async function GET(
   request: Request,
@@ -30,11 +31,17 @@ export async function GET(
   const tailRaw = url.searchParams.get("tail");
   const tail = tailRaw !== null && /^\d+$/.test(tailRaw) ? Number(tailRaw) : undefined;
 
+  const num = (key: string): number | undefined => {
+    const raw = url.searchParams.get(key);
+    return raw !== null && /^\d+$/.test(raw) ? Number(raw) : undefined;
+  };
+  const window = { fromAt: num("from"), toAt: num("to") };
+
   const run = getHarnessRun(sessionId, harness);
   const page =
     tail !== undefined && afterId === undefined
-      ? getHarnessEvents(sessionId, harness, { limit: tail, tail: true })
-      : getHarnessEvents(sessionId, harness, { afterId });
+      ? getHarnessEvents(sessionId, harness, { limit: tail, tail: true, ...window })
+      : getHarnessEvents(sessionId, harness, { afterId, ...window });
   return Response.json({
     sessionId,
     harness,
