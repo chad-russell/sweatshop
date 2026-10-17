@@ -30,7 +30,7 @@ run("claude harness bridge spike (0006/0013)", () => {
       const { toNetworkSandboxSession } = await import(
         "../lib/sandboxes/ai-sdk-adapter"
       );
-      const { HARNESS_BRIDGE_PORT } = await import("../lib/sandboxes/harness-bridge");
+      const { harnessBridgePort } = await import("../lib/sandboxes/harness-bridge");
 
       const name = `sweatshop-claude-spike-${Date.now()}`;
       const workDir = "/work/claude-spike";
@@ -45,7 +45,7 @@ run("claude harness bridge spike (0006/0013)", () => {
           workDir,
         });
         const endpoint = await sandboxSession.getPortEndpoint({
-          port: HARNESS_BRIDGE_PORT,
+          port: harnessBridgePort("claude"),
           protocol: "ws",
         });
         console.log("SPIKE endpoint:", endpoint.url);

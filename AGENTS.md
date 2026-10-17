@@ -422,14 +422,24 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   id) and the panel re-mounts only for New or a reopened stored
   conversation (hydrated before mount; initialMessages/activeRunId are
   init-only props).
-- Harness agents (0005/0006 + 0010 Phase 3 + 0022): project
-  conversations have `pi`, `claude` and `cursor` tools — separate coding harnesses
-  on the conversation's sandbox (0010 lease seam). CHAT calls are
-  BACKGROUND work (0022 cut 2): the tool step
-  (`startHarnessCallStep` → core `lib/chat/harness-call-start.ts`)
-  validates the route (0021 resolution), claims the one-per-session
-  slot, inserts a `harness_calls` row (`hc_…`, store
-  `db/harness-calls.ts`), and starts ONE `harnessCall` workflow
+- Harness agents (0005/0006 + 0010 Phase 3 + 0022; 0038 amendment —
+  concurrency): project conversations have `pi`, `claude` and `cursor`
+  tools — separate coding harnesses on the conversation's sandbox (0010
+  lease seam), up to `MAX_CONCURRENT_HARNESSES` (3) running at once, at
+  most one call per kind (0006's "one harness at a time" became "one of
+  each kind, up to a cap" — they share the sandbox's checkout, so the
+  instructions and each tool's description tell the model to give
+  concurrent harnesses separate files/areas, or `start_thread({fresh:
+  true})` for work that could collide). CHAT calls are BACKGROUND work
+  (0022 cut 2): the tool step (`startHarnessCallStep` → core
+  `lib/chat/harness-call-start.ts`) validates the route (0021
+  resolution), atomically claims a concurrency slot (`claimHarnessRun`,
+  `lib/harness-events.ts` — one sqlite transaction so two concurrent
+  calls cannot both pass; `harness_runs` already keyed one row per
+  (session, kind), so a different kind just inserts its own running row;
+  denial names WHY — `same-kind` or `cap` — with the active runs and the
+  existing inspect/cancel hint), inserts a `harness_calls` row (`hc_…`,
+  store `db/harness-calls.ts`), and starts ONE `harnessCall` workflow
   (`workflows/chat/harness-call.ts`) — the tool returns the handle
   immediately (value-shaped errors: no-project / not-configured /
   busy / start-failed). The worker advances the harness turn ONE
@@ -438,12 +448,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   harness-agent builder) and settles via `harnessSettleStep`: persist
   the `resumeFrom` handle (natural completion only — cross-call
   continuity stays durable in `chat_harness_state`), settle the row,
-  release the slot, and WAKE the conversation with the clipped final
-  text (0022 cut 1's primitive). The slot is held for the call's whole
-  life — a second call errors busy, and the running row is what keeps
-  the sandbox in the reaper's busy set. Cancelling (`cancel_run` with
-  the `hc_…` id) cancels the workflow, settles the row cancelled (no
-  wake), releases the slot; settles are running-only writes so the
+  release its slot, and WAKE the conversation with the clipped final
+  text (0022 cut 1's primitive; each call's wake is independent — two
+  settling close together both land, one starting the turn and the
+  other steering behind it, same as a human message arriving mid-turn).
+  A kind's slot is held for that call's whole life — ANOTHER call of the
+  SAME kind errors busy; any running row (any kind) is what keeps the
+  sandbox in the reaper's busy set. Cancelling (`cancel_run` with the
+  `hc_…` id) cancels that one workflow, settles its row cancelled (no
+  wake), releases its slot; settles are running-only writes so the
   first final write wins.
   pi (`@ai-sdk/harness-pi`) runs in-process on
   GLM via the Z.AI coding plan's Anthropic Messages surface
@@ -452,7 +465,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   exactly 1.0.145) runs the official Agent SDK as an in-sandbox bridge
   process reached over the private `sweatshop-harness` podman network
   (host processes have no route to podman bridge subnets — membership
-  is the boundary, never a published LAN port). claude auth (0006
+  is the boundary, never a published LAN port) on its own port (0038
+  amendment: `HARNESS_BRIDGE_PORTS` in `lib/sandboxes/harness-bridge.ts`
+  — claude 4000, cursor 4001, threaded through `buildHarnessAgent` and
+  the adapter's `toNetworkSandboxSession` `ports`/`getPortEndpoint`). A
+  settled call's bridge process can be left running on purpose
+  (`workflows/chat/harness-call.ts` keeps `resumeFrom` on both the
+  completed and the failed path precisely so the SAME kind's next call
+  reattaches to it instead of spawning a second one); before separate
+  ports, a leftover claude bridge still holding the shared port made the
+  next cursor call fail `listen EADDRINUSE` (and the reverse) — observed
+  live in this sandbox, now impossible since each kind binds its own.
+  claude auth (0006
   amendment): a claude setup-token passed as `CLAUDE_CODE_OAUTH_TOKEN`
   through the adapter's env channel (`auth: "direct"` — no gateway, no
   host discovery); single-user personal use per Chad's recorded

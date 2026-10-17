@@ -17,8 +17,25 @@ const exec = promisify(execFile);
 
 export const HARNESS_NETWORK = "sweatshop-harness";
 
-/** Bridge port inside each sandbox (isolated netns — no collisions). */
-export const HARNESS_BRIDGE_PORT = 4000;
+/**
+ * 0038 amendment: bridge-backed kinds (claude, cursor) each get their
+ * OWN port inside the sandbox. Before this, both hardcoded the same
+ * port — fine while only one harness ran at a time (0006), but once a
+ * settled call's bridge is kept up for reattach (workflows/chat/
+ * harness-call.ts), a leftover claude bridge still holding the shared
+ * port made the next cursor call fail `listen EADDRINUSE` (and the
+ * reverse) — observed live. pi runs in-process and needs no port.
+ */
+export const HARNESS_BRIDGE_PORTS = {
+  claude: 4000,
+  cursor: 4001,
+} as const satisfies Record<"claude" | "cursor", number>;
+
+export type BridgeHarnessKind = keyof typeof HARNESS_BRIDGE_PORTS;
+
+export function harnessBridgePort(kind: BridgeHarnessKind): number {
+  return HARNESS_BRIDGE_PORTS[kind];
+}
 
 const EXEC_OPTS = {
   timeout: 30_000,
@@ -85,7 +102,7 @@ export async function assertRuntimeOnHarnessNetwork(): Promise<void> {
 export async function connectSandboxToHarnessNetwork(args: {
   sessionId: string;
   sandbox: SandboxShell;
-}): Promise<{ ip: string; port: number; wsUrl: string }> {
+}): Promise<{ ip: string }> {
   const { sessionId, sandbox } = args;
   const marker = `/tmp/.sweatshop-sbx-${sessionId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const write = await sandbox.run(
@@ -124,13 +141,16 @@ export async function connectSandboxToHarnessNetwork(args: {
 
 /**
  * Join a known container (by id or name) to the harness network and
- * return its bridge endpoint there. Directly provisioned sandboxes
+ * return its address there. Directly provisioned sandboxes
  * (workflow-owned, Path B) know their container name; eve session
- * sandboxes are found by marker first (above).
+ * sandboxes are found by marker first (above). 0038 amendment: the port
+ * is no longer fixed (each bridge-backed kind has its own — see
+ * HARNESS_BRIDGE_PORTS), so callers resolve it themselves via
+ * `getPortEndpoint`; this just returns the address to build on.
  */
 export async function connectContainerToHarnessNetwork(
   containerId: string,
-): Promise<{ ip: string; port: number; wsUrl: string }> {
+): Promise<{ ip: string }> {
   await ensureHarnessNetwork();
   await assertRuntimeOnHarnessNetwork();
   await docker(["network", "connect", HARNESS_NETWORK, containerId]).catch(
@@ -160,9 +180,5 @@ export async function connectContainerToHarnessNetwork(
       `sandbox container ${containerId} has no address on ${HARNESS_NETWORK}`,
     );
   }
-  return {
-    ip,
-    port: HARNESS_BRIDGE_PORT,
-    wsUrl: `ws://${ip}:${HARNESS_BRIDGE_PORT}`,
-  };
+  return { ip };
 }

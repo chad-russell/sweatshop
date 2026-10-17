@@ -4,7 +4,7 @@ import { createHarnessCall, setCallWorkflowRun, settleHarnessCall } from "@/db/h
 import {
   claimHarnessRun,
   clipHarnessText,
-  getActiveHarnessRun,
+  MAX_CONCURRENT_HARNESSES,
   recordHarnessEvent,
   recordHarnessRunEnd,
 } from "@/lib/harness-events";
@@ -16,11 +16,13 @@ import { start as startWorkflowRun } from "workflow/api";
 import { harnessCall } from "@/workflows/chat/harness-call";
 
 /**
- * 0022 cut 2: the chat pi/claude tools' core — validate, claim the
- * one-per-session slot, record the call, start the `harnessCall`
- * workflow, and return the handle. The turn never advances the harness
- * itself; the result arrives as a wake message. Value-shaped failures
- * so the model reads and reacts (busy = inspect or wait).
+ * 0022 cut 2: the chat pi/claude/cursor tools' core — validate, claim a
+ * concurrency slot (0038 amendment: at most one running call per kind,
+ * at most MAX_CONCURRENT_HARNESSES running in total), record the call,
+ * start the `harnessCall` workflow, and return the handle. The turn
+ * never advances the harness itself; the result arrives as a wake
+ * message. Value-shaped failures so the model reads and reacts (busy =
+ * inspect or wait).
  *
  * Plain function (the workflow step wraps it); the `start` seam keeps
  * tests off the workflow runtime and podman.
@@ -85,18 +87,21 @@ export async function startHarnessCall(
   // claim, so a forbidden route never holds the slot.
   const { route } = requireRoute(db(), input.kind, { conversation: conversation?.route ?? null }, projectId);
 
-  // v1 concurrency contract: one harness at a time per session (0006) —
-  // held for the call's whole life now (the reaper's busy set reads it).
-  if (!claimHarnessRun(input.conversationId, input.kind)) {
-    const active = getActiveHarnessRun(input.conversationId);
-    return {
-      ok: false,
-      code: "busy",
-      message:
-        `a ${active?.kind ?? "harness"} call is already active in this conversation — ` +
-        `inspect it (events: /h/${active?.kind ?? "pi"}/${input.conversationId}) ` +
-        `or cancel_run it before starting ${input.kind}`,
-    };
+  // 0038 amendment: up to MAX_CONCURRENT_HARNESSES may run at once per
+  // conversation, at most one of each kind — held for each call's whole
+  // life (the reaper's busy set reads it).
+  const claim = claimHarnessRun(input.conversationId, input.kind);
+  if (!claim.ok) {
+    const hint = claim.active
+      .map((r) => `${r.kind} (events: /h/${r.kind}/${input.conversationId})`)
+      .join(", ");
+    const message =
+      claim.reason === "same-kind"
+        ? `a ${input.kind} call is already running in this conversation — inspect it (events: ` +
+          `/h/${input.kind}/${input.conversationId}) or cancel_run it before starting another ${input.kind}`
+        : `${claim.active.length} harness calls are already running in this conversation ` +
+          `(the cap is ${MAX_CONCURRENT_HARNESSES}): ${hint} — inspect or cancel_run one before starting ${input.kind}`;
+    return { ok: false, code: "busy", message };
   }
 
   const call = createHarnessCall(db(), {

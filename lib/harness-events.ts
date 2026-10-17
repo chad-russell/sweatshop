@@ -115,29 +115,56 @@ export function getHarnessEvents(
 export const clipHarnessText = clip;
 
 /**
+ * 0038 amendment: more than one harness may run at once per conversation
+ * (they share the sandbox's checkout — the chat instructions tell the
+ * model to use separate files/areas, or `start_thread({fresh:true})` for
+ * work that could collide), but not without bound — each bridge-backed
+ * kind holds a process and a port, and an unbounded pile of background
+ * calls would make the chat's own turns compete for the same sandbox.
+ */
+export const MAX_CONCURRENT_HARNESSES = 3;
+
+export type ClaimHarnessRunResult =
+  | { ok: true }
+  | {
+      ok: false;
+      /** `same-kind`: this kind is already running — one call of a kind
+       *  at a time. `cap`: MAX_CONCURRENT_HARNESSES are already running,
+       *  regardless of kind. */
+      reason: "same-kind" | "cap";
+      /** Every run currently holding a slot (any kind). */
+      active: readonly HarnessRun[];
+    };
+
+/**
  * Harness run index (harness_runs): status for the UI + /h validity.
  *
- * `claimHarnessRun` atomically claims the v1 concurrency slot — one
- * harness at a time per conversation (0006). The check-then-start pair
- * runs inside a single synchronous sqlite transaction, so two
- * concurrent tool calls cannot both pass the guard; the claim also
- * (re)writes this harness's row to running, resetting startedAt,
- * toolCalls and error for a fresh run. Returns false when any harness
- * already holds the slot.
+ * `claimHarnessRun` atomically claims a concurrency slot (0038: up to
+ * MAX_CONCURRENT_HARNESSES running at once per conversation, at most one
+ * of each kind — harness_runs already has one row per (session, kind)).
+ * The check-then-start pair runs inside a single synchronous sqlite
+ * transaction, so two concurrent tool calls cannot both pass the guard;
+ * the claim also (re)writes this harness's row to running, resetting
+ * startedAt, toolCalls and error for a fresh run.
  */
 export function claimHarnessRun(
   sessionId: string,
   harness: HarnessKind,
-): boolean {
+): ClaimHarnessRunResult {
   const now = Date.now();
   return db().transaction((tx) => {
-    const active = tx.query.harnessRuns.findFirst({
+    const running = tx.query.harnessRuns.findMany({
       where: and(
         eq(harnessRuns.sessionId, sessionId),
         eq(harnessRuns.status, "running"),
       ),
-    }).sync();
-    if (active) return false;
+    }).sync() as HarnessRun[];
+    if (running.some((r) => r.kind === harness)) {
+      return { ok: false, reason: "same-kind", active: running };
+    }
+    if (running.length >= MAX_CONCURRENT_HARNESSES) {
+      return { ok: false, reason: "cap", active: running };
+    }
     tx.insert(harnessRuns)
       .values({
         sessionId,
@@ -158,7 +185,7 @@ export function claimHarnessRun(
         },
       })
       .run();
-    return true;
+    return { ok: true };
   });
 }
 
@@ -226,20 +253,19 @@ export function getHarnessRun(
 }
 
 /**
- * Any harness run still marked running for a conversation — the v1
- * concurrency guard: one harness at a time per sandbox (0006).
+ * 0038 amendment: every harness run still marked running for a
+ * conversation (any kind) — up to MAX_CONCURRENT_HARNESSES, at most one
+ * per kind. Replaces the old single-slot `getActiveHarnessRun`.
  */
-export function getActiveHarnessRun(sessionId: string): HarnessRun | null {
-  return (
-    (db()
-      .query.harnessRuns.findFirst({
-        where: and(
-          eq(harnessRuns.sessionId, sessionId),
-          eq(harnessRuns.status, "running"),
-        ),
-      })
-      .sync() as HarnessRun | undefined) ?? null
-  );
+export function listActiveHarnessRuns(sessionId: string): readonly HarnessRun[] {
+  return db()
+    .query.harnessRuns.findMany({
+      where: and(
+        eq(harnessRuns.sessionId, sessionId),
+        eq(harnessRuns.status, "running"),
+      ),
+    })
+    .sync() as HarnessRun[];
 }
 
 /** Most-recent run per harness for a conversation (sidebar/landing use). */

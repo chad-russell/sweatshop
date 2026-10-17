@@ -472,7 +472,7 @@ describe("0010 spike: chat turn workflow", () => {
       try {
         const { projects } = await import("../db/schema");
         const { getHarnessCall } = await import("../db/harness-calls");
-        const { getActiveHarnessRun } = await import("../lib/harness-events");
+        const { listActiveHarnessRuns } = await import("../lib/harness-events");
         const { startHarnessCall } = await import("../lib/chat/harness-call-start");
         db().insert(projects).values({ id: "p_xchat_hc", name: "HC", createdAt: 0 }).onConflictDoNothing().run();
         const id = `c_test_hcthrow_${Math.random().toString(36).slice(2, 8)}`;
@@ -486,8 +486,8 @@ describe("0010 spike: chat turn workflow", () => {
         const call = getHarnessCall(db(), started.callId)!;
         expect(call.status).toBe("failed");
         expect(call.error).toContain("mock harness step blew up");
-        // The one-per-session slot is released: a second call is not "busy".
-        expect(getActiveHarnessRun(id)).toBeNull();
+        // The slot is released: a second call is not "busy".
+        expect(listActiveHarnessRuns(id)).toHaveLength(0);
         // ...and the chat is told, like any other failed call.
         await waitFor(
           async () => listMessageTexts(db(), id).some((r) => r.role === "user" && r.text.startsWith("[pi failed]")),

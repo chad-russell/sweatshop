@@ -488,7 +488,9 @@ export function buildChatTools(
           "handle immediately; this conversation gets a \"[pi finished]\" message with the result when " +
           "it ends. pi keeps context across calls (a new call continues the same session). Check " +
           "progress with inspect (hc_… id); stop it with cancel_run. Use for non-trivial code changes; " +
-          "use plain bash for quick commands — the repo state is shared.",
+          "use plain bash for quick commands — the repo state is shared. pi, claude and cursor can run " +
+          "at once in this chat, but they share this sandbox's checkout — give each one separate files " +
+          "or areas; for work that could collide, use start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
@@ -502,7 +504,9 @@ export function buildChatTools(
           "this conversation gets a \"[claude finished]\" message with the result when it ends. " +
           "claude keeps context across calls. Prefer for deep refactors or nuanced code review; use " +
           "pi for quick edits and plain bash for one-off commands. inspect (hc_…) checks progress; " +
-          "cancel_run stops it.",
+          "cancel_run stops it. pi, claude and cursor can run at once in this chat, but they share " +
+          "this sandbox's checkout — give each one separate files or areas; for work that could " +
+          "collide, use start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
@@ -515,7 +519,10 @@ export function buildChatTools(
           "conversation's sandbox with Cursor's own read/edit/shell tools. Returns a handle " +
           "immediately; this conversation gets a \"[cursor finished]\" message with the result when " +
           "it ends. cursor keeps context across calls. Needs Chad's Cursor login (it errors " +
-          "value-shaped when not logged in). inspect (hc_…) checks progress; cancel_run stops it.",
+          "value-shaped when not logged in). inspect (hc_…) checks progress; cancel_run stops it. " +
+          "pi, claude and cursor can run at once in this chat, but they share this sandbox's " +
+          "checkout — give each one separate files or areas; for work that could collide, use " +
+          "start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
         }),
