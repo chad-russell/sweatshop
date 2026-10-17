@@ -379,6 +379,13 @@
       "when": 1792310400000,
       "tag": "0053_group_locking",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1792281600000,
+      "tag": "0054_usage_stats",
+      "breakpoints": true
     }
   ]
 }

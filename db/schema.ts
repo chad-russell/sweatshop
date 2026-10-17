@@ -4,6 +4,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -828,4 +829,67 @@ export const providerModels = sqliteTable(
     fetchedAt: integer("fetched_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.provider, table.id] })],
+);
+
+/**
+ * 0047: one row per metered unit — a chat turn or a harness call.
+ * Written at settle time (the turn's final persist / the call's settle
+ * step) with the cost computed THEN (price drift never rewrites history).
+ * `cost_usd` null = no price row (subscription/plan surface) — tokens
+ * still counted, dollars never invented.
+ */
+export const usageEvents = sqliteTable(
+  "usage_events",
+  {
+    /** u_<conv>_<skip> (chat turns) | u_hc_<callId> (harness calls). */
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    /** "chat" | "harness". */
+    source: text("source").notNull(),
+    /** The hc_ id when source = "harness". */
+    harnessCallId: text("harness_call_id"),
+    /** JSON route: what ran (provider+model, or harness+model). */
+    route: text("route").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    /** Cached input tokens (subset of input_tokens; 0 when unreported). */
+    cachedTokens: integer("cached_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    /** Display-only slice of output (billed as output). */
+    reasoningTokens: integer("reasoning_tokens"),
+    steps: integer("steps").notNull().default(0),
+    toolCalls: integer("tool_calls").notNull().default(0),
+    /** Computed at capture time; null = unmetered (plan). */
+    costUsd: real("cost_usd"),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [index("usage_events_conversation_idx").on(table.conversationId)],
+);
+
+/**
+ * 0047: per-model price rows (per-1M USD). Refreshed by the catalog lazy
+ * path (`ensureModelPrices`) — gloo's endpoint is public, openrouter's
+ * rides the existing catalog fetch. `manual` rows win on conflict.
+ */
+export const modelPrices = sqliteTable(
+  "model_prices",
+  {
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    inputPerM: real("input_per_m").notNull(),
+    outputPerM: real("output_per_m").notNull(),
+    /** Null = no separate cache pricing (cache billed as fresh). */
+    cacheReadPerM: real("cache_read_per_m"),
+    cacheWritePerM: real("cache_write_per_m"),
+    /** JSON LongContextTier[]; null = none. */
+    longContext: text("long_context"),
+    /** Multiplier on computed cost (gloo guarded 1.065; default 1.0). */
+    platformFee: real("platform_fee").notNull().default(1.0),
+    source: text("source").notNull(),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.provider, table.model] })],
 );
