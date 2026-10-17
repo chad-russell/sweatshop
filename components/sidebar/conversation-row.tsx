@@ -38,6 +38,11 @@ const INDENT = 12;
  * viewing a descendant always forces its ancestors open so the active row
  * stays visible, independent of that stored choice. Collapsed, the row
  * shows a rolled-up dot/spinner for whatever is hidden below.
+ *
+ * 0046: a synthetic harness row (kind "harness") renders like a run row
+ * — status glyph, link via conversationHref — but is LOCKED to its
+ * conversation: no row menu and not draggable, since organizing a
+ * session individually would break group locking. It never has children.
  */
 export function ConversationRow({
   item,
@@ -60,6 +65,8 @@ export function ConversationRow({
   const href = conversationHref(item);
   const active = pathname === href;
   const renaming = editing?.kind === "rename-conversation" && editing.id === item.id;
+  // 0046: a harness session is locked to its conversation.
+  const locked = item.kind === "harness";
 
   const hasChildren = item.children.length > 0;
   const forcedOpen = hasChildren && hasActiveDescendant(item, pathname, conversationHref);
@@ -70,7 +77,7 @@ export function ConversationRow({
   return (
     <div>
       <div
-        draggable={!renaming}
+        draggable={!renaming && !locked}
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", item.id);
           e.dataTransfer.effectAllowed = "move";
@@ -134,6 +141,7 @@ export function ConversationRow({
                   className={hasChildren ? undefined : "-ml-1"}
                 />
                 {item.kind === "run" && <RunGlyph status={item.runStatus} />}
+                {locked && <RunGlyph status={item.runStatus} />}
                 <span className="truncate">
                   {item.title ?? (
                     <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>
@@ -154,7 +162,7 @@ export function ConversationRow({
             </Link>
           )}
         </div>
-        {!renaming && (
+        {!renaming && !locked && (
           <DropdownMenu>
             <RowMenuTrigger label={`Actions for ${item.title ?? item.id}`} />
             <DropdownMenuContent

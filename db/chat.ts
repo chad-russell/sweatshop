@@ -510,12 +510,20 @@ export function listWakableChatChildren(db: Db): ChatChild[] {
 
 /** Record the parent (start_thread) and pre-stamp woken to the row's
  *  current updatedAt — the creation bump is not a settle, so the wake
- *  fires only once the child's turn actually lands messages. */
+ *  fires only once the child's turn actually lands messages. 0046 locked
+ *  groups: the child also copies the parent's folder at creation, so a
+ *  group never diverges at the source. */
 export function setConversationParent(db: Db, id: string, parentConversationId: string): void {
   const row = db.select({ updatedAt: conversations.updatedAt }).from(conversations).where(eq(conversations.id, id)).get();
   if (!row) throw new Error(`no conversation ${id}`);
+  const parent = db
+    .select({ folderId: conversations.folderId })
+    .from(conversations)
+    .where(eq(conversations.id, parentConversationId))
+    .get();
+  if (!parent) throw new Error(`no conversation ${parentConversationId}`);
   db.update(conversations)
-    .set({ parentConversationId, wokenSettledAt: row.updatedAt })
+    .set({ parentConversationId, folderId: parent.folderId, wokenSettledAt: row.updatedAt })
     .where(eq(conversations.id, id))
     .run();
 }

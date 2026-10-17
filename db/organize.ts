@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { removeAttachmentFilesSync } from "../lib/attachments";
 import { deleteConversationAttachments } from "./attachments";
 import { hostCommands } from "./schema";
@@ -8,6 +8,7 @@ import {
   chatHarnessState,
   conversations,
   folders,
+  harnessCalls,
   harnessEvents,
   harnessRuns,
   machineRuns,
@@ -121,6 +122,74 @@ export function folderSubtreeIds(db: Conn, rootId: string): string[] {
   const stack = [rootId];
   while (stack.length > 0) {
     const id = stack.pop()!;
+    out.push(id);
+    stack.push(...(children.get(id) ?? []));
+  }
+  return out;
+}
+
+/**
+ * 0046: every conversation's parent edge as ONE map, so the up-walk and
+ * the down-walk always agree. Two edge kinds (review fix: runs must
+ * lock too): a start_thread child's conversations.parent_conversation_id,
+ * and a kind:"run" conversation's machine_runs.parent_conversation_id —
+ * a run's id IS its machine_runs id, and that column is the link's only
+ * home. The conversations edge wins on a conflict (none is realistic).
+ */
+function conversationParentEdges(db: Conn): Map<string, string> {
+  const parent = new Map<string, string>();
+  for (const row of db
+    .select({ id: machineRuns.id, parentId: machineRuns.parentConversationId })
+    .from(machineRuns)
+    .where(isNotNull(machineRuns.parentConversationId))
+    .all()) {
+    parent.set(row.id, row.parentId!);
+  }
+  for (const row of db
+    .select({ id: conversations.id, parentId: conversations.parentConversationId })
+    .from(conversations)
+    .all()) {
+    if (row.parentId) parent.set(row.id, row.parentId);
+  }
+  return parent;
+}
+
+/**
+ * 0046 locked thread groups: the topmost ancestor of `id` — `id` itself
+ * when it has no parent. A visited set stops a corrupted parent cycle
+ * from looping: the walk ends at the node just before the repeat, which
+ * is as far "up" as the data honestly goes.
+ */
+function rootConversationId(db: Conn, id: string): string {
+  getConversation(db, id);
+  const parent = conversationParentEdges(db);
+  const seen = new Set<string>([id]);
+  let cursor = id;
+  for (;;) {
+    const parentId = parent.get(cursor) ?? null;
+    if (parentId === null || seen.has(parentId)) return cursor;
+    seen.add(parentId);
+    cursor = parentId;
+  }
+}
+
+/** 0046: the root AND every descendant conversation id (recursive; a
+ *  visited set keeps a corrupted parent cycle from looping). */
+function conversationGroupIds(db: Conn, rootId: string): string[] {
+  const parent = conversationParentEdges(db);
+  const children = new Map<string, string[]>();
+  for (const [childId, parentId] of parent) {
+    const list = children.get(parentId) ?? [];
+    list.push(childId);
+    children.set(parentId, list);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
     out.push(id);
     stack.push(...(children.get(id) ?? []));
   }
@@ -253,17 +322,23 @@ export function deleteFolder(db: Db, id: string) {
   });
 }
 
-/** File a conversation into a folder of its own group; null = unfile. */
+/** File a conversation into a folder of its own group; null = unfile.
+ * 0046 locked thread groups: the dragged id is normalized to its
+ * topmost ancestor and the folder lands on the root AND every
+ * descendant — dragging a parent or any child moves the family
+ * together, so filing can never split a group. */
 export function moveConversation(
   db: Db,
   conversationId: string,
   folderId: string | null,
 ) {
   db.transaction((tx) => {
-    const conversation = getConversation(tx, conversationId);
+    const dragged = getConversation(tx, conversationId);
+    const rootId = rootConversationId(tx, conversationId);
+    const root = rootId === conversationId ? dragged : getConversation(tx, rootId);
     if (folderId) {
       const folder = getFolder(tx, folderId);
-      if (folder.projectId !== conversation.projectId) {
+      if (folder.projectId !== root.projectId) {
         throw new OrganizeError(
           "cross-group",
           "a conversation can only be filed in its own project's folders",
@@ -274,7 +349,7 @@ export function moveConversation(
     // "last activity", and sorting must not reshuffle on housekeeping.
     tx.update(conversations)
       .set({ folderId })
-      .where(eq(conversations.id, conversationId))
+      .where(inArray(conversations.id, conversationGroupIds(tx, rootId)))
       .run();
   });
 }
@@ -289,20 +364,27 @@ export function renameConversation(db: Db, id: string, rawTitle: string) {
     .run();
 }
 
+/** Archive/unarchive — 0046: the stamp cascades to the whole locked
+ * group (root + descendants), so a shelf never orphans a child. */
 export function setArchived(db: Db, id: string, archived: boolean) {
-  getConversation(db, id);
-  db.update(conversations)
-    .set({ archivedAt: archived ? Date.now() : null })
-    .where(eq(conversations.id, id))
-    .run();
+  db.transaction((tx) => {
+    const ids = conversationGroupIds(tx, rootConversationId(tx, id));
+    tx.update(conversations)
+      .set({ archivedAt: archived ? Date.now() : null })
+      .where(inArray(conversations.id, ids))
+      .run();
+  });
 }
 
+/** Trash/untrash — 0046: same group cascade as archiving. */
 export function setTrashed(db: Db, id: string, trashed: boolean) {
-  getConversation(db, id);
-  db.update(conversations)
-    .set({ trashedAt: trashed ? Date.now() : null })
-    .where(eq(conversations.id, id))
-    .run();
+  db.transaction((tx) => {
+    const ids = conversationGroupIds(tx, rootConversationId(tx, id));
+    tx.update(conversations)
+      .set({ trashedAt: trashed ? Date.now() : null })
+      .where(inArray(conversations.id, ids))
+      .run();
+  });
 }
 
 /**
@@ -311,6 +393,9 @@ export function setTrashed(db: Db, id: string, trashed: boolean) {
  * conversation takes its whole run with it — the machine_runs row (its
  * visits cascade), each visit's session (`<runId>_<seq>`: stage
  * conversations and harness activity) — so purge leaves no orphans.
+ * 0046 locked groups: the dragged id's root + every descendant join the
+ * purge; a run-kind session anywhere in the group keeps its machine_runs
+ * path above.
  *
  * 0013: returns the sandbox ids the purged run OWNED (an inherited one
  * belongs to its owner). The store is synchronous and cannot reach the
@@ -321,26 +406,37 @@ export function deleteConversationForever(db: Db, id: string): string[] {
   const owned: string[] = [];
   const attachmentIds: string[] = [];
   db.transaction((tx) => {
-    const row = getConversation(tx, id);
-    const sessions = [id];
-    if (row.kind === "run") {
+    getConversation(tx, id);
+    const sessions = conversationGroupIds(tx, rootConversationId(tx, id));
+    const pending = [...sessions];
+    while (pending.length > 0) {
+      const sid = pending.shift()!;
+      const kind = tx
+        .select({ kind: conversations.kind })
+        .from(conversations)
+        .where(eq(conversations.id, sid))
+        .get()?.kind;
+      if (kind !== "run") continue;
       const run = tx
         .select({ sandboxId: machineRuns.sandboxId, owner: machineRuns.sandboxOwner })
         .from(machineRuns)
-        .where(eq(machineRuns.id, id))
+        .where(eq(machineRuns.id, sid))
         .get();
       if (run?.sandboxId && run.owner) owned.push(run.sandboxId);
-      const visitSessions = sql`glob ${`${id}_[0-9]*`}`;
+      const visitSessions = sql`glob ${`${sid}_[0-9]*`}`;
       for (const c of tx
         .select({ id: conversations.id })
         .from(conversations)
         .where(sql`${conversations.id} ${visitSessions}`)
         .all()) {
-        if (!sessions.includes(c.id)) sessions.push(c.id);
+        if (!sessions.includes(c.id)) {
+          sessions.push(c.id);
+          pending.push(c.id);
+        }
       }
       tx.delete(harnessEvents).where(sql`${harnessEvents.sessionId} ${visitSessions}`).run();
       tx.delete(harnessRuns).where(sql`${harnessRuns.sessionId} ${visitSessions}`).run();
-      tx.delete(machineRuns).where(eq(machineRuns.id, id)).run();
+      tx.delete(machineRuns).where(eq(machineRuns.id, sid)).run();
     }
     for (const sid of sessions) {
       tx.delete(messages).where(eq(messages.conversationId, sid)).run();
@@ -367,7 +463,12 @@ export function deleteConversationForever(db: Db, id: string): string[] {
 }
 
 /** Lazy retention sweep: purges expired trash and returns the sandbox
- *  ids the purged runs owned (the caller destroys them). */
+ *  ids the purged runs owned (the caller destroys them). 0046: a trashed
+ *  GROUP expires together (setTrashed cascades the stamp), and the first
+ *  member's deleteConversationForever purges the rest — so an id may
+ *  already be gone when its row comes up. Skipping those keeps the
+ *  reaper (app/layout.tsx's render path) from throwing; the batch's
+ *  later rows and owned-sandbox ids still go through. */
 export function purgeExpiredTrash(db: Db, now: number = Date.now()): string[] {
   const expired = db
     .select({ id: conversations.id })
@@ -379,7 +480,18 @@ export function purgeExpiredTrash(db: Db, now: number = Date.now()): string[] {
       ),
     )
     .all();
-  return expired.flatMap(({ id }) => deleteConversationForever(db, id));
+  const owned: string[] = [];
+  for (const { id } of expired) {
+    try {
+      owned.push(...deleteConversationForever(db, id));
+    } catch (err) {
+      // Already purged as part of an earlier member's group cascade —
+      // nothing left to do for this id.
+      if (err instanceof OrganizeError && err.code === "not-found") continue;
+      throw err;
+    }
+  }
+  return owned;
 }
 
 // ---------------------------------------------------------------------
@@ -392,7 +504,9 @@ export interface SidebarItem {
   /** 0040 phase 2: when it was created — children sort oldest-first by
    *  this (lib/sidebar-tree.ts), independent of updatedAt's recency sort. */
   createdAt: number;
-  /** 0012: "chat" | "run" (stage rows never reach the sidebar). */
+  /** 0012: "chat" | "run" (stage rows never reach the sidebar); 0046
+   *  also "harness" — synthetic read-model rows for harness_calls
+   *  sessions injected by loadSidebar, with no conversations row. */
   kind: string;
   /** 0012: the run's status for run rows; null for chats. */
   runStatus: string | null;
@@ -407,6 +521,11 @@ export interface SidebarItem {
   unread: boolean;
   /** 0008: a pending approval/question is waiting on the user. */
   needsYou: boolean;
+  /** 0046: the harness name ("pi" | "claude" | "cursor") when kind is
+   *  "harness" — a synthetic row for a harness_calls entry (no
+   *  conversations row exists), carried so the row can build its href
+   *  (/h/<harness>/<owning conversation>). Null for conversations. */
+  harness?: string | null;
 }
 
 /** Rolled-up attention counts for a collapsible container. */
@@ -456,6 +575,19 @@ export interface SidebarData {
 
 const SHELF_LIMIT = 200;
 
+/** 0046: a synthetic harness row's title — the first line of the call's
+ * task, clipped (the full task lives on the session page); the harness
+ * name when the task has no usable first line. */
+const HARNESS_TITLE_MAX = 60;
+
+function harnessCallTitle(task: string, kind: string): string {
+  const firstLine = task.split("\n", 1)[0]?.trim() ?? "";
+  if (firstLine.length > HARNESS_TITLE_MAX) {
+    return `${firstLine.slice(0, HARNESS_TITLE_MAX - 1)}…`;
+  }
+  return firstLine.length > 0 ? firstLine : kind;
+}
+
 /** Which conversations carry a dot (see db/attention.ts loadAttention). */
 export interface AttentionFlags {
   unread: ReadonlySet<string>;
@@ -498,6 +630,51 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
   const runStatus = new Map(
     db.select({ id: machineRuns.id, status: machineRuns.status }).from(machineRuns).all().map((r) => [r.id, r.status]),
   );
+  // 0046: historical runs nest under the chat that started them — their
+  // parent link lives in machine_runs (0022), not the conversations
+  // column. Read-time join only, applied in toItem below.
+  const runParent = new Map(
+    db
+      .select({ id: machineRuns.id, parentId: machineRuns.parentConversationId })
+      .from(machineRuns)
+      .where(isNotNull(machineRuns.parentConversationId))
+      .all()
+      .map((r) => [r.id, r.parentId!]),
+  );
+  // 0046: one synthetic row per harness call, injected next to its
+  // owning conversation wherever that conversation lands (a folder's
+  // items or Unfiled) so buildSidebarTree nests it. Read-model only —
+  // never a conversations row — so every COUNT stays conversation-only.
+  const harnessByConversation = new Map<string, SidebarItem[]>();
+  for (const call of db
+    .select({
+      id: harnessCalls.id,
+      conversationId: harnessCalls.conversationId,
+      kind: harnessCalls.kind,
+      task: harnessCalls.task,
+      status: harnessCalls.status,
+      createdAt: harnessCalls.createdAt,
+      updatedAt: harnessCalls.updatedAt,
+    })
+    .from(harnessCalls)
+    .all()) {
+    const item: SidebarItem = {
+      id: call.id,
+      title: harnessCallTitle(call.task, call.kind),
+      updatedAt: call.updatedAt,
+      createdAt: call.createdAt,
+      kind: "harness",
+      runStatus: call.status,
+      parentConversationId: call.conversationId,
+      activeRunId: null,
+      unread: false,
+      needsYou: false,
+      harness: call.kind,
+    };
+    const list = harnessByConversation.get(call.conversationId);
+    if (list) list.push(item);
+    else harnessByConversation.set(call.conversationId, [item]);
+  }
 
   const projectName = new Map(projectRows.map((p) => [p.id, p.name]));
   const shelved = (
@@ -535,11 +712,21 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     createdAt: r.createdAt,
     kind: r.kind,
     runStatus: r.kind === "run" ? (runStatus.get(r.id) ?? null) : null,
-    parentConversationId: r.parentConversationId,
+    // 0046: a run conversation's tree parent comes from machine_runs.
+    parentConversationId:
+      r.parentConversationId ?? (r.kind === "run" ? (runParent.get(r.id) ?? null) : null),
     activeRunId: r.activeRunId,
     unread: flags.unread.has(r.id),
     needsYou: flags.needsYou.has(r.id),
   });
+
+  // 0046: append a conversation's synthetic harness rows to its own
+  // list (they are never roots — the parent is present by construction).
+  const withHarnessSessions = (rows: SidebarItem[]): SidebarItem[] => {
+    const out = [...rows];
+    for (const item of rows) out.push(...(harnessByConversation.get(item.id) ?? []));
+    return out;
+  };
 
   const buildGroup = (
     projectId: string | null,
@@ -553,13 +740,16 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
         .filter((f) => f.parentId === parentId)
         .map((f) => {
           const subfolders = build(f.id);
-          const items = groupConversations
+          // Counts and activity stay conversation-only (0046): the
+          // synthetic harness rows ride along but never count.
+          const conversationItems = groupConversations
             .filter((r) => r.folderId === f.id)
             .map(toItem)
             .sort((a, b) => b.updatedAt - a.updatedAt);
+          const items = withHarnessSessions(conversationItems);
           const activityAt = Math.max(
             f.createdAt,
-            ...items.map((i) => i.updatedAt),
+            ...conversationItems.map((i) => i.updatedAt),
             ...subfolders.map((s) => s.activityAt),
           );
           return {
@@ -568,7 +758,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
             activityAt,
             folders: subfolders,
             items,
-            count: items.length + subfolders.reduce((n, s) => n + s.count, 0),
+            count: conversationItems.length + subfolders.reduce((n, s) => n + s.count, 0),
             attention: sumAttention(items, subfolders.map((s) => s.attention)),
           };
         })
@@ -577,10 +767,11 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     const tree = build(null);
     // A conversation whose folder vanished (should not happen) still
     // surfaces as unfiled rather than disappearing.
-    const unfiled = groupConversations
+    const unfiledConversations = groupConversations
       .filter((r) => !r.folderId || !folderIds.has(r.folderId))
       .map(toItem)
       .sort((a, b) => b.updatedAt - a.updatedAt);
+    const unfiled = withHarnessSessions(unfiledConversations);
     return {
       folders: tree,
       unfiled,

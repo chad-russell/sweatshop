@@ -127,6 +127,31 @@ describe("isItemRunning", () => {
     expect(isItemRunning(item({ kind: "run", runStatus: "waiting", activeRunId: null }))).toBe(true);
     expect(isItemRunning(item({ kind: "run", runStatus: "completed", activeRunId: null }))).toBe(false);
   });
+
+  it("a harness row is running by its status (0046: only \"running\" is live)", () => {
+    expect(isItemRunning(item({ kind: "harness", runStatus: "running", activeRunId: null }))).toBe(true);
+    expect(isItemRunning(item({ kind: "harness", runStatus: "completed", activeRunId: null }))).toBe(false);
+    expect(isItemRunning(item({ kind: "harness", runStatus: "failed", activeRunId: null }))).toBe(false);
+    expect(isItemRunning(item({ kind: "harness", runStatus: "cancelled", activeRunId: null }))).toBe(false);
+  });
+
+  it("a harness call nests under its conversation and rolls up as running (0046)", () => {
+    const parent = item({ id: "p" });
+    const call = item({
+      id: "hc_1",
+      kind: "harness",
+      runStatus: "running",
+      parentConversationId: "p",
+      createdAt: 50,
+    });
+    const [tree] = buildSidebarTree([parent, call]);
+    expect(tree.id).toBe("p");
+    expect(tree.children.map((c) => c.id)).toEqual(["hc_1"]);
+    expect(tree.anyDescendantRunning).toBe(true);
+    // Settled, the call stops rolling up.
+    const settled = buildSidebarTree([parent, { ...call, runStatus: "completed" }]);
+    expect(settled[0].anyDescendantRunning).toBe(false);
+  });
 });
 
 describe("defaultExpanded", () => {

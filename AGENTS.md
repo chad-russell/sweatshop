@@ -409,11 +409,25 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   like `use-collapsed.ts`'s folders, but absence here means "use the
   computed default," never "open") wins from then on; viewing a
   descendant force-opens its ancestors (`hasActiveDescendant`) so the
-  active row stays visible, without touching that stored choice. Moving
-  a parent (`moveConversation`) only ever changes the dragged row's own
-  `folderId` — unchanged — so a child follows visually ONLY when it
-  already shares the parent's folder; dragging a child out is an
-  ordinary conversation drag, unaffected by nesting. Search results
+  active row stays visible, without touching that stored choice. 0046
+  locked thread groups (docs/0046-thread-groups.md): `moveConversation`,
+  `setArchived`/`setTrashed`, and `deleteConversationForever` normalize
+  the dragged id to its topmost ancestor and apply to the whole group
+  (root + every descendant over BOTH child kinds — start_thread chats
+  via `conversations.parent_conversation_id` and historical machine runs
+  via `machine_runs.parent_conversation_id` — one shared parent-edge
+  map, cycle-safe walks in `db/organize.ts`);
+  children copy the parent's `folderId` at creation
+  (`setConversationParent`; migration `0053_group_locking.sql` re-files
+  already-diverged data) — a family files, shelves, and dies together.
+  `loadSidebar` also injects one synthetic `kind: "harness"` row per
+  `harness_calls` call into its owning conversation's list (read-model
+  only, never a conversations row — every count stays conversation-only,
+  `kind !== "harness"`), nests historical `kind: "run"` rows under their
+  `machine_runs.parent_conversation_id`, and both render through the
+  same tree: harness rows open `/h/<harness>/<conv>`
+  (`conversationHref`), show the run glyph, and are locked (no row menu,
+  not draggable). Search results
   (`db/search.ts`, both the sidebar list and ⌘K) and the Archive/Trash
   shelves stay flat — a breadcrumb already says where a shelved item came
   from, and a search hit on a child carries its parent's title as a cheap
