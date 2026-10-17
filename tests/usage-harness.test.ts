@@ -87,3 +87,44 @@ describe("0047 harness usage capture", () => {
     expect(row!.inputTokens).toBe(500);
   });
 });
+
+describe("0047 review fix: cancelled calls keep their metering", () => {
+  it("the per-step checkpoint upserts running totals, so a row survives with no settle", async () => {
+    const { ensureConversation } = await import("@/db/chat");
+    const { createHarnessCall, settleHarnessCall } = await import("@/db/harness-calls");
+    const { db } = await import("@/db");
+    const { replaceModelPrices } = await import("@/db/usage");
+    const { writeHarnessUsageRow } = await import("@/workflows/chat/harness-step");
+
+    ensureConversation(db(), "c_cancel");
+    replaceModelPrices(db(), "gloo-v2-models", [
+      { provider: "gloo", model: "gloo-x", inputPerM: 1, outputPerM: 2, cacheReadPerM: null, cacheWritePerM: null, longContext: null, platformFee: 1, source: "gloo-v2-models", fetchedAt: 1 },
+    ]);
+    createHarnessCall(db(), { conversationId: "c_cancel", kind: "pi", task: "long call" }, 1000);
+
+    // step 1 checkpoint (as the advance step does)
+    await writeHarnessUsageRow("hc_canceltest", "c_cancel", { harness: "pi", provider: "gloo", model: "gloo-x" }, {
+      usage: { inputTokens: 500_000, cachedTokens: 0, outputTokens: 50_000 },
+      steps: 1,
+      toolCalls: 4,
+    });
+    // step 2 checkpoint — same row, grown totals
+    await writeHarnessUsageRow("hc_canceltest", "c_cancel", { harness: "pi", provider: "gloo", model: "gloo-x" }, {
+      usage: { inputTokens: 1_000_000, cachedTokens: 0, outputTokens: 100_000 },
+      steps: 2,
+      toolCalls: 9,
+    });
+
+    // a racing cancel settles the call — the settle usage write never runs
+    settleHarnessCall(db(), "hc_canceltest", { status: "cancelled" });
+
+    const { sumGroupUsage } = await import("@/db/usage");
+    const group = sumGroupUsage(db(), ["c_cancel"]);
+    expect(group.events).toHaveLength(1);
+    expect(group.events[0]!.steps).toBe(2);
+    expect(group.events[0]!.toolCalls).toBe(9);
+    expect(group.events[0]!.inputTokens).toBe(1_000_000);
+    // 1M*1 + 0.1M*2 = $1.20
+    expect(group.events[0]!.costUsd).toBeCloseTo(1.2, 10);
+  });
+});

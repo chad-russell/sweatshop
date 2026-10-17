@@ -76,6 +76,11 @@ export async function startHarnessCall(
 ): Promise<StartHarnessCallResult> {
   const conversation = getConversation(db(), input.conversationId);
   const projectId = conversation?.projectId ?? null;
+  // 0047 review fix (price cold-start): pi calls are priced — warm the
+  // price table on the call path too (fire-and-forget, never blocks).
+  import("../usage/prices-refresh").then(({ ensureModelPrices }) =>
+    ensureModelPrices(db()).catch(() => {}),
+  );
   if (!projectId) {
     return {
       ok: false,

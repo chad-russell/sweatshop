@@ -22,6 +22,33 @@ export function recordUsageEvent(db: Db, row: typeof usageEvents.$inferInsert): 
   db.insert(usageEvents).values(row).onConflictDoNothing().run();
 }
 
+/**
+ * 0047 review fix: incremental upsert — overwrite the row in place with
+ * the LATEST running totals (cost recomputed against the current price
+ * row; a price fetched mid-call only improves the number). The harness
+ * worker writes after every advance step, so a call cancelled at minute
+ * 29 keeps its first 29 minutes of usage instead of dropping to zero.
+ * Chat turns keep the insert-only path (one row, written once at end).
+ */
+export function upsertUsageEvent(db: Db, row: typeof usageEvents.$inferInsert): void {
+  db.insert(usageEvents)
+    .values(row)
+    .onConflictDoUpdate({
+      target: usageEvents.id,
+      set: {
+        inputTokens: row.inputTokens,
+        cachedTokens: row.cachedTokens,
+        outputTokens: row.outputTokens,
+        reasoningTokens: row.reasoningTokens,
+        steps: row.steps,
+        toolCalls: row.toolCalls,
+        costUsd: row.costUsd,
+        endedAt: row.endedAt,
+      },
+    })
+    .run();
+}
+
 // --- model_prices -----------------------------------------------------------
 
 function parseLongContext(raw: string | null): LongContextTier[] | null {

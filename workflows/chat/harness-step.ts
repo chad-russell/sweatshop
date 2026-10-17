@@ -1,7 +1,7 @@
 import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "../../lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { BoundSandbox } from "../../db/sandboxes";
-import { normalizeUsage, type UsageCounts } from "../../lib/usage/pricing";
+import { addUsage, normalizeUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { harnessEventSink } from "../shared/harness-sink";
 
 /** The resume handle a terminal state carries for the next user turn. */
@@ -141,7 +141,17 @@ export async function harnessAdvanceStep(input: {
   kind: "pi" | "claude" | "cursor";
   route: import("../../lib/providers/route").HarnessRoute;
   state: HarnessWorkflowState;
-}): Promise<{ state: HarnessWorkflowState; text: string; toolCalls: number; usage: UsageCounts | null }> {
+  /** 0047 review fix: running totals so far (tokens + steps) — the
+   *  step re-upserts the usage row so a CANCELLED call keeps every
+   *  completed step's metering (cancel never reaches the settle write). */
+  totals?: { usage: UsageCounts | null; steps: number; toolCalls: number };
+}): Promise<{
+  state: HarnessWorkflowState;
+  text: string;
+  toolCalls: number;
+  usage: UsageCounts | null;
+  totals: { usage: UsageCounts | null; steps: number; toolCalls: number };
+}> {
   "use step";
   // Tests: a scripted harness (no sandbox, no model) — two semantic
   // steps then finished, so the worker loop itself is exercised.
@@ -166,6 +176,7 @@ export async function harnessAdvanceStep(input: {
         text: "",
         toolCalls: 0,
         usage: null,
+        totals: { usage: null, steps: 0, toolCalls: 0 },
       };
     }
     const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
@@ -175,6 +186,7 @@ export async function harnessAdvanceStep(input: {
       text: `mock-harness-step:${n}`,
       toolCalls: 1,
       usage: null,
+      totals: { usage: null, steps: n, toolCalls: n },
     };
   }
   const [
@@ -274,10 +286,72 @@ export async function harnessAdvanceStep(input: {
       const summary = (state as { finalResult?: { usage?: unknown } }).finalResult?.usage;
       stepUsage = normalizeUsage(summary);
     }
-    return { state, text: text(), toolCalls, usage: stepUsage };
+    // 0047 review fix: running totals + an incremental upsert. Cancel
+    // never reaches the settle step's usage write, so the row must be
+    // current the moment each step lands; the settle write then makes
+    // the final pass idempotent (same id, upsert again).
+    const totals = {
+      usage: input.totals?.usage && stepUsage
+        ? addUsage(input.totals.usage, stepUsage)
+        : (input.totals?.usage ?? stepUsage),
+      steps: (input.totals?.steps ?? 0) + 1,
+      toolCalls: (input.totals?.toolCalls ?? 0) + toolCalls,
+    };
+    try {
+      await writeHarnessUsageRow(input.callId, input.conversationId, input.route, totals);
+    } catch (err) {
+      console.error("[usage] harness checkpoint failed", err);
+    }
+    return { state, text: text(), toolCalls, usage: stepUsage, totals };
   } finally {
     writer.releaseLock();
   }
+}
+
+/**
+ * 0047 review fix: the ONE usage-row writer for harness calls — an
+ * idempotent upsert keyed u_hc_<callId>, shared by the advance-step
+ * checkpoint (cancelled calls keep completed metering) and the settle
+ * write (the final pass). Never throws at the caller: a metering
+ * failure must not fail the step or the settle.
+ */
+export async function writeHarnessUsageRow(
+  callId: string,
+  conversationId: string,
+  route: import("../../lib/providers/route").HarnessRoute | undefined,
+  totals: { usage: UsageCounts | null; steps: number; toolCalls: number },
+): Promise<void> {
+  const [{ db }, { getPrice, upsertUsageEvent }, { computeCost }, { getHarnessCall }] = await Promise.all([
+    import("../../db"),
+    import("../../db/usage"),
+    import("../../lib/usage/pricing"),
+    import("../../db/harness-calls"),
+  ]);
+  const counts = totals.usage ?? { inputTokens: 0, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+  let costUsd: number | null = null;
+  if (route?.harness === "pi") {
+    const price = getPrice(db(), route.provider, route.model);
+    if (price) costUsd = computeCost(price, counts);
+  }
+  const call = getHarnessCall(db(), callId);
+  const now = Date.now();
+  upsertUsageEvent(db(), {
+    id: `u_hc_${callId}`,
+    conversationId,
+    source: "harness",
+    harnessCallId: callId,
+    route: JSON.stringify(route ?? {}),
+    inputTokens: counts.inputTokens,
+    cachedTokens: counts.cachedTokens,
+    outputTokens: counts.outputTokens,
+    reasoningTokens: counts.reasoningTokens ?? 0,
+    steps: totals.steps,
+    toolCalls: totals.toolCalls,
+    costUsd,
+    startedAt: call?.createdAt ?? now,
+    endedAt: now,
+    createdAt: now,
+  });
 }
 
 /**
@@ -372,40 +446,10 @@ export async function harnessSettleStep(input: {
     // wake failure (no workflow runtime, in unit tests) still keeps the
     // row — and a usage failure never fails the settle.
     try {
-      const [{ getPrice, recordUsageEvent }, { computeCost }, { getHarnessCall }] = await Promise.all([
-        import("../../db/usage"),
-        import("../../lib/usage/pricing"),
-        import("../../db/harness-calls"),
-      ]);
-      const counts = input.usage ?? {
-        inputTokens: 0,
-        cachedTokens: 0,
-        outputTokens: 0,
-        reasoningTokens: 0,
-      };
-      let costUsd: number | null = null;
-      if (input.route?.harness === "pi") {
-        const price = getPrice(db(), input.route.provider, input.route.model);
-        if (price) costUsd = computeCost(price, counts);
-      }
-      const call = getHarnessCall(db(), input.callId);
-      const now = Date.now();
-      recordUsageEvent(db(), {
-        id: `u_hc_${input.callId}`,
-        conversationId: input.conversationId,
-        source: "harness",
-        harnessCallId: input.callId,
-        route: JSON.stringify(input.route ?? {}),
-        inputTokens: counts.inputTokens,
-        cachedTokens: counts.cachedTokens,
-        outputTokens: counts.outputTokens,
-        reasoningTokens: counts.reasoningTokens ?? 0,
+      await writeHarnessUsageRow(input.callId, input.conversationId, input.route, {
+        usage: input.usage ?? null,
         steps: input.steps ?? 0,
         toolCalls: input.toolCalls,
-        costUsd,
-        startedAt: call?.createdAt ?? now,
-        endedAt: now,
-        createdAt: now,
       });
     } catch (err) {
       console.error("[usage] harness capture failed", err);
