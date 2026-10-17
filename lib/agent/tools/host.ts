@@ -98,6 +98,9 @@ export type HostExecRun =
       durationMs: number;
       /** First connect pinned this fingerprint (TOFU — noted in the audit row). */
       pinned?: string;
+      /** 0043 amendment: ran without asking (the chat's auto-approve
+       *  toggle) — the exec card's "auto-approved" chip reads this. */
+      autoApproved?: boolean;
     }
   | {
       ok: false;
@@ -111,6 +114,9 @@ export async function hostExecRun(
   conversationId: string,
   input: HostExecInput,
   transport: HostTransport = ssh2Transport,
+  /** 0043 amendment: this call skipped ask_chad under the chat's
+   *  auto-approve toggle — recorded on the audit row as-is. */
+  autoApproved = false,
 ): Promise<HostExecRun> {
   // Re-validate: approval took time and the registry may have moved.
   const preview = hostExecPreview(conversationId, input);
@@ -124,7 +130,7 @@ export async function hostExecRun(
   if (!credential.ok) return { ok: false, code: "no-credential", message: credential.message };
 
   const id = `hx_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-  recordHostCommand(db(), { id, conversationId, hostId: host.id, hostName: host.name, command: preview.command });
+  recordHostCommand(db(), { id, conversationId, hostId: host.id, hostName: host.name, command: preview.command, autoApproved });
 
   let outcome: HostExecOutcome;
   try {
@@ -175,5 +181,6 @@ export async function hostExecRun(
     stderr: clipOutput(result.stderr, AUDIT_CLIP),
     durationMs: result.durationMs,
     ...(result.pinnedFingerprint ? { pinned: result.pinnedFingerprint } : {}),
+    ...(autoApproved ? { autoApproved: true } : {}),
   };
 }

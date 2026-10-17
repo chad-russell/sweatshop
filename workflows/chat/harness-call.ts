@@ -8,8 +8,9 @@ import { harnessAdvanceStep, harnessSettleStep } from "./harness-step";
  * transform forbids Node here): one `harnessAdvanceStep` per semantic
  * agent step (the 0009 grain — crash-resumable at that boundary), then
  * one `harnessSettleStep` that persists the resume handle, settles the
- * harness_calls row, releases the one-per-session slot, and wakes the
- * conversation with the final text.
+ * harness_calls row, releases this kind's concurrency slot (0038
+ * amendment: one slot per kind, up to MAX_CONCURRENT_HARNESSES total —
+ * lib/harness-events.ts), and wakes the conversation with the final text.
  *
  * The initial state is built inline (the run-machine trick) so the
  * bundle stays free of runtime harness imports; `resumeFrom` arrives in
@@ -59,10 +60,10 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     // A step that exhausts its retries (the bridge could not start, the
     // sandbox is gone, a FatalError) throws HERE. Uncaught, the workflow
     // dies and nothing ever settles the call: the harness_calls row stays
-    // `running` forever, the one-per-session slot stays held (every later
-    // call is "busy"), and the chat is never woken (0038: a Cursor call
-    // sat "running" for good). Settle it failed instead — the settle step
-    // releases the slot and wakes the chat with the reason.
+    // `running` forever, this kind's slot stays held (every later call of
+    // the SAME kind is "busy"), and the chat is never woken (0038: a
+    // Cursor call sat "running" for good). Settle it failed instead — the
+    // settle step releases the slot and wakes the chat with the reason.
     await harnessSettleStep({
       callId,
       conversationId,

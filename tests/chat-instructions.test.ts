@@ -1,0 +1,93 @@
+import { describe, expect, it } from "vitest";
+import { REPO_DOC_FILE_CAP, REPO_DOC_TOTAL_CAP, type RepoDoc } from "../lib/agent/repo-docs";
+import { buildInstructions, buildRepoDocsSection } from "../workflows/chat/instructions";
+
+/**
+ * Pure routing-guidance additions to the turn's instructions: host
+ * guidance gates on `hosts`, repo docs cap per file and in total. No
+ * sandbox, db, or workflow run needed — buildInstructions takes plain
+ * data.
+ */
+
+describe("buildInstructions", () => {
+  const base = { hasSandbox: true, hosts: [], repoDocs: [] as RepoDoc[] };
+
+  it("includes host routing only when there are hosts", () => {
+    const withoutHosts = buildInstructions(base);
+    expect(withoutHosts).not.toContain("exec is only for live state on a host");
+
+    const withHosts = buildInstructions({
+      ...base,
+      hosts: [{ name: "bee", address: "10.0.0.1", user: "chad", apiBase: null }],
+    });
+    expect(withHosts).toContain("exec is only for live state on a host");
+    expect(withHosts).toContain("Never edit a repo checkout on a host");
+  });
+
+  it("includes harness steering only when there is a sandbox", () => {
+    const withSandbox = buildInstructions(base);
+    expect(withSandbox).toContain("Hand any code change beyond a few lines to a harness");
+
+    const withoutSandbox = buildInstructions({ ...base, hasSandbox: false });
+    expect(withoutSandbox).not.toContain("Hand any code change beyond a few lines to a harness");
+  });
+
+  it("appends the skill body last, unchanged from the prior inline shape", () => {
+    const withSkill = buildInstructions({
+      ...base,
+      skill: { id: "ship", title: "Ship", body: "Do the ship thing." },
+    });
+    expect(withSkill).toContain('# Skill: Ship\n\nThis thread runs the "ship" skill — follow it.\n\nDo the ship thing.');
+    expect(withSkill.endsWith("Do the ship thing.")).toBe(true);
+  });
+
+  it("keeps the base text intact with no additions", () => {
+    const plain = buildInstructions({ hasSandbox: false, hosts: [], repoDocs: [] });
+    expect(plain).toContain("You are sweatshop's agent");
+    expect(plain).not.toContain("# Repo instructions");
+  });
+});
+
+describe("buildRepoDocsSection", () => {
+  it("is empty with no docs", () => {
+    expect(buildRepoDocsSection([])).toBe("");
+  });
+
+  it("includes a repo's doc verbatim under its own section header", () => {
+    const section = buildRepoDocsSection([{ repo: "web", path: "/work/c1/web/AGENTS.md", content: "Follow the style guide." }]);
+    expect(section).toBe("# Repo instructions: web (/work/c1/web/AGENTS.md)\n\nFollow the style guide.");
+  });
+
+  it("cuts a file over the per-file cap and points at the full path", () => {
+    const content = "a".repeat(REPO_DOC_FILE_CAP + 5_000);
+    const section = buildRepoDocsSection([{ repo: "big", path: "/work/c1/big/AGENTS.md", content }]);
+    expect(section.length).toBeLessThan(content.length);
+    expect(section).toContain("cat /work/c1/big/AGENTS.md");
+    expect(section.length - "# Repo instructions: big (/work/c1/big/AGENTS.md)\n\n".length).toBeLessThanOrEqual(
+      REPO_DOC_FILE_CAP + 200,
+    );
+  });
+
+  it("drops whole files once the running total would cross the total cap, with a pointer", () => {
+    const perFile = Math.floor(REPO_DOC_FILE_CAP * 0.9);
+    const docs: RepoDoc[] = Array.from({ length: 4 }, (_, i) => ({
+      repo: `repo${i}`,
+      path: `/work/c1/repo${i}/AGENTS.md`,
+      content: "x".repeat(perFile),
+    }));
+    const section = buildRepoDocsSection(docs);
+    expect(section).toContain("# Repo instructions: repo0");
+    expect(section).toContain("# Repo instructions: repo1");
+    // 4 files at ~0.9*cap each comfortably exceed the 48 KB total cap.
+    expect(section).toContain("# Repo instructions: more");
+    expect(section).toContain("cat /work/c1/repo");
+    expect(section.length).toBeLessThan(REPO_DOC_TOTAL_CAP + perFile + 1_000);
+  });
+
+  it("always includes at least the first file even if it alone is large", () => {
+    const content = "y".repeat(REPO_DOC_FILE_CAP);
+    const section = buildRepoDocsSection([{ repo: "only", path: "/w/only/AGENTS.md", content }]);
+    expect(section).toContain("# Repo instructions: only");
+    expect(section).not.toContain("# Repo instructions: more");
+  });
+});

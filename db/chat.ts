@@ -113,6 +113,22 @@ export function setConversationRoute(db: Db, id: string, route: ChatRoute | null
     .run();
 }
 
+/** 0043 amendment: this chat's exec-approval toggle (false = always ask,
+ *  the default). Absent conversation reads as off. */
+export function getHostAutoApprove(db: Db, id: string): boolean {
+  return !!db
+    .select({ v: conversations.hostAutoApprove })
+    .from(conversations)
+    .where(eq(conversations.id, id))
+    .get()?.v;
+}
+
+/** 0043 amendment: set the chat's exec-approval toggle (the composer's
+ *  switch — stays on until turned off, no time limit). */
+export function setHostAutoApprove(db: Db, id: string, value: boolean): void {
+  db.update(conversations).set({ hostAutoApprove: value }).where(eq(conversations.id, id)).run();
+}
+
 /**
  * 0010 Phase 3b: a conversation × harness's `resumeFrom` handle — the
  * durable session continuity for harness tool calls (next call resumes

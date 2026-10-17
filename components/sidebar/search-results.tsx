@@ -24,8 +24,13 @@ export function Snippet({ text }: { text: string }) {
   );
 }
 
+/** Project/folder breadcrumb, plus a cheap "↳ parent title" hint when the
+ *  hit is a start_thread child (0040 phase 2) — search stays a flat
+ *  list, but the full conversation map searchConversations already built
+ *  made the parent's title free to carry along. */
 export function whereLabel(hit: SearchHit): string {
-  return [hit.projectName ?? "Chats", ...hit.path].join(" / ");
+  const breadcrumb = [hit.projectName ?? "Chats", ...hit.path].join(" / ");
+  return hit.parentTitle ? `${breadcrumb} · ↳ ${hit.parentTitle}` : breadcrumb;
 }
 
 /** Sidebar search results: title, breadcrumb, highlighted snippet. */

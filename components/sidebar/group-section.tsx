@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { cn } from "cn";
 import { bucketByAge } from "@/lib/age-buckets";
+import { buildSidebarTree } from "@/lib/sidebar-tree";
 import { AttentionDot } from "./attention-dot";
 import { ConversationRow } from "./conversation-row";
 import { useSidebar } from "./context";
@@ -68,9 +69,13 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
     editing?.kind === "new-folder" &&
     editing.projectId === projectId &&
     editing.parentId === null;
+  // 0040 phase 2: nest start_thread children BEFORE bucketing by age — a
+  // root's bucket follows its own updatedAt; a child travels with its
+  // parent regardless of the child's own age.
+  const unfiledTree = useMemo(() => buildSidebarTree(group.unfiled), [group.unfiled]);
   // Buckets depend on the local clock/timezone: render the flat list
   // until mounted so server and client markup agree.
-  const buckets = mounted ? bucketByAge(group.unfiled) : null;
+  const buckets = mounted ? bucketByAge(unfiledTree) : null;
 
   return (
     <section className="mb-4">
@@ -216,7 +221,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
                   </div>
                 ))
               ) : (
-                group.unfiled.map((item) => (
+                unfiledTree.map((item) => (
                   <ConversationRow
                     key={item.id}
                     item={item}

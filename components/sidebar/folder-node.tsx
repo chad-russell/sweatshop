@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight, Folder, FolderOpen, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { useMemo } from "react";
 import { cn } from "cn";
 import {
   DropdownMenu,
@@ -8,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { buildSidebarTree } from "@/lib/sidebar-tree";
 import { AttentionDot } from "./attention-dot";
 import { ConversationRow } from "./conversation-row";
 import { useSidebar } from "./context";
@@ -64,6 +66,9 @@ export function FolderNodeView({
 }) {
   const { actions, collapsed, toggleFolder, editing, setEditing, setDrag } = useSidebar();
   const open = !collapsed.has(node.id);
+  // 0040 phase 2: a start_thread child nests under its parent when both
+  // are filed in this same folder (items are already sorted by activity).
+  const tree = useMemo(() => buildSidebarTree(node.items), [node.items]);
   const target = useDropTarget({ projectId, folderId: node.id });
   const renaming = editing?.kind === "rename-folder" && editing.id === node.id;
   const creatingChild =
@@ -181,7 +186,7 @@ export function FolderNodeView({
               choices={choices}
             />
           ))}
-          {node.items.map((item) => (
+          {tree.map((item) => (
             <ConversationRow
               key={item.id}
               item={item}

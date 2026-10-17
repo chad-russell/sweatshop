@@ -4,6 +4,7 @@ import { ChatSurface } from "@/components/chat";
 import { db } from "@/db";
 import { conversations, projects } from "@/db/schema";
 import { getActiveRun, listMessageTexts } from "@/db/chat";
+import { listProjectHosts } from "@/db/hosts";
 import { parseStoredChatRoute } from "@/db/providers";
 import { rowsToUIMessages, untilLiveTurn } from "@/lib/chat-ui";
 
@@ -44,6 +45,9 @@ export default async function ConversationPage({
   const activeRunId = getActiveRun(db(), sessionId);
   const rows = listMessageTexts(db(), sessionId);
   const initialMessages = rowsToUIMessages(activeRunId ? untilLiveTurn(rows) : rows);
+  // 0043 amendment: the auto-approve toggle only makes sense where exec
+  // itself does — a project with hosts on its allow-list.
+  const hasHosts = project ? listProjectHosts(db(), project.id).length > 0 : false;
 
   return (
     <ChatSurface
@@ -54,6 +58,8 @@ export default async function ConversationPage({
       projectName={project?.name}
       conversationTitle={conversation.title}
       initialRoute={parseStoredChatRoute(conversation.route)}
+      hasHosts={hasHosts}
+      initialHostAutoApprove={!!conversation.hostAutoApprove}
     />
   );
 }

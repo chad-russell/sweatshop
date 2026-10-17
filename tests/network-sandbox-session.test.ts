@@ -23,7 +23,7 @@ function fakeHandle() {
 }
 
 describe("toNetworkSandboxSession (0013)", () => {
-  it("exposes identity, work dir, and the bridge port", () => {
+  it("exposes identity, work dir, and every bridge kind's port (0038 amendment)", () => {
     const { handle } = fakeHandle();
     const session = toNetworkSandboxSession({
       id: "sbx_1",
@@ -33,7 +33,21 @@ describe("toNetworkSandboxSession (0013)", () => {
     });
     expect(session.id).toBe("sbx_1");
     expect(session.defaultWorkingDirectory).toBe("/work/c1");
-    expect(session.ports).toEqual([4000]);
+    // claude and cursor each get their own port — claimed concurrently,
+    // their bridges must never share one.
+    expect(session.ports).toEqual([4000, 4001]);
+  });
+
+  it("accepts an explicit ports override", () => {
+    const { handle } = fakeHandle();
+    const session = toNetworkSandboxSession({
+      id: "sbx_1",
+      handle,
+      workDir: "/work/c1",
+      resolveAddress: async () => "10.0.0.2",
+      ports: [9999],
+    });
+    expect(session.ports).toEqual([9999]);
   });
 
   it("resolves the endpoint lazily and only once per session", async () => {

@@ -11,10 +11,12 @@ import {
   setConversationParent,
 } from "../db/chat";
 import { conversations } from "../db/schema";
+import { createHarnessCall, getHarnessCall, settleHarnessCall } from "../db/harness-calls";
 import { eq } from "drizzle-orm";
 import {
   renderWake,
   sweepWakes,
+  wakeCallIfDue,
   wakeChatChildIfDue,
   wakeConversation,
   type WakeDeps,
@@ -95,6 +97,53 @@ describe("wakeConversation", () => {
     ensureConversation(tdb, trashed, null);
     tdb.update(conversations).set({ trashedAt: 1 }).where(eq(conversations.id, trashed)).run();
     await expect(wakeConversation(trashed, harnessDone, deps)).resolves.toBe("gone");
+  });
+});
+
+describe("wakeCallIfDue: two harness calls settling close together (0038 amendment)", () => {
+  it("delivers both — one starts the turn, the other steers behind it", async () => {
+    const parent = chatId();
+    ensureConversation(tdb, parent, null);
+    const piCreated = createHarnessCall(tdb, { conversationId: parent, kind: "pi", task: "a" });
+    const claudeCreated = createHarnessCall(tdb, { conversationId: parent, kind: "claude", task: "b" });
+    settleHarnessCall(tdb, piCreated.id, { status: "completed", result: "pi's fix" });
+    settleHarnessCall(tdb, claudeCreated.id, { status: "completed", result: "claude's fix" });
+    // Re-read: createHarnessCall's return is the pre-settle (running) row.
+    const pi = getHarnessCall(tdb, piCreated.id)!;
+    const claude = getHarnessCall(tdb, claudeCreated.id)!;
+
+    // A faithful-enough double: unlike the generic seams() helper, `start`
+    // here actually claims the active-run row, the way startChatTurn does
+    // — so the second wake processed behind the first's lock sees a live
+    // turn and steers, instead of a second "started" overwriting the first.
+    const started: { conversationId: string; text: string }[] = [];
+    const deps: WakeDeps = {
+      statusOf: (runId) => Promise.resolve(runId === "wr_live" ? "running" : "completed"),
+      start: async (conversationId, text) => {
+        started.push({ conversationId, text });
+        setActiveRun(tdb, conversationId, "wr_live");
+      },
+    };
+
+    const [a, b] = await Promise.all([wakeCallIfDue(pi, deps), wakeCallIfDue(claude, deps)]);
+    const piRow = getHarnessCall(tdb, pi.id)!;
+    const claudeRow = getHarnessCall(tdb, claude.id)!;
+
+    expect([a, b]).toEqual(["woke", "woke"]);
+    // Both delivered: one landed as the turn start, the other as steer —
+    // never both as a start (that would silently clobber one), never
+    // neither (that would lose one).
+    const steered = peekSteer(tdb, parent);
+    const allText = [...started.map((s) => s.text), ...steered].join("\n---\n");
+    expect(allText).toContain("[pi finished]");
+    expect(allText).toContain("pi's fix");
+    expect(allText).toContain("[claude finished]");
+    expect(allText).toContain("claude's fix");
+    expect(started).toHaveLength(1);
+    expect(steered).toHaveLength(1);
+    // Each call's own wake bookkeeping is independent — both stamped.
+    expect(piRow.wokenSettledAt).toBe(piRow.settledAt);
+    expect(claudeRow.wokenSettledAt).toBe(claudeRow.settledAt);
   });
 });
 

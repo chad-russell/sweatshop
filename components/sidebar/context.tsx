@@ -11,6 +11,10 @@ export interface SidebarContextValue {
   mounted: boolean;
   collapsed: ReadonlySet<string>;
   toggleFolder: (id: string) => void;
+  /** 0040 phase 2: explicit open/closed choices for parent conversation
+   *  rows (tri-state — absence means "use the computed default"). */
+  threadExpanded: ReadonlyMap<string, boolean>;
+  setThreadExpanded: (id: string, expanded: boolean) => void;
   editing: Editing | null;
   setEditing: (editing: Editing | null) => void;
   drag: Drag | null;

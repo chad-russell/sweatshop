@@ -269,9 +269,26 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   terminal `exec` card (host chip + duration). Secrets convention
   (taught in the tool description): reference PATHS never contents; API
   calls run as exec + curl on a host holding the credential file.
-  Deferred on purpose: bespoke verbs (deploy/rollback/restart), policy
-  modes ("yolo" auto-approve, allowlists, time-boxed grants), a `request`
-  tool, per-host kind/runbook fields, network sandboxing. Capability doc
+  Auto-approve (amendment, Chad's decision: one simple toggle, no time
+  limit): `conversations.host_auto_approve` — the composer's switch
+  (`components/chat.tsx`, shown once the chat exists and its project has
+  hosts; `GET`/`PATCH /api/conversations/[id]` reads/sets it, optimistic
+  with revert-on-failure). The `exec` tool reads it fresh on EVERY call
+  (`getHostAutoApproveStep`, never cached per turn — flipping it takes
+  effect on the very next command): on, and the command is not
+  lockout-sensitive, it skips `pendingStep`/the hook and runs straight
+  through (`hostExecStep(…, autoApproved: true)`); off, or the command IS
+  lockout-sensitive, it asks exactly as before. Lockout-sensitive
+  (`lib/hosts/lockout.ts`, `isLockoutSensitiveCommand`) is a
+  case-insensitive, word-boundary match on sshd/ssh.service/ssh.socket,
+  networkd/NetworkManager, nftables/iptables/firewall, nebula, caddy,
+  reboot/shutdown/poweroff, `nixos-rebuild switch|boot`, and `ip
+  link|addr|route` — a GUARD RAIL against the tool wording its way into a
+  lockout, not a security boundary. `host_commands.auto_approved` records
+  which commands ran that way; the terminal card shows an "auto-approved"
+  chip. Still deferred on purpose: bespoke verbs (deploy/rollback/
+  restart), allowlists / time-boxed grants, a `request` tool, per-host
+  kind/runbook fields, network sandboxing. Capability doc
   `docs/agent/hosts.md`; live check `HOST_SPIKE=1` (tests/
   host-spike.integration.test.ts — it found the warm-pool fingerprint
   skip pre-merge).
@@ -307,6 +324,45 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   footer is Settings + the theme cycler. `/projects` is the project index;
   the New-project dialog mounts in the root layout and opens by
   `NEW_PROJECT_EVENT` (the page button and ⌘K both dispatch it).
+- Sidebar parent/child tree (0040 phase 2, no design doc — approved in
+  chat): a `start_thread` child (`conversations.parent_conversation_id`,
+  0037 phase 3) nests under its parent instead of sitting beside it as a
+  flat row. Nesting is a property of whatever FLAT list is already
+  VISIBLE — one folder's items, or one group's Unfiled — never global:
+  `buildSidebarTree` (`lib/sidebar-tree.ts`, pure, unit-tested) nests a
+  child under its parent only when both are in that same list (cycle-
+  guarded), recursively, children oldest-created first; a parent filed
+  elsewhere, trashed, archived, or deleted leaves the child as an
+  ordinary top-level row, same as before this existed — so a child never
+  appears twice. `SidebarItem` carries `parentConversationId`,
+  `createdAt`, and `activeRunId` now (`db/organize.ts`'s `loadSidebar`);
+  `ShelvedItem` (Archive/Trash) drops the first and last — those shelves
+  stay flat. Unfiled buckets by age AFTER nesting, on each ROOT's own
+  `updatedAt` — a child travels with its parent regardless of the
+  child's own age. `ConversationRow` (`components/sidebar/
+  conversation-row.tsx`) is now recursive like `FolderNodeView`: a
+  parent with children gets a chevron and a guide line (DOM-nesting-
+  driven indentation, not depth-multiplied, so it never double-counts);
+  collapsed, it shows the hidden subtree's rolled-up `AttentionDot` /
+  running spinner (`descendantAttention` / `anyDescendantRunning`, summed
+  in the tree builder, excluding the row's own). Default open/closed
+  (`defaultExpanded`): open while a descendant is live or needs Chad,
+  closed once everything below has settled — an explicit click
+  (`components/sidebar/use-thread-expanded.ts`, tri-state localStorage
+  like `use-collapsed.ts`'s folders, but absence here means "use the
+  computed default," never "open") wins from then on; viewing a
+  descendant force-opens its ancestors (`hasActiveDescendant`) so the
+  active row stays visible, without touching that stored choice. Moving
+  a parent (`moveConversation`) only ever changes the dragged row's own
+  `folderId` — unchanged — so a child follows visually ONLY when it
+  already shares the parent's folder; dragging a child out is an
+  ordinary conversation drag, unaffected by nesting. Search results
+  (`db/search.ts`, both the sidebar list and ⌘K) and the Archive/Trash
+  shelves stay flat — a breadcrumb already says where a shelved item came
+  from, and a search hit on a child carries its parent's title as a cheap
+  `· ↳ <parent>` suffix on that same breadcrumb (`SearchHit.parentTitle`,
+  free: `searchConversations` already holds every conversation's title in
+  one map to build the rest of the hit).
 - Projects & sandboxes (0004, Phases A–D + Path B shipped; 0031
   simplifications): `projects` (1+ git repos) carry their sandbox image
   directly (`projects.image_ref`; unset = `localhost/sweatshop-sandbox`,
@@ -405,14 +461,24 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   id) and the panel re-mounts only for New or a reopened stored
   conversation (hydrated before mount; initialMessages/activeRunId are
   init-only props).
-- Harness agents (0005/0006 + 0010 Phase 3 + 0022): project
-  conversations have `pi`, `claude` and `cursor` tools — separate coding harnesses
-  on the conversation's sandbox (0010 lease seam). CHAT calls are
-  BACKGROUND work (0022 cut 2): the tool step
-  (`startHarnessCallStep` → core `lib/chat/harness-call-start.ts`)
-  validates the route (0021 resolution), claims the one-per-session
-  slot, inserts a `harness_calls` row (`hc_…`, store
-  `db/harness-calls.ts`), and starts ONE `harnessCall` workflow
+- Harness agents (0005/0006 + 0010 Phase 3 + 0022; 0038 amendment —
+  concurrency): project conversations have `pi`, `claude` and `cursor`
+  tools — separate coding harnesses on the conversation's sandbox (0010
+  lease seam), up to `MAX_CONCURRENT_HARNESSES` (3) running at once, at
+  most one call per kind (0006's "one harness at a time" became "one of
+  each kind, up to a cap" — they share the sandbox's checkout, so the
+  instructions and each tool's description tell the model to give
+  concurrent harnesses separate files/areas, or `start_thread({fresh:
+  true})` for work that could collide). CHAT calls are BACKGROUND work
+  (0022 cut 2): the tool step (`startHarnessCallStep` → core
+  `lib/chat/harness-call-start.ts`) validates the route (0021
+  resolution), atomically claims a concurrency slot (`claimHarnessRun`,
+  `lib/harness-events.ts` — one sqlite transaction so two concurrent
+  calls cannot both pass; `harness_runs` already keyed one row per
+  (session, kind), so a different kind just inserts its own running row;
+  denial names WHY — `same-kind` or `cap` — with the active runs and the
+  existing inspect/cancel hint), inserts a `harness_calls` row (`hc_…`,
+  store `db/harness-calls.ts`), and starts ONE `harnessCall` workflow
   (`workflows/chat/harness-call.ts`) — the tool returns the handle
   immediately (value-shaped errors: no-project / not-configured /
   busy / start-failed). The worker advances the harness turn ONE
@@ -421,12 +487,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   harness-agent builder) and settles via `harnessSettleStep`: persist
   the `resumeFrom` handle (natural completion only — cross-call
   continuity stays durable in `chat_harness_state`), settle the row,
-  release the slot, and WAKE the conversation with the clipped final
-  text (0022 cut 1's primitive). The slot is held for the call's whole
-  life — a second call errors busy, and the running row is what keeps
-  the sandbox in the reaper's busy set. Cancelling (`cancel_run` with
-  the `hc_…` id) cancels the workflow, settles the row cancelled (no
-  wake), releases the slot; settles are running-only writes so the
+  release its slot, and WAKE the conversation with the clipped final
+  text (0022 cut 1's primitive; each call's wake is independent — two
+  settling close together both land, one starting the turn and the
+  other steering behind it, same as a human message arriving mid-turn).
+  A kind's slot is held for that call's whole life — ANOTHER call of the
+  SAME kind errors busy; any running row (any kind) is what keeps the
+  sandbox in the reaper's busy set. Cancelling (`cancel_run` with the
+  `hc_…` id) cancels that one workflow, settles its row cancelled (no
+  wake), releases its slot; settles are running-only writes so the
   first final write wins.
   pi (`@ai-sdk/harness-pi`) runs in-process on
   GLM via the Z.AI coding plan's Anthropic Messages surface
@@ -435,7 +504,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   exactly 1.0.145) runs the official Agent SDK as an in-sandbox bridge
   process reached over the private `sweatshop-harness` podman network
   (host processes have no route to podman bridge subnets — membership
-  is the boundary, never a published LAN port). claude auth (0006
+  is the boundary, never a published LAN port) on its own port (0038
+  amendment: `HARNESS_BRIDGE_PORTS` in `lib/sandboxes/harness-bridge.ts`
+  — claude 4000, cursor 4001, threaded through `buildHarnessAgent` and
+  the adapter's `toNetworkSandboxSession` `ports`/`getPortEndpoint`). A
+  settled call's bridge process can be left running on purpose
+  (`workflows/chat/harness-call.ts` keeps `resumeFrom` on both the
+  completed and the failed path precisely so the SAME kind's next call
+  reattaches to it instead of spawning a second one); before separate
+  ports, a leftover claude bridge still holding the shared port made the
+  next cursor call fail `listen EADDRINUSE` (and the reverse) — observed
+  live in this sandbox, now impossible since each kind binds its own.
+  claude auth (0006
   amendment): a claude setup-token passed as `CLAUDE_CODE_OAUTH_TOKEN`
   through the adapter's env channel (`auth: "direct"` — no gateway, no
   host discovery); single-user personal use per Chad's recorded
@@ -476,6 +556,29 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `./dev exec -- sh -c 'PREVIEW_E2E=1 npx vitest run tests/preview-first-fill.integration.test.ts'`
   (0019: the New-preview first-fill path on real podman + a git-daemon
   upstream), `SERVICES_SPIKE=1` (0017 services substrate).
+- Repo AGENTS.md for agents (no design doc — approved in chat, 2026-10-16):
+  live testing showed none of pi, claude, cursor, or the top-level chat
+  agent itself ever read a project repo's AGENTS.md unprompted. Two
+  fixes, same caps (`lib/agent/repo-docs.ts`: 24 KB per file, a `cat
+  <path>` pointer when cut). The top-level agent: at turn start, when the
+  conversation has a project AND its sandbox is already BOUND (never
+  provisioned just for this — pending/none reads nothing),
+  `loadRepoDocsStep` (`workflows/chat/steps.ts`, thin wrapper over the
+  plain `loadRepoDocs` in `lib/agent/tools/repo-docs.ts`) reads each repo's
+  AGENTS.md and `buildInstructions` (`workflows/chat/instructions.ts`,
+  pulled out of turn.ts, pure and unit-tested) appends them as `# Repo
+  instructions: <repo> (<path>)` sections, capped at 48 KB total (a repo
+  that would not fit is dropped whole with its own `cat` pointer). The
+  harnesses, which start with cwd at the work root rather than inside a
+  repo: `setupProjectWorkspace` (`lib/sandboxes/workspace.ts`) writes
+  `<root>/AGENTS.md` and `<root>/CLAUDE.md` (identical content, built by
+  the pure `buildWorkRootDoc`, overwritten on every setup) — a short
+  header, the repo list, then each repo's AGENTS.md inlined. Same turn,
+  `buildInstructions` also adds the harness/host routing paragraphs: bash
+  for looking around and checking work, a harness for any real code
+  change (always, when the chat has a sandbox), and — when the project
+  has hosts — exec for live host state only, never repo edits or PRs
+  (mirrored in the `bash`/`exec` tool descriptions, `workflows/chat/tools.ts`).
 
 - Previews (0016): a preview is a long-running HTTP server in a
   sandbox, owned by the SANDBOX (outlives the turn/run/stage that

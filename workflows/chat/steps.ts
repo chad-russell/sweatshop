@@ -202,6 +202,22 @@ export async function bindSkillStep(conversationId: string, id?: string): Promis
   return { ok: true, id: skill.id, note: "Bound to this thread — follow it from now on.", skill: skill.body };
 }
 
+/**
+ * Repo AGENTS.md for the top-level agent's instructions appendix — only
+ * when the conversation has a project AND its sandbox is already BOUND
+ * (never provisions one just to read these files; a pending/none binding
+ * or a missing file adds nothing, never an error). Thin wrapper: the
+ * logic is lib/agent/tools/repo-docs.ts's loadRepoDocs (a plain function
+ * so it is unit-testable against a fake provider).
+ */
+export async function loadRepoDocsStep(
+  conversationId: string,
+): Promise<import("../../lib/agent/repo-docs").RepoDoc[]> {
+  "use step";
+  const { loadRepoDocs } = await import("../../lib/agent/tools/repo-docs");
+  return loadRepoDocs(conversationId);
+}
+
 /** 0037/0039: continue a thread-skill turn that hit its step budget. */
 export async function continueAfterBudgetStep(conversationId: string): Promise<string> {
   "use step";
@@ -552,12 +568,26 @@ export async function hostExecPreviewStep(
   return hostExecPreview(conversationId, input);
 }
 
-/** 0043: run the approved exec — audit row, transport, TOFU pin, clip. */
+/** 0043: run the approved (or auto-approved) exec — audit row, transport,
+ *  TOFU pin, clip. */
 export async function hostExecStep(
   conversationId: string,
   input: import("../../lib/agent/tools/host").HostExecInput,
+  /** 0043 amendment: this call skipped ask_chad under the chat's toggle. */
+  autoApproved = false,
 ): Promise<unknown> {
   "use step";
   const { hostExecRun } = await import("../../lib/agent/tools/host");
-  return hostExecRun(conversationId, input);
+  return hostExecRun(conversationId, input, undefined, autoApproved);
+}
+
+/**
+ * 0043 amendment: this chat's exec-approval toggle, read on EVERY exec
+ * call (not cached per turn) so flipping it takes effect on the very
+ * next command.
+ */
+export async function getHostAutoApproveStep(conversationId: string): Promise<boolean> {
+  "use step";
+  const { db, chat } = await chatStore();
+  return chat.getHostAutoApprove(db, conversationId);
 }

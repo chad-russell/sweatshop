@@ -2,7 +2,7 @@ import type { HarnessV1NetworkSandboxSession } from "@ai-sdk/harness";
 import type { Experimental_SandboxSession } from "ai";
 import {
   connectContainerToHarnessNetwork,
-  HARNESS_BRIDGE_PORT,
+  HARNESS_BRIDGE_PORTS,
 } from "@/lib/sandboxes/harness-bridge";
 import type { SandboxShell } from "@/lib/sandbox-shell";
 
@@ -171,6 +171,12 @@ export interface NetworkSandboxSessionArgs {
   /** Resolve a container's address on the harness network. Defaults to
    *  joining the sweatshop-harness network (injectable for tests). */
   resolveAddress?: (ref: string) => Promise<string>;
+  /** 0038 amendment: ports this session's bridges may use — every
+   *  bridge-backed kind's own port by default (HARNESS_BRIDGE_PORTS), so
+   *  claude and cursor can each hold theirs at once in the same sandbox.
+   *  Only a fallback: `getPortEndpoint` resolves whatever port it is
+   *  asked for, and every call here passes one explicitly. */
+  ports?: readonly number[];
 }
 
 export function toNetworkSandboxSession({
@@ -178,6 +184,7 @@ export function toNetworkSandboxSession({
   handle,
   workDir,
   resolveAddress = defaultResolveAddress,
+  ports = Object.values(HARNESS_BRIDGE_PORTS),
 }: NetworkSandboxSessionArgs): HarnessV1NetworkSandboxSession {
   const basic = toSandboxSession(handle, workDir);
   // One network join + inspect per session, lazily — pi never asks.
@@ -202,7 +209,7 @@ export function toNetworkSandboxSession({
     ...basic,
     id,
     defaultWorkingDirectory: workDir,
-    ports: [HARNESS_BRIDGE_PORT],
+    ports: [...ports],
     getPortEndpoint,
     getPortUrl: async (options) => (await getPortEndpoint(options)).url,
     stop: async () => {},

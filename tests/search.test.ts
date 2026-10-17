@@ -57,6 +57,32 @@ describe("searchConversations", () => {
     expect(searchConversations(tdb, "   ")).toEqual([]);
     expect(searchConversations(tdb, "zzz-no-such-token")).toEqual([]);
   });
+
+  it("carries the start_thread parent's title on a child hit (0040 phase 2)", () => {
+    tdb
+      .insert(conversations)
+      .values({ id: "wrun_search_parent", title: "Ship the widget", createdAt: 1, updatedAt: 1 })
+      .onConflictDoNothing()
+      .run();
+    tdb
+      .insert(conversations)
+      .values({
+        id: "wrun_search_child",
+        title: "Review",
+        parentConversationId: "wrun_search_parent",
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .onConflictDoNothing()
+      .run();
+    seedConversation("wrun_search_child", "any newts in this review", "No newts found.");
+    // An ordinary chat (no parent) carries no hint.
+    seedConversation("wrun_search_noparent", "newts without a parent conversation", "none");
+
+    const hits = searchConversations(tdb, "newts");
+    expect(hits.find((h) => h.conversationId === "wrun_search_child")?.parentTitle).toBe("Ship the widget");
+    expect(hits.find((h) => h.conversationId === "wrun_search_noparent")?.parentTitle).toBeNull();
+  });
 });
 
 describe("toFtsPhrase", () => {

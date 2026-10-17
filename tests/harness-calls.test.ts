@@ -14,7 +14,7 @@ import {
   setCallWorkflowRun,
 } from "../db/harness-calls";
 import { ensureConversation } from "../db/chat";
-import { claimHarnessRun, getActiveHarnessRun, getHarnessEvents, getHarnessRun } from "../lib/harness-events";
+import { claimHarnessRun, listActiveHarnessRuns, getHarnessEvents, getHarnessRun } from "../lib/harness-events";
 import { conversations, harnessRuns, projects } from "../db/schema";
 import { wakeCallIfDue, sweepWakes } from "../lib/chat/wake";
 import { cancelRunTool } from "../lib/agent/tools/cancel-run";
@@ -110,7 +110,7 @@ describe("startHarnessCall", () => {
     const call = getHarnessCall(tdb, result.callId)!;
     expect(call.status).toBe("running");
     expect(call.workflowRunId).toBe("wr_fake");
-    expect(getActiveHarnessRun(conv)?.kind).toBe("pi");
+    expect(listActiveHarnessRuns(conv).map((r) => r.kind)).toEqual(["pi"]);
     // No events-page transcript rows were fabricated; the start event is real.
     expect(getHarnessRun(conv, "pi")?.status).toBe("running");
     // The session page shows what pi was asked: the task rides on start.
@@ -118,12 +118,30 @@ describe("startHarnessCall", () => {
     expect(start?.input).toBe("fix it");
   });
 
-  it("reports busy when the session slot is held (any kind)", async () => {
-    const conv = newConv();
-    expect(claimHarnessRun(conv, "claude")).toBe(true);
-    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "again", start: fakeStart });
-    expect(result).toMatchObject({ ok: false, code: "busy" });
+  it("0038 amendment: a different kind runs alongside an active one — only the SAME kind is busy", async () => {
+    const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-token"; // past startHarnessCall's not-configured gate
+    try {
+      const conv = newConv();
+      expect(claimHarnessRun(conv, "claude")).toMatchObject({ ok: true });
+      // pi is a different kind — it may start even while claude is running.
+      const ok = await startHarnessCall({ conversationId: conv, kind: "pi", task: "concurrent", start: fakeStart });
+      expect(ok).toMatchObject({ ok: true });
+      // claude again, while its own call is still running, is busy.
+      const busy = await startHarnessCall({ conversationId: conv, kind: "claude", task: "again", start: fakeStart });
+      expect(busy).toMatchObject({ ok: false, code: "busy" });
+      if (!busy.ok) expect(busy.message).toContain("already running");
+    } finally {
+      if (prevToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = prevToken;
+    }
   });
+
+  // The cap itself (claimHarnessRun returning reason:"cap") is covered
+  // directly in tests/harness-events.test.ts: today's 3-kind roster
+  // equals MAX_CONCURRENT_HARNESSES, so startHarnessCall's three real
+  // kinds can fill it but never overflow it through this tool surface —
+  // the cap is headroom for a kind added later, not reachable live today.
 
   it("0038: cursor refuses value-shaped (and never claims the slot) until a login exists", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-auth-"));
@@ -134,7 +152,7 @@ describe("startHarnessCall", () => {
       const result = await startHarnessCall({ conversationId: conv, kind: "cursor", task: "x", start: fakeStart });
       expect(result).toMatchObject({ ok: false, code: "not-configured" });
       if (!result.ok) expect(result.message).toContain("agent login");
-      expect(getActiveHarnessRun(conv)).toBeNull();
+      expect(listActiveHarnessRuns(conv)).toHaveLength(0);
     } finally {
       if (prev === undefined) delete process.env.HARNESS_AUTH_DIR;
       else process.env.HARNESS_AUTH_DIR = prev;
@@ -156,7 +174,7 @@ describe("startHarnessCall", () => {
     };
     const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", start: failing });
     expect(result).toMatchObject({ ok: false, code: "start-failed" });
-    expect(getActiveHarnessRun(conv)).toBeNull();
+    expect(listActiveHarnessRuns(conv)).toHaveLength(0);
     // The call row stays as a visible failure (its wake fires via the sweep).
     const calls = listHarnessCalls(tdb, { conversationId: conv });
     expect(calls[0]).toMatchObject({ status: "failed" });
@@ -167,12 +185,12 @@ describe("startHarnessCall", () => {
 describe("cancel_run on hc_", () => {
   it("cancels a running call and releases the slot", async () => {
     const { conversationId: conv, call } = runningCall();
-    expect(claimHarnessRun(conv, "pi")).toBe(true);
+    expect(claimHarnessRun(conv, "pi")).toMatchObject({ ok: true });
     const result = await cancelRunTool(call.id);
     expect(result).toMatchObject({ ok: true, runId: call.id, status: "cancelled" });
     expect(getHarnessCall(tdb, call.id)!.status).toBe("cancelled");
     expect(getHarnessRun(conv, "pi")?.status).toBe("cancelled");
-    expect(getActiveHarnessRun(conv)).toBeNull();
+    expect(listActiveHarnessRuns(conv)).toHaveLength(0);
     // A cancelled call never wakes.
     expect(listWakableCalls(tdb).map((c) => c.id)).not.toContain(call.id);
   });

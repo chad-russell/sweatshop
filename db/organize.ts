@@ -389,10 +389,20 @@ export interface SidebarItem {
   id: string;
   title: string | null;
   updatedAt: number;
+  /** 0040 phase 2: when it was created — children sort oldest-first by
+   *  this (lib/sidebar-tree.ts), independent of updatedAt's recency sort. */
+  createdAt: number;
   /** 0012: "chat" | "run" (stage rows never reach the sidebar). */
   kind: string;
   /** 0012: the run's status for run rows; null for chats. */
   runStatus: string | null;
+  /** 0037 phase 3 / 0040 phase 2: the `start_thread` parent, when this is
+   *  a child — nests it in the sidebar tree (lib/sidebar-tree.ts). Null
+   *  for an ordinary chat. */
+  parentConversationId: string | null;
+  /** 0040 phase 2: a live turn is running right now (any conversation
+   *  kind) — rolls up into a collapsed parent's aggregate indicator. */
+  activeRunId: string | null;
   /** 0008: assistant output the user has not viewed yet. */
   unread: boolean;
   /** 0008: a pending approval/question is waiting on the user. */
@@ -426,8 +436,12 @@ export interface SidebarGroup {
   attention: AttentionCounts;
 }
 
-/** A conversation outside the main tree (Archive / Trash view). */
-export interface ShelvedItem extends Omit<SidebarItem, "unread" | "needsYou" | "runStatus"> {
+/** A conversation outside the main tree (Archive / Trash view) — flat,
+ *  no parent/child nesting (0040 phase 2 scopes the tree to the live
+ *  library; a breadcrumb already says where an archived/trashed item
+ *  came from). */
+export interface ShelvedItem
+  extends Omit<SidebarItem, "unread" | "needsYou" | "runStatus" | "parentConversationId" | "activeRunId"> {
   projectName: string | null;
   /** Folder breadcrumb, e.g. ["Spikes", "Sandbox"]. */
   path: string[];
@@ -469,11 +483,14 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
       id: conversations.id,
       title: conversations.title,
       updatedAt: conversations.updatedAt,
+      createdAt: conversations.createdAt,
       projectId: conversations.projectId,
       folderId: conversations.folderId,
       archivedAt: conversations.archivedAt,
       trashedAt: conversations.trashedAt,
       kind: conversations.kind,
+      parentConversationId: conversations.parentConversationId,
+      activeRunId: conversations.activeRunId,
     })
     .from(conversations)
     .where(ne(conversations.kind, "stage"))
@@ -492,6 +509,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
         id: r.id,
         title: r.title,
         updatedAt: r.updatedAt,
+        createdAt: r.createdAt,
         kind: r.kind,
         projectName: r.projectId ? (projectName.get(r.projectId) ?? r.projectId) : null,
         path: folderPath(folderIndex, r.folderId),
@@ -514,8 +532,11 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     id: r.id,
     title: r.title,
     updatedAt: r.updatedAt,
+    createdAt: r.createdAt,
     kind: r.kind,
     runStatus: r.kind === "run" ? (runStatus.get(r.id) ?? null) : null,
+    parentConversationId: r.parentConversationId,
+    activeRunId: r.activeRunId,
     unread: flags.unread.has(r.id),
     needsYou: flags.needsYou.has(r.id),
   });

@@ -3,13 +3,15 @@ import {
   claimHarnessRun,
   countToolCalls,
   clipHarnessText,
-  getActiveHarnessRun,
   getHarnessEvents,
   getHarnessRun,
   isHarnessKind,
+  listActiveHarnessRuns,
   listHarnessRuns,
+  MAX_CONCURRENT_HARNESSES,
   recordHarnessEvent,
   recordHarnessRunEnd,
+  type HarnessKind,
 } from "../lib/harness-events";
 
 
@@ -64,31 +66,48 @@ describe("harness event store (0006)", () => {
     expect(rest.events[0].id).toBe(first.cursor! + 1);
   });
 
-  it("claims the one-run slot exclusively across harnesses", () => {
-    expect(claimHarnessRun("wrun_h3", "claude")).toBe(true);
-    expect(getActiveHarnessRun("wrun_h3")?.kind).toBe("claude");
-    // The other harness (and a re-claim of the same one) is blocked
-    // while the slot is held.
-    expect(claimHarnessRun("wrun_h3", "pi")).toBe(false);
-    expect(claimHarnessRun("wrun_h3", "claude")).toBe(false);
+  it("different kinds claim their own slot concurrently; the same kind is refused while running", () => {
+    expect(claimHarnessRun("wrun_h3", "claude")).toMatchObject({ ok: true });
+    expect(listActiveHarnessRuns("wrun_h3").map((r) => r.kind)).toEqual(["claude"]);
+
+    // A re-claim of the SAME kind is refused while its run is live...
+    const sameKind = claimHarnessRun("wrun_h3", "claude");
+    expect(sameKind).toMatchObject({ ok: false, reason: "same-kind" });
+    if (!sameKind.ok) expect(sameKind.active.map((r) => r.kind)).toEqual(["claude"]);
+
+    // ...but a DIFFERENT kind may run alongside it (0038 amendment).
+    expect(claimHarnessRun("wrun_h3", "pi")).toMatchObject({ ok: true });
+    expect(listActiveHarnessRuns("wrun_h3").map((r) => r.kind).sort()).toEqual(["claude", "pi"]);
 
     recordHarnessRunEnd("wrun_h3", "claude", 4, "failed", "boom");
     const run = getHarnessRun("wrun_h3", "claude");
     expect(run?.status).toBe("failed");
     expect(run?.error).toBe("boom");
     expect(run?.toolCalls).toBe(4);
-    expect(getActiveHarnessRun("wrun_h3")).toBeNull();
+    expect(listActiveHarnessRuns("wrun_h3").map((r) => r.kind)).toEqual(["pi"]);
 
-    // Slot is free again — same or other harness may claim it.
-    expect(claimHarnessRun("wrun_h3", "pi")).toBe(true);
-    expect(getActiveHarnessRun("wrun_h3")?.kind).toBe("pi");
-    // Other conversations are unaffected.
-    expect(claimHarnessRun("wrun_h3b", "claude")).toBe(true);
+    // claude's slot is free again — it (or any other kind) may claim it;
+    // other conversations are unaffected.
+    expect(claimHarnessRun("wrun_h3", "claude")).toMatchObject({ ok: true });
+    expect(claimHarnessRun("wrun_h3b", "claude")).toMatchObject({ ok: true });
+  });
+
+  it("caps total concurrent runs at MAX_CONCURRENT_HARNESSES regardless of kind", () => {
+    expect(claimHarnessRun("wrun_cap", "pi")).toMatchObject({ ok: true });
+    expect(claimHarnessRun("wrun_cap", "claude")).toMatchObject({ ok: true });
+    expect(claimHarnessRun("wrun_cap", "cursor")).toMatchObject({ ok: true });
+    expect(listActiveHarnessRuns("wrun_cap")).toHaveLength(MAX_CONCURRENT_HARNESSES);
+
+    // A fourth concurrent kind — synthetic, since today's roster is only
+    // 3 — hits the cap, distinct from a same-kind collision.
+    const fourth = claimHarnessRun("wrun_cap", "extra" as HarnessKind);
+    expect(fourth).toMatchObject({ ok: false, reason: "cap" });
+    if (!fourth.ok) expect(fourth.active).toHaveLength(3);
   });
 
   it("resets run counters and error when re-claiming after a failed run", () => {
     recordHarnessRunEnd("wrun_h4", "pi", 1, "failed", "earlier failure");
-    expect(claimHarnessRun("wrun_h4", "pi")).toBe(true);
+    expect(claimHarnessRun("wrun_h4", "pi")).toMatchObject({ ok: true });
     const run = getHarnessRun("wrun_h4", "pi");
     expect(run?.status).toBe("running");
     expect(run?.error).toBeNull();

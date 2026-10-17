@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RoutePicker, shortRouteLabel, useModelsView } from "@/components/route-picker";
+import { Switch } from "@/components/ui/switch";
 import type { ChatRoute } from "@/lib/providers/route";
 import { cn } from "@/lib/utils";
 
@@ -268,6 +269,53 @@ function SandboxPicker({
 }
 
 /**
+ * 0043 amendment: a per-chat toggle — exec calls run without asking until
+ * Chad turns it back off (no time limit; lockout-sensitive commands still
+ * ask regardless). Only shown once the conversation exists (the flag
+ * lives on its row) and its project has hosts. Updates optimistically,
+ * reverting on a failed PATCH.
+ */
+function HostAutoApproveToggle({ conversationId, initialValue }: { conversationId: string; initialValue: boolean }) {
+  const [checked, setChecked] = useState(initialValue);
+  const [pending, setPending] = useState(false);
+
+  const toggle = async (next: boolean) => {
+    setChecked(next);
+    setPending(true);
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hostAutoApprove: next }),
+      });
+      if (!res.ok) throw new Error("request failed");
+    } catch {
+      setChecked(!next); // revert — the server never saw it
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <label
+      title="Auto-approve host commands: exec calls run without asking, except lockout-sensitive ones — stays on until you turn it off"
+      className={cn(
+        "inline-flex h-8 pointer-coarse:h-10 shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+        COMPOSER_PICKER,
+      )}
+    >
+      <Switch
+        checked={checked}
+        disabled={pending}
+        onCheckedChange={(next) => void toggle(next)}
+        aria-label="Auto-approve host commands"
+      />
+      <span className="truncate">Auto-approve hosts</span>
+    </label>
+  );
+}
+
+/**
  * The sweatshop chat page: ChatSession in its full-page frame — the
  * AppHeader (crumbs, model and sandbox pickers), `/c/<id>` adoption,
  * ⌘⇧O new chat, and the fresh composer's target picker.
@@ -283,6 +331,8 @@ export function ChatSurface({
   headerExtra,
   initialSkillId,
   projectOptions,
+  hasHosts,
+  initialHostAutoApprove,
 }: {
   conversationId?: string;
   initialMessages?: import("ai").UIMessage[];
@@ -297,6 +347,10 @@ export function ChatSurface({
   /** 0018: pickable chat-in-project targets for the fresh composer
    *  (the ?project= param seeds the initial scope). */
   projectOptions?: { id: string; name: string }[];
+  /** 0043 amendment: this project has hosts on its allow-list — shows
+   *  the auto-approve toggle once the chat exists. */
+  hasHosts?: boolean;
+  initialHostAutoApprove?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -444,6 +498,9 @@ export function ChatSurface({
             view={s.sandboxView}
             hasProject={Boolean(activeProjectId)}
           />
+          {conversationId && hasHosts && (
+            <HostAutoApproveToggle conversationId={conversationId} initialValue={initialHostAutoApprove ?? false} />
+          )}
         </>
       )}
       header={(s) => (

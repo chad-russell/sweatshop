@@ -6,7 +6,7 @@ import { isStepCount, type ToolSet } from "ai";
 import type { ModelInfo } from "@/lib/providers/catalog";
 import { piProviderConfig } from "@/lib/providers/registry";
 import type { HarnessRoute } from "@/lib/providers/route";
-import { HARNESS_BRIDGE_PORT } from "@/lib/sandboxes/harness-bridge";
+import { harnessBridgePort } from "@/lib/sandboxes/harness-bridge";
 
 /**
  * The one HarnessAgent builder (0009 harness stages; the chat pi/claude
@@ -65,7 +65,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
     // forward, so the planted file is what authenticates. The route
     // contributes only the model.
     return new HarnessAgent({
-      harness: createCursor({ port: HARNESS_BRIDGE_PORT }),
+      harness: createCursor({ port: harnessBridgePort("cursor") }),
       id: `cursor-${sessionId}`,
       ...(route.model ? { model: route.model } : {}),
       sandboxConfig: { workDir: "." },
@@ -85,7 +85,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
     // an endpoint.
     harness: createClaudeCode({
       auth: "direct",
-      port: HARNESS_BRIDGE_PORT,
+      port: harnessBridgePort("claude"),
       env: { CLAUDE_CODE_OAUTH_TOKEN: token },
       ...(route.effort ? { effort: route.effort } : {}),
     }),
