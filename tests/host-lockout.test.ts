@@ -30,6 +30,14 @@ describe("isLockoutSensitiveCommand", () => {
     "ip link set eth0 down",
     "ip addr show",
     "ip route del default",
+    // review: Debian/Ubuntu unit names and other plain spellings
+    "systemctl restart ssh",
+    "sudo systemctl stop ssh",
+    "service ssh restart",
+    "systemctl stop firewalld",
+    "ufw disable",
+    "halt",
+    "systemctl suspend",
   ])("flags %j", (command) => {
     expect(isLockoutSensitiveCommand(command)).toBe(true);
   });
@@ -45,6 +53,8 @@ describe("isLockoutSensitiveCommand", () => {
     "zip -r out.zip .", // contains "ip" but not as a standalone word/command
     "pip install requests", // contains "ip" mid-word
     "skip this one",
+    "ssh-keygen -l -f ~/.ssh/known_hosts", // ssh tooling, not the service
+    "systemctl status sweatshop && ls ~/.ssh", // ssh after a separator, not a systemctl target
   ])("does not flag %j", (command) => {
     expect(isLockoutSensitiveCommand(command)).toBe(false);
   });

@@ -31,12 +31,20 @@ export async function loadRepoDocs(
   if (binding?.kind !== "bound") return [];
   const repos = listProjectRepos(db(), projectId);
   if (repos.length === 0) return [];
-  const { handle, workDir } = await openSandbox(binding, provider);
-  const docs: RepoDoc[] = [];
-  for (const repo of repos) {
-    const path = `${workDir.replace(/\/+$/, "")}/${repo.name}/AGENTS.md`;
-    const content = await readCappedFile(handle, path);
-    if (content != null) docs.push({ repo: repo.name, path, content });
+  // Best effort: AGENTS.md is advisory context, so a sandbox that cannot
+  // be opened (stopped, destroyed, provider error) yields no docs rather
+  // than failing the turn before the model ever runs (review finding).
+  try {
+    const { handle, workDir } = await openSandbox(binding, provider);
+    const docs: RepoDoc[] = [];
+    for (const repo of repos) {
+      const path = `${workDir.replace(/\/+$/, "")}/${repo.name}/AGENTS.md`;
+      const content = await readCappedFile(handle, path);
+      if (content != null) docs.push({ repo: repo.name, path, content });
+    }
+    return docs;
+  } catch (err) {
+    console.warn(`[repo-docs] ${conversationId}: skipped — ${err instanceof Error ? err.message : String(err)}`);
+    return [];
   }
-  return docs;
 }

@@ -41,6 +41,11 @@ export async function readCappedFile(
   path: string,
   limit: number = REPO_DOC_FILE_CAP,
 ): Promise<string | null> {
-  const result = await shell.run(`head -c ${limit + 1} ${quote(path)} 2>/dev/null`);
-  return result.exitCode === 0 ? result.stdout : null;
+  try {
+    const result = await shell.run(`head -c ${limit + 1} ${quote(path)} 2>/dev/null`);
+    return result.exitCode === 0 ? result.stdout : null;
+  } catch {
+    // A stopped/unreachable sandbox is "no doc", never a failed turn.
+    return null;
+  }
 }

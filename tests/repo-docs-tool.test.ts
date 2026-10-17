@@ -21,6 +21,8 @@ class FakeProvider implements SandboxProvider {
   created: SandboxSpec[] = [];
   private files = new Map<string, string>();
   private n = 0;
+  /** When set, every command on a handle rejects (a stopped/unreachable sandbox). */
+  broken = false;
 
   /** Seed a file's content as if `cat`/`head -c` would read it. */
   seed(path: string, content: string) {
@@ -43,6 +45,7 @@ class FakeProvider implements SandboxProvider {
     return {
       ref,
       run: (command) => {
+        if (this.broken) return Promise.reject(new Error("sandbox unreachable"));
         const match = /head -c \d+ '((?:[^'\\]|\\.)*)'/.exec(command);
         if (match) {
           const content = this.files.get(match[1]);
@@ -102,5 +105,13 @@ describe("loadRepoDocs", () => {
     ]);
     // The read used the existing bound sandbox — no second create.
     expect(provider.created).toHaveLength(1);
+  });
+
+  it("an unreachable bound sandbox yields no docs instead of failing the turn", async () => {
+    const provider = new FakeProvider();
+    ensureConversation(db(), "c_rd_broken", "p_repodocs");
+    await runBash("c_rd_broken", "pwd", provider);
+    provider.broken = true;
+    expect(await loadRepoDocs("c_rd_broken", provider)).toEqual([]);
   });
 });

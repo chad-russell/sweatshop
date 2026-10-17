@@ -37,6 +37,19 @@ describe("buildWorkRootDoc", () => {
     expect(doc).toContain("cat /work/c1/big/AGENTS.md");
   });
 
+  it("stops inlining past the total budget and points at the omitted files", () => {
+    const big = "x".repeat(20 * 1024);
+    const doc = buildWorkRootDoc("/w", [
+      { name: "a", agentsMd: big },
+      { name: "b", agentsMd: big },
+      { name: "c", agentsMd: big },
+    ]);
+    expect(doc).toContain("# a AGENTS.md");
+    expect(doc).toContain("# b AGENTS.md");
+    expect(doc).not.toContain("# c AGENTS.md");
+    expect(doc).toContain("cat /w/c/AGENTS.md");
+  });
+
   it("is idempotent — the same inputs build the same doc", () => {
     const repos: WorkRootRepo[] = [{ name: "web", agentsMd: "x" }];
     expect(buildWorkRootDoc("/work/c1", repos)).toBe(buildWorkRootDoc("/work/c1", repos));

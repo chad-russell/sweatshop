@@ -11,7 +11,7 @@ import {
 import type { SandboxShell } from "@/lib/sandbox-shell";
 import { GIT_HOSTS } from "@/lib/git-hosts/hosts";
 import { httpsRemote, resolveCredential } from "@/lib/git-hosts/index";
-import { capRepoDoc, readCappedFile } from "@/lib/agent/repo-docs";
+import { REPO_DOC_TOTAL_CAP, capRepoDoc, readCappedFile } from "@/lib/agent/repo-docs";
 
 /**
  * Shared project-workspace provisioning (0004): given anything with a
@@ -138,12 +138,29 @@ export function buildWorkRootDoc(root: string, repos: readonly WorkRootRepo[]): 
     "Repos:",
     ...repos.map((r) => `- ${r.name}: ${root}/${r.name}`),
   ].join("\n");
-  const sections = repos
-    .filter((r): r is WorkRootRepo & { agentsMd: string } => r.agentsMd != null)
-    .map((r) => {
-      const path = `${root}/${r.name}/AGENTS.md`;
-      return `# ${r.name} AGENTS.md (${path})\n\n${capRepoDoc(r.agentsMd, path)}`;
-    });
+  // Same total budget as the chat agent appendix: a repo that would
+  // push past it is listed with a cat pointer instead of inlined.
+  const sections: string[] = [];
+  const omitted: string[] = [];
+  let total = 0;
+  for (const r of repos) {
+    if (r.agentsMd == null) continue;
+    const path = `${root}/${r.name}/AGENTS.md`;
+    const section = `# ${r.name} AGENTS.md (${path})\n\n${capRepoDoc(r.agentsMd, path)}`;
+    if (sections.length > 0 && total + section.length > REPO_DOC_TOTAL_CAP) {
+      omitted.push(path);
+      continue;
+    }
+    sections.push(section);
+    total += section.length;
+  }
+  if (omitted.length > 0) {
+    sections.push(
+      `# More repo instructions\n\nNot inlined (size budget). Read before working in those repos: ${omitted
+        .map((x) => `cat ${x}`)
+        .join("; ")}.`,
+    );
+  }
   return [header, ...sections].join("\n\n");
 }
 
