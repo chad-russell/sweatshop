@@ -25,6 +25,7 @@ import {
 } from "@/components/sidebar/types";
 import { useSidebarActions } from "@/components/sidebar/use-actions";
 import { useCollapsedFolders } from "@/components/sidebar/use-collapsed";
+import { useThreadExpanded } from "@/components/sidebar/use-thread-expanded";
 import { useConversationSearch } from "@/components/sidebar/use-search";
 import { activeNavPage } from "@/lib/sidebar-nav";
 import { useAttentionSync } from "@/lib/use-attention-sync";
@@ -58,6 +59,7 @@ export function ConversationSidebar({
   const actions = useSidebarActions();
   useAttentionSync(inbox.signature);
   const { collapsed, toggle } = useCollapsedFolders();
+  const { explicit: threadExpanded, setExpanded: setThreadExpanded } = useThreadExpanded();
   const [editing, setEditing] = useState<Editing | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [view, setView] = useState<View>("library");
@@ -101,6 +103,8 @@ export function ConversationSidebar({
     mounted,
     collapsed,
     toggleFolder: toggle,
+    threadExpanded,
+    setThreadExpanded,
     editing,
     setEditing,
     drag,

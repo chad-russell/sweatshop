@@ -19,6 +19,11 @@ export interface SearchHit {
   path: string[];
   archived: boolean;
   updatedAt: number;
+  /** 0040 phase 2: the `start_thread` parent's title, when this hit is a
+   *  child — search stays a flat list, but this is cheap (the full
+   *  conversation map is already in hand) and worth the hint. Null for
+   *  an ordinary chat, or a child whose parent has no title yet. */
+  parentTitle: string | null;
 }
 
 export interface SearchOptions {
@@ -170,6 +175,7 @@ export function searchConversations(
         folderId: conversations.folderId,
         archivedAt: conversations.archivedAt,
         updatedAt: conversations.updatedAt,
+        parentConversationId: conversations.parentConversationId,
       })
       .from(conversations)
       .all()
@@ -195,6 +201,7 @@ export function searchConversations(
         path: folderPath(folderIndex, c.folderId),
         archived: c.archivedAt !== null,
         updatedAt: c.updatedAt,
+        parentTitle: c.parentConversationId ? (meta.get(c.parentConversationId)?.title ?? null) : null,
       },
     ];
   });

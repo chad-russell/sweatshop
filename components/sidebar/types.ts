@@ -7,8 +7,9 @@ import type {
   SidebarGroup,
   SidebarItem,
 } from "@/db/organize";
+import type { SidebarTreeItem } from "@/lib/sidebar-tree";
 
-export type { FolderNode, ShelvedItem, SidebarData, SidebarGroup, SidebarItem };
+export type { FolderNode, ShelvedItem, SidebarData, SidebarGroup, SidebarItem, SidebarTreeItem };
 
 /** What is being dragged — held in React state because dataTransfer
  *  contents are unreadable during dragover. */

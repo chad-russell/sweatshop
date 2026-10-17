@@ -324,6 +324,45 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   footer is Settings + the theme cycler. `/projects` is the project index;
   the New-project dialog mounts in the root layout and opens by
   `NEW_PROJECT_EVENT` (the page button and ⌘K both dispatch it).
+- Sidebar parent/child tree (0040 phase 2, no design doc — approved in
+  chat): a `start_thread` child (`conversations.parent_conversation_id`,
+  0037 phase 3) nests under its parent instead of sitting beside it as a
+  flat row. Nesting is a property of whatever FLAT list is already
+  VISIBLE — one folder's items, or one group's Unfiled — never global:
+  `buildSidebarTree` (`lib/sidebar-tree.ts`, pure, unit-tested) nests a
+  child under its parent only when both are in that same list (cycle-
+  guarded), recursively, children oldest-created first; a parent filed
+  elsewhere, trashed, archived, or deleted leaves the child as an
+  ordinary top-level row, same as before this existed — so a child never
+  appears twice. `SidebarItem` carries `parentConversationId`,
+  `createdAt`, and `activeRunId` now (`db/organize.ts`'s `loadSidebar`);
+  `ShelvedItem` (Archive/Trash) drops the first and last — those shelves
+  stay flat. Unfiled buckets by age AFTER nesting, on each ROOT's own
+  `updatedAt` — a child travels with its parent regardless of the
+  child's own age. `ConversationRow` (`components/sidebar/
+  conversation-row.tsx`) is now recursive like `FolderNodeView`: a
+  parent with children gets a chevron and a guide line (DOM-nesting-
+  driven indentation, not depth-multiplied, so it never double-counts);
+  collapsed, it shows the hidden subtree's rolled-up `AttentionDot` /
+  running spinner (`descendantAttention` / `anyDescendantRunning`, summed
+  in the tree builder, excluding the row's own). Default open/closed
+  (`defaultExpanded`): open while a descendant is live or needs Chad,
+  closed once everything below has settled — an explicit click
+  (`components/sidebar/use-thread-expanded.ts`, tri-state localStorage
+  like `use-collapsed.ts`'s folders, but absence here means "use the
+  computed default," never "open") wins from then on; viewing a
+  descendant force-opens its ancestors (`hasActiveDescendant`) so the
+  active row stays visible, without touching that stored choice. Moving
+  a parent (`moveConversation`) only ever changes the dragged row's own
+  `folderId` — unchanged — so a child follows visually ONLY when it
+  already shares the parent's folder; dragging a child out is an
+  ordinary conversation drag, unaffected by nesting. Search results
+  (`db/search.ts`, both the sidebar list and ⌘K) and the Archive/Trash
+  shelves stay flat — a breadcrumb already says where a shelved item came
+  from, and a search hit on a child carries its parent's title as a cheap
+  `· ↳ <parent>` suffix on that same breadcrumb (`SearchHit.parentTitle`,
+  free: `searchConversations` already holds every conversation's title in
+  one map to build the rest of the hit).
 - Projects & sandboxes (0004, Phases A–D + Path B shipped; 0031
   simplifications): `projects` (1+ git repos) carry their sandbox image
   directly (`projects.image_ref`; unset = `localhost/sweatshop-sandbox`,
