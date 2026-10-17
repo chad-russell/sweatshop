@@ -1,6 +1,7 @@
 import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "../../lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { BoundSandbox } from "../../db/sandboxes";
+import { normalizeUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { harnessEventSink } from "../shared/harness-sink";
 
 /** The resume handle a terminal state carries for the next user turn. */
@@ -140,11 +141,13 @@ export async function harnessAdvanceStep(input: {
   kind: "pi" | "claude" | "cursor";
   route: import("../../lib/providers/route").HarnessRoute;
   state: HarnessWorkflowState;
-}): Promise<{ state: HarnessWorkflowState; text: string; toolCalls: number }> {
+}): Promise<{ state: HarnessWorkflowState; text: string; toolCalls: number; usage: UsageCounts | null }> {
   "use step";
   // Tests: a scripted harness (no sandbox, no model) — two semantic
   // steps then finished, so the worker loop itself is exercised.
   // Double-gated like the chat mock (workflows/chat/model.ts).
+  // Mock steps report no usage (null); tests that need a row pass
+  // counts into harnessSettleStep directly.
   if (process.env.SWEATSHOP_HARNESS_MOCK && process.env.NODE_ENV === "test") {
     if (process.env.SWEATSHOP_HARNESS_MOCK === "throw") {
       // A step that dies outright (0038: Cursor's bridge could not start).
@@ -162,6 +165,7 @@ export async function harnessAdvanceStep(input: {
         } as unknown as HarnessWorkflowState,
         text: "",
         toolCalls: 0,
+        usage: null,
       };
     }
     const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
@@ -170,6 +174,7 @@ export async function harnessAdvanceStep(input: {
       state: { ...input.state, mockStep: n, status: done ? "finished" : "ready_for_next_step" } as HarnessWorkflowState,
       text: `mock-harness-step:${n}`,
       toolCalls: 1,
+      usage: null,
     };
   }
   const [
@@ -205,6 +210,9 @@ export async function harnessAdvanceStep(input: {
   const out = getWritable<Record<string, unknown>>();
   const writer = out.getWriter();
   let toolCalls = 0;
+  // Last finish-step in this semantic step wins (steps are sequential;
+  // the worker sums the returned counts).
+  let stepUsage: UsageCounts | null = null;
   try {
     const { sink, text } = harnessEventSink({
       recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event),
@@ -216,6 +224,10 @@ export async function harnessAdvanceStep(input: {
       envelope: { chatConversation: input.conversationId, chatHarness: input.kind, callId: input.callId },
       onToolStart: (name) => {
         if (name !== "fileChange" && name !== "compaction") toolCalls += 1;
+      },
+      onUsage: (raw) => {
+        const next = normalizeUsage(raw);
+        if (next) stepUsage = next;
       },
     });
 
@@ -256,7 +268,13 @@ export async function harnessAdvanceStep(input: {
       kind: "step-end",
       text: clipHarnessText(text(), 500),
     });
-    return { state, text: text(), toolCalls };
+    // The UI-chunk transform drops finish-step usage. A finished step
+    // still carries a thin summary (input/output only) on finalResult.
+    if (!stepUsage) {
+      const summary = (state as { finalResult?: { usage?: unknown } }).finalResult?.usage;
+      stepUsage = normalizeUsage(summary);
+    }
+    return { state, text: text(), toolCalls, usage: stepUsage };
   } finally {
     writer.releaseLock();
   }
@@ -281,6 +299,12 @@ export async function harnessSettleStep(input: {
    *  actually deliver. */
   finalText: string;
   toolCalls: number;
+  /** Semantic steps the worker actually ran. */
+  steps?: number;
+  /** Resolved route (pi has provider+model; claude/cursor do not). */
+  route?: import("../../lib/providers/route").HarnessRoute;
+  /** Summed model usage; null when no finish-step reported any. */
+  usage?: UsageCounts | null;
   error?: string;
   resumeFrom?: unknown;
 }): Promise<void> {
@@ -344,6 +368,48 @@ export async function harnessSettleStep(input: {
         ? await saveResultFile(input.conversationId, input.callId, input.finalText)
         : null;
     if (resultOutcome) setCallResultFile(db(), input.callId, resultOutcome.path);
+    // 0047: one usage_events row per call. Recorded before the wake so a
+    // wake failure (no workflow runtime, in unit tests) still keeps the
+    // row — and a usage failure never fails the settle.
+    try {
+      const [{ getPrice, recordUsageEvent }, { computeCost }, { getHarnessCall }] = await Promise.all([
+        import("../../db/usage"),
+        import("../../lib/usage/pricing"),
+        import("../../db/harness-calls"),
+      ]);
+      const counts = input.usage ?? {
+        inputTokens: 0,
+        cachedTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+      };
+      let costUsd: number | null = null;
+      if (input.route?.harness === "pi") {
+        const price = getPrice(db(), input.route.provider, input.route.model);
+        if (price) costUsd = computeCost(price, counts);
+      }
+      const call = getHarnessCall(db(), input.callId);
+      const now = Date.now();
+      recordUsageEvent(db(), {
+        id: `u_hc_${input.callId}`,
+        conversationId: input.conversationId,
+        source: "harness",
+        harnessCallId: input.callId,
+        route: JSON.stringify(input.route ?? {}),
+        inputTokens: counts.inputTokens,
+        cachedTokens: counts.cachedTokens,
+        outputTokens: counts.outputTokens,
+        reasoningTokens: counts.reasoningTokens ?? 0,
+        steps: input.steps ?? 0,
+        toolCalls: input.toolCalls,
+        costUsd,
+        startedAt: call?.createdAt ?? now,
+        endedAt: now,
+        createdAt: now,
+      });
+    } catch (err) {
+      console.error("[usage] harness capture failed", err);
+    }
     await wakeConversation(input.conversationId, {
       kind: "harness",
       id: input.callId,
