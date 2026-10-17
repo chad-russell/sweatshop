@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   computeCost,
+  normalizeUsage,
   parseGlooPrices,
+  readSliceUsage,
   type ModelPrice,
 } from "@/lib/usage/pricing";
 
@@ -148,5 +150,45 @@ describe("0047 parseGlooPrices", () => {
     expect(parseGlooPrices(null).size).toBe(0);
     expect(parseGlooPrices({}).size).toBe(0);
     expect(parseGlooPrices({ data: "nope" }).size).toBe(0);
+  });
+});
+
+describe("0047 usage normalization", () => {
+  it("reads LanguageModelUsage cache-read and reasoning, ignoring cache write", () => {
+    expect(
+      normalizeUsage({
+        inputTokens: 100,
+        outputTokens: 50,
+        inputTokenDetails: { cacheReadTokens: 40, cacheWriteTokens: 7, noCacheTokens: 60 },
+        outputTokenDetails: { reasoningTokens: 10, textTokens: 40 },
+      }),
+    ).toEqual({ inputTokens: 100, cachedTokens: 40, outputTokens: 50, reasoningTokens: 10 });
+  });
+
+  it("reads nested LanguageModelV4Usage (harness finish-step)", () => {
+    expect(
+      normalizeUsage({
+        inputTokens: { total: 80, noCache: 70, cacheRead: 10, cacheWrite: 3 },
+        outputTokens: { total: 20, text: 15, reasoning: 5 },
+      }),
+    ).toEqual({ inputTokens: 80, cachedTokens: 10, outputTokens: 20, reasoningTokens: 5 });
+  });
+
+  it("prefers step usage over the stripped stream totalUsage", () => {
+    const counts = readSliceUsage({
+      steps: [
+        {
+          usage: {
+            inputTokens: 100,
+            outputTokens: 50,
+            inputTokenDetails: { cacheReadTokens: 25 },
+            outputTokenDetails: { reasoningTokens: 10 },
+          },
+        },
+      ],
+      totalUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+    });
+    expect(counts.cachedTokens).toBe(25);
+    expect(counts.reasoningTokens).toBe(10);
   });
 });

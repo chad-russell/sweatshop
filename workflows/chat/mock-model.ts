@@ -21,15 +21,16 @@ import type { LanguageModel } from "ai";
  * slice, and the drain between slices must inject the row first.
  */
 
+/** Realistic V4 usage so a mock turn writes a non-zero usage_events row.
+ *  cacheRead is 0 (cachedTokens = cache READ only). */
 const NO_USAGE = {
   inputTokens: {
-    total: 1,
-    noCache: 1,
-    cacheRead: undefined,
-    cacheWrite: undefined,
+    total: 100,
+    noCache: 100,
+    cacheRead: 0,
+    cacheWrite: 0,
   },
-  outputTokens: { total: 1, text: undefined, reasoning: undefined },
-  totalTokens: 2,
+  outputTokens: { total: 50, text: 40, reasoning: 10 },
 };
 
 function textPart(text: string): LanguageModelV4StreamPart[] {

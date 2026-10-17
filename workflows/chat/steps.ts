@@ -602,3 +602,45 @@ export async function getHostAutoApproveStep(conversationId: string): Promise<bo
   const { db, chat } = await chatStore();
   return chat.getHostAutoApprove(db, conversationId);
 }
+
+/**
+ * 0047: one usage_events row for a chat turn (`u_<conv>_<skip>`). Cost
+ * is computed now, against the current price row — null when this
+ * provider/model has none (GLM plan, unknown id). A retried step
+ * re-inserts the same id; the store ignores the conflict.
+ */
+export async function recordUsageStep(
+  conversationId: string,
+  skip: number,
+  route: import("../../lib/providers/route").ChatRoute,
+  usage: import("../../lib/usage/pricing").UsageCounts,
+  steps: number,
+  toolCalls: number,
+  startedAt: number,
+): Promise<void> {
+  "use step";
+  const [{ db }, { getPrice, recordUsageEvent }, { computeCost }] = await Promise.all([
+    import("../../db"),
+    import("../../db/usage"),
+    import("../../lib/usage/pricing"),
+  ]);
+  const price = getPrice(db(), route.provider, route.model);
+  const now = Date.now();
+  recordUsageEvent(db(), {
+    id: `u_${conversationId}_${skip}`,
+    conversationId,
+    source: "chat",
+    harnessCallId: null,
+    route: JSON.stringify(route),
+    inputTokens: usage.inputTokens,
+    cachedTokens: usage.cachedTokens,
+    outputTokens: usage.outputTokens,
+    reasoningTokens: usage.reasoningTokens ?? 0,
+    steps,
+    toolCalls,
+    costUsd: price ? computeCost(price, usage) : null,
+    startedAt,
+    endedAt: now,
+    createdAt: now,
+  });
+}

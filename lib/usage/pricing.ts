@@ -186,6 +186,99 @@ export function parseGlooPrices(payload: unknown, now = Date.now()): Map<string,
   return out;
 }
 
+/** A slice that reported nothing — still a real object, so callers can sum it. */
+export const ZERO_USAGE: UsageCounts = {
+  inputTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  reasoningTokens: 0,
+};
+
+function finite(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * One usage object → counts. Two shapes show up in this repo (verified
+ * against the installed SDK, 2026-10-17):
+ *
+ * - `LanguageModelUsage` (chat `steps[].usage`): flat `inputTokens` /
+ *   `outputTokens` plus `inputTokenDetails.cacheReadTokens` and
+ *   `outputTokenDetails.reasoningTokens`. Cache WRITE is ignored —
+ *   `cachedTokens` is cache READ only (the price table's write rate is
+ *   display-only this phase).
+ * - `LanguageModelV4Usage` (harness `finish-step`): nested
+ *   `inputTokens.{total,cacheRead,cacheWrite}` and
+ *   `outputTokens.{total,reasoning}`.
+ *
+ * A flat V2-style `{ cachedInputTokens, reasoningTokens }` is accepted
+ * too. Anything that isn't a usage object returns null.
+ */
+export function normalizeUsage(usage: unknown): UsageCounts | null {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+
+  if (u.inputTokens && typeof u.inputTokens === "object") {
+    const input = u.inputTokens as Record<string, unknown>;
+    const output = (
+      u.outputTokens && typeof u.outputTokens === "object" ? u.outputTokens : {}
+    ) as Record<string, unknown>;
+    return {
+      inputTokens: finite(input.total),
+      cachedTokens: finite(input.cacheRead),
+      outputTokens: finite(output.total),
+      reasoningTokens: finite(output.reasoning),
+    };
+  }
+
+  const looksFlat =
+    "inputTokens" in u || "outputTokens" in u || "cachedInputTokens" in u || "inputTokenDetails" in u;
+  if (!looksFlat) return null;
+
+  const details = (
+    u.inputTokenDetails && typeof u.inputTokenDetails === "object" ? u.inputTokenDetails : {}
+  ) as Record<string, unknown>;
+  const outDetails = (
+    u.outputTokenDetails && typeof u.outputTokenDetails === "object" ? u.outputTokenDetails : {}
+  ) as Record<string, unknown>;
+  return {
+    inputTokens: finite(u.inputTokens),
+    cachedTokens: finite(details.cacheReadTokens ?? u.cachedInputTokens),
+    outputTokens: finite(u.outputTokens),
+    reasoningTokens: finite(outDetails.reasoningTokens ?? u.reasoningTokens ?? u.reasoningOutputTokens),
+  };
+}
+
+export function addUsage(a: UsageCounts, b: UsageCounts): UsageCounts {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    cachedTokens: a.cachedTokens + b.cachedTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    reasoningTokens: (a.reasoningTokens ?? 0) + (b.reasoningTokens ?? 0),
+  };
+}
+
+/**
+ * Counts for one chat slice. `agent.stream()` (stopWhen: one step) puts
+ * the full `LanguageModelUsage` on `steps[].usage`. Stream-mode
+ * `totalUsage` is a reduced `{inputTokens, outputTokens, totalTokens}`
+ * — cache and reasoning are dropped — so it is only the fallback.
+ */
+export function readSliceUsage(result: {
+  steps?: ReadonlyArray<{ usage?: unknown }>;
+  usage?: unknown;
+  totalUsage?: unknown;
+}): UsageCounts {
+  let acc: UsageCounts | null = null;
+  for (const step of result.steps ?? []) {
+    const next = normalizeUsage(step?.usage);
+    if (!next) continue;
+    acc = acc ? addUsage(acc, next) : next;
+  }
+  if (acc) return acc;
+  return normalizeUsage(result.usage ?? result.totalUsage) ?? { ...ZERO_USAGE };
+}
+
 export async function fetchGlooPrices(
   fetcher: typeof fetch = fetch,
 ): Promise<{ ok: true; prices: Map<string, ModelPrice> } | { ok: false; error: string }> {
