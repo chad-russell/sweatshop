@@ -289,7 +289,7 @@ export async function harnessSettleStep(input: {
     { db },
     { saveHarnessResumeState },
     { recordHarnessEvent, recordHarnessRunEnd, clipHarnessText },
-    { settleHarnessCall },
+    { settleHarnessCall, setCallResultFile },
     { wakeConversation, clipText, WAKE_DETAIL_CAP },
     { saveResultFile, RESULT_FILE_CAP },
   ] = await Promise.all([
@@ -333,11 +333,17 @@ export async function harnessSettleStep(input: {
     // sandbox (a harness call has no separate "parent" — it already runs
     // in the conversation it wakes) — only when there is one to write
     // and the call actually completed (a failure's useful information is
-    // the error, already delivered inline).
-    const resultFile =
+    // the error, already delivered inline). Only attempted once this
+    // settle has WON the race (inside `if (settled)`) — a racing cancel
+    // must never get a late sandbox write attributed to it. The path (or
+    // null) is persisted right after — review fix: the sweep path used
+    // to derive a path from the binding alone and could point at a file
+    // that was never written; now it reads this column back verbatim.
+    const resultOutcome =
       input.status === "completed" && input.finalText
         ? await saveResultFile(input.conversationId, input.callId, input.finalText)
         : null;
+    if (resultOutcome) setCallResultFile(db(), input.callId, resultOutcome.path);
     await wakeConversation(input.conversationId, {
       kind: "harness",
       id: input.callId,
@@ -346,10 +352,22 @@ export async function harnessSettleStep(input: {
       detail:
         input.status === "failed"
           ? (input.error ?? null)
-          : clipText(input.finalText, WAKE_DETAIL_CAP, { id: input.callId, file: resultFile }),
+          : clipText(input.finalText, WAKE_DETAIL_CAP, { id: input.callId, file: resultOutcome?.path ?? null }),
       url: `/h/${input.kind}/${input.conversationId}`,
       ...(input.status === "completed" && input.finalText
-        ? { result: { chars: input.finalText.length, file: resultFile } }
+        ? {
+            // review fix: the length of what was actually SAVED/STORED
+            // (the same clipHarnessText(…, RESULT_FILE_CAP) value just
+            // written to harness_calls.result above — `result` is always
+            // a string here, clipHarnessText only returns undefined for
+            // falsy input, and input.finalText is truthy in this branch),
+            // not the raw pre-cap finalText — a >60k result no longer
+            // claims a size the file on disk does not have.
+            result:
+              resultOutcome?.path === null
+                ? { chars: result!.length, file: null, reason: resultOutcome.reason }
+                : { chars: result!.length, file: resultOutcome?.path ?? null },
+          }
         : {}),
     });
   }

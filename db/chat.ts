@@ -520,8 +520,12 @@ export function setConversationParent(db: Db, id: string, parentConversationId: 
     .run();
 }
 
-export function markChatChildWoken(db: Db, id: string, at: number): void {
-  db.update(conversations).set({ wokenSettledAt: at }).where(eq(conversations.id, id)).run();
+/** `resultFile` is the path `saveResultFile` actually wrote for THIS
+ *  settle, or null — review fix (0040 phase 3): every settle (including
+ *  one with nothing to report) overwrites it, so it never outlives the
+ *  settle it describes; `inspect` reads it verbatim instead of guessing. */
+export function markChatChildWoken(db: Db, id: string, at: number, resultFile: string | null = null): void {
+  db.update(conversations).set({ wokenSettledAt: at, resultFile }).where(eq(conversations.id, id)).run();
 }
 
 /** Strip `[tool <name>]` placeholder tokens (textOf's stand-in for a
@@ -530,6 +534,26 @@ export function markChatChildWoken(db: Db, id: string, at: number): void {
 function stripToolPlaceholders(text: string): string {
   return text.replace(/\[tool [^\]]*\]/g, "").trim();
 }
+
+/** A malformed metadata blob (legacy/imported data) must never throw
+ *  inside a wake — at turn-end that is wakeParentStep, inside the
+ *  child's own turn workflow. Review fix: not exhausted beats a crash. */
+function safeParseMetadata(raw: string | null): MessageRowMetadata | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as MessageRowMetadata;
+  } catch {
+    return null;
+  }
+}
+
+/** A generous ceiling on how many of a child's assistant rows
+ *  `lastAssistantReport` ever scans — review fix: an unbounded select ran
+ *  on every due-wake check (including the 30 s sweep), and a 400-step
+ *  thread with a placeholder-only tail or no report at all scanned its
+ *  entire history every time. Far past any real turn's assistant-row
+ *  count; only a pathological thread would ever hit it. */
+const LAST_ASSISTANT_REPORT_SCAN_LIMIT = 1_000;
 
 /** A child's most recent real report: the newest assistant row with text
  *  that isn't only `[tool …]` placeholders, and whether the NEWEST
@@ -551,9 +575,10 @@ export function lastAssistantReport(db: Db, conversationId: string): AssistantRe
     .from(messages)
     .where(sql`${messages.conversationId} = ${conversationId} and ${messages.role} = 'assistant'`)
     .orderBy(sql`rowid desc`)
+    .limit(LAST_ASSISTANT_REPORT_SCAN_LIMIT)
     .all();
   if (rows.length === 0) return null;
-  const newest = rows[0]!.metadata ? (JSON.parse(rows[0]!.metadata) as MessageRowMetadata) : null;
+  const newest = safeParseMetadata(rows[0]!.metadata);
   const exhausted = newest?.exhausted === true;
   for (const row of rows) {
     const text = stripToolPlaceholders(row.text);

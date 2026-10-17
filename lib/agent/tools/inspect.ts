@@ -10,7 +10,6 @@ import {
 import { conversations, harnessCalls, harnessEvents, harnessRuns, machineRuns } from "@/db/schema";
 import { listHostCommands } from "@/db/host-commands";
 import { clipOutput } from "@/lib/agent/tools/bash";
-import { resultFilePath } from "@/lib/chat/result-file";
 import { openSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
@@ -86,32 +85,6 @@ function harnessActivity(sessionId: string) {
   return { runs, recentEvents: events };
 }
 
-/**
- * 0040 phase 3: for a start_thread child, where its last result file
- * lives (it writes into its PARENT's sandbox, not its own — see
- * lib/chat/wake.ts / lib/chat/result-file.ts). There is no table of
- * result files, so this is derived, not looked up: the file a wake last
- * saved is named `<childId>-<wokenSettledAt>.md`, and `wokenSettledAt`
- * is stamped to exactly that same value right after writing it — so as
- * long as the child has not landed newer messages since, this IS that
- * file's real path. Not applicable (no fields) for a non-child; `null`
- * with a note when it cannot be derived cheaply (never settled a wake
- * yet, or the parent's sandbox is not bound) — never opens a sandbox.
- */
-function childResultFileInfo(
-  parentConversationId: string | null,
-  childId: string,
-  wokenSettledAt: number | null,
-): { resultFile?: string | null; resultFileNote?: string } {
-  if (!parentConversationId) return {};
-  if (wokenSettledAt == null) return { resultFile: null, resultFileNote: "no settled wake yet" };
-  const parentBinding = getConversationBinding(db(), parentConversationId);
-  if (parentBinding?.kind !== "bound") {
-    return { resultFile: null, resultFileNote: "parent sandbox not bound" };
-  }
-  return { resultFile: resultFilePath(parentBinding.workDir, `${childId}-${wokenSettledAt}`) };
-}
-
 /** 0043: the conversation's recent host-channel commands (audit trail). */
 function hostActivity(conversationId: string) {
   const rows = listHostCommands(db(), conversationId, HOST_COMMANDS);
@@ -138,14 +111,6 @@ export function inspectTarget(id: string): InspectResult {
     if (!call) return { kind: "error", code: "unknown-id", message: `no harness call "${id}"` };
     const binding = getConversationBinding(db(), call.conversationId);
     const events = harnessActivity(call.conversationId);
-    // 0040 phase 3: a harness call has no separate "parent" — its result
-    // file lives in its own conversation's sandbox, written only on a
-    // completed settle (lib/chat/harness-step.ts); the path is reported
-    // only when that binding is actually bound (never opens it here).
-    const resultFile =
-      call.status === "completed" && binding?.kind === "bound"
-        ? resultFilePath(binding.workDir, call.id)
-        : null;
     return {
       kind: "harness-call",
       id,
@@ -154,7 +119,10 @@ export function inspectTarget(id: string): InspectResult {
       task: clip(call.task, 1_000),
       ...(call.error ? { error: clip(call.error, 500) } : {}),
       ...(call.result ? { result: clip(call.result, 1_500) } : {}),
-      ...(resultFile ? { resultFile } : {}),
+      // 0040 phase 3 (review fix): the path `harnessSettleStep` actually
+      // wrote, read back verbatim — never derived/guessed, so this is
+      // never a path `cat` 404s on.
+      ...(call.resultFile ? { resultFile: call.resultFile } : {}),
       conversation: call.conversationId,
       eventsUrl: `/h/${call.kind}/${call.conversationId}`,
       sandbox: binding?.kind === "bound" ? sandboxSummary(binding) : null,
@@ -171,7 +139,7 @@ export function inspectTarget(id: string): InspectResult {
       projectId: conversations.projectId,
       activeRunId: conversations.activeRunId,
       parentConversationId: conversations.parentConversationId,
-      wokenSettledAt: conversations.wokenSettledAt,
+      resultFile: conversations.resultFile,
     })
     .from(conversations)
     .where(eq(conversations.id, id))
@@ -257,7 +225,13 @@ export function inspectTarget(id: string): InspectResult {
       binding?.kind === "bound"
         ? sandboxSummary(binding)
         : { state: binding?.kind === "pending" ? "pending (created on first use)" : "none" },
-    ...childResultFileInfo(row.parentConversationId, id, row.wokenSettledAt),
+    // 0040 phase 3 (review fix): only for a start_thread child
+    // (row.parentConversationId set) — the path its LAST settle actually
+    // wrote into the parent's sandbox, read back verbatim from
+    // `conversations.result_file` (`wakeChatChildIfDue` is the only
+    // writer). Never derived/guessed: null means no file exists, not
+    // "couldn't compute one."
+    ...(row.parentConversationId ? { resultFile: row.resultFile } : {}),
   };
 }
 

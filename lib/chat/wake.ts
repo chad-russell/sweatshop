@@ -14,9 +14,8 @@ import {
 } from "@/db/chat";
 import { markCallWoken, CALL_SETTLED_STATUSES } from "@/db/harness-calls";
 import type { HarnessCall } from "@/db/schema";
-import { getConversationBinding } from "@/db/sandboxes";
 import { ACTIVE_RUN_STATUSES, startChatTurn } from "@/lib/chat/start-turn";
-import { resultFilePath, saveResultFile } from "@/lib/chat/result-file";
+import { saveResultFile, type NoResultFileReason } from "@/lib/chat/result-file";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /**
@@ -54,12 +53,14 @@ export interface WakeEvent {
   detail?: string | null;
   /** Where to look: /h/<kind>/<conversationId> or /c/<id>. */
   url: string;
-  /** 0040 phase 3: the FULL result's size and where it was saved (null =
-   *  no bound sandbox to save it in, or the write failed) — present
+  /** 0040 phase 3: the FULL result's size and where it was saved — present
    *  whenever there is a full result to report (harness/thread settles
    *  with real content), absent for everything else (plan events, a
-   *  child that never produced output). */
-  result?: { chars: number; file: string | null };
+   *  child that never produced output). `file` is null when nothing was
+   *  saved; `reason` says why (unbound vs. write-failed) when known — the
+   *  sweep path for a harness call only has the persisted path, never the
+   *  reason, so it is absent there (review fix: never guess one). */
+  result?: { chars: number; file: string | null; reason?: NoResultFileReason };
 }
 
 export interface WakeDeps {
@@ -105,17 +106,23 @@ export function clipText(text: string | null | undefined, max: number, pointer?:
   return `${text.slice(0, max)}\n…[${cut} more chars${where}]`;
 }
 
+const NO_RESULT_FILE_REASON: Record<NoResultFileReason, string> = {
+  unbound: "no bound sandbox",
+  "write-failed": "write failed",
+};
+
 /** The message the model sees (and the row text). Short and standalone. */
 export function renderWake(event: WakeEvent): string {
   const word = STATUS_WORD[event.status] ?? event.status;
   const lines = [`[${event.name} ${word}] — ${event.url}`];
   if (event.detail) lines.push("", event.detail);
   if (event.result) {
+    const reason = event.result.reason ? ` (${NO_RESULT_FILE_REASON[event.result.reason]})` : "";
     lines.push(
       "",
       event.result.file
         ? `full result (${event.result.chars} chars): ${event.result.file} — read or grep it with bash`
-        : "no result file saved (no bound sandbox)",
+        : `no result file saved${reason}`,
     );
   }
   return lines.join("\n");
@@ -197,10 +204,14 @@ export async function sweepWakes(deps: WakeDeps = {}): Promise<number> {
  * 0022 cut 2: wake a harness call's conversation if its settle is
  * undelivered. The call's conversation is its parent by construction.
  *
- * 0040 phase 3: this is the SWEEP/recovery path — the result file (if
- * any) was already written at settle time (harnessSettleStep), so this
- * only derives its deterministic path to report it, never writes or
- * re-opens the sandbox (same rule as inspect's resultFile).
+ * 0040 phase 3 (review fix): this is the SWEEP/recovery path — the result
+ * file (if any) was already written, and its path (or null) already
+ * persisted on the row, at settle time (`harnessSettleStep`). This never
+ * re-derives, re-writes, or re-opens the sandbox — it reads
+ * `call.resultFile` back verbatim, so it can only ever report a path that
+ * really exists. It has no `reason` for a missing file (that lived only
+ * in the settle-time `saveResultFile` call, not persisted) — the message
+ * just says "no result file saved" with no parenthetical.
  */
 export async function wakeCallIfDue(
   call: HarnessCall,
@@ -208,8 +219,6 @@ export async function wakeCallIfDue(
 ): Promise<"woke" | "skipped" | "none"> {
   if (call.settledAt == null || !CALL_SETTLED_STATUSES.has(call.status)) return "none";
   if ((call.wokenSettledAt ?? -1) >= call.settledAt) return "skipped";
-  const binding = call.status === "completed" ? getConversationBinding(db(), call.conversationId) : null;
-  const resultFile = binding?.kind === "bound" ? resultFilePath(binding.workDir, call.id) : null;
   const outcome = await wakeConversation(
     call.conversationId,
     {
@@ -220,10 +229,10 @@ export async function wakeCallIfDue(
       detail:
         call.status === "failed"
           ? (call.error ?? null)
-          : clipText(call.result, WAKE_DETAIL_CAP, { id: call.id, file: resultFile }),
+          : clipText(call.result, WAKE_DETAIL_CAP, { id: call.id, file: call.resultFile }),
       url: `/h/${call.kind}/${call.conversationId}`,
       ...(call.status === "completed" && call.result
-        ? { result: { chars: call.result.length, file: resultFile } }
+        ? { result: { chars: call.result.length, file: call.resultFile } }
         : {}),
     },
     deps,
@@ -266,8 +275,9 @@ export async function wakeChatChildIfDue(
   // No turn ever produced any REAL text (start_thread failed to start,
   // the turn died before its first slice, or ran out of steps on its
   // very first, placeholder-only step) — nothing to report. Stamp woken
-  // so the sweep stops re-reading it; a later human/child turn that
-  // lands messages makes it due again.
+  // (and clear any earlier settle's result file — it is not THIS
+  // settle's) so the sweep stops re-reading it; a later human/child turn
+  // that lands messages makes it due again.
   if (status === "completed" && report == null) {
     markChatChildWoken(db(), child.id, child.updatedAt);
     return "skipped";
@@ -276,13 +286,24 @@ export async function wakeChatChildIfDue(
   // model choosing to stop — distinct from both a clean finish and an
   // actual failure.
   if (status === "completed" && report?.exhausted) status = "ran out of steps";
-  // A re-woken child's later report must not overwrite an earlier one —
-  // the settle timestamp (this wake's own reference) makes each file's
-  // name unique per settle.
-  const resultFile = report
+  // 0040 phase 3 (review fix): this IS the one and only attempt at this
+  // settle — the same function runs for both the in-run wake
+  // (wakeParentStep) and the sweep recovery, guarded by the
+  // wokenSettledAt check above, so there is no separate "settle" moment
+  // to race or duplicate the write from (unlike harness calls). The
+  // outcome's path (or null) is persisted below — inspect reads that
+  // back, never a derived guess. A re-woken child's later report cannot
+  // overwrite an earlier settle's file: the settle timestamp in the id
+  // makes each one unique.
+  const outcome = report
     ? await saveResultFile(child.parentConversationId, `${child.id}-${child.updatedAt}`, report.text, deps.resultFileProvider)
     : null;
-  const outcome = await wakeConversation(
+  const result = outcome
+    ? outcome.path === null
+      ? { chars: report!.text.length, file: null, reason: outcome.reason }
+      : { chars: outcome.chars, file: outcome.path }
+    : undefined;
+  const wakeOutcome = await wakeConversation(
     child.parentConversationId,
     {
       kind: "thread",
@@ -292,14 +313,14 @@ export async function wakeChatChildIfDue(
       // Wider than harness calls: for a review thread the final
       // message IS the deliverable, and the smoke run showed 500 chars
       // truncating it mid-findings. The rest is one inspect away.
-      detail: report ? clipText(report.text, WAKE_DETAIL_CAP, { id: child.id, file: resultFile }) : null,
+      detail: report ? clipText(report.text, WAKE_DETAIL_CAP, { id: child.id, file: outcome?.path ?? null }) : null,
       url: `/c/${child.id}`,
-      ...(report ? { result: { chars: report.text.length, file: resultFile } } : {}),
+      ...(result ? { result } : {}),
     },
     deps,
   );
-  markChatChildWoken(db(), child.id, child.updatedAt);
-  return outcome === "gone" ? "skipped" : "woke";
+  markChatChildWoken(db(), child.id, child.updatedAt, outcome?.path ?? null);
+  return wakeOutcome === "gone" ? "skipped" : "woke";
 }
 
 /** Read the child fresh (the turn-end path) and wake if due. */

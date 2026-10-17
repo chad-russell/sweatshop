@@ -118,6 +118,33 @@ describe("startHarnessCall", () => {
     expect(start?.input).toBe("fix it");
   });
 
+  it("appends the result instruction to the WORKFLOW prompt only — the stored task and start event keep the raw ask (0040 phase 3)", async () => {
+    const conv = newConv();
+    const seen: { task: string }[] = [];
+    const captureStart = async (input: { callId: string; task: string }) => {
+      seen.push({ task: input.task });
+      setCallWorkflowRun(tdb, input.callId, "wr_fake");
+      return { runId: "wr_fake" };
+    };
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "fix it", start: captureStart });
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+
+    // What actually ran gets the appended instruction...
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.task).toContain("fix it");
+    expect(seen[0]!.task).toContain("End with a final message that is your result");
+    expect(seen[0]!.task).not.toBe("fix it");
+
+    // ...but the durable record of what was ASKED stays exactly what the
+    // model/tool caller wrote — inspect and the events page must never
+    // show the instruction as if Chad or the agent asked for it.
+    const call = getHarnessCall(tdb, result.callId)!;
+    expect(call.task).toBe("fix it");
+    const start = getHarnessEvents(conv, "pi").events.find((e) => e.kind === "start");
+    expect(start?.input).toBe("fix it");
+  });
+
   it("0038 amendment: a different kind runs alongside an active one — only the SAME kind is busy", async () => {
     const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
     process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-token"; // past startHarnessCall's not-configured gate

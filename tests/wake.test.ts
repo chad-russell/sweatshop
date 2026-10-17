@@ -189,37 +189,36 @@ describe("wakeCallIfDue: wide cap and the result-file pointer (0040 phase 3)", (
     expect(started[0]!.text).not.toContain("more chars");
   });
 
-  it("clips past the cap and points at the saved result file when the parent is bound", async () => {
+  it("points at the already-written result file — reads harness_calls.result_file back verbatim, never re-derives or re-writes", async () => {
     const parent = chatId();
     ensureConversation(tdb, parent, null);
-    db().insert(projects).values({ id: "p_wk_hcclip", name: "WkHcClip", createdAt: 0 }).onConflictDoNothing().run();
-    db().update(conversations).set({ projectId: "p_wk_hcclip" }).where(eq(conversations.id, parent)).run();
-    const provider = new FakeSandboxProvider();
-    await runBash(parent, "pwd", provider);
     const long = "FINDING ".repeat(5_000).trim();
     const call = createHarnessCall(tdb, { conversationId: parent, kind: "pi", task: "a" });
-    settleHarnessCall(tdb, call.id, { status: "completed", result: long });
+    const resultFile = `/work/${parent}/.sweatshop/results/${call.id}.md`;
+    // Simulates what harnessSettleStep already did at settle time — the
+    // sweep path must never call saveResultFile itself.
+    settleHarnessCall(tdb, call.id, { status: "completed", result: long, resultFile });
     const { deps, started } = seams();
-    deps.resultFileProvider = provider;
     await expect(wakeCallIfDue(getHarnessCall(tdb, call.id)!, deps)).resolves.toBe("woke");
     const text = started[0]!.text;
     expect(text.length).toBeLessThan(long.length);
     expect(text).toContain("more chars");
-    expect(text).toContain(`full result (${long.length} chars): /work/${parent}/.sweatshop/results/${call.id}.md`);
+    expect(text).toContain(`full result (${long.length} chars): ${resultFile}`);
   });
 
-  it("clips past the cap and points at inspect when there is no bound sandbox", async () => {
+  it("no recorded file: points at inspect in the clip, and says so with no reason (the sweep never learned why)", async () => {
     const parent = chatId();
     ensureConversation(tdb, parent, null);
     const long = "FINDING ".repeat(5_000).trim();
     const call = createHarnessCall(tdb, { conversationId: parent, kind: "pi", task: "a" });
-    settleHarnessCall(tdb, call.id, { status: "completed", result: long });
+    settleHarnessCall(tdb, call.id, { status: "completed", result: long }); // resultFile stays null
     const { deps, started } = seams();
     await expect(wakeCallIfDue(getHarnessCall(tdb, call.id)!, deps)).resolves.toBe("woke");
     const text = started[0]!.text;
     expect(text).toContain("more chars");
     expect(text).toContain(`no file saved; inspect ${call.id}`);
-    expect(text).toContain("no result file saved (no bound sandbox)");
+    expect(text).toContain("no result file saved");
+    expect(text).not.toContain("no result file saved (");
   });
 });
 

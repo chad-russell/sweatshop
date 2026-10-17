@@ -85,30 +85,45 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   The result is never cut to a stub: a harness call's result
   (`harness_calls.result`) and a thread's `lastAssistantReport`
   (`db/chat.ts` — the newest assistant row with real text, skipping
-  `[tool …]`-only placeholder rows) are each kept up to 60 k chars; the
-  wake's own inline detail is wider too (`WAKE_DETAIL_CAP = 16_000`,
-  `lib/chat/wake.ts`, shared by both kinds — was 500 / 2 000). Past that,
-  `clipText` ends with a pointer: to the saved result file when one
-  exists, else `inspect <id>`. The full text (whatever didn't fit) is
-  also saved to the PARENT conversation's own sandbox, bound-only and
-  best-effort (`saveResultFile`, `lib/chat/result-file.ts` — mirrors
-  `loadRepoDocs`'s "never provision just to look" rule: a pending/none
-  binding or any write failure logs a warning and returns null, never
-  blocking or failing the wake), at
-  `<parentWorkDir>/.sweatshop/results/<id>.md` (`id` = the `hc_…` id, or
-  `<childId>-<settledAt>` for a thread, so a re-woken child's later
-  report never overwrites an earlier one). `inspect` reports the same
-  path (`resultFile`) for `hc_…` calls and, derived the same
-  deterministic way from the child's last settle, for `c_…` chats —
-  only when the relevant binding is bound, with a note otherwise. A
-  harness call's result is its LAST step's own text, not every step's
-  text joined (`workflows/chat/harness-call.ts`'s `resultText`) — if
-  the final step itself produced no text, an earlier step's is used,
-  prefixed to say so; every harness task gets an appended instruction
-  to end with a real final message
+  `[tool …]`-only placeholder rows, capped to the newest 1 000 rows and
+  tolerant of a malformed metadata blob — never throws inside a wake)
+  are each kept up to 60 k chars; the wake's own inline detail is wider
+  too (`WAKE_DETAIL_CAP = 16_000`, `lib/chat/wake.ts`, shared by both
+  kinds — was 500 / 2 000). Past that, `clipText` ends with a pointer:
+  to the saved result file when one exists, else `inspect <id>`. The
+  full text (whatever didn't fit) is also saved to the PARENT
+  conversation's own sandbox, bound-only and best-effort
+  (`saveResultFile`, `lib/chat/result-file.ts` — mirrors `loadRepoDocs`'s
+  "never provision just to look" rule: an unbound parent or a write
+  failure returns a reason instead of throwing, never blocking or
+  failing the wake) at `<parentWorkDir>/.sweatshop/results/<id>.md` (`id`
+  = the `hc_…` id, or `<childId>-<settledAt>` for a thread, so a
+  re-woken child's later report never overwrites an earlier one). The
+  wake reports the reason it has (`(no bound sandbox)` /
+  `(write failed)`) and the CAPPED/stored char count, never the raw
+  pre-cap length. The path actually written (or null) is persisted right
+  there at settle time — `harness_calls.result_file` and
+  `conversations.result_file` — and `inspect`'s `resultFile` reads it
+  back verbatim; it never derives or guesses a path, so it can never
+  point at a file that does not exist. The sweep/recovery path
+  (`wakeCallIfDue`) reads the same persisted column rather than
+  re-deriving or re-attempting the write — the file (if any) was already
+  written once, at settle time, and is not re-opened; the thread path
+  (`wakeChatChildIfDue`) has no separate "settle" moment to begin with
+  (in-run and sweep delivery are the SAME call, guarded by
+  `woken_settled_at`), so `saveResultFile` there only ever runs once per
+  settle regardless of which path reaches it first — every settle
+  (including a cancelled or report-less one) overwrites
+  `conversations.result_file`, so it never outlives the settle it
+  describes. A harness call's result is its LAST step's own text, not
+  every step's text joined (`workflows/chat/harness-call.ts`'s
+  `resultText`) — if the final step itself produced no text, an earlier
+  step's is used, prefixed to say so; every harness task gets an
+  appended instruction to end with a real final message
   (`withResultInstruction`, `lib/chat/harness-call-start.ts`, the one
-  place task becomes the workflow prompt for pi/claude/cursor alike). A
-  thread turn that hits its own step budget mid-tool-call is marked
+  place task becomes the workflow prompt for pi/claude/cursor alike — the
+  stored `harness_calls.task` and the start event keep the raw ask).
+  A thread turn that hits its own step budget mid-tool-call is marked
   `metadata.exhausted` on that turn's LAST assistant row
   (`workflows/chat/steps.ts`'s `persistTurn`, durable so the sweep path
   sees it too) — `lastAssistantReport` reports it separately from the

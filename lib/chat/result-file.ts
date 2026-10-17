@@ -14,9 +14,12 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
  * first. Same "bound only" rule as `loadRepoDocs`
  * (`lib/agent/tools/repo-docs.ts`): never provisions a sandbox just to
  * write this — a pending/none binding, or any failure to open or write
- * (stopped/destroyed sandbox, provider error), logs a warning and
- * returns null. A result file is a nice-to-have, never load-bearing: it
- * must never block or fail the wake that reports its path.
+ * (stopped/destroyed sandbox, provider error) returns a reason instead
+ * of throwing. A result file is a nice-to-have, never load-bearing: it
+ * must never block or fail the wake that reports its path. Callers
+ * persist `outcome.path` (or null) themselves — on `harness_calls` or
+ * `conversations` — so a reader never has to guess whether a write
+ * actually happened (review fix, 0040 phase 3 follow-up).
  */
 
 /** Cap applied to the file's own content — matches `harness_calls.result`
@@ -24,8 +27,9 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
 export const RESULT_FILE_CAP = 60_000;
 
 /** The deterministic path a result lives at under a work root — pure, so
- *  callers that already know the binding (inspect, the wake sweep) can
- *  report it without opening the sandbox again. Beside the repos, never
+ *  a caller that just wrote one (the only legitimate use now — inspect
+ *  and the wake sweep read the persisted path instead of deriving it)
+ *  can compute it without a second round trip. Beside the repos, never
  *  inside one. */
 export function resultFilePath(workDir: string, id: string): string {
   return `${workDir.replace(/\/+$/, "")}/.sweatshop/results/${id}.md`;
@@ -37,33 +41,44 @@ function capResultContent(content: string): string {
   return `${content.slice(0, RESULT_FILE_CAP)}\n\n…[${cut} more chars cut — the ${RESULT_FILE_CAP}-char file cap]`;
 }
 
+/** Why no file exists: the parent was never bound to begin with, or a
+ *  bound sandbox refused the write (stopped/destroyed, provider error,
+ *  non-zero exit). Lets the wake say which, instead of always blaming
+ *  "no bound sandbox". */
+export type NoResultFileReason = "unbound" | "write-failed";
+
+export type SaveResultFileOutcome =
+  | { path: string; chars: number }
+  | { path: null; reason: NoResultFileReason };
+
 /**
  * Write `content` to `<parent's workDir>/.sweatshop/results/<id>.md`.
  * `id` is the hc_… call id, or `<childId>-<settledAt>` for a thread (so
  * a re-woken child's later report never overwrites an earlier one).
- * Returns the path on success, or null — never throws.
+ * Never throws; `chars` is the length actually written (post-cap).
  */
 export async function saveResultFile(
   parentConversationId: string,
   id: string,
   content: string,
   provider?: SandboxProvider,
-): Promise<string | null> {
+): Promise<SaveResultFileOutcome> {
   const binding = getConversationBinding(db(), parentConversationId);
-  if (binding?.kind !== "bound") return null;
+  if (binding?.kind !== "bound") return { path: null, reason: "unbound" };
   try {
     const { handle, workDir } = await openSandbox(binding, provider);
     const path = resultFilePath(workDir, id);
     const dir = path.slice(0, path.lastIndexOf("/"));
-    const encoded = Buffer.from(capResultContent(content), "utf8").toString("base64");
+    const capped = capResultContent(content);
+    const encoded = Buffer.from(capped, "utf8").toString("base64");
     const result = await handle.run(`mkdir -p ${dir} && printf %s '${encoded}' | base64 -d > ${path}`);
     if (result.exitCode !== 0) {
       console.warn(`[result-file] ${parentConversationId}: write failed — ${result.stderr || result.stdout}`);
-      return null;
+      return { path: null, reason: "write-failed" };
     }
-    return path;
+    return { path, chars: capped.length };
   } catch (err) {
     console.warn(`[result-file] ${parentConversationId}: skipped — ${err instanceof Error ? err.message : String(err)}`);
-    return null;
+    return { path: null, reason: "write-failed" };
   }
 }

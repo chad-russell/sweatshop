@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resultText } from "../workflows/chat/harness-call";
+import { withResultInstruction } from "../lib/chat/harness-call-start";
 
 /**
  * 0040 phase 3: the harness call's result is the LAST step's text, not
@@ -21,5 +22,18 @@ describe("resultText", () => {
   it("empty when no step ever produced any text", () => {
     expect(resultText("", false)).toBe("");
     expect(resultText("", true)).toBe("");
+  });
+});
+
+describe("withResultInstruction", () => {
+  it("appends the result instruction after the original task, verbatim", () => {
+    const out = withResultInstruction("fix the flaky test");
+    expect(out.startsWith("fix the flaky test\n")).toBe(true);
+    expect(out).toContain("End with a final message that is your result");
+    expect(out.length).toBeGreaterThan("fix the flaky test".length);
+  });
+
+  it("is idempotent on the task argument — the same task always maps to the same prompt", () => {
+    expect(withResultInstruction("do X")).toBe(withResultInstruction("do X"));
   });
 });
