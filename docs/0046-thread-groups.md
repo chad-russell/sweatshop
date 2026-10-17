@@ -86,9 +86,23 @@ Read-model only — no rows are created:
   session URL still works unchanged; per-call links elsewhere (child
   status, wake url, `inspect`, the start result's eventsUrl) use the
   per-call URL.
-- The sidebar `RunGlyph` shows nothing for `completed` — done is the
-  quiet default; running/waiting/needs-attention/failed/cancelled keep
-  their glyphs.
+- Child-row status glyphs (pure `childGlyphKind`, `lib/child-glyph.ts`;
+  icons in `components/sidebar/child-glyph.tsx`; semantic tokens only):
+
+  | Row | Running | Done | Failed | Cancelled |
+  | --- | --- | --- | --- | --- |
+  | Harness call | spinner | that harness's mark, muted | ✕ | ⊘ |
+  | Child thread (chat with a parent) | spinner (`activeRunId`) | lucide `Bot`, muted | — | — |
+  | Historical run | `RunGlyph`, unchanged (none once completed) | | | |
+
+  A child thread whose newest assistant row carries `metadata.exhausted`
+  (its last turn ran out of steps) shows ⚠ (`CircleAlert`, warning)
+  instead of the Bot — `SidebarItem.threadStatus`, computed in
+  `loadSidebar` by one batched query over child conversations reading
+  only each one's max-rowid assistant row. Top-level conversations get
+  no glyph. Cancelled threads have no persisted signal (`cancel_run`
+  only clears `active_run_id` and stamps `woken_settled_at`, like a
+  normal settle), so they show the Bot.
 - `ConversationRow` renders the status glyph and link for harness rows,
   but **no row menu and not draggable** — a session is locked to its
   conversation; organizing one individually would break group locking.

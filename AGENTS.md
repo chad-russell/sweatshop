@@ -428,8 +428,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   same tree: harness rows open their own call at
   `/h/<harness>/<conv>/<callId>` (`conversationHref`; events scoped to
   the call's window — the bare session URL was shared by every call of
-  a harness, co-selecting rows), show the run glyph (none once
-  completed), and are locked (no row menu,
+  a harness, co-selecting rows), show a status glyph (`childGlyphKind`,
+  `lib/child-glyph.ts`: harness mark once completed; child threads get
+  a spinner / muted `Bot` / ⚠ when their last turn exhausted, via
+  `SidebarItem.threadStatus`), and are locked (no row menu,
   not draggable). Search results
   (`db/search.ts`, both the sidebar list and ⌘K) and the Archive/Trash
   shelves stay flat — a breadcrumb already says where a shelved item came
