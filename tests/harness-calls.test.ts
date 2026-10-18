@@ -165,10 +165,9 @@ describe("startHarnessCall", () => {
   });
 
   // The cap itself (claimHarnessRun returning reason:"cap") is covered
-  // directly in tests/harness-events.test.ts: today's 3-kind roster
-  // equals MAX_CONCURRENT_HARNESSES, so startHarnessCall's three real
-  // kinds can fill it but never overflow it through this tool surface —
-  // the cap is headroom for a kind added later, not reachable live today.
+  // directly in tests/harness-events.test.ts — 0050 grew the roster to
+  // four kinds against MAX_CONCURRENT_HARNESSES 3, so the cap is live
+  // reachable, not just headroom.
 
   it("0038: cursor refuses value-shaped (and never claims the slot) until a login exists", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-auth-"));
@@ -180,6 +179,37 @@ describe("startHarnessCall", () => {
       expect(result).toMatchObject({ ok: false, code: "not-configured" });
       if (!result.ok) expect(result.message).toContain("agent login");
       expect(listActiveHarnessRuns(conv)).toHaveLength(0);
+    } finally {
+      if (prev === undefined) delete process.env.HARNESS_AUTH_DIR;
+      else process.env.HARNESS_AUTH_DIR = prev;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("0050: codex refuses value-shaped until a ChatGPT login exists, then starts on the builtin default", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-auth-"));
+    const prev = process.env.HARNESS_AUTH_DIR;
+    process.env.HARNESS_AUTH_DIR = dir;
+    const fakeCodexAuthJson = (expMs: number) => {
+      const jwt = (exp: number) =>
+        ["e30", Buffer.from(JSON.stringify({ exp: Math.floor(exp / 1000) })).toString("base64url"), "sig"].join(".");
+      return JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: jwt(expMs), refresh_token: "r" } });
+    };
+    try {
+      // No file yet: the gate answers before a slot is claimed.
+      const conv = newConv();
+      const refused = await startHarnessCall({ conversationId: conv, kind: "codex", task: "x", start: fakeStart });
+      expect(refused).toMatchObject({ ok: false, code: "not-configured" });
+      if (!refused.ok) expect(refused.message).toContain("Log in with ChatGPT");
+      expect(listActiveHarnessRuns(conv)).toHaveLength(0);
+
+      // With a login the builtin default route ({harness:"codex"}) resolves
+      // and validates, and the call starts exactly like any other kind.
+      const { saveCodexCredential } = await import("../lib/harness-auth/codex");
+      saveCodexCredential(fakeCodexAuthJson(Date.now() + 30 * 86_400_000));
+      const started = await startHarnessCall({ conversationId: conv, kind: "codex", task: "x", start: fakeStart });
+      expect(started).toMatchObject({ ok: true });
+      expect(listActiveHarnessRuns(conv).map((r) => r.kind)).toEqual(["codex"]);
     } finally {
       if (prev === undefined) delete process.env.HARNESS_AUTH_DIR;
       else process.env.HARNESS_AUTH_DIR = prev;

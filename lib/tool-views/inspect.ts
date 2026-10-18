@@ -56,7 +56,7 @@ export function failureOf(output: unknown): ToolFailure | undefined {
 export interface InspectView {
   kind: string;
   id: string;
-  /** A harness-call's harness (pi / claude / cursor). */
+  /** A harness-call's harness (pi / claude / cursor / codex). */
   harnessName?: string;
   title?: string;
   status?: string;

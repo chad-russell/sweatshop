@@ -75,7 +75,7 @@ function routeBits(raw: string): { key: string; provider: string; model: string;
     /* a corrupt route still counts, under "unknown" */
   }
   const harness = typeof parsed.harness === "string" ? parsed.harness : "";
-  if (harness === "claude" || harness === "cursor") {
+  if (harness === "claude" || harness === "cursor" || harness === "codex") {
     return {
       key: harness,
       provider: harness,
@@ -91,6 +91,7 @@ function routeBits(raw: string): { key: string; provider: string; model: string;
 function modelLabel(db: Db, provider: string, model: string, isHarness: boolean): string {
   if (isHarness && provider === "claude") return "Claude";
   if (isHarness && provider === "cursor") return "Cursor";
+  if (isHarness && provider === "codex") return "Codex";
   if (isProvider(provider)) {
     const info = getModelInfo(db, provider, model);
     if (info) return `${PROVIDER_LABELS[provider]} ${info.label}`;

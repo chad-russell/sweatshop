@@ -10,13 +10,14 @@ import {
 } from "@/lib/harness-events";
 import { HARNESS_INPUT_CLIP } from "@/lib/harness-limits";
 import { cursorCredential } from "@/lib/harness-auth/cursor";
+import { codexCredential } from "@/lib/harness-auth/codex";
 import { requireRoute } from "@/lib/providers/resolve";
 import type { HarnessRoute } from "@/lib/providers/route";
 import { start as startWorkflowRun } from "workflow/api";
 import { harnessCall } from "@/workflows/chat/harness-call";
 
 /**
- * 0022 cut 2: the chat pi/claude/cursor tools' core — validate, claim a
+ * 0022 cut 2: the chat pi/claude/cursor/codex tools' core — validate, claim a
  * concurrency slot (0038 amendment: at most one running call per kind,
  * at most MAX_CONCURRENT_HARNESSES running in total), record the call,
  * start the `harnessCall` workflow, and return the handle. The turn
@@ -29,7 +30,7 @@ import { harnessCall } from "@/workflows/chat/harness-call";
  */
 
 /**
- * 0040 phase 3: appended to every harness task (pi/claude/cursor, the
+ * 0040 phase 3: appended to every harness task (pi/claude/cursor/codex, the
  * one place `task` becomes the workflow's prompt) so the delivered
  * result is the harness's own closing statement — not whatever it was
  * doing mid-tool-call when the step loop happened to end (harness-call.ts
@@ -59,7 +60,7 @@ export type StartHarnessCallResult =
 export interface HarnessCallWorkflowInput {
   callId: string;
   conversationId: string;
-  kind: "pi" | "claude" | "cursor";
+  kind: "pi" | "claude" | "cursor" | "codex";
   task: string;
   route: HarnessRoute;
   resumeFrom?: unknown;
@@ -68,7 +69,7 @@ export interface HarnessCallWorkflowInput {
 export async function startHarnessCall(
   input: {
     conversationId: string;
-    kind: "pi" | "claude" | "cursor";
+    kind: "pi" | "claude" | "cursor" | "codex";
     task: string;
     /** Test seam: the workflow starter (default: the real runtime). */
     start?: (workflowInput: HarnessCallWorkflowInput) => Promise<{ runId: string }>;
@@ -99,6 +100,14 @@ export async function startHarnessCall(
 
   if (input.kind === "cursor") {
     const credential = cursorCredential();
+    if (!credential.ok) return { ok: false, code: "not-configured", message: credential.message };
+  }
+
+  // 0050: same belt-and-braces gate as cursor's — requireRoute's
+  // validation already rejects an un-logged-in codex; this keeps the
+  // failure value-shaped with the credential's own way out.
+  if (input.kind === "codex") {
+    const credential = codexCredential();
     if (!credential.ok) return { ok: false, code: "not-configured", message: credential.message };
   }
 

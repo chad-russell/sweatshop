@@ -27,7 +27,7 @@ export interface SidebarItem {
   unread: boolean;
   /** 0008: a pending approval/question is waiting on the user. */
   needsYou: boolean;
-  /** 0046: the harness name ("pi" | "claude" | "cursor") when kind is
+  /** 0046: the harness name ("pi" | "claude" | "cursor" | "codex") when kind is
    *  "harness" — a synthetic row for a harness_calls entry (no
    *  conversations row exists), carried so the row can build its href
    *  (/h/<harness>/<owning conversation>). Null for conversations. */

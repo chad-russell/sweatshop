@@ -29,7 +29,9 @@ export const HARNESS_NETWORK = "sweatshop-harness";
 export const HARNESS_BRIDGE_PORTS = {
   claude: 4000,
   cursor: 4001,
-} as const satisfies Record<"claude" | "cursor", number>;
+  // 0050: codex's own port (same rule — one bridge per kind alive at once).
+  codex: 4002,
+} as const satisfies Record<"claude" | "cursor" | "codex", number>;
 
 export type BridgeHarnessKind = keyof typeof HARNESS_BRIDGE_PORTS;
 

@@ -126,6 +126,27 @@ describe("0047 GET /api/x/stats", () => {
       startedAt: 6_000,
       endedAt: 6_500,
     });
+    // 0050: a codex call buckets under its own harness key, labelled
+    // "Codex" — subscription, no invented dollars.
+    const codexCall = createHarnessCall(db(), {
+      conversationId: "c_stats_child",
+      kind: "codex",
+      task: "Codex pass",
+    });
+    event({
+      id: `u_hc_${codexCall.id}`,
+      conversationId: "c_stats_child",
+      source: "harness",
+      harnessCallId: codexCall.id,
+      route: JSON.stringify({ harness: "codex", model: "gpt-5.5", effort: "high" }),
+      inputTokens: 10,
+      outputTokens: 5,
+      steps: 1,
+      toolCalls: 1,
+      costUsd: null,
+      startedAt: 7_000,
+      endedAt: 7_100,
+    });
 
     const res = await GET(new Request("http://localhost/api/x/stats/c_stats_child"), {
       params: Promise.resolve({ conversationId: "c_stats_child" }),
@@ -137,19 +158,19 @@ describe("0047 GET /api/x/stats", () => {
     expect(body.conversationIds).toEqual(expect.arrayContaining(["c_stats_root", "c_stats_child"]));
     expect(body.totals).toMatchObject({
       costUsd: 1.5,
-      inputTokens: 1_600,
+      inputTokens: 1_610,
       cachedTokens: 250,
-      outputTokens: 230,
+      outputTokens: 235,
       reasoningTokens: 10,
-      steps: 6,
-      toolCalls: 5,
-      workMs: 4_500,
+      steps: 7,
+      toolCalls: 6,
+      workMs: 4_600,
     });
     expect(body.wallMs).toBe(8_000);
     expect(body.waitMs).toBe(3_000);
     expect(body.medianWaitMs).toBe(3_000);
     expect(body.touches).toBe(2);
-    expect(body.cacheHitRate).toBeCloseTo(250 / 1_600);
+    expect(body.cacheHitRate).toBeCloseTo(250 / 1_610);
 
     const gloo = body.byModel.find((row: { key: string }) => row.key === "gloo/gloo-kimi-k3");
     expect(gloo).toMatchObject({
@@ -166,6 +187,8 @@ describe("0047 GET /api/x/stats", () => {
     expect(glm).toMatchObject({ label: "GLM (Z.AI) GLM 5.3 Flash", isHarness: false, costUsd: null });
     const claude = body.byModel.find((row: { key: string }) => row.key === "claude");
     expect(claude).toMatchObject({ label: "Claude", isHarness: true, costUsd: null, steps: 3, toolCalls: 4 });
+    const codex = body.byModel.find((row: { key: string }) => row.key === "codex");
+    expect(codex).toMatchObject({ label: "Codex", isHarness: true, costUsd: null, steps: 1, toolCalls: 1 });
 
     const childChat = body.byChild.find(
       (row: { kind: string; conversationId: string }) => row.kind === "conversation" && row.conversationId === "c_stats_child",
