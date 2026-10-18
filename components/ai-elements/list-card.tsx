@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { parseListTool, type ListToolName } from "@/lib/list-tool-view";
+import { parseListTool, type ListToolName } from "@/lib/tool-views/list";
 import { cn } from "@/lib/utils";
 
 const OPEN_ENTRIES = 12;

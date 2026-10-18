@@ -1,4 +1,4 @@
-import { field } from "./tool-fields";
+import { field } from "./fields";
 
 /** What the list-tool card (ls / grep / glob / find) draws. */
 

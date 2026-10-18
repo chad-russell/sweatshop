@@ -4,7 +4,7 @@ import { CheckIcon, ChevronDownIcon, CopyIcon, SquareTerminalIcon } from "lucide
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { luminance, parseAnsi, stripAnsi, type AnsiColor, type AnsiSegment, type NamedColor } from "@/lib/ansi";
-import { parseBash, splitCd } from "@/lib/bash-view";
+import { parseBash, splitCd } from "@/lib/tool-views/bash";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 

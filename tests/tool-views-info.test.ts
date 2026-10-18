@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { failureOf, inspectName, inspectOf, inspectState, oneLine } from "../lib/machine-tool-view";
+import { failureOf, inspectName, inspectOf, inspectState, oneLine } from "../lib/tool-views/inspect";
 import {
   cancelView,
   docsView,
@@ -15,9 +15,9 @@ import {
   setupView,
   skillItems,
   skillView,
-} from "../lib/info-tool-view";
+} from "../lib/tool-views/info";
 
-/** The information tools' card normalisers — pure and defensive, like web-tool-view. */
+/** The information tools' card normalisers — pure and defensive, like tool-views/web. */
 
 describe("skillView", () => {
   it("reads a bound skill, taking the title from its H1", () => {

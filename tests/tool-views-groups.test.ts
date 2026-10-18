@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callLabel, callState, groupParts, MIN_GROUP, type PartLike } from "../lib/tool-groups";
+import { callLabel, callState, groupParts, MIN_GROUP, type PartLike } from "../lib/tool-views/groups";
 
 const done = (type: string, input: unknown, output: unknown = { ok: true }): PartLike => ({
   type: `tool-${type}`, state: "output-available", input, output,

@@ -1,6 +1,6 @@
-import { descriptionOf, parseBash } from "./bash-view";
-import { inspectName, inspectOf, inspectState, oneLine } from "./machine-tool-view";
-import { objectOf } from "./tool-fields";
+import { descriptionOf, parseBash } from "./bash";
+import { inspectName, inspectOf, inspectState, oneLine } from "./inspect";
+import { objectOf } from "./fields";
 
 /**
  * Folding a turn's quiet, read-only tool calls into one expandable group

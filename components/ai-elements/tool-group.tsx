@@ -4,7 +4,7 @@ import { ChevronDownIcon, ChevronRightIcon, ChevronsUpDownIcon, CircleCheckIcon,
 import { useState, type ReactNode } from "react";
 import { Pill } from "@/components/ai-elements/agent-cards";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { callLabel, callState, toolName, type CallState, type GroupEntry, type ToolGroup } from "@/lib/tool-groups";
+import { callLabel, callState, toolName, type CallState, type GroupEntry, type ToolGroup } from "@/lib/tool-views/groups";
 import { cn } from "@/lib/utils";
 
 const STATE_ICON: Record<CallState, { Icon: typeof CircleCheckIcon; className: string }> = {

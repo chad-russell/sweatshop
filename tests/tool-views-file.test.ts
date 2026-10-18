@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { diffStrings, languageFor, parseFileTool } from "../lib/file-tool-view";
-import { parseListTool } from "../lib/list-tool-view";
-import { field } from "../lib/tool-fields";
+import { diffStrings, languageFor, parseFileTool } from "../lib/tool-views/file";
+import { parseListTool } from "../lib/tool-views/list";
+import { field } from "../lib/tool-views/fields";
 
 describe("field", () => {
   it("reads from an object and from JSON text", () => {

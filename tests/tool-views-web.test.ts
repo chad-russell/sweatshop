@@ -6,10 +6,10 @@ import {
   urlHeadline,
   webFailureOf,
   webState,
-} from "../lib/web-tool-view";
+} from "../lib/tool-views/web";
 
 /** 1.5: the web cards' normalisers — pure and defensive, never trusting
- * stored input/output to have every field (machine-tool-view posture). */
+ * stored input/output to have every field (tool-views/inspect posture). */
 
 describe("webFailureOf", () => {
   it("reads the value-shaped failure and nothing else", () => {

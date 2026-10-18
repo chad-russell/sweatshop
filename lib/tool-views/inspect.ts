@@ -1,4 +1,7 @@
-import { objectOf } from "./tool-fields";
+// Was lib/machine-tool-view.ts; renamed because machines are gone (0037 phase 5)
+// — this is the generic inspect/exec/transition result normaliser.
+
+import { objectOf } from "./fields";
 
 /**
  * Normalisers for the inspect / exec / transition tool results. The tools return
