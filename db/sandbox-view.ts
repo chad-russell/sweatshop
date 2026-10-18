@@ -252,33 +252,15 @@ function linkFor(db: Db, id: string, note: string): SandboxLink | null {
   return row ? { id: row.id, status: row.status, note } : null;
 }
 
-/** A machine run's one sandbox (live, or the most recent if destroyed). */
-export function sandboxForMachineRun(db: Db, runId: string): SandboxLink | null {
-  const row = db
-    .select({ id: sandboxes.id })
-    .from(sandboxes)
-    .where(and(eq(sandboxes.ownerKind, "machine_run"), eq(sandboxes.ownerId, runId)))
-    .orderBy(desc(sandboxes.createdAt))
-    .limit(1)
-    .get();
-  return row ? linkFor(db, row.id, "run sandbox") : null;
-}
-
 /**
  * The sandbox behind a harness session page. 0031: the binding answers
- * it — a session id is either a conversation id (chat or stage visit,
- * with a stored binding or its run's) or a machine run id.
+ * it — a session id is a conversation id (a chat with its stored
+ * binding). 0048: the run/stage arms are gone with machine_runs.
  */
 export function sandboxForHarnessSession(db: Db, sessionId: string): SandboxLink | null {
-  const run = sessionId.match(/^(mr_.+)_\d+$/);
-  if (run) return sandboxForMachineRun(db, run[1]!);
   const binding = getConversationBinding(db, sessionId);
   if (binding?.kind === "bound") {
     return linkFor(db, binding.sandboxId, binding.owner ? "own sandbox" : "attached sandbox");
-  }
-  if (binding) {
-    // a run conversation (kind "run"): its machine_runs binding
-    return sandboxForMachineRun(db, sessionId);
   }
   return null;
 }

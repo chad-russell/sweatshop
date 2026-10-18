@@ -517,68 +517,9 @@ export const harnessRuns = sqliteTable(
 );
 
 /**
- * One row per machine run (0009). The db IS the run status the UI
- * reads; the Workflow SDK owns the durable execution.
- */
-export const machineRuns = sqliteTable(
-  "machine_runs",
-  {
-    /** mr_… — also the prefix of every stage-visit token. */
-    id: text("id").primaryKey(),
-    /** Null for every run now (0037 phase 5 deleted machines); kept
-     *  because historical snapshots recorded one. */
-    machineId: text("machine_id"),
-    machineName: text("machine_name").notNull(),
-    machineVersion: integer("machine_version").notNull(),
-    /** JSON MachineDefinition snapshot taken at start. */
-    definition: text("definition").notNull(),
-    /** Bound at run start for workspace: project machines. */
-    projectId: text("project_id").references(() => projects.id),
-    prompt: text("prompt").notNull(),
-    /** running | waiting | needs-attention | completed | failed | cancelled */
-    status: text("status").notNull(),
-    currentStage: text("current_stage"),
-    /** 0013 binding: the sandbox the whole run (every stage) runs in —
-     *  its own (provisioned at start, `/work/<runId>`) or inherited from
-     *  the chat that started it (same sandbox and directory). Null for
-     *  workspace-free runs. */
-    sandboxId: text("sandbox_id").references((): AnySQLiteColumn => sandboxes.id),
-    sandboxWorkDir: text("sandbox_work_dir"),
-    /** 0013: 1 = the run owns its sandbox's lifecycle; 0 = inherited. */
-    sandboxOwner: integer("sandbox_owner", { mode: "boolean" }),
-    /** Bounded failure / parking reason. */
-    error: text("error"),
-    /** 0012: Unix ms the run last entered a settled status (waiting,
-     *  needs-attention, completed, failed) — its "unread" moment. */
-    settledAt: integer("settled_at"),
-    /** 0022: the chat whose start_machine created this run — the wake
-     *  target when the run settles. Null (UI/API starts) = never wakes;
-     *  a deleted parent goes null and wakes stop. */
-    parentConversationId: text("parent_conversation_id").references(
-      (): AnySQLiteColumn => conversations.id,
-      { onDelete: "set null" },
-    ),
-    /** 0022: the run's latest settled_at already delivered to its parent
-     *  (wake-once-per-settle idempotency; the tick sweep re-fires
-     *  anything older — crash, restart). */
-    wokenSettledAt: integer("woken_settled_at"),
-    /** 0012: the Workflow SDK run executing this machine run (cancel). */
-    workflowRunId: text("workflow_run_id"),
-    /** 0021: JSON RunOverrides (`startRun({ overrides })`) — null = none. */
-    overrides: text("overrides"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [index("machine_runs_created_idx").on(table.createdAt)],
-);
-
-export type MachineRun = typeof machineRuns.$inferSelect;
-
-/**
  * 0022 cut 2: one row per background harness call (the chat pi/claude
  * tools). The call's identity for inspect/cancel; its execution is a
- * `harnessCall` workflow run. Agent-stage harness calls (inside machine
- * runs) are synchronous and have no row.
+ * `harnessCall` workflow run.
  */
 export const harnessCalls = sqliteTable(
   "harness_calls",
@@ -618,47 +559,6 @@ export const harnessCalls = sqliteTable(
 );
 
 export type HarnessCall = typeof harnessCalls.$inferSelect;
-
-/**
- * One row per stage visit (0009). `sessionId` is the stage's
- * conversation: the harness session key (`mr_<run>_<seq>`, which
- * harness_events / harness_runs and /h/<harness>/<id> use unchanged) or
- * the eve session id. Visit tokens are `<runId>:<seq>`.
- */
-export const machineStageRuns = sqliteTable(
-  "machine_stage_runs",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    runId: text("run_id")
-      .notNull()
-      .references(() => machineRuns.id, { onDelete: "cascade" }),
-    seq: integer("seq").notNull(),
-    stageId: text("stage_id").notNull(),
-    /** harness | eve | human */
-    kind: text("kind").notNull(),
-    /** pi | claude for harness stages. */
-    harness: text("harness"),
-    /** running | waiting | completed | failed | parked */
-    status: text("status").notNull(),
-    sessionId: text("session_id"),
-    /** Clipped final text (agents) or the human's comment. */
-    outcome: text("outcome"),
-    transitionTo: text("transition_to"),
-    steps: integer("steps").notNull().default(0),
-    error: text("error"),
-    /** 0021: JSON { route, layer } — what actually ran this visit and
-     *  which layer it resolved from. Null for human gates (and pre-0021
-     *  visits). */
-    route: text("route"),
-    startedAt: integer("started_at").notNull(),
-    endedAt: integer("ended_at"),
-  },
-  (table) => [
-    uniqueIndex("machine_stage_runs_run_seq_idx").on(table.runId, table.seq),
-  ],
-);
-
-export type MachineStageRun = typeof machineStageRuns.$inferSelect;
 
 /**
  * 0017 declared services: the sibling containers a sandbox owns per
