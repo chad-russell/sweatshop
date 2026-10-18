@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { openDb } from "../db";
 import { ensureConversation, setActiveRun, setConversationParent } from "../db/chat";
 import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
-import { machineRuns } from "../db/schema";
 import { projects } from "../db/schema";
 import { childStatus } from "../lib/child-status";
 
-/** The transcript cards' live status read model (mr_…, hc_…, and c_…). */
+/** The transcript cards' live status read model (hc_… and c_…; mr_… is
+ *  permanently not-found since 0048 purged machine runs). */
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 tdb.insert(projects).values({ id: "p_cs", name: "CS", createdAt: 0 }).onConflictDoNothing().run();
@@ -30,17 +30,6 @@ describe("childStatus", () => {
     });
     settleHarnessCall(tdb, call.id, { status: "failed", error: "boom" });
     expect(childStatus(tdb, call.id)).toMatchObject({ status: "failed", live: false, error: "boom" });
-  });
-
-  it("a historical run reads (0037 phase 5: rows only, no writes)", () => {
-    const def = JSON.stringify({ start: "a", stages: { a: { kind: "agent", title: "A", instructions: "a", next: [] } } });
-    const at = { machineName: "CS", machineVersion: 1, definition: def, prompt: "go", createdAt: 1, updatedAt: 1 };
-    tdb.insert(machineRuns).values({ id: "mr_cs_live", status: "running", currentStage: "a", ...at }).run();
-    tdb.insert(machineRuns).values({ id: "mr_cs_done", status: "completed", currentStage: null, settledAt: 5, ...at }).run();
-    expect(childStatus(tdb, "mr_cs_live")).toMatchObject({ kind: "run", status: "running", live: true, where: "a", href: "/r/mr_cs_live" });
-    const done = childStatus(tdb, "mr_cs_done");
-    expect(done).toMatchObject({ status: "completed", live: false, where: null });
-    expect(done?.settledAt).toBe(5);
   });
 
   it("a child thread is live while its turn is (0037 phase 3)", () => {

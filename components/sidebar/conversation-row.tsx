@@ -4,7 +4,7 @@ import { Archive, ChevronRight, Loader2, Pencil, Trash2 } from "lucide-react";
 import { conversationHref } from "@/lib/conversation-href";
 import { defaultExpanded, hasActiveDescendant } from "@/lib/sidebar-tree";
 import { ChildGlyph } from "./child-glyph";
-import { RunGlyph, isLiveRun } from "./run-glyph";
+import { isLiveRun } from "./run-glyph";
 import Link from "next/link";
 import { cn } from "cn";
 import {
@@ -27,9 +27,9 @@ const INDENT = 12;
 /**
  * One conversation in the folder tree or the Unfiled list: a draggable link
  * with a hover menu (rename, move, archive, trash). Dragging only ever
- * *offers* targets in the same group (see use-drop-target). 0012: a run
- * row carries a status glyph and opens the run view; trashing a live run
- * cancels it, so that asks first.
+ * *offers* targets in the same group (see use-drop-target). 0048: run rows
+ * are retired; a live harness row still carries a status glyph and asks
+ * before trashing (RunGlyph/isLiveRun).
  *
  * 0040 phase 2: a `start_thread` child nests under its parent — SAME
  * component, recursive, like FolderNodeView. A parent with children gets
@@ -40,8 +40,8 @@ const INDENT = 12;
  * stays visible, independent of that stored choice. Collapsed, the row
  * shows a rolled-up dot/spinner for whatever is hidden below.
  *
- * 0046: a synthetic harness row (kind "harness") renders like a run row
- * — status glyph, link via conversationHref — but is LOCKED to its
+ * 0046: a synthetic harness row (kind "harness") carries its own status
+ * glyph and link via conversationHref, but is LOCKED to its
  * conversation: no row menu and not draggable, since organizing a
  * session individually would break group locking. It never has children.
  */
@@ -141,7 +141,6 @@ export function ConversationRow({
                   needsYou={item.needsYou ? 1 : 0}
                   className={hasChildren ? undefined : "-ml-1"}
                 />
-                {item.kind === "run" && <RunGlyph status={item.runStatus} />}
                 <ChildGlyph item={item} />
                 <span className="truncate">
                   {item.title ?? (

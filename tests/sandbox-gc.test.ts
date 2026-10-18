@@ -132,22 +132,13 @@ describe("0013 sandbox reaper", () => {
       .prepare("insert into conversations (id, sandbox_id, sandbox_work_dir, sandbox_owner, created_at, updated_at) values ('c_gc_h', ?, '/work/x', 0, 0, 0)")
       .run(shared);
     claimHarnessRun("c_gc_h", "pi");
-    // a run-owned sandbox whose run row reads waiting (0037 phase 5:
-    // historical rows still keep the reaper away; no run can move now)
-    const runBox = lease("machine_run", "running", 4 * DAY, "mr_gc_wait");
-    db().$client
-      .prepare(
-        "insert into machine_runs (id, machine_name, machine_version, definition, prompt, status, sandbox_id, sandbox_work_dir, sandbox_owner, created_at, updated_at) values ('mr_gc_wait', 'M', 1, '{}', 'x', 'waiting', ?, '/work/mr_gc_wait', 1, 0, 0)",
-      )
-      .run(runBox);
 
     const report = await reap({ apply: true, provider });
-    for (const id of [chat.sandboxId, shared, runBox]) {
+    for (const id of [chat.sandboxId, shared]) {
       expect(report.actions).toContainEqual(expect.objectContaining({ sandboxId: id, action: "skip-busy" }));
       expect(status(id)).toBe("running");
     }
     await expect(stopSandboxNow(shared, provider)).rejects.toThrow(SandboxActionError);
-    await expect(destroySandboxNow(runBox, provider)).rejects.toThrow(/working in this sandbox/);
   });
 
   it("one failing sandbox does not block the rest", async () => {

@@ -5,8 +5,8 @@ import { getProjectOverview, listProjectsWithRepos } from "../db/projects";
 import { getLeaseProjectId } from "../db/sandboxes";
 import { savePreviewSetup } from "../db/preview-setups";
 import { insertPreview } from "../db/previews";
-import { conversations, machineRuns, projectRepos, projects } from "../db/schema";
-import { previewProjectId, resolvePreviewContext } from "../lib/previews/context";
+import { conversations, projectRepos, projects } from "../db/schema";
+import { resolvePreviewContext } from "../lib/previews/context";
 
 /**
  * 0019 phase 1: the one resolver (a preview's project, setup and repo
@@ -77,26 +77,6 @@ describe("0019: resolvePreviewContext", () => {
     const ctx = resolvePreviewContext({ id: "pv_x", sandboxId: "sbx_ctx_wt", repoId: null } as never);
     expect(ctx.projectId).toBe("p_ctx_wt");
     expect(ctx.repoRoot).toBe("/work/c_ctx_wt/web");
-  });
-
-  it("a worktree preview in a machine run resolves through the run's project", () => {
-    project("p_ctx_run", true);
-    db()
-      .insert(machineRuns)
-      .values({
-        id: "mr_ctx_run",
-        machineName: "m",
-        machineVersion: 1,
-        definition: "{}",
-        projectId: "p_ctx_run",
-        prompt: "x",
-        status: "completed",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-    lease("sbx_ctx_run", "machine_run", "mr_ctx_run", "p_ctx_run");
-    expect(previewProjectId({ id: "pv_y", sandboxId: "sbx_ctx_run", repoId: null } as never)).toBe("p_ctx_run");
   });
 
   it("no setup → null setup and null repoRoot for a worktree; unknown sandbox → all null", () => {

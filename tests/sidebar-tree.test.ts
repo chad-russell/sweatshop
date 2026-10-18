@@ -122,12 +122,6 @@ describe("isItemRunning", () => {
     expect(isItemRunning(item({ kind: "chat", activeRunId: null }))).toBe(false);
   });
 
-  it("a run row is running/waiting by its status, not activeRunId", () => {
-    expect(isItemRunning(item({ kind: "run", runStatus: "running", activeRunId: null }))).toBe(true);
-    expect(isItemRunning(item({ kind: "run", runStatus: "waiting", activeRunId: null }))).toBe(true);
-    expect(isItemRunning(item({ kind: "run", runStatus: "completed", activeRunId: null }))).toBe(false);
-  });
-
   it("a harness row is running by its status (0046: only \"running\" is live)", () => {
     expect(isItemRunning(item({ kind: "harness", runStatus: "running", activeRunId: null }))).toBe(true);
     expect(isItemRunning(item({ kind: "harness", runStatus: "completed", activeRunId: null }))).toBe(false);

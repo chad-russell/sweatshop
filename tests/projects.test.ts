@@ -16,7 +16,6 @@ import { insertPreview } from "../db/previews";
 import {
   conversations,
   folders,
-  machineRuns,
   previews as previewsTable,
   previewSetups,
   projects,
@@ -206,23 +205,6 @@ describe("0018 phase 3: the delete cascade", () => {
     fixtureConversation("c_crud_chat", "p_del");
     fixtureConversation("c_other", "p_other"); // must survive
     db()
-      .insert(machineRuns)
-      .values({
-        id: "mr_crud_run",
-        machineName: "m",
-        machineVersion: 1,
-        definition: "{}",
-        projectId: "p_del",
-        prompt: "x",
-        status: "completed",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
-    fixtureConversation("mr_crud_run", "p_del", "run");
-    fixtureConversation("mr_crud_run_1", "p_del", "stage");
-    db()
       .insert(folders)
       .values({ id: "fld_crud", projectId: "p_del", name: "F", createdAt: now })
       .onConflictDoNothing()
@@ -254,13 +236,11 @@ describe("0018 phase 3: the delete cascade", () => {
     const result = deleteProjectRows(db(), "p_del");
     expect(result).toMatchObject({
       ok: true,
-      counts: { conversations: 3, repos: 1, folders: 1, sandboxes: 1, previews: 1 },
+      counts: { conversations: 1, repos: 1, folders: 1, sandboxes: 1, previews: 1 },
     });
 
     // gone: everything project-scoped
     expect(rows("conversations", "project_id", "p_del")).toBe(0);
-    expect(rows("conversations", "id", "mr_crud_run")).toBe(0);
-    expect(rows("machine_runs", "project_id", "p_del")).toBe(0);
     expect(rows("folders", "project_id", "p_del")).toBe(0);
     expect(rows("project_repos", "project_id", "p_del")).toBe(0);
     expect(rows("preview_setups", "project_id", "p_del")).toBe(0);

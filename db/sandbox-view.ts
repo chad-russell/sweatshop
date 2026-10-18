@@ -3,7 +3,6 @@ import type { Db } from "./index";
 import { getConversationBinding } from "./sandboxes";
 import {
   conversations,
-  machineRuns,
   previews,
   projects,
   sandboxes,
@@ -49,14 +48,9 @@ function ownerLabel(db: Db, ownerKind: string, ownerId: string): string {
     const p = db.select({ label: previews.label, branch: previews.branch }).from(previews).where(eq(previews.id, ownerId)).get();
     return p ? `${p.label ?? p.branch ?? ownerId} preview` : ownerId;
   }
-  if (ownerKind === "machine_run") {
-    const run = db
-      .select({ name: machineRuns.machineName })
-      .from(machineRuns)
-      .where(eq(machineRuns.id, ownerId))
-      .get();
-    return run ? `${run.name} run` : ownerId;
-  }
+  // 0048: a historical "machine_run" owner has no backing row anymore —
+  // falls through to the generic lookup below, which finds nothing and
+  // returns the bare id.
   const convo = db
     .select({ title: conversations.title })
     .from(conversations)
@@ -142,7 +136,7 @@ export interface SandboxDetail extends SandboxSummary {
 
 function ownerHref(ownerKind: string, ownerId: string): string {
   if (ownerKind === "preview") return `/previews?id=${ownerId}`;
-  return ownerKind === "machine_run" ? `/r/${ownerId}` : `/c/${ownerId}`;
+  return `/c/${ownerId}`;
 }
 
 /** Chats bound to each sandbox: `conversations.sandbox_id` (0031: the
@@ -258,33 +252,15 @@ function linkFor(db: Db, id: string, note: string): SandboxLink | null {
   return row ? { id: row.id, status: row.status, note } : null;
 }
 
-/** A machine run's one sandbox (live, or the most recent if destroyed). */
-export function sandboxForMachineRun(db: Db, runId: string): SandboxLink | null {
-  const row = db
-    .select({ id: sandboxes.id })
-    .from(sandboxes)
-    .where(and(eq(sandboxes.ownerKind, "machine_run"), eq(sandboxes.ownerId, runId)))
-    .orderBy(desc(sandboxes.createdAt))
-    .limit(1)
-    .get();
-  return row ? linkFor(db, row.id, "run sandbox") : null;
-}
-
 /**
  * The sandbox behind a harness session page. 0031: the binding answers
- * it — a session id is either a conversation id (chat or stage visit,
- * with a stored binding or its run's) or a machine run id.
+ * it — a session id is a conversation id (a chat with its stored
+ * binding). 0048: the run/stage arms are gone with machine_runs.
  */
 export function sandboxForHarnessSession(db: Db, sessionId: string): SandboxLink | null {
-  const run = sessionId.match(/^(mr_.+)_\d+$/);
-  if (run) return sandboxForMachineRun(db, run[1]!);
   const binding = getConversationBinding(db, sessionId);
   if (binding?.kind === "bound") {
     return linkFor(db, binding.sandboxId, binding.owner ? "own sandbox" : "attached sandbox");
-  }
-  if (binding) {
-    // a run conversation (kind "run"): its machine_runs binding
-    return sandboxForMachineRun(db, sessionId);
   }
   return null;
 }

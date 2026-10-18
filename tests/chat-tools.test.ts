@@ -13,7 +13,6 @@ import {
   listSandboxSummaries,
   loadConversationSandboxView,
   sandboxForHarnessSession,
-  sandboxForMachineRun,
 } from "../db/sandbox-view";
 import { buildChatTools } from "../workflows/chat/tools";
 import { projects } from "../db/schema";
@@ -101,24 +100,24 @@ describe("0010 chat tool cores", () => {
     expect(clipOutput("short")).toBe("short");
   });
 
-  it("attach joins a machine run's sandbox in the run's own workdir (0013)", async () => {
+  it("attach joins another conversation's sandbox in its own workdir (0013)", async () => {
     provider = new FakeProvider();
     const owner = await acquireSandbox(
-      { mode: "dedicated", ownerKind: "machine_run", ownerId: "run_1", projectId: null },
+      { mode: "dedicated", ownerKind: "conversation", ownerId: "c_owner", projectId: null },
       provider,
     );
     ensureConversation(db(), "c_joiner");
 
     const joined = await attachConversationSandbox(
       "c_joiner",
-      { ownerKind: "machine_run", ownerId: "run_1" },
+      { ownerKind: "conversation", ownerId: "c_owner" },
       provider,
     );
-    expect(joined).toEqual({ sandboxId: owner.sandboxId, workdir: "/work/run_1" });
+    expect(joined).toEqual({ sandboxId: owner.sandboxId, workdir: "/work/c_owner" });
     expect(getConversationBinding(db(), "c_joiner")).toEqual({
       kind: "bound",
       sandboxId: owner.sandboxId,
-      workDir: "/work/run_1",
+      workDir: "/work/c_owner",
       owner: false,
     });
 
@@ -128,8 +127,8 @@ describe("0010 chat tool cores", () => {
   it("attach to a missing owner explains itself", async () => {
     provider = new FakeProvider();
     await expect(
-      attachConversationSandbox("c_joiner", { ownerKind: "machine_run", ownerId: "run_none" }, provider),
-    ).rejects.toThrow(/no sandbox for machine_run run_none/);
+      attachConversationSandbox("c_joiner", { ownerKind: "conversation", ownerId: "c_none" }, provider),
+    ).rejects.toThrow(/no sandbox for conversation c_none/);
   });
 
   it("harness resume state round-trips per conversation × kind", () => {
@@ -321,19 +320,7 @@ describe("0010 chat tool cores", () => {
     });
   });
 
-  describe("0011 session and run sandbox links", () => {
-    it("a machine run resolves to its sandbox, and a stage session id finds it", async () => {
-      provider = new FakeProvider();
-      const owner = await acquireSandbox(
-        { mode: "dedicated", ownerKind: "machine_run", ownerId: "mr_link1", projectId: null },
-        provider,
-      );
-      expect(sandboxForMachineRun(db(), "mr_link1")).toMatchObject({ id: owner.sandboxId, status: "running" });
-      expect(sandboxForHarnessSession(db(), "mr_link1_3")).toMatchObject({ id: owner.sandboxId });
-      expect(sandboxForMachineRun(db(), "mr_nothing")).toBeNull();
-      expect(sandboxForHarnessSession(db(), "mr_nothing_0")).toBeNull();
-    });
-
+  describe("0011 session sandbox links", () => {
     it("a chat's harness session resolves via its binding (0031)", async () => {
       provider = new FakeProvider();
       ensureConversation(db(), "c_link_chat", "p_tools");
@@ -342,16 +329,6 @@ describe("0010 chat tool cores", () => {
         id: sandboxId,
         note: "own sandbox",
       });
-    });
-
-    it("keeps pointing at a destroyed sandbox, flagged as such", async () => {
-      provider = new FakeProvider();
-      const owner = await acquireSandbox(
-        { mode: "dedicated", ownerKind: "machine_run", ownerId: "mr_link2", projectId: null },
-        provider,
-      );
-      await destroySandbox(owner.sandboxId, provider);
-      expect(sandboxForMachineRun(db(), "mr_link2")).toMatchObject({ id: owner.sandboxId, status: "destroyed" });
     });
   });
 

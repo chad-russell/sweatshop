@@ -1,27 +1,27 @@
 import type { Db } from "@/db";
 import { getHarnessCall } from "@/db/harness-calls";
-import { getRun, LIVE_STATUSES, MachineError } from "@/db/machines";
 import { getChatChild } from "@/db/chat";
 
 /**
- * The status of a chat's background child — a machine run (mr_…), a
- * background harness call (hc_…, 0022), or a child thread (c_…, 0037
- * phase 3) — as its transcript card shows it. One read model for all
- * three so the card, the route, and the tests agree on what "live"
- * means: `live` children are polled, settled ones never change again
- * (cancelled is final; waiting can resume, so it stays live).
+ * The status of a chat's background child — a background harness call
+ * (hc_…, 0022) or a child thread (c_…, 0037 phase 3) — as its transcript
+ * card shows it. One read model for both so the card, the route, and the
+ * tests agree on what "live" means: `live` children are polled, settled
+ * ones never change again (cancelled is final; waiting can resume, so it
+ * stays live). (0048: a third kind, machine runs (mr_…), was purged —
+ * `mr_…` ids now fall through to the generic not-found `null`.)
  */
 export interface ChildStatus {
   id: string;
-  kind: "run" | "harness" | "thread";
+  kind: "harness" | "thread";
   status: string;
   live: boolean;
-  /** Where to look closer (the run view, harness session, or thread). */
+  /** Where to look closer (the harness session or the thread). */
   href: string;
   startedAt: number;
   /** Unix ms of the last settle (null while it has never settled). */
   settledAt: number | null;
-  /** Where it is: a run's current stage, a thread's skill. */
+  /** Where it is: a thread's skill. */
   where: string | null;
   /** Clipped failure reason, when there is one. */
   error: string | null;
@@ -44,24 +44,8 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
     };
   }
   if (id.startsWith("mr_")) {
-    let run;
-    try {
-      run = getRun(db, id);
-    } catch (err) {
-      if (err instanceof MachineError && err.code === "not-found") return null;
-      throw err;
-    }
-    return {
-      id,
-      kind: "run",
-      status: run.status,
-      live: LIVE_STATUSES.has(run.status),
-      href: `/r/${id}`,
-      startedAt: run.createdAt,
-      settledAt: run.settledAt,
-      where: run.currentStage,
-      error: clip(run.error),
-    };
+    // 0048: machine runs were purged — no mr_ id ever resolves again.
+    return null;
   }
   if (id.startsWith("c_")) {
     // Only agent-started children (they carry a parent) are cards'

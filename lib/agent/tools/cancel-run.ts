@@ -10,12 +10,11 @@ import {
 import { recordHarnessRunEnd } from "@/lib/harness-events";
 
 /**
- * 0022: the cancel_run tool's core — the agent surface of cancellation
- * (the run view's button was the human one). Handles background
- * harness calls (hc_…) and child threads (c_…, 0037 phase 3). Machine
- * runs (mr_…) cannot be live since 0037 phase 5 deleted the
- * interpreter. Value-shaped errors so the model reads and repairs
- * instead of the tool call failing.
+ * 0022: the cancel_run tool's core — the agent surface of cancellation.
+ * Handles background harness calls (hc_…) and child threads (c_…, 0037
+ * phase 3). Machine runs (mr_…) are purged (0048) — never cancellable.
+ * Value-shaped errors so the model reads and repairs instead of the
+ * tool call failing.
  */
 
 export type CancelRunResult =

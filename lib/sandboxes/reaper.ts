@@ -1,6 +1,5 @@
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { LIVE_STATUSES } from "@/db/machines";
 import {
   listPreviewsForSandboxes,
   markSandboxPreviewsStopped,
@@ -8,7 +7,7 @@ import {
   RUNNING_PREVIEW_STATUSES,
 } from "@/db/previews";
 import { deleteLease, getLease, markDestroyed, updateLease } from "@/db/sandboxes";
-import { conversations, harnessRuns, machineRuns, sandboxes } from "@/db/schema";
+import { conversations, harnessRuns, sandboxes } from "@/db/schema";
 import { sandboxProvider, type SandboxProvider } from "@/lib/sandboxes/provider";
 import { destroySandboxServices, stopSandboxServices } from "@/lib/sandboxes/services";
 
@@ -69,8 +68,7 @@ export interface ReapReport {
 
 /**
  * Sandboxes with live work in them: an active chat turn or harness run
- * in a conversation bound to it (owner or attached), a live run
- * (running / waiting at a gate) bound to it, or (0016) a preview
+ * in a conversation bound to it (owner or attached), or (0016) a preview
  * starting or serving in it.
  */
 export function busySandboxIds(ids: string[]): Set<string> {
@@ -94,13 +92,6 @@ export function busySandboxIds(ids: string[]): Set<string> {
       const sandboxId = bySession.get(r.sessionId);
       if (sandboxId) busy.add(sandboxId);
     }
-  }
-  for (const r of db()
-    .select({ sandboxId: machineRuns.sandboxId, status: machineRuns.status })
-    .from(machineRuns)
-    .where(inArray(machineRuns.sandboxId, ids))
-    .all()) {
-    if (r.sandboxId && LIVE_STATUSES.has(r.status)) busy.add(r.sandboxId);
   }
   for (const p of listPreviewsForSandboxes(db(), ids)) {
     if (RUNNING_PREVIEW_STATUSES.includes(p.status)) busy.add(p.sandboxId);
@@ -253,17 +244,14 @@ async function reapIdlePreviews(
   }
 }
 
-/** Chats and runs bound to a sandbox (what Destroy strands). */
+/** Chats bound to a sandbox (what Destroy strands). `runs` is always 0
+ *  now (0048: machine runs, the only other owner this ever counted, are
+ *  purged) — kept so callers don't need a shape change. */
 export function boundToSandbox(id: string): { conversations: number; runs: number } {
   const [c] = db()
     .select({ n: sql<number>`count(*)` })
     .from(conversations)
-    .where(and(eq(conversations.sandboxId, id), sql`${conversations.kind} != 'run'`))
+    .where(eq(conversations.sandboxId, id))
     .all();
-  const [r] = db()
-    .select({ n: sql<number>`count(*)` })
-    .from(machineRuns)
-    .where(eq(machineRuns.sandboxId, id))
-    .all();
-  return { conversations: c?.n ?? 0, runs: r?.n ?? 0 };
+  return { conversations: c?.n ?? 0, runs: 0 };
 }

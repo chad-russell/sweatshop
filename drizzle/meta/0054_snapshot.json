@@ -2322,7 +2322,7 @@
           "columns": [
             "conversation_id"
           ],
-          "unique": false
+          "isUnique": false
         }
       },
       "foreignKeys": {

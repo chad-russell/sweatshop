@@ -1,12 +1,11 @@
 /**
- * 0012: where a conversation opens. A run conversation's id IS its run
- * id, so it opens the run view; everything else opens the chat.
- * 0046: a synthetic harness row (kind "harness") opens the harness
- * view scoped to that one call — /h/<harness>/<owning conversation
- * id>/<call id>. The session URL alone was shared by every call of a
- * harness, so their rows all highlighted together.
+ * 0046: where a conversation opens. A synthetic harness row (kind
+ * "harness") opens the harness view scoped to that one call —
+ * /h/<harness>/<owning conversation id>/<call id>. The session URL
+ * alone was shared by every call of a harness, so their rows all
+ * highlighted together. Everything else opens the plain chat.
  */
-export type ConversationKind = "chat" | "run" | "stage";
+export type ConversationKind = "chat" | "stage";
 
 export function conversationHref(item: {
   id: string;
@@ -22,5 +21,5 @@ export function conversationHref(item: {
   if (item.kind === "harness" && item.harness) {
     return `/h/${item.harness}/${item.parentConversationId ?? item.id}/${item.id}`;
   }
-  return item.kind === "run" ? `/r/${item.id}` : `/c/${item.id}`;
+  return `/c/${item.id}`;
 }

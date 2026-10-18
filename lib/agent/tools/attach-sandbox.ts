@@ -13,7 +13,7 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
  */
 
 export type AttachTarget =
-  | { ownerKind: "conversation" | "machine_run"; ownerId: string }
+  | { ownerKind: "conversation"; ownerId: string }
   | { sandboxId: string };
 
 export async function attachConversationSandbox(

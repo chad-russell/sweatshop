@@ -342,7 +342,7 @@ export function InspectCard({
   const sp = statePill(state, failed);
   const status = view?.status;
   const tone: Tone = failed ? "fail" : state === "running" ? "running" : status === "failed" ? "fail" : status === "running" ? "running" : status === "waiting" || status === "parked" ? "warn" : "ok";
-  const href = view ? (view.kind === "run" ? `/r/${view.id}` : view.kind === "chat" ? `/c/${view.id}` : undefined) : undefined;
+  const href = view ? (view.kind === "chat" ? `/c/${view.id}` : undefined) : undefined;
   const hasBody = view && (view.prompt || view.opener || view.last || view.error || view.visits.length || view.harnessRuns.length || view.messages !== undefined || view.sandbox?.startsWith("sbx_"));
   return (
     <Card

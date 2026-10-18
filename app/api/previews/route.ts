@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { listPreviews, listPreviewsForSandboxes } from "@/db/previews";
 import { getConversationBinding } from "@/db/sandboxes";
-import { machineRuns } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { createBranchPreview } from "@/lib/previews/branch";
 import { parsePreviewOverrides } from "@/lib/previews/overrides";
 import { previewProjectId } from "@/lib/previews/context";
@@ -12,10 +10,10 @@ import { PreviewError, viewPreview } from "@/lib/previews/service";
 export const dynamic = "force-dynamic";
 
 /**
- * 0016: previews. `?owner=<conversation or run id>` lists the previews in
- * that chat's or run's bound sandbox (what its header pill shows — the
- * whole tree shares the binding, 0013); `?sandbox=<sbx_…>` one sandbox's;
- * no filter, every preview not deleted.
+ * 0016: previews. `?owner=<conversation id>` lists the previews in that
+ * chat's bound sandbox (what its header pill shows — the whole tree
+ * shares the binding, 0013); `?sandbox=<sbx_…>` one sandbox's; no
+ * filter, every preview not deleted.
  */
 /**
  * 0017: create a branch preview — `{ projectId, repoId, branch,
@@ -67,10 +65,6 @@ export function GET(request: Request) {
 }
 
 function boundSandbox(owner: string): string | null {
-  if (owner.startsWith("mr_")) {
-    const runId = owner.replace(/_\d+$/, "");
-    return db().select({ s: machineRuns.sandboxId }).from(machineRuns).where(eq(machineRuns.id, runId)).get()?.s ?? null;
-  }
   const binding = getConversationBinding(db(), owner);
   return binding?.kind === "bound" ? binding.sandboxId : null;
 }
