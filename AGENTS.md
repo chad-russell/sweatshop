@@ -192,12 +192,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   on a route that cannot run. Storage: `conversations.route`,
   `projects.default_route`, the `settings` table (per-surface global
   defaults; built-ins = GLM `glm-5.3-flash`, claude subscription
-  default), the machine-stage `route` column and `machine_runs.overrides` are
-  historical (machines deleted, 0037 phase 5) — the schema keeps them,
-  nothing writes them.
+  default).
   What ran is recorded on the turn's first assistant row's
-  `metadata.route` ({route, layer}); `machine_stage_runs.route` is
-  historical. Write paths shared
+  `metadata.route` ({route, layer}). Write paths shared
   by UI and future tools live in `lib/providers/settings.ts`. Surfaces:
   the chat's route picker (`components/route-picker.tsx`, per
   conversation, not sticky), `/settings`, the project page Models
@@ -413,19 +410,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   locked thread groups (docs/0046-thread-groups.md): `moveConversation`,
   `setArchived`/`setTrashed`, and `deleteConversationForever` normalize
   the dragged id to its topmost ancestor and apply to the whole group
-  (root + every descendant over BOTH child kinds — start_thread chats
-  via `conversations.parent_conversation_id` and historical machine runs
-  via `machine_runs.parent_conversation_id` — one shared parent-edge
-  map, cycle-safe walks in `db/organize.ts`);
+  (root + every descendant — start_thread chats via
+  `conversations.parent_conversation_id`; 0048 purged the other child
+  kind, historical machine runs, along with their own parent-edge
+  column — cycle-safe walks in `db/organize.ts`);
   children copy the parent's `folderId` at creation
   (`setConversationParent`; migration `0053_group_locking.sql` re-files
   already-diverged data) — a family files, shelves, and dies together.
   `loadSidebar` also injects one synthetic `kind: "harness"` row per
   `harness_calls` call into its owning conversation's list (read-model
   only, never a conversations row — every count stays conversation-only,
-  `kind !== "harness"`), nests historical `kind: "run"` rows under their
-  `machine_runs.parent_conversation_id`, and both render through the
-  same tree: harness rows open their own call at
+  `kind !== "harness"`), which renders through the same tree: harness
+  rows open their own call at
   `/h/<harness>/<conv>/<callId>` (`conversationHref`; events scoped to
   the call's window — the bare session URL was shared by every call of
   a harness, co-selecting rows), show a status glyph (`childGlyphKind`,
@@ -504,12 +500,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `workflows/chat/harness-agent.ts`), the machine tools + approvals,
   `start_machine`, `/machines` + the graph + `@xyflow/react`,
   the machine-gate inbox card, `pr_proposals` + `propose_pr`/`publish`,
-  seeds + `db:seed`. What remains: `machine_runs`/`machine_stage_runs`
-  as READ-ONLY history (runs were conversations — sidebar/search/trash
-  until purged), `db/machines.ts` reads (getRun/listStageRuns/
-  getRunBinding/LIVE_STATUSES), a static `/r/<runId>` view + the run GET
-  API, child-status/inspect reads, and the reaper's defensive consult of
-  run rows. Migration 0047 dropped `machines` and `pr_proposals`. The
+  seeds + `db:seed`. 0048 (option C) finished the job: migration
+  `0055_machines_purge.sql` deleted the 12 e2e-artifact runs with their
+  dependent rows and dropped `machine_runs`/`machine_stage_runs`; the
+  run view, run GET API, `db/machines.ts`, and every run/stage branch
+  (child-status, inspect, reaper, attention, organize) are gone. The
   work surfaces now: a chat running a SKILL (ship/ticket/review), the
   gated tools (`create_pr`), and `start_thread` children — see those
   bullets.
@@ -518,7 +513,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   sandbox_exec, cancel_run, start_thread, web tools and ask_chad, all
   value-shaped so the model repairs its calls. Page context: pages register
   what they are (`components/page-context.tsx` provider in the root
-  layout; `usePageContext`; the run view shows its status) and a panel send carries it as a
+  layout; `usePageContext`) and a panel send carries it as a
   "[viewing]" note — a user-role message injected before the send (the
   agent forbids system messages in `messages`), stored as
   `messages.metadata` (never text), rebuilt each turn

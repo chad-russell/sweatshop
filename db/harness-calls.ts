@@ -10,7 +10,7 @@ import type { HarnessCall } from "./schema";
  * harness_runs (lib/harness-events, unchanged keying); this row is what
  * inspect/cancel/wake read. Settles stamp `settled_at`; wakes stamp
  * `woken_settled_at` after delivery (the same duplicate-over-loss
- * posture as machine_runs).
+ * posture as the old machine_runs table).
  */
 
 export const CALL_SETTLED_STATUSES: ReadonlySet<string> = new Set(["completed", "failed"]);

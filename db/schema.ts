@@ -67,9 +67,8 @@ export const conversations = sqliteTable(
      *  runtime), null when idle. Route-set, cleared by the turn's
      *  persist step (or cancel). */
     activeRunId: text("active_run_id"),
-    /** 0012: "chat" | "run" (a machine run — the id IS the machine_runs
-     *  id) | "stage" (a run's per-visit agent conversation, hidden from
-     *  the sidebar, unread, and search results). */
+    /** "chat" (0012's "run"/"stage" values went with the machine purge,
+     *  0048 — no such rows remain; the column keeps its history). */
     kind: text("kind").notNull().default("chat"),
     /** 0039: the thread skill this conversation runs (skills/<id>/SKILL.md,
      *  null = a plain chat. Its body joins the turn instructions and
