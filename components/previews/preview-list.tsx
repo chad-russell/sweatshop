@@ -17,9 +17,9 @@ import {
   usePreviews,
 } from "./preview-pill";
 
-/** A starter id's page: runs (mr_…, not a stage visit) open the run view. */
+/** A starter id's page: always its chat (0048: machine runs retired). */
 function startedByHref(id: string): string {
-  return /^mr_[^_]+$/.test(id) ? `/r/${id}` : `/c/${id}`;
+  return `/c/${id}`;
 }
 
 /**

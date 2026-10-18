@@ -10,17 +10,17 @@ import type { AttentionCounts, SidebarItem } from "@/db/organize";
  * top level there, same as before this existed.
  */
 
-/** 0012: statuses where a run row is still working (mirrors
+/** 0046: statuses where a synthetic harness row is still working (mirrors
  *  components/sidebar/run-glyph.tsx's isLiveRun — kept here too so this
- *  module stays component-free). Also covers synthetic harness rows
- *  (0046): their statuses are running | completed | failed | cancelled,
- *  so "running" is the only live one. */
+ *  module stays component-free). Their statuses are running | completed |
+ *  failed | cancelled, so "running" is the only live one. (0048: this
+ *  also covered historical run rows; those are purged.) */
 const LIVE_RUN_STATUSES = new Set(["running", "waiting"]);
 
 /** Is this conversation doing something right now: a live turn (any
- *  kind), or a live run status for a run / harness row. */
+ *  kind), or a live status for a harness row. */
 export function isItemRunning(item: Pick<SidebarItem, "kind" | "runStatus" | "activeRunId">): boolean {
-  if (item.kind === "run" || item.kind === "harness") {
+  if (item.kind === "harness") {
     return LIVE_RUN_STATUSES.has(item.runStatus ?? "");
   }
   return item.activeRunId != null;

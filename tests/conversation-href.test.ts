@@ -1,16 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { conversationHref } from "../lib/conversation-href";
 
-/** 0012 + 0046: where a sidebar row opens. */
+/** 0046: where a sidebar row opens. */
 describe("conversationHref", () => {
   it("opens a chat at /c/<id>, defaulting to the chat kind", () => {
     expect(conversationHref({ id: "wrun_1" })).toBe("/c/wrun_1");
     expect(conversationHref({ id: "wrun_2", kind: "chat" })).toBe("/c/wrun_2");
     expect(conversationHref({ id: "wrun_3", kind: null })).toBe("/c/wrun_3");
-  });
-
-  it("opens a run conversation at /r/<run id>", () => {
-    expect(conversationHref({ id: "mr_1", kind: "run" })).toBe("/r/mr_1");
   });
 
   it("opens a synthetic harness row at its own per-call URL (0046)", () => {

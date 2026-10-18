@@ -14,7 +14,6 @@ import { z } from "zod";
 
 export const PAGE_CONTEXT_KINDS = [
   "machine",
-  "run",
   "chat",
   "project",
   "sandbox",
@@ -76,7 +75,7 @@ export function viewingNote(viewing: ViewingContext): string {
   const fetch =
     viewing.kind === "machine"
       ? "get_machine"
-      : viewing.kind === "run" || viewing.kind === "chat" || viewing.kind === "sandbox"
+      : viewing.kind === "chat" || viewing.kind === "sandbox"
         ? "inspect"
         : null;
   return (

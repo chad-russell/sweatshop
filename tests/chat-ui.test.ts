@@ -110,13 +110,6 @@ describe("viewing note (0015)", () => {
     expect(note).toContain("get_machine");
   });
 
-  it("run contexts point at inspect and carry status", () => {
-    const note = viewingNote({ kind: "run", id: "mr_1", runStatus: "waiting", currentStage: "approve" });
-    expect(note).toContain("status: waiting");
-    expect(note).toContain("current stage: approve");
-    expect(note).toContain("inspect");
-  });
-
   it("accepts only the known shape", () => {
     expect(parseViewingContext({ kind: "chat", id: "c_1" })).toEqual({ kind: "chat", id: "c_1" });
     expect(parseViewingContext({ kind: "nope" })).toBeNull();
