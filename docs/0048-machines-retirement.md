@@ -1,94 +1,113 @@
 # 0048 — Machines retirement, phase 2
 
-Status: **DRAFT — proposed 2026-10-18, not yet approved.**
+Status: **DRAFT — proposed 2026-10-18, not yet approved. Corrected the
+same day after a fresh-eyes review found the first draft's residue list
+incomplete and option A's premise wrong.**
 
 ## Why
 
-0037 phase 5 deleted the machine interpreter, its tools, and every write
-path; since then `machine_runs` can never hold a live run again. What
-remains is read-side residue spread across five subsystems, plus two
-tables and several columns nothing will ever write. The same principle
-as 0031/0032 applies: delete code and data that answer a question no
-live runtime can ask.
+0037 phase 5 deleted the machine interpreter, its tools, and most write
+paths; since then `machine_runs` can never hold a live run again. What
+remains is read-side residue spread across the app, plus two tables and
+several columns nothing will ever write for a new run. The same
+principle as 0031/0032 applies: delete code and data that answer a
+question no live runtime can ask.
 
-The residue, exhaustively (grep `machineRuns` / `machineStageRuns` /
-`mr_` / `kind === "run"`):
+## The residue, exhaustively
 
-- `db/machines.ts` (91 lines) — the read store: `getRun`,
-  `listStageRuns`, `LIVE_STATUSES`, `getRunBinding`,
-  `hydrateRunReadonly`, `MachineError`. Readers: `/r/[runId]` page +
-  `app/api/machine-runs/[runId]`, `inspect`, `child-status`, the
-  sandbox reaper.
+**Run view + routing** (all links break together):
+
 - `app/r/[runId]/page.tsx` + `app/api/machine-runs/[runId]/route.ts` —
-  the static run view.
-- `db/attention.ts` — run-conversation unread semantics ("a run's
-  output is its settled_at"), the `kind: "run"` arm of
-  `NeedsYouThread`/`UnreadThread`, `runWhere` joins.
-- `db/organize.ts`, `db/projects.ts`, `db/sandbox-view.ts` —
-  `kind === "run"` branches (sidebar grouping, project deletion
-  cascade, sandbox owner labels).
+  the static run view and its API.
+- `app/c/[sessionId]/page.tsx` — `kind === "run"` redirects
+  `/c/<mr_…>` to `/r/<mr_…>`.
+- `lib/conversation-href.ts` (`hrefFor`) and `lib/page-context.ts` —
+  route run conversations to `/r/`.
+- `components/ai-elements/agent-cards.tsx` (two `/r/` hrefs),
+  `components/sidebar/conversation-row.tsx` + `run-glyph.tsx`,
+  `lib/sidebar-tree.ts` — sidebar/link render paths for `kind = "run"`.
+
+**Reads of the dead tables:**
+
+- `db/machines.ts` (91 lines) — `getRun`, `listStageRuns`,
+  `LIVE_STATUSES`, `getRunBinding`, `MachineError`. Readers: `/r`, the
+  run API, `inspect`, `child-status`, the sandbox reaper.
+- `db/attention.ts` — `runUnread` (a run's unread moment is
+  `machine_runs.settled_at`, NOT a message — 0012), the `"run"` arm of
+  `UnreadThread.kind`, and the settled-at unread join.
+- `db/sandboxes.ts` (`machine_run` lease arm) and
+  `lib/sandboxes/reaper.ts` — `LIVE_STATUSES` guard plus a second
+  `machineRuns` read in `boundToSandbox`.
+- `app/api/previews/route.ts` — `machineRuns` read inside `boundSandbox`.
 - `lib/child-status.ts` — the `mr_…` arm (a live child can never again
-  be a machine run; the arm returns historical cards at best).
-- `lib/sandboxes/reaper.ts` — `LIVE_STATUSES` guard.
-- `db/schema.ts` — `machine_runs`, `machine_stage_runs`, and the
-  `conversations.kind` "run" value (run conversations point at their
-  machine_runs row by id prefix, not FK).
+  be a machine run).
+- `lib/agent/tools/inspect.ts` — the `mr_` targets (stage visits).
+
+**One remaining WRITE:** `db/projects.ts` (project-delete cascade)
+nulls `machine_runs.sandbox*` columns — not "all write paths deleted"
+as the first draft claimed.
+
+**Schema:** `machine_runs`, `machine_stage_runs`, `conversations.kind`
+`"run"`/`"stage"` values (run conversations reference their machine row
+by shared id prefix, not FK).
 
 ## The one real decision
 
-Run conversations (0012) live in the sidebar, are searchable and
-trashable, and `/r/<id>` renders them until purged. Two options:
+Run conversations are visible today: sidebar rows with a run glyph,
+searchable, `/r/<id>` renders status + stage cards + stage-visit
+transcripts. The first draft assumed a run conversation renders fine as
+a plain chat — **wrong**: per 0012 a run row carries no message
+transcript of its own (the words live in its `stage` conversations'
+`messages`, and 0032's importer was eve-era chats). Deleting the run
+view outright would turn every historical run link into a 404 or an
+empty page.
 
-**A. Freeze rendering, delete the machinery (recommended).** Keep the
-`machine_runs`/`machine_stage_runs` TABLES and their rows (history,
-zero migration risk), delete every code path above, and render old run
-conversations as plain chat transcripts — which they already are: the
-run's transcript was imported into `messages` by 0032's importer, and a
-run conversation opens like any archived chat. What is lost: the
-stage-graph chrome of `/r/<id>` and stage-visit inspect. What is kept:
-the words, the search hit, the trash flow. 0032 set the precedent
-("anything that is purely historical data can be deleted; this is only
-a prototype so far").
+Options:
 
-**B. Keep the read paths.** Cost: the residue above stays forever, and
-every future refactor of attention/organize/child-status carries the
-`kind === "run"` branches. Benefit: `/r/<id>`'s stage rendering keeps
-working for the ~dozen historical runs.
+**A. Keep rendering, delete only the dead semantics.** Delete
+`LIVE_STATUSES` guards, `child-status`'s `mr_` arm, `inspect`'s
+live-run framing — everything that exists to answer "is this run live
+or about to do something?" (nothing can be). KEEP `/r/[runId]`, the
+`/c/` redirect, `hrefFor`'s run arm, the sidebar glyph, `runUnread`,
+and `db/machines.ts` as the run view's read store. Cost: the residue
+shrinks but persists (~150 lines instead of ~350). Benefit: zero data
+loss, zero migration, history stays browsable.
 
-The deciding fact: attention's run-unread arm can never fire for a NEW
-run (none can start), so its only effect today is surfacing OLD settled
-runs — which a plain unread-on-conversation rule already covers via the
-imported assistant messages. B pays permanent rent for a temporary
-chrome.
+**B. Delete the run view too, make runs plain conversations.** A small
+migration backfills each run conversation's `messages` with a synthetic
+transcript: the run's prompt as the user row, one summary assistant row
+per stage visit (from `machine_stage_runs` + each visit's `messages` —
+which DO exist and are readable). Then delete `/r`, the redirect,
+`hrefFor`'s arm, the glyph, `runUnread` (plain message-based unread
+takes over), and `db/machines.ts`. Cost: a careful migration + the
+stage-graph chrome is gone forever. Benefit: the residue goes to ~zero.
 
-## Plan (option A)
+The deciding question for Chad: **is the stage-graph chrome of
+historical runs worth ~150 lines of permanent read paths (A), or is a
+flattened-but-preserved transcript enough (B)?** A is the zero-risk
+default; B is the honest end-state if the old runs' browsing value is
+low.
 
-1. `refactor(attention)`: drop the run arms (`NeedsYouThread.kind`,
-   `runWhere`, the settled-at unread join); unread is per-conversation,
-   uniformly.
-2. `refactor(organize)`: sidebar groups fold run conversations into
-   their project group as plain conversations (`kind` stays readable in
-   the DB but stops branching code).
-3. `refactor(sandboxes)`: reaper drops `LIVE_STATUSES`; owner labels
-   read "machine run (historical)" where they used to read live state.
-4. `refactor(child-status)`: `mr_…` ids return a plain "historical run"
-   value-shape (or 404) — `hc_…` and `c_…` are the live kinds.
-5. `refactor(runs)`: delete `/r/[runId]`, `app/api/machine-runs`,
-   `db/machines.ts`; run conversations link to `/c/<id>` (their
-   conversation row) instead. `inspect` loses the `mr_` arm — its
-   description already says `mr_…` targets cannot be live.
-6. `chore(schema)`: NO migration (tables stay); a doc note on the two
-   tables ("write-dead since 0037 phase 5; rows are history"). If Chad
-   later prefers, a one-time script can purge run rows and drop the
-   tables — a separate small PR.
-7. `docs`: AGENTS.md architecture section shrinks accordingly.
+## Plan (option A — the zero-risk default)
 
-Estimated: ~350 lines deleted, ~40 kept-and-simplified.
+1. `refactor(child-status)`: `mr_…` ids return a settled historical
+   value-shape; `hc_…` and `c_…` are the live kinds.
+2. `refactor(sandboxes)`: reaper drops `LIVE_STATUSES`; the
+   `machine_run` lease arm and `boundToSandbox`'s read fold into a
+   "historical" comment or go.
+3. `refactor(inspect)`: `mr_` reports settle state plainly (no live
+   framing).
+4. `chore(schema)`: doc notes on the two tables ("write-dead for new
+   runs since 0037 phase 5; rows are history; the project-delete
+   cascade still nulls sandbox columns — harmless").
+5. `docs`: AGENTS.md shrinks accordingly.
+
+Option B adds, before step 1: the backfill migration, then
+`refactor(runs)`: delete `/r`, `db/machines.ts`, the redirect, `hrefFor`
+run arm, glyph, `runUnread`; search keeps finding run rows (title FTS
+already works).
 
 ## What this doc does NOT decide
 
-- Purging the historical rows themselves (kept — zero-risk default).
-- The `machine_stage_runs.route` and `machine_runs.overrides` columns
-  (schema stays; already documented historical).
-- Any new run-graph feature (0009's original vision stays retired; if a
-  graph returns, it returns as a design doc).
+- Purging historical rows (both options keep them).
+- Any new run-graph feature (0009's vision stays retired).
