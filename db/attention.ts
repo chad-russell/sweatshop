@@ -1,11 +1,9 @@
-import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import { OrganizeError, folderPath } from "./organize";
 import {
   conversations,
   folders,
-  machineRuns,
-  machineStageRuns,
   messages,
   pendingInputs,
   previews,
@@ -20,13 +18,11 @@ import { isPlanCard } from "./plans";
  *  - **Unread** — a conversation with an assistant message newer than
  *    `conversations.last_seen_at`. Opening a conversation (while the tab
  *    is visible and focused) marks it seen; it can be marked unread again.
- *    0012: a run conversation's "output" is the moment it settled
- *    (`machine_runs.settled_at`); `stage` conversations never count —
- *    their output surfaces through the run.
  *  - **Needs you** — a pending human-input request (tool approval or
  *    question, from unresolved `pending_inputs` rows — 0010). Opening
  *    the thread does NOT clear it; only answering does. (Machine-run
- *    gates were also here; 0037 phase 5 deleted machines.)
+ *    gates were also here; 0037 phase 5 deleted machines, 0048 purged
+ *    the runs themselves.)
  */
 
 type Conn = Pick<Db, "select" | "insert" | "update" | "delete">;
@@ -173,8 +169,8 @@ export function loadPendingRequests(
 
 /**
  * Newest unread-worthy activity per conversation: the latest assistant
- * message for chats, the settle time for runs (0012). `id` narrows the
- * scan to one conversation (markSeen / markUnread).
+ * message. `id` narrows the scan to one conversation (markSeen /
+ * markUnread).
  */
 function latestActivityAt(db: Conn, id?: string): Map<string, number> {
   const assistant = db
@@ -190,15 +186,7 @@ function latestActivityAt(db: Conn, id?: string): Map<string, number> {
     )
     .groupBy(messages.conversationId)
     .all();
-  const settled = db
-    .select({ id: machineRuns.id, at: machineRuns.settledAt })
-    .from(machineRuns)
-    .where(id === undefined ? isNotNull(machineRuns.settledAt) : and(isNotNull(machineRuns.settledAt), eq(machineRuns.id, id)))
-    .all();
-  return new Map([
-    ...assistant.map((r): [string, number] => [r.conversationId, r.at]),
-    ...settled.map((r): [string, number] => [r.id, r.at!]),
-  ]);
+  return new Map(assistant.map((r): [string, number] => [r.conversationId, r.at]));
 }
 
 export interface AttentionState {
@@ -339,8 +327,7 @@ export interface NeedsYouPreview {
 
 export interface UnreadThread extends Where {
   id: string;
-  /** 0012: "run" threads open /r/<id>. */
-  kind: "chat" | "run";
+  kind: "chat";
   title: string | null;
   /** Newest assistant message, clipped. */
   snippet: string;
@@ -427,10 +414,6 @@ export function loadInbox(db: Conn): InboxData {
   // A thread that needs an answer is shown once, above; Unread is the rest.
   const unreadIds = [...attention.unread].filter((id) => !attention.needsYou.has(id));
   const unread: UnreadThread[] = unreadIds.flatMap((id): UnreadThread[] => {
-    if (meta.get(id)?.kind === "run") {
-      const run = runUnread(db, id);
-      return run ? [{ id, kind: "run", title: meta.get(id)?.title ?? null, ...run, ...where(id) }] : [];
-    }
     const last = db
       .select({ text: messages.text, at: messages.at })
       .from(messages)
@@ -453,24 +436,5 @@ export function loadInbox(db: Conn): InboxData {
   unread.sort((a, b) => b.at - a.at);
 
   return { needsYou, unread };
-}
-
-/** An unread run's card body: its status plus the newest visit outcome. */
-function runUnread(db: Conn, runId: string): { snippet: string; at: number } | null {
-  const run = db
-    .select({ status: machineRuns.status, error: machineRuns.error, settledAt: machineRuns.settledAt })
-    .from(machineRuns)
-    .where(eq(machineRuns.id, runId))
-    .get();
-  if (!run?.settledAt) return null;
-  const last = db
-    .select({ outcome: machineStageRuns.outcome })
-    .from(machineStageRuns)
-    .where(and(eq(machineStageRuns.runId, runId), isNotNull(machineStageRuns.outcome)))
-    .orderBy(desc(machineStageRuns.seq))
-    .limit(1)
-    .get();
-  const detail = run.error ?? last?.outcome ?? "";
-  return { snippet: clip(detail ? `${run.status} — ${detail}` : run.status), at: run.settledAt };
 }
 

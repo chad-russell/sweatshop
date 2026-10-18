@@ -177,8 +177,7 @@ describe("inspect naming", () => {
     expect(inspectState(inspectOf(chat({ busy: false }))!)).toBe("idle");
   });
 
-  it("names runs and harness calls", () => {
-    expect(inspectName(inspectOf({ kind: "run", id: "mr_1", machine: "ship", status: "running" })!)).toBe("ship");
+  it("names harness calls", () => {
     const call = inspectOf({ kind: "harness-call", id: "hc_1", harness: "pi", status: "running", task: "fix the thing\nplease" })!;
     expect(inspectName(call)).toBe("pi call: fix the thing");
     expect(inspectState(call)).toBe("running");

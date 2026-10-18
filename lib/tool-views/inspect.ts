@@ -59,7 +59,6 @@ export interface InspectView {
   /** A harness-call's harness (pi / claude / cursor). */
   harnessName?: string;
   title?: string;
-  machine?: string;
   status?: string;
   currentStage?: string;
   error?: string;
@@ -104,7 +103,6 @@ export function inspectOf(output: unknown): InspectView | undefined {
     id: o.id,
     ...(harnessName ? { harnessName } : {}),
     title: str("title"),
-    machine: str("machine"),
     status: str("status"),
     currentStage: str("currentStage"),
     error: str("error"),
@@ -179,7 +177,6 @@ export function oneLine(text: string, max = 72): string {
  *  started to do, else a kind-specific name — never the bare word "chat". */
 export function inspectName(view: InspectView): string {
   if (view.title) return view.title;
-  if (view.kind === "run") return view.machine ?? view.id;
   if (view.kind === "harness-call") return `${view.harnessName ?? "harness"} call${view.prompt ? `: ${oneLine(view.prompt, 56)}` : ""}`;
   if (view.opener) return oneLine(view.opener);
   return view.id;

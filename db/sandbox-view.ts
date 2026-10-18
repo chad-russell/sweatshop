@@ -3,7 +3,6 @@ import type { Db } from "./index";
 import { getConversationBinding } from "./sandboxes";
 import {
   conversations,
-  machineRuns,
   previews,
   projects,
   sandboxes,
@@ -49,14 +48,9 @@ function ownerLabel(db: Db, ownerKind: string, ownerId: string): string {
     const p = db.select({ label: previews.label, branch: previews.branch }).from(previews).where(eq(previews.id, ownerId)).get();
     return p ? `${p.label ?? p.branch ?? ownerId} preview` : ownerId;
   }
-  if (ownerKind === "machine_run") {
-    const run = db
-      .select({ name: machineRuns.machineName })
-      .from(machineRuns)
-      .where(eq(machineRuns.id, ownerId))
-      .get();
-    return run ? `${run.name} run` : ownerId;
-  }
+  // 0048: a historical "machine_run" owner has no backing row anymore —
+  // falls through to the generic lookup below, which finds nothing and
+  // returns the bare id.
   const convo = db
     .select({ title: conversations.title })
     .from(conversations)
@@ -142,7 +136,7 @@ export interface SandboxDetail extends SandboxSummary {
 
 function ownerHref(ownerKind: string, ownerId: string): string {
   if (ownerKind === "preview") return `/previews?id=${ownerId}`;
-  return ownerKind === "machine_run" ? `/r/${ownerId}` : `/c/${ownerId}`;
+  return `/c/${ownerId}`;
 }
 
 /** Chats bound to each sandbox: `conversations.sandbox_id` (0031: the

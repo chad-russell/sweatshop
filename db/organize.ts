@@ -11,7 +11,6 @@ import {
   harnessCalls,
   harnessEvents,
   harnessRuns,
-  machineRuns,
   messages,
   pendingInputs,
   sandboxAttachments,
@@ -130,21 +129,13 @@ export function folderSubtreeIds(db: Conn, rootId: string): string[] {
 
 /**
  * 0046: every conversation's parent edge as ONE map, so the up-walk and
- * the down-walk always agree. Two edge kinds (review fix: runs must
- * lock too): a start_thread child's conversations.parent_conversation_id,
- * and a kind:"run" conversation's machine_runs.parent_conversation_id —
- * a run's id IS its machine_runs id, and that column is the link's only
- * home. The conversations edge wins on a conflict (none is realistic).
+ * the down-walk always agree — a start_thread child's
+ * conversations.parent_conversation_id. (0048: the other edge kind, a
+ * historical run's machine_runs.parent_conversation_id, is gone with the
+ * runs.)
  */
 function conversationParentEdges(db: Conn): Map<string, string> {
   const parent = new Map<string, string>();
-  for (const row of db
-    .select({ id: machineRuns.id, parentId: machineRuns.parentConversationId })
-    .from(machineRuns)
-    .where(isNotNull(machineRuns.parentConversationId))
-    .all()) {
-    parent.set(row.id, row.parentId!);
-  }
   for (const row of db
     .select({ id: conversations.id, parentId: conversations.parentConversationId })
     .from(conversations)
@@ -393,16 +384,12 @@ export function setTrashed(db: Db, id: string, trashed: boolean) {
 
 /**
  * Permanently remove a conversation from the sweatshop store: the
- * mirror (events, extracted messages) and harness activity. 0012: a run
- * conversation takes its whole run with it — the machine_runs row (its
- * visits cascade), each visit's session (`<runId>_<seq>`: stage
- * conversations and harness activity) — so purge leaves no orphans.
- * 0046 locked groups: the dragged id's root + every descendant join the
- * purge; a run-kind session anywhere in the group keeps its machine_runs
- * path above.
+ * mirror (events, extracted messages) and harness activity. 0046 locked
+ * groups: the dragged id's root + every descendant join the purge.
  *
- * 0013: returns the sandbox ids the purged run OWNED (an inherited one
- * belongs to its owner). The store is synchronous and cannot reach the
+ * 0013: returns the sandbox ids the purged conversation OWNED — always
+ * empty today (0048: historical runs, the only owner this ever
+ * collected, are purged). The store is synchronous and cannot reach the
  * provider, so the caller destroys them (`destroyOwnedSandboxes`); the
  * sandbox rows stay as destroyed history (0011).
  */
@@ -412,36 +399,6 @@ export function deleteConversationForever(db: Db, id: string): string[] {
   db.transaction((tx) => {
     getConversation(tx, id);
     const sessions = conversationGroupIds(tx, rootConversationId(tx, id));
-    const pending = [...sessions];
-    while (pending.length > 0) {
-      const sid = pending.shift()!;
-      const kind = tx
-        .select({ kind: conversations.kind })
-        .from(conversations)
-        .where(eq(conversations.id, sid))
-        .get()?.kind;
-      if (kind !== "run") continue;
-      const run = tx
-        .select({ sandboxId: machineRuns.sandboxId, owner: machineRuns.sandboxOwner })
-        .from(machineRuns)
-        .where(eq(machineRuns.id, sid))
-        .get();
-      if (run?.sandboxId && run.owner) owned.push(run.sandboxId);
-      const visitSessions = sql`glob ${`${sid}_[0-9]*`}`;
-      for (const c of tx
-        .select({ id: conversations.id })
-        .from(conversations)
-        .where(sql`${conversations.id} ${visitSessions}`)
-        .all()) {
-        if (!sessions.includes(c.id)) {
-          sessions.push(c.id);
-          pending.push(c.id);
-        }
-      }
-      tx.delete(harnessEvents).where(sql`${harnessEvents.sessionId} ${visitSessions}`).run();
-      tx.delete(harnessRuns).where(sql`${harnessRuns.sessionId} ${visitSessions}`).run();
-      tx.delete(machineRuns).where(eq(machineRuns.id, sid)).run();
-    }
     for (const sid of sessions) {
       tx.delete(messages).where(eq(messages.conversationId, sid)).run();
       tx.delete(harnessEvents).where(eq(harnessEvents.sessionId, sid)).run();
@@ -508,11 +465,12 @@ export interface SidebarItem {
   /** 0040 phase 2: when it was created — children sort oldest-first by
    *  this (lib/sidebar-tree.ts), independent of updatedAt's recency sort. */
   createdAt: number;
-  /** 0012: "chat" | "run" (stage rows never reach the sidebar); 0046
-   *  also "harness" — synthetic read-model rows for harness_calls
-   *  sessions injected by loadSidebar, with no conversations row. */
+  /** "chat" (stage and — 0048 — historical run rows never reach the
+   *  sidebar); 0046 also "harness" — synthetic read-model rows for
+   *  harness_calls sessions injected by loadSidebar, with no
+   *  conversations row. */
   kind: string;
-  /** 0012: the run's status for run rows; null for chats. */
+  /** 0046: the harness call's status for harness rows; null for chats. */
   runStatus: string | null;
   /** 0037 phase 3 / 0040 phase 2: the `start_thread` parent, when this is
    *  a child — nests it in the sidebar tree (lib/sidebar-tree.ts). Null
@@ -635,20 +593,6 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     .from(conversations)
     .where(ne(conversations.kind, "stage"))
     .all();
-  const runStatus = new Map(
-    db.select({ id: machineRuns.id, status: machineRuns.status }).from(machineRuns).all().map((r) => [r.id, r.status]),
-  );
-  // 0046: historical runs nest under the chat that started them — their
-  // parent link lives in machine_runs (0022), not the conversations
-  // column. Read-time join only, applied in toItem below.
-  const runParent = new Map(
-    db
-      .select({ id: machineRuns.id, parentId: machineRuns.parentConversationId })
-      .from(machineRuns)
-      .where(isNotNull(machineRuns.parentConversationId))
-      .all()
-      .map((r) => [r.id, r.parentId!]),
-  );
   // 0046: one synthetic row per harness call, injected next to its
   // owning conversation wherever that conversation lands (a folder's
   // items or Unfiled) so buildSidebarTree nests it. Read-model only —
@@ -736,10 +680,8 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     updatedAt: r.updatedAt,
     createdAt: r.createdAt,
     kind: r.kind,
-    runStatus: r.kind === "run" ? (runStatus.get(r.id) ?? null) : null,
-    // 0046: a run conversation's tree parent comes from machine_runs.
-    parentConversationId:
-      r.parentConversationId ?? (r.kind === "run" ? (runParent.get(r.id) ?? null) : null),
+    runStatus: null,
+    parentConversationId: r.parentConversationId,
     activeRunId: r.activeRunId,
     unread: flags.unread.has(r.id),
     needsYou: flags.needsYou.has(r.id),

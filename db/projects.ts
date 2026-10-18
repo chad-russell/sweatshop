@@ -5,7 +5,6 @@ import {
   folders,
   projectHosts,
   gitCredentials,
-  machineRuns,
   previewEvents,
   previews,
   previewSetups,
@@ -377,10 +376,6 @@ export function deleteProjectRows(db: Db, projectId: string): ProjectResult<{ co
       tx.update(conversations)
         .set({ sandboxId: null, sandboxWorkDir: null, sandboxOwner: null })
         .where(inArray(conversations.sandboxId, sandboxIds))
-        .run();
-      tx.update(machineRuns)
-        .set({ sandboxId: null, sandboxWorkDir: null, sandboxOwner: null })
-        .where(inArray(machineRuns.sandboxId, sandboxIds))
         .run();
       tx.delete(sandboxAttachments).where(inArray(sandboxAttachments.sandboxId, sandboxIds)).run();
       // 0017 services FK the sandbox — they die with it (same class as

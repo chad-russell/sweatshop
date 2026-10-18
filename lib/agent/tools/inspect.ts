@@ -1,13 +1,12 @@
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { listMessageTexts } from "@/db/chat";
-import { getRunBinding, listStageRuns } from "@/db/machines";
 import {
   getConversationBinding,
   getLease,
   type BoundSandbox,
 } from "@/db/sandboxes";
-import { conversations, harnessCalls, harnessEvents, harnessRuns, machineRuns } from "@/db/schema";
+import { conversations, harnessCalls, harnessEvents, harnessRuns } from "@/db/schema";
 import { listHostCommands } from "@/db/host-commands";
 import { clipOutput } from "@/lib/agent/tools/bash";
 import { openSandbox } from "@/lib/sandboxes/binding";
@@ -16,12 +15,12 @@ import { clipHead } from "@/lib/clip";
 
 /**
  * 0013 Phase 6 — post-mortems from outside. Two chat tools, available
- * with or without a project, so looking at another chat or run never
- * requires joining its sandbox:
+ * with or without a project, so looking at another chat never requires
+ * joining its sandbox:
  *
- *   inspect       read-only: a chat's, run's, or stage visit's
- *                 transcript tail, harness activity, and sandbox binding
- *                 (the binding is the record of where calls ran — 0031).
+ *   inspect       read-only: a chat's transcript tail, harness activity,
+ *                 and sandbox binding (the binding is the record of
+ *                 where calls ran — 0031).
  *   sandbox_exec  one command in a named sandbox without binding to it
  *                 (resumes a stopped one; never stops or destroys).
  *                 Starting an agent inside it is a new chat that
@@ -97,8 +96,8 @@ function hostActivity(conversationId: string) {
 export type InspectResult = Record<string, unknown>;
 
 /**
- * Inspect a conversation or run by id: `c_…` chat, `mr_…` run, or a
- * stage visit `mr_…_<seq>`. Read-only.
+ * Inspect a conversation by id (`c_…`) or a background harness call
+ * (`hc_…`). Read-only.
  */
 export function inspectTarget(id: string): InspectResult {
   // 0022: a background harness call — status, its task, and where it runs.
@@ -141,67 +140,14 @@ export function inspectTarget(id: string): InspectResult {
     .where(eq(conversations.id, id))
     .get();
   if (!row) {
-    // 0036-era fix (friction 2026-10-09): a HARNESS stage visit's session
-    // id (mr_…_<seq>) has no conversation row, yet the run result's own
-    // hint points here — serve the visit from its machine_stage_runs row.
-    const visitId = /^mr_.+_(\d+)$/.exec(id);
-    if (visitId) {
-      const runId = id.replace(/_\d+$/, "");
-      const visit = listStageRuns(db(), runId).find((v) => v.seq === Number(visitId[1]));
-      if (visit) {
-        return {
-          kind: "visit",
-          id,
-          run: runId,
-          stage: visit.stageId,
-          status: visit.status,
-          steps: visit.steps,
-          ...(visit.outcome ? { outcome: clipHead(visit.outcome, 800) } : {}),
-          ...(visit.error ? { error: clipHead(visit.error, 500) } : {}),
-          ...(visit.route ? { route: visit.route } : {}),
-          sandbox: sandboxSummary(getRunBinding(db(), runId)),
-          harness: harnessActivity(id),
-          eventsUrl: visit.harness ? `/h/${visit.harness}/${id}` : undefined,
-        };
-      }
-    }
     // 2026-10-09 post-mortem: unknown ids are a VALUE, not a throw — a
     // typo'd id in a live turn retried 4x uselessly and killed the whole
     // wake turn; the model self-corrects on the shaped error.
     return { kind: "error", code: "unknown-id", message: `nothing to inspect: no chat or run "${id}"` };
   }
 
-  if (row.kind === "run") {
-    const run = db().select().from(machineRuns).where(eq(machineRuns.id, id)).get();
-    if (!run) return { kind: "error", code: "unknown-id", message: `run ${id} has no run record` };
-    const visits = listStageRuns(db(), id).map((v) => ({
-      seq: v.seq,
-      stage: v.stageId,
-      kind: v.kind,
-      ...(v.harness ? { harness: v.harness } : {}),
-      status: v.status,
-      ...(v.transitionTo ? { to: v.transitionTo } : {}),
-      ...(v.outcome ? { outcome: clipHead(v.outcome, 800) } : {}),
-      ...(v.error ? { error: clipHead(v.error, 500) } : {}),
-      session: v.sessionId ?? `${id}_${v.seq}`,
-    }));
-    return {
-      kind: "run",
-      id,
-      machine: run.machineName,
-      status: run.status,
-      ...(run.currentStage ? { currentStage: run.currentStage } : {}),
-      ...(run.error ? { error: clipHead(run.error, 800) } : {}),
-      prompt: clipHead(run.prompt, 1_000),
-      projectId: run.projectId,
-      sandbox: sandboxSummary(getRunBinding(db(), id)),
-      visits,
-      hint: "Inspect a visit's session id (mr_…_<seq>) for its transcript and harness activity.",
-    };
-  }
-
   const binding = getConversationBinding(db(), id);
-  const base = {
+  return {
     kind: row.kind,
     id,
     title: row.title,
@@ -210,13 +156,6 @@ export function inspectTarget(id: string): InspectResult {
     ...transcriptTail(id),
     harness: harnessActivity(id),
     hostCommands: hostActivity(id),
-  };
-  if (row.kind === "stage") {
-    const runId = id.replace(/_\d+$/, "");
-    return { ...base, run: runId, sandbox: sandboxSummary(getRunBinding(db(), runId)) };
-  }
-  return {
-    ...base,
     sandbox:
       binding?.kind === "bound"
         ? sandboxSummary(binding)
@@ -236,18 +175,18 @@ function ownerWorkDir(sandboxId: string): string {
   const lease = getLease(db(), sandboxId);
   if (!lease) throw new Error(`no sandbox ${sandboxId}`);
   const holder =
-    lease.ownerKind === "machine_run"
-      ? getRunBinding(db(), lease.ownerId)
-      : (() => {
+    lease.ownerKind === "conversation"
+      ? (() => {
           const b = getConversationBinding(db(), lease.ownerId);
           return b?.kind === "bound" ? b : null;
-        })();
+        })()
+      : null;
   return holder?.sandboxId === sandboxId ? holder.workDir : `/work/${lease.ownerId}`;
 }
 
 /**
- * Resolve what sandbox_exec targets: a sandbox id, or a chat / run /
- * stage visit id (its bound sandbox).
+ * Resolve what sandbox_exec targets: a sandbox id, or a chat id (its
+ * bound sandbox).
  */
 export function resolveSandboxTarget(target: string): BoundSandbox {
   if (target.startsWith("sbx_")) {
@@ -260,11 +199,10 @@ export function resolveSandboxTarget(target: string): BoundSandbox {
     .where(eq(conversations.id, runId))
     .get()?.kind;
   if (!kind) throw new Error(`no sandbox, chat, or run "${target}"`);
-  const binding =
-    kind === "run" ? getRunBinding(db(), runId) : (() => {
-      const b = getConversationBinding(db(), runId);
-      return b?.kind === "bound" ? b : null;
-    })();
+  const binding = (() => {
+    const b = getConversationBinding(db(), runId);
+    return b?.kind === "bound" ? b : null;
+  })();
   if (!binding) throw new Error(`${target} has no sandbox (yet)`);
   return { ...binding, owner: false };
 }

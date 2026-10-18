@@ -84,22 +84,22 @@ export function coreTools(
 
     inspect: tool({
       description:
-        "Look at another chat or machine run without joining it: its status, transcript tail, " +
+        "Look at another chat without joining it: its status, transcript tail, " +
         "harness (pi/claude) activity, which sandbox it is bound to, and where each sandboxed call ran. " +
-        "Pass a chat id (c_…), a run id (mr_…), or a run's stage visit (mr_…_<seq>). Read-only.",
+        "Pass a chat id (c_…). Read-only.",
       inputSchema: z.object({
-        id: z.string().min(1).describe("Chat id (c_…), run id (mr_…), or stage visit id (mr_…_<seq>)"),
+        id: z.string().min(1).describe("Chat id (c_…)"),
       }),
       execute: ({ id }) => inspectStep(id),
     }),
 
     sandbox_exec: tool({
       description:
-        "Run one shell command inside another chat's or run's sandbox without binding this conversation " +
+        "Run one shell command inside another chat's sandbox without binding this conversation " +
         "to it (e.g. `git log`, `ls`, run the tests) — it runs in that sandbox's working directory. " +
-        "Target a sandbox id (sbx_…) or a chat/run id. A stopped sandbox is resumed; a destroyed one cannot be.",
+        "Target a sandbox id (sbx_…) or a chat id. A stopped sandbox is resumed; a destroyed one cannot be.",
       inputSchema: z.object({
-        target: z.string().min(1).describe("Sandbox id (sbx_…), chat id (c_…), or run id (mr_…)"),
+        target: z.string().min(1).describe("Sandbox id (sbx_…) or chat id (c_…)"),
         command: z.string().min(1).max(20_000).describe("The bash command to run."),
         description: commandDescription,
         workDir: z.string().optional().describe("Override the working directory (absolute path)"),
