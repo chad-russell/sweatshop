@@ -17,6 +17,7 @@
  */
 
 import type { WebResult } from "./web";
+import { clipHead } from "@/lib/clip";
 
 const MCP_URL = "https://api.z.ai/api/mcp/web_search_prime/mcp";
 const CALL_TIMEOUT_MS = 30_000;
@@ -94,7 +95,7 @@ export async function searchWeb(
     }
     const hits = parseHits(text);
     if (!hits) {
-      return { ok: false, code: "bad-response", message: `Could not parse the search results: ${clip(text, 200)}` };
+      return { ok: false, code: "bad-response", message: `Could not parse the search results: ${clipHead(text, 200)}` };
     }
     return { ok: true, query, results: hits.slice(0, MAX_RESULTS).map(clipHit) };
   } catch (err) {
@@ -209,12 +210,9 @@ function pickString(o: Record<string, unknown>, ...keys: string[]): string | und
 
 function clipHit(hit: SearchHit): SearchHit {
   return {
-    title: clip(hit.title, 300),
+    title: clipHead(hit.title, 300),
     url: hit.url,
-    snippet: clip(hit.snippet, MAX_SNIPPET_CHARS),
+    snippet: clipHead(hit.snippet, MAX_SNIPPET_CHARS),
   };
 }
 
-function clip(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max)}…` : s;
-}

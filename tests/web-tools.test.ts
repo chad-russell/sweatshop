@@ -218,7 +218,10 @@ describe("searchWeb", () => {
     }));
     const result = await searchWeb("many");
     expect(result.ok && result.results.length).toBe(8);
-    expect(result.ok && result.results[0]!.snippet.length).toBeLessThanOrEqual(501);
+    const snippet = result.ok ? result.results[0]!.snippet : "";
+    // clipHead keeps the first 500 chars, then a "… [N chars clipped]" marker.
+    expect(snippet.startsWith("z".repeat(500))).toBe(true);
+    expect(snippet).toContain("chars clipped");
   });
 
   it("surfaces JSON-RPC errors and tool-level isError as values", async () => {

@@ -5,6 +5,7 @@ import { openConversationSandbox } from "@/lib/sandboxes/binding";
 import { resolveProjectRepo } from "@/lib/git-hosts/open-pr";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 import { buildApprovalEvidence, describeCheck, type ApprovalEvidence } from "./evidence";
+import { clipLines } from "@/lib/clip";
 
 /**
  * 0034 Phase A: the approval preview for create_pr — validate the
@@ -33,12 +34,6 @@ export type PRPreview =
 
 /** Ref/dir names safe to interpolate into the sandbox shell command. */
 const SAFE_NAME = /^[A-Za-z0-9._/-]+$/;
-
-function clipLines(text: string, max: number): string {
-  const lines = text.trimEnd().split("\n");
-  if (lines.length <= max) return lines.join("\n");
-  return `${lines.slice(0, max).join("\n")}\n… (+${lines.length - max} more)`;
-}
 
 /** The card text — pure; `git` carries what the sandbox gather returned. */
 export function formatPRSummary(

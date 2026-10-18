@@ -108,6 +108,6 @@ describe("forgejo allowlist", () => {
     const long = (async () => jsonResponse({ blob: "y".repeat(30_000) })) as unknown as typeof fetch;
     const result = await runForgejo("/repos/search", {}, long);
     expect(result.ok ? result.output.length : 0).toBeLessThan(30_000);
-    expect(result.ok ? result.output : "").toContain("[clipped");
+    expect(result.ok ? result.output : "").toContain("chars clipped");
   });
 });
