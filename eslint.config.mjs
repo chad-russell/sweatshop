@@ -28,6 +28,26 @@ const eslintConfig = defineConfig([
     "components/ai-elements/**",
     "components/ui/**",
   ]),
+  // 0049: components draw read models, never the store layer — types come
+  // from @/lib/read-models/*, queries go through API routes. `patterns`
+  // (not `paths`) because the alias needs glob grammar to catch both the
+  // bare "@/db" entry and deep imports like "@/db/organize".
+  {
+    files: ["components/**/*.tsx", "components/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/db", "@/db/*"],
+              message: "read models live in @/lib/read-models; queries go through API routes",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
