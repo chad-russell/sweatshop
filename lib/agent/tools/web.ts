@@ -7,6 +7,8 @@
  * interprets it.
  */
 
+import { clipHead } from "@/lib/clip";
+
 export type WebResult<T> = ({ ok: true } & T) | { ok: false; code: string; message: string };
 
 /** Download cap: read at most this many bytes of the body. */
@@ -79,8 +81,8 @@ export async function fetchWebPage(rawUrl: string): Promise<WebResult<FetchedPag
   const { body, bytes, truncated } = await readCapped(response);
   const isHtml = kind === "text/html" || kind === "application/xhtml+xml";
   const extracted = isHtml ? htmlToText(body) : { title: undefined, text: body };
-  const clipped = extracted.text.length > MAX_TEXT_CHARS;
-  const text = clipped ? `${extracted.text.slice(0, MAX_TEXT_CHARS)}\n… [clipped at ${MAX_TEXT_CHARS} characters]` : extracted.text;
+  const text = clipHead(extracted.text, MAX_TEXT_CHARS);
+  const clipped = text !== extracted.text;
 
   return {
     ok: true,

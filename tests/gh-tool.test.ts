@@ -94,6 +94,6 @@ describe("gh allowlist", () => {
     execFile.mockImplementationOnce(({ callback }) => callback(null, "x".repeat(30_000), ""));
     const result = await runGh(["repo", "list"]);
     expect(result.ok ? result.output.length : 0).toBeLessThan(30_000);
-    expect(result.ok ? result.output : "").toContain("[clipped");
+    expect(result.ok ? result.output : "").toContain("chars clipped");
   });
 });

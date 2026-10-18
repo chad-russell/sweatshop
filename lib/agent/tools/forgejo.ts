@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { listGitCredentials } from "@/db/projects";
+import { clipHead } from "@/lib/clip";
 
 /**
  * 0033 Phase A′: the forgejo core — read-only REST against the
@@ -37,10 +38,6 @@ const MAX_OUTPUT = 20_000;
 export type ForgejoResult =
   | { ok: true; url: string; output: string }
   | { ok: false; code: string; message: string; allowed: string[] };
-
-function clip(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max)}\n… [clipped at ${max} characters]` : s;
-}
 
 export function allowedForgejoPaths(): string[] {
   return ALLOWED_LIST;
@@ -99,9 +96,9 @@ export async function runForgejo(
     return {
       ok: false,
       code: "http-error",
-      message: `HTTP ${response.status}: ${clip(scrubbed, 400)}`,
+      message: `HTTP ${response.status}: ${clipHead(scrubbed, 400)}`,
       allowed: ALLOWED_LIST,
     };
   }
-  return { ok: true, url, output: clip(scrubbed.trim(), MAX_OUTPUT) };
+  return { ok: true, url, output: clipHead(scrubbed.trim(), MAX_OUTPUT) };
 }

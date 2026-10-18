@@ -1,0 +1,489 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { ToolUIPart } from "ai";
+import { ChevronDown, GitPullRequest } from "lucide-react";
+import { Tool, ToolContent, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
+import { MessageResponse } from "@/components/ai-elements/message";
+import { CollapsibleTrigger } from "@/components/ui/collapsible";
+import { PlanDocument } from "@/components/plan-card";
+import { DISMISS_ANSWER } from "@/lib/dismiss-answer";
+import { isPlanCard } from "@/lib/plan";
+import { ApprovalEvidenceView } from "@/components/approval-evidence";
+import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
+import { cn } from "@/lib/utils";
+
+/**
+ * Approval-gated transcript cards (create_pr, ask_chad, accept_plan, exec,
+ * gated tools) — split from chat-session.tsx.
+ */
+
+/** owner/repo + number read off a PR web URL. */
+function prUrlCoords(url: string): { repo: string; number: string } | null {
+  const match = url.match(/^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\/pulls?\/(\d+)/);
+  return match ? { repo: `${match[1]}/${match[2]}`, number: match[3] } : null;
+}
+
+/**
+ * 0037: a create_pr call waiting on Chad — the runtime's evidence (test
+ * check, the thread's screenshots) plus Approve/Deny, right in the
+ * transcript. The evidence row appears once the preview step has written
+ * it (polled until then); typing in the composer is a revise.
+ */
+export function PendingPRApproval({ toolCallId }: { toolCallId: string }) {
+  const [evidence, setEvidence] = useState<ApprovalEvidence | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    if (evidence) return;
+    let stop = false;
+    const load = async () => {
+      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(toolCallId)}`).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { evidence?: ApprovalEvidence | null } | null;
+      if (!stop && body?.evidence) setEvidence(body.evidence);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [toolCallId, evidence]);
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId, approved }),
+      });
+      if (res.ok) setAnswered(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!evidence) {
+    return (
+      <p className="px-3 pb-2.5 text-xs text-muted-foreground">Running the project&apos;s checks for the approval card…</p>
+    );
+  }
+  return (
+    <div className="space-y-2 border-t border-warning/40 bg-warning/5 px-3 py-2.5">
+      <ApprovalEvidenceView evidence={evidence} />
+      {answered ? (
+        <p className="text-xs text-muted-foreground">Answered — the agent continues.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Approve PR
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Deny
+          </button>
+          <span className="text-xs text-muted-foreground">or type below to send it back with changes</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One create_pr call: status pill, title, branch chips, link out. */
+export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
+  const running = part.state === "input-streaming" || part.state === "input-available";
+  const failed = part.state === "output-error";
+  const showInput = part.state !== "input-streaming";
+  const input = (showInput ? part.input : undefined) as {
+    title?: unknown;
+    body?: unknown;
+    head?: unknown;
+    base?: unknown;
+    repo?: unknown;
+  } | undefined;
+  const title = typeof input?.title === "string" ? input.title : undefined;
+  const body = typeof input?.body === "string" ? input.body : undefined;
+  const head = typeof input?.head === "string" ? input.head : undefined;
+  const base = typeof input?.base === "string" ? input.base : "main";
+  const repoDir = typeof input?.repo === "string" ? input.repo : undefined;
+  const output =
+    part.state === "output-available"
+      ? (part.output as { url?: unknown; number?: unknown } | undefined)
+      : undefined;
+  const url = typeof output?.url === "string" ? output.url : undefined;
+  const prNumber = typeof output?.number === "number" ? output.number : undefined;
+  const coords = url ? prUrlCoords(url) : null;
+  const numberText = coords?.number ?? (prNumber !== undefined ? String(prNumber) : undefined);
+  const errorText = failed ? (part.errorText ?? "create_pr failed") : undefined;
+
+  return (
+    <Tool className={cn("my-1", failed && "border-destructive/40")}>
+      <div className="flex w-full items-center justify-between gap-3 px-3 py-2.5">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <GitPullRequest
+            className={cn(
+              "size-4 shrink-0",
+              failed ? "text-destructive" : running ? "text-info" : "text-success",
+            )}
+            aria-hidden
+          />
+          <span className="truncate font-medium">
+            {title ?? (running ? "Opening pull request…" : "Pull request")}
+          </span>
+          <span
+            className={
+              "shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase " +
+              (failed
+                ? "bg-destructive/15 text-destructive"
+                : running
+                  ? "animate-pulse bg-info/15 text-info"
+                  : "bg-success/15 text-success")
+            }
+          >
+            {failed ? "failed" : running ? "opening" : "opened"}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {(coords?.repo || numberText) && (
+            <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
+              {[coords?.repo, numberText && `#${numberText}`].filter(Boolean).join(" ")}
+            </span>
+          )}
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90 pointer-coarse:px-3 pointer-coarse:py-2"
+            >
+              View PR →
+            </a>
+          )}
+          <CollapsibleTrigger
+            aria-label="Toggle create_pr details"
+            title="Details"
+            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors pointer-coarse:size-10 hover:bg-accent hover:text-foreground"
+          >
+            <ChevronDown
+              className="size-4 transition-transform group-data-[state=open]:rotate-180"
+              aria-hidden
+            />
+          </CollapsibleTrigger>
+        </div>
+      </div>
+      {part.state === "input-available" && <PendingPRApproval toolCallId={part.toolCallId} />}
+      <ToolContent>
+        {head && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{head}</span>
+            <span aria-hidden>→</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{base}</span>
+            {!coords?.repo && repoDir && <span className="font-mono">{repoDir}</span>}
+          </div>
+        )}
+        {body && (
+          <div className="text-sm text-muted-foreground">
+            <MessageResponse>{body}</MessageResponse>
+          </div>
+        )}
+        {showInput && input && <ToolInput input={part.input} />}
+        {(output !== undefined || errorText !== undefined) && (
+          <ToolOutput output={output} errorText={errorText} />
+        )}
+      </ToolContent>
+    </Tool>
+  );
+}
+
+/** An ask_chad call awaiting Chad: approvals get Approve/Deny, questions *  get a freeform answer box — matching what the tool asked for. */
+export function AskChadCard({ part }: { part: ToolUIPart }) {
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState("");
+  const answered = part.state === "output-available" || part.state === "output-error";
+  const input = part.input as { kind?: unknown; question?: unknown } | undefined;
+  const kind = input?.kind === "question" ? "question" : "approval";
+  const question = typeof input?.question === "string" ? input.question : undefined;
+
+  const post = async (payload: Record<string, unknown>) => {
+    setBusy(true);
+    try {
+      await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, ...payload }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      <p className="text-sm font-medium">
+        {kind === "question" ? "Question for you: " : "Approve? "}
+        {question}
+      </p>
+      {!answered ? (
+        kind === "question" ? (
+          <div className="mt-2 flex gap-2">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Your answer…"
+              disabled={busy}
+              className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2.5 text-base pointer-coarse:h-10 md:text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && draft.trim()) void post({ answer: draft });
+              }}
+            />
+            <button
+              type="button"
+              disabled={busy || !draft.trim()}
+              onClick={() => void post({ answer: draft })}
+              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+            >
+              Answer
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              title="Answer with 'carry on without me' — the agent stops waiting"
+              onClick={() => void post({ answer: DISMISS_ANSWER })}
+              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : (
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void post({ approved: true })}
+              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+            >
+              Approve
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void post({ approved: false })}
+              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+            >
+              Deny
+            </button>
+          </div>
+        )
+      ) : (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {part.state === "output-available" ? String(part.output) : "no answer recorded"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** 0041: accept_plan waiting on Chad — the plan version it would approve,
+ *  with Approve/Deny (typing below answers it as a deny, 0037's rule). */
+export function AcceptPlanCard({ part }: { part: ToolUIPart }) {
+  const [card, setCard] = useState<{ version: number; markdown: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    if (card) return;
+    let stop = false;
+    const load = async () => {
+      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(part.toolCallId)}`).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { evidence?: unknown } | null;
+      if (!stop && isPlanCard(body?.evidence)) setCard(body.evidence);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [part.toolCallId, card]);
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+      });
+      if (res.ok) setAnswered(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      <p className="text-sm font-medium">{card ? `Approve plan v${card.version}?` : "Approve the plan?"}</p>
+      <p className="text-xs text-muted-foreground">You said so in chat — the agent is waiting for an explicit approval.</p>
+      {card && (
+        <details className="rounded-md border bg-background px-2 py-1.5">
+          <summary className="cursor-pointer text-xs text-muted-foreground">Show plan v{card.version}</summary>
+          <PlanDocument markdown={card.markdown} className="mt-2" />
+        </details>
+      )}
+      {answered ? (
+        <p className="text-xs text-muted-foreground">Answered — the agent continues.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Not yet
+          </button>
+          <span className="text-xs text-muted-foreground">or type below to say what to change</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Tools whose execute asks Chad first (the ask_chad pattern inside a
+ * tool): while the part is unresolved, the transcript shows the
+ * approval buttons right there — same POST as the inbox card. */
+export const GATED_TOOLS = new Set(["create_project", "delete_project"]);
+
+/** 0043: an exec call waiting on Chad — approve it right here (the
+ *  inbox card posts to the same endpoint); typing below answers it as a
+ *  denial with the text as the comment (the 0037 rule). */
+export function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
+  const [busy, setBusy] = useState(false);
+  const input = (part.state === "input-streaming" ? undefined : part.input) as
+    | { host?: unknown; command?: unknown; description?: unknown; timeout?: unknown }
+    | undefined;
+  const host = typeof input?.host === "string" ? input.host : undefined;
+  const description = typeof input?.description === "string" && input.description.trim() ? input.description.trim() : undefined;
+  const command = typeof input?.command === "string" ? input.command : undefined;
+  const timeout = typeof input?.timeout === "number" ? input.timeout : 120;
+  const answered = part.state === "output-available" || part.state === "output-error" || part.state === "output-denied";
+
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      <p className="text-sm font-medium">
+        Run on {host ?? "a host"}?
+        {description && <span className="ml-1.5 font-normal text-muted-foreground">{description}</span>}
+      </p>
+      <div className="rounded-md border border-terminal-border bg-terminal px-3 py-2 font-mono text-xs">
+        <div className="text-terminal-muted">{timeout}s timeout · every approved command runs via bash -lc as the host&apos;s user</div>
+        <pre className="mt-1.5 whitespace-pre-wrap text-terminal-foreground">$ {command ?? "…"}</pre>
+      </div>
+      {!answered ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Deny
+          </button>
+          <span className="text-xs text-muted-foreground">or type below to send it back with a comment</span>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Answered — the agent continues.</p>
+      )}
+    </div>
+  );
+}
+
+/** One gated tool call awaiting Chad's approval, in the transcript. */
+export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
+  const [busy, setBusy] = useState(false);
+  const name = part.type.replace(/^tool-/, "");
+  const input = part.state === "input-streaming" ? undefined : (part.input as Record<string, unknown> | undefined);
+  const str = (key: string) => (typeof input?.[key] === "string" ? (input[key] as string) : undefined);
+  const headline =
+    name === "create_project"
+      ? `Create project ${str("id") ?? "?"}${str("name") ? ` ("${str("name")}")` : ""}`
+      : `Delete project ${str("id") ?? "?"} — and everything it owns`;
+  const answered = part.state === "output-available" || part.state === "output-error";
+
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      <p className="text-sm font-medium">{headline}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">The agent is waiting for your approval.</p>
+      {!answered ? (
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Deny
+          </button>
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {part.state === "output-available" ? String(part.output).slice(0, 300) : "no answer recorded"}
+        </p>
+      )}
+    </div>
+  );
+}

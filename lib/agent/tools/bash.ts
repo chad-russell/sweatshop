@@ -1,8 +1,12 @@
+import { clipEnds } from "@/lib/clip";
 import {
   openConversationSandbox,
   openInheritedSandbox,
   type BoundSandbox,
 } from "@/lib/sandboxes/binding";
+
+/** Clip a step-serialized result: keep the head and tail, drop the middle. */
+export const clipOutput = clipEnds;
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /**
@@ -15,13 +19,6 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
  * tests inject a fake provider here (step args must serialize, so the
  * provider can never ride through the workflow boundary).
  */
-
-/** Clip a step-serialized result: keep the head and tail, drop the middle. */
-export function clipOutput(text: string, limit = 10_000): string {
-  if (text.length <= limit) return text;
-  const half = Math.floor(limit / 2);
-  return `${text.slice(0, half)}\n… [${text.length - limit} chars clipped] …\n${text.slice(-half)}`;
-}
 
 export interface BashResult {
   exitCode: number;

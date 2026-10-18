@@ -12,6 +12,7 @@ import { listHostCommands } from "@/db/host-commands";
 import { clipOutput } from "@/lib/agent/tools/bash";
 import { openSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
+import { clipHead } from "@/lib/clip";
 
 /**
  * 0013 Phase 6 — post-mortems from outside. Two chat tools, available
@@ -34,11 +35,6 @@ const MESSAGE_CLIP = 1_500;
 const HARNESS_EVENTS = 30;
 const HOST_COMMANDS = 10;
 
-function clip(text: string | null | undefined, limit: number): string {
-  if (!text) return "";
-  return text.length <= limit ? text : `${text.slice(0, limit)}… [${text.length - limit} chars clipped]`;
-}
-
 function sandboxSummary(binding: BoundSandbox | null) {
   if (!binding) return null;
   const lease = getLease(db(), binding.sandboxId);
@@ -54,7 +50,7 @@ function transcriptTail(conversationId: string) {
   const rows = listMessageTexts(db(), conversationId);
   return {
     totalMessages: rows.length,
-    tail: rows.slice(-TAIL_MESSAGES).map((m) => ({ role: m.role, at: m.at, text: clip(m.text, MESSAGE_CLIP) })),
+    tail: rows.slice(-TAIL_MESSAGES).map((m) => ({ role: m.role, at: m.at, text: clipHead(m.text ?? "", MESSAGE_CLIP) })),
   };
 }
 
@@ -78,9 +74,9 @@ function harnessActivity(sessionId: string) {
       harness: e.harness,
       kind: e.kind,
       tool: e.toolName,
-      ...(e.input ? { input: clip(e.input, 300) } : {}),
-      ...(e.output ? { output: clip(e.output, 500) } : {}),
-      ...(e.text ? { text: clip(e.text, 300) } : {}),
+      ...(e.input ? { input: clipHead(e.input, 300) } : {}),
+      ...(e.output ? { output: clipHead(e.output, 500) } : {}),
+      ...(e.text ? { text: clipHead(e.text, 300) } : {}),
     }));
   return { runs, recentEvents: events };
 }
@@ -91,7 +87,7 @@ function hostActivity(conversationId: string) {
   if (rows.length === 0) return null;
   return rows.map((c) => ({
     host: c.hostName,
-    command: clip(c.command, 400),
+    command: clipHead(c.command, 400),
     exit: c.exitCode,
     ran: c.resolvedAt !== null,
     at: c.createdAt,
@@ -116,9 +112,9 @@ export function inspectTarget(id: string): InspectResult {
       id,
       harness: call.kind,
       status: call.status,
-      task: clip(call.task, 1_000),
-      ...(call.error ? { error: clip(call.error, 500) } : {}),
-      ...(call.result ? { result: clip(call.result, 1_500) } : {}),
+      task: clipHead(call.task, 1_000),
+      ...(call.error ? { error: clipHead(call.error, 500) } : {}),
+      ...(call.result ? { result: clipHead(call.result, 1_500) } : {}),
       // 0040 phase 3 (review fix): the path `harnessSettleStep` actually
       // wrote, read back verbatim — never derived/guessed, so this is
       // never a path `cat` 404s on.
@@ -160,8 +156,8 @@ export function inspectTarget(id: string): InspectResult {
           stage: visit.stageId,
           status: visit.status,
           steps: visit.steps,
-          ...(visit.outcome ? { outcome: clip(visit.outcome, 800) } : {}),
-          ...(visit.error ? { error: clip(visit.error, 500) } : {}),
+          ...(visit.outcome ? { outcome: clipHead(visit.outcome, 800) } : {}),
+          ...(visit.error ? { error: clipHead(visit.error, 500) } : {}),
           ...(visit.route ? { route: visit.route } : {}),
           sandbox: sandboxSummary(getRunBinding(db(), runId)),
           harness: harnessActivity(id),
@@ -185,8 +181,8 @@ export function inspectTarget(id: string): InspectResult {
       ...(v.harness ? { harness: v.harness } : {}),
       status: v.status,
       ...(v.transitionTo ? { to: v.transitionTo } : {}),
-      ...(v.outcome ? { outcome: clip(v.outcome, 800) } : {}),
-      ...(v.error ? { error: clip(v.error, 500) } : {}),
+      ...(v.outcome ? { outcome: clipHead(v.outcome, 800) } : {}),
+      ...(v.error ? { error: clipHead(v.error, 500) } : {}),
       session: v.sessionId ?? `${id}_${v.seq}`,
     }));
     return {
@@ -195,8 +191,8 @@ export function inspectTarget(id: string): InspectResult {
       machine: run.machineName,
       status: run.status,
       ...(run.currentStage ? { currentStage: run.currentStage } : {}),
-      ...(run.error ? { error: clip(run.error, 800) } : {}),
-      prompt: clip(run.prompt, 1_000),
+      ...(run.error ? { error: clipHead(run.error, 800) } : {}),
+      prompt: clipHead(run.prompt, 1_000),
       projectId: run.projectId,
       sandbox: sandboxSummary(getRunBinding(db(), id)),
       visits,

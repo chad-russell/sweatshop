@@ -23,6 +23,7 @@ import {
   type PreviewDeps,
   type PreviewView,
 } from "@/lib/previews/service";
+import { clipTail } from "@/lib/clip";
 
 /**
  * 0016: the preview tools' cores — start_preview / preview_status /
@@ -131,14 +132,10 @@ export async function startPreviewTool(
         : preview.status === "starting"
           ? `launched but not answering on port ${port} yet — check preview_status, or the log below`
           : `the server exited — read the log, fix the cause, and call start_preview again (it restarts the same preview)`;
-    return { ok: true, preview, ...(log ? { log: clip(log) } : {}), note };
+    return { ok: true, preview, ...(log ? { log: clipTail(log, 6_000) } : {}), note };
   } catch (err) {
     return fail(err);
   }
-}
-
-function clip(text: string, limit = 6_000): string {
-  return text.length <= limit ? text : `…${text.slice(-limit)}`;
 }
 
 /** The caller's sandbox id without creating one (status/stop never bind). */
@@ -159,7 +156,7 @@ export async function previewStatusTool(
       const p = getPreview(db(), input.id);
       if (!p || p.deletedAt) return { ok: false, code: "not-found", message: `no preview ${input.id}` };
       const log = await previewLogs(p.id, input.lines ?? 60, deps);
-      return { ok: true, previews: [{ ...viewPreview(p), log: clip(log) }] };
+      return { ok: true, previews: [{ ...viewPreview(p), log: clipTail(log, 6_000) }] };
     }
     if (!sandboxId) return { ok: true, previews: [] };
     return { ok: true, previews: listPreviewsForSandboxes(db(), [sandboxId]).map(viewPreview) };

@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { db } from "@/db";
 import { listGitCredentials } from "@/db/projects";
+import { clipHead } from "@/lib/clip";
 
 /**
  * 0033 Phase A: the gh core — the real GitHub CLI, run in the app
@@ -41,10 +42,6 @@ const MAX_OUTPUT = 20_000;
 export type GhResult =
   | { ok: true; command: string; output: string }
   | { ok: false; code: string; message: string; allowed: string[] };
-
-function clip(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max)}\n… [clipped at ${max} characters]` : s;
-}
 
 export function allowedGhCommands(): string[] {
   return ALLOWED_LIST;
@@ -105,7 +102,7 @@ export async function runGh(rawArgs: string[]): Promise<GhResult> {
           resolve({
             ok: false,
             code: "gh-failed",
-            message: `gh exited ${(err as { code?: number }).code ?? "?"}: ${clip(detail, 500)}`,
+            message: `gh exited ${(err as { code?: number }).code ?? "?"}: ${clipHead(detail, 500)}`,
             allowed: ALLOWED_LIST,
           });
           return;
@@ -114,7 +111,7 @@ export async function runGh(rawArgs: string[]): Promise<GhResult> {
           .trim()
           .split(credential.secret)
           .join("***");
-        resolve({ ok: true, command: `gh ${args.join(" ")}`, output: clip(out, MAX_OUTPUT) });
+        resolve({ ok: true, command: `gh ${args.join(" ")}`, output: clipHead(out, MAX_OUTPUT) });
       },
     );
   });

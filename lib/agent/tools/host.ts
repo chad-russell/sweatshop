@@ -4,7 +4,7 @@ import { getProjectHostByName, listProjectHosts, parseAddress, setHostKeyFingerp
 import { recordHostCommand, resolveHostCommand } from "@/db/host-commands";
 import { resolveHostCredential } from "@/lib/hosts/credentials";
 import { ssh2Transport, type HostExecOutcome, type HostTransport } from "@/lib/hosts/transport";
-import { clipOutput } from "@/lib/agent/tools/bash";
+import { clipEnds as clipOutput } from "@/lib/clip";
 
 /**
  * 0043: the `exec` tool's core. Two halves, both plain functions on the
