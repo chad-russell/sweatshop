@@ -7,6 +7,7 @@ import { getConversation } from "../db/chat";
 import { getGlobalDefaults, getProjectModels, setProjectModels } from "../db/providers";
 import { conversations, projects, settings } from "../db/schema";
 import { saveCursorCredential } from "../lib/harness-auth/cursor";
+import { saveCodexCredential } from "../lib/harness-auth/codex";
 import { setDefaultRoute, setProjectModelSettings } from "../lib/providers/settings";
 import { titleRouteFor } from "../lib/titles";
 import { PATCH as patchProjectModels } from "../app/api/projects/[projectId]/models/route";
@@ -43,6 +44,13 @@ function fakeAuthJson(expMs: number): string {
   const jwt = (exp: number) =>
     ["e30", Buffer.from(JSON.stringify({ exp: Math.floor(exp / 1000) })).toString("base64url"), "sig"].join(".");
   return JSON.stringify({ accessToken: jwt(expMs), refreshToken: jwt(expMs) });
+}
+
+/** 0050: a structurally real codex auth.json (chatgpt mode, unsigned JWT). */
+function fakeCodexAuthJson(expMs: number): string {
+  const jwt = (exp: number) =>
+    ["e30", Buffer.from(JSON.stringify({ exp: Math.floor(exp / 1000) })).toString("base64url"), "sig"].join(".");
+  return JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: jwt(expMs), refresh_token: "r" } });
 }
 
 const json = (body: unknown, method = "PUT") => new Request("http://x", { method, body: JSON.stringify(body) });
@@ -103,6 +111,29 @@ describe("global defaults write path", () => {
     } finally {
       if (prev === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
       else process.env.CLAUDE_CODE_OAUTH_TOKEN = prev;
+    }
+  });
+
+  it("0050: codex defaults take model/effort, never a provider — and need a login to be saved", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-auth-"));
+    const prev = process.env.HARNESS_AUTH_DIR;
+    process.env.HARNESS_AUTH_DIR = dir;
+    try {
+      // No login yet: the route is well-formed but cannot run.
+      expect(setDefaultRoute(db(), "codex", { harness: "codex", model: "gpt-5.5" }).ok).toBe(false);
+      saveCodexCredential(fakeCodexAuthJson(Date.now() + 30 * 86_400_000));
+      expect(setDefaultRoute(db(), "codex", { harness: "codex", model: "gpt-5.5", effort: "xhigh" }).ok).toBe(true);
+      expect(getGlobalDefaults(db()).codex).toEqual({ harness: "codex", model: "gpt-5.5", effort: "xhigh" });
+      // Nowhere to put a provider; the model must be one we offer.
+      expect(setDefaultRoute(db(), "codex", { harness: "codex", provider: "gloo" }).ok).toBe(false);
+      expect(setDefaultRoute(db(), "codex", { harness: "codex", model: "gpt-5.6-turbo" }).ok).toBe(false);
+      // Reset falls back to the built-in.
+      expect(setDefaultRoute(db(), "codex", null)).toEqual({ ok: true });
+      expect(getGlobalDefaults(db()).codex).toEqual({ harness: "codex" });
+    } finally {
+      if (prev === undefined) delete process.env.HARNESS_AUTH_DIR;
+      else process.env.HARNESS_AUTH_DIR = prev;
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

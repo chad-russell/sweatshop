@@ -120,3 +120,14 @@ export const CLAUDE_MODELS: readonly { id: string; label: string }[] = [
   { id: "sonnet", label: "Sonnet" },
   { id: "haiku", label: "Haiku" },
 ];
+
+/**
+ * 0050: model ids offered for the Codex harness. Starts at the
+ * adapter's own deliberate default — GPT-5.6 models use Responses
+ * Lite, which hides code-mode tools from the custom provider
+ * (openai/codex#31894) — and grows only from spike evidence
+ * (tests/codex-spike.integration.test.ts, 0050 phase 6).
+ */
+export const CODEX_MODELS: readonly { id: string; label: string }[] = [
+  { id: "gpt-5.5", label: "GPT-5.5" },
+];

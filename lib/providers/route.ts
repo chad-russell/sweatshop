@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CURSOR_MODELS, PROVIDER_IDS, PROVIDER_LABELS, type ProviderId } from "./catalog";
+import { CODEX_MODELS, CURSOR_MODELS, PROVIDER_IDS, PROVIDER_LABELS, type ProviderId } from "./catalog";
 
 /**
  * 0021: the route — the one value that says what runs a model call.
@@ -7,17 +7,17 @@ import { CURSOR_MODELS, PROVIDER_IDS, PROVIDER_LABELS, type ProviderId } from ".
  * stores, the routes, and the client pickers.
  *
  * Provider-routed surfaces (chats, agent stages, titles, pi) carry a
- * provider + model. The subscription harnesses (claude, cursor — 0038)
- * carry only what the subscription offers — the schema has nowhere to
- * put a provider on them, so "never repoint a subscription harness"
- * holds by construction (decision 1).
+ * provider + model. The subscription harnesses (claude, cursor — 0038,
+ * codex — 0050) carry only what the subscription offers — the schema
+ * has nowhere to put a provider on them, so "never repoint a
+ * subscription harness" holds by construction (decision 1).
  */
 
 export const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
 export type Thinking = (typeof THINKING_LEVELS)[number];
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ClaudeEffort = (typeof CLAUDE_EFFORTS)[number];
-export const ROUTE_HARNESSES = ["pi", "claude", "cursor"] as const;
+export const ROUTE_HARNESSES = ["pi", "claude", "cursor", "codex"] as const;
 export type RouteHarness = (typeof ROUTE_HARNESSES)[number];
 
 const providerId = z.enum(PROVIDER_IDS);
@@ -48,10 +48,19 @@ export const cursorRouteSchema = z.strictObject({
   harness: z.literal("cursor"),
   model: modelId.optional(),
 });
+/** 0050: Codex — subscription only (ChatGPT-login auth.json); model
+ *  unset = the adapter's own default (gpt-5.5). Codex accepts the same
+ *  effort ladder as claude (createCodex reasoningEffort). */
+export const codexRouteSchema = z.strictObject({
+  harness: z.literal("codex"),
+  model: modelId.optional(),
+  effort: z.enum(CLAUDE_EFFORTS).optional(),
+});
 export const harnessRouteSchema = z.discriminatedUnion("harness", [
   piRouteSchema,
   claudeRouteSchema,
   cursorRouteSchema,
+  codexRouteSchema,
 ]);
 export const routeSchema = z.union([harnessRouteSchema, chatRouteSchema]);
 
@@ -59,19 +68,22 @@ export type ChatRoute = z.infer<typeof chatRouteSchema>;
 export type PiRoute = z.infer<typeof piRouteSchema>;
 export type ClaudeRoute = z.infer<typeof claudeRouteSchema>;
 export type CursorRoute = z.infer<typeof cursorRouteSchema>;
+export type CodexRoute = z.infer<typeof codexRouteSchema>;
 export type HarnessRoute = z.infer<typeof harnessRouteSchema>;
 export type Route = z.infer<typeof routeSchema>;
 
 /** Where a model call happens — each resolves through its own layers. */
-export type Surface = "chat" | "agent" | "pi" | "claude" | "cursor" | "titles";
-export const SURFACES = ["chat", "agent", "pi", "claude", "cursor", "titles"] as const satisfies readonly Surface[];
+export type Surface = "chat" | "agent" | "pi" | "claude" | "cursor" | "codex" | "titles";
+export const SURFACES = ["chat", "agent", "pi", "claude", "cursor", "codex", "titles"] as const satisfies readonly Surface[];
 export type SurfaceRoute<S extends Surface> = S extends "pi"
   ? PiRoute
   : S extends "claude"
     ? ClaudeRoute
     : S extends "cursor"
       ? CursorRoute
-      : ChatRoute;
+      : S extends "codex"
+        ? CodexRoute
+        : ChatRoute;
 
 /** Which layer a resolved route came from — recorded with every visit/turn. */
 export type RouteLayer = "run-stage" | "run" | "stage" | "conversation" | "project" | "global";
@@ -90,6 +102,7 @@ export const BUILTIN_DEFAULTS: GlobalDefaults = {
   pi: { harness: "pi", provider: "glm", model: "glm-5.3-flash" },
   claude: { harness: "claude" },
   cursor: { harness: "cursor" },
+  codex: { harness: "codex" },
   titles: { provider: "glm", model: "glm-5.3-flash" },
 };
 
@@ -119,6 +132,8 @@ const isClaude = (r: Route | null | undefined): r is ClaudeRoute =>
   !!r && "harness" in r && r.harness === "claude";
 const isCursor = (r: Route | null | undefined): r is CursorRoute =>
   !!r && "harness" in r && r.harness === "cursor";
+const isCodex = (r: Route | null | undefined): r is CodexRoute =>
+  !!r && "harness" in r && r.harness === "codex";
 
 /** A chat route carried onto pi (the chat's pi tool inherits its conversation's route). */
 function asPi(r: ChatRoute | PiRoute): PiRoute {
@@ -134,6 +149,7 @@ function asPi(r: ChatRoute | PiRoute): PiRoute {
  *   claude: run-stage > stage > global — never inherits a chat/project
  *           route (subscription harness, decision 1)
  *   cursor: same as claude (0038)
+ *   codex:  same as claude (0050)
  * A layer whose value has the wrong shape for the surface is skipped.
  */
 export function resolveRoute<S extends Surface>(surface: S, layers: RouteLayers): Resolved<S> {
@@ -168,6 +184,10 @@ export function resolveRoute<S extends Surface>(surface: S, layers: RouteLayers)
         if (isCursor(layers.runStage)) return { route: layers.runStage, layer: "run-stage" };
         if (isCursor(layers.stage)) return { route: layers.stage, layer: "stage" };
         return { route: g.cursor, layer: "global" };
+      case "codex":
+        if (isCodex(layers.runStage)) return { route: layers.runStage, layer: "run-stage" };
+        if (isCodex(layers.stage)) return { route: layers.stage, layer: "stage" };
+        return { route: g.codex, layer: "global" };
     }
     throw new Error(`unknown surface ${String(surface)}`);
   };
@@ -194,6 +214,8 @@ export interface ValidationContext {
   claudeConfigured: boolean;
   /** 0038: a usable Cursor browser-login credential exists. */
   cursorConfigured: boolean;
+  /** 0050: a usable ChatGPT-login credential exists. */
+  codexConfigured: boolean;
   project?: (ProjectRestrictions & { id: string }) | null;
 }
 
@@ -262,6 +284,14 @@ export function validateRoute(route: Route, ctx: ValidationContext): RouteCheck 
       "cursor is not logged in — run `agent login` and save its auth.json (data/harness-auth/cursor/auth.json), see /settings",
     );
   }
+  if (isCodex(route) && route.model && !CODEX_MODELS.some((m) => m.id === route.model)) {
+    issues.push(
+      `codex model "${route.model}" is not offered (offered: ${CODEX_MODELS.map((m) => m.id).join(", ")}) — pick one on /settings or clear it`,
+    );
+  }
+  if (routeHarness(route) === "codex" && !ctx.codexConfigured) {
+    issues.push("codex is not logged in — use Log in with ChatGPT on /settings (data/harness-auth/codex/auth.json)");
+  }
   issues.push(...checkRestrictions(route, ctx.project));
   return issues.length ? { ok: false, issues } : { ok: true };
 }
@@ -285,6 +315,7 @@ export function parseRouteAs<T>(
 export function routeLabel(route: Route): string {
   if (isCursor(route)) return `cursor${route.model ? ` · ${route.model}` : ""}`;
   if (isClaude(route)) return `claude${route.model ? ` · ${route.model}` : ""}${route.effort ? ` (${route.effort})` : ""}`;
+  if (isCodex(route)) return `codex${route.model ? ` · ${route.model}` : ""}${route.effort ? ` (${route.effort})` : ""}`;
   const r = route as ChatRoute | PiRoute;
   const prefix = isPi(r) ? "pi · " : "";
   const thinking = r.thinking ? ` (${r.thinking})` : "";

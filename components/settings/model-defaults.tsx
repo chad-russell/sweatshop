@@ -30,6 +30,7 @@ const SURFACE_COPY: Record<Surface, { title: string; hint: string }> = {
   pi: { title: "pi harness", hint: "pi tool calls and pi stages without a conversation, stage, or project route." },
   claude: { title: "claude harness", hint: "Subscription only — never provider-routed. Model and effort." },
   cursor: { title: "cursor harness", hint: "Subscription only — never provider-routed. Model." },
+  codex: { title: "codex harness", hint: "Subscription only — never provider-routed. Model and effort." },
   titles: { title: "Titles", hint: "Generated conversation titles. Keep it cheap and fast." },
 };
 

@@ -20,6 +20,7 @@ import {
   checkRestrictions,
   parseRouteAs,
   resolveRoute,
+  routeLabel,
   routeSchema,
   titleRoute,
   validateRoute,
@@ -76,6 +77,16 @@ describe("route schema", () => {
     expect(routeSchema.safeParse({ harness: "cursor", model: "composer-2.5" }).success).toBe(true);
     expect(routeSchema.safeParse({ harness: "cursor", provider: "openrouter", model: "x/y" }).success).toBe(false);
     expect(routeSchema.safeParse({ harness: "cursor", effort: "high" }).success).toBe(false);
+  });
+
+  it("0050: codex takes a model and effort — nowhere to put a provider, no extras", () => {
+    expect(routeSchema.safeParse({ harness: "codex" }).success).toBe(true);
+    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.5" }).success).toBe(true);
+    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.5", effort: "xhigh" }).success).toBe(true);
+    expect(routeSchema.safeParse({ harness: "codex", provider: "openrouter", model: "x/y" }).success).toBe(false);
+    expect(routeSchema.safeParse({ harness: "codex", thinking: "high" }).success).toBe(false);
+    expect(routeSchema.safeParse({ harness: "windsurf" }).success).toBe(false);
+    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.5", bogus: 1 }).success).toBe(false);
   });
 
   it("has nowhere to put a provider on claude (ToS by construction)", () => {
@@ -142,6 +153,18 @@ describe("resolveRoute layers", () => {
     });
   });
 
+  it("0050: codex never inherits a chat/project/run route, and only a codex stage applies", () => {
+    expect(resolveRoute("codex", { global: g, conversation: conv, project: proj, run: conv })).toEqual({
+      route: g.codex,
+      layer: "global",
+    });
+    expect(resolveRoute("codex", { global: g, stage: { harness: "cursor", model: "composer-2.5" } }).layer).toBe("global");
+    expect(resolveRoute("codex", { global: g, stage: { harness: "codex", model: "gpt-5.5" } })).toEqual({
+      route: { harness: "codex", model: "gpt-5.5" },
+      layer: "stage",
+    });
+  });
+
   it("claude never inherits a chat/project/run route (decision 1)", () => {
     expect(resolveRoute("claude", { global: g, conversation: conv, project: proj, run: conv })).toEqual({
       route: g.claude,
@@ -167,6 +190,7 @@ describe("validateRoute", () => {
     hasModel: () => true,
     claudeConfigured: true,
     cursorConfigured: true,
+    codexConfigured: true,
     project: null,
     ...over,
   });
@@ -200,6 +224,28 @@ describe("validateRoute", () => {
     ).toBe(true);
   });
 
+  it("0050: rejects codex until a login exists, with the way out in the message", () => {
+    const r = validateRoute({ harness: "codex" }, ctx({ codexConfigured: false }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.issues[0]).toContain("Log in with ChatGPT");
+      expect(r.issues[0]).toContain("/settings");
+    }
+    expect(validateRoute({ harness: "codex" }, ctx({ codexConfigured: true })).ok).toBe(true);
+  });
+
+  it("0050: a codex model must be one we offer; a codex harness is restrictable", () => {
+    const unknown = validateRoute({ harness: "codex", model: "gpt-5.6-turbo" }, ctx());
+    expect(unknown.ok).toBe(false);
+    if (!unknown.ok) {
+      expect(unknown.issues[0]).toContain("not offered");
+      expect(unknown.issues[0]).toContain("gpt-5.5");
+    }
+    expect(validateRoute({ harness: "codex", model: "gpt-5.5", effort: "high" }, ctx()).ok).toBe(true);
+    const project = { id: "p", allowedProviders: null, allowedHarnesses: ["pi"] as const };
+    expect(validateRoute({ harness: "codex" }, ctx({ project })).ok).toBe(false);
+  });
+
   it("rejects claude when its token is unset", () => {
     expect(validateRoute({ harness: "claude" }, ctx({ claudeConfigured: false })).ok).toBe(false);
   });
@@ -214,6 +260,19 @@ describe("validateRoute", () => {
 
   it("an unset restriction list allows everything", () => {
     expect(checkRestrictions({ harness: "claude" }, { id: "p", allowedProviders: null, allowedHarnesses: null })).toEqual([]);
+  });
+});
+
+describe("0050: codex defaults and label", () => {
+  it("BUILTIN_DEFAULTS includes the codex surface (model unset = adapter default)", () => {
+    expect(BUILTIN_DEFAULTS.codex).toEqual({ harness: "codex" });
+  });
+
+  it("routeLabel renders codex like claude — model and effort when set", () => {
+    expect(routeLabel({ harness: "codex" })).toBe("codex");
+    expect(routeLabel({ harness: "codex", model: "gpt-5.5" })).toBe("codex · gpt-5.5");
+    expect(routeLabel({ harness: "codex", model: "gpt-5.5", effort: "high" })).toBe("codex · gpt-5.5 (high)");
+    expect(routeLabel({ harness: "codex", effort: "max" })).toBe("codex (max)");
   });
 });
 
@@ -238,6 +297,7 @@ describe("thinking on chat routes (0021 amendment)", () => {
     hasModel: () => true,
     claudeConfigured: true,
     cursorConfigured: true,
+    codexConfigured: true,
     project: null,
     ...over,
   });
