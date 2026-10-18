@@ -144,7 +144,12 @@ export const ChatMessageView = memo(function ChatMessageView({
           if (part.type.startsWith("tool-")) {
             const toolPart = part as ToolUIPart;
             if (toolPart.type === "tool-ask_chad") return <AskChadCard key={i} part={toolPart} />;
-            if (toolPart.type === "tool-pi" || toolPart.type === "tool-claude" || toolPart.type === "tool-cursor") {
+            if (
+              toolPart.type === "tool-pi" ||
+              toolPart.type === "tool-claude" ||
+              toolPart.type === "tool-cursor" ||
+              toolPart.type === "tool-codex"
+            ) {
               const task = (toolPart.input as { task?: unknown } | undefined)?.task;
               return (
                 <HarnessCard

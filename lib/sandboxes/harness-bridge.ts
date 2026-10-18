@@ -18,7 +18,7 @@ const exec = promisify(execFile);
 export const HARNESS_NETWORK = "sweatshop-harness";
 
 /**
- * 0038 amendment: bridge-backed kinds (claude, cursor) each get their
+ * 0038 amendment: bridge-backed kinds (claude, cursor, codex) each get their
  * OWN port inside the sandbox. Before this, both hardcoded the same
  * port — fine while only one harness ran at a time (0006), but once a
  * settled call's bridge is kept up for reattach (workflows/chat/

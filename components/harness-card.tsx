@@ -188,7 +188,8 @@ export function HarnessSummary({ children, className }: { children: string; clas
 }
 
 /**
- * One coding-harness delegation (the chat's `pi` / `claude` tool): the
+ * One coding-harness delegation (the chat's pi / claude / cursor / codex
+ * tool): the
  * harness's mark and name, a status pill, the task as given, a live line
  * naming the tool it is running while it works, and — when done — its
  * summary and tool-call count. Links to the full /h/<kind>/<id> session.

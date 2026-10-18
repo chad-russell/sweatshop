@@ -11,6 +11,7 @@ import {
   THINKING_LEVELS,
   type ChatRoute,
   type ClaudeRoute,
+  type CodexRoute,
   type CursorRoute,
   type GlobalDefaults,
   type PiRoute,
@@ -109,10 +110,22 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
           <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
             <span className="flex-1 font-medium">cursor (subscription)</span>
             <span className={`${MONO} text-muted-foreground`}>
-              {view.cursor.configured ? cursorExpiry(view.cursor.expiresAt) : "not logged in"}
+              {view.cursor.configured ? loginExpiry(view.cursor.expiresAt) : "not logged in"}
             </span>
             {!view.cursor.configured && view.cursor.status && (
               <span className={`${LABEL} w-full`}>{view.cursor.status}</span>
+            )}
+          </li>
+          {/* 0050: status only for now. 0050 phase 5: Log in with ChatGPT button. */}
+          <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
+            <span className="flex-1 font-medium">codex (subscription)</span>
+            <span className={`${MONO} text-muted-foreground`}>
+              {view.codex.configured
+                ? loginExpiry(view.codex.expiresAt) + (view.codex.accountId ? ` · ${view.codex.accountId}` : "")
+                : "not logged in"}
+            </span>
+            {!view.codex.configured && view.codex.status && (
+              <span className={`${LABEL} w-full`}>{view.codex.status}</span>
             )}
           </li>
         </ul>
@@ -154,6 +167,14 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
               models={view.cursor.models}
               disabled={busy !== null || !view.cursor.configured}
               onSave={(route) => void save("cursor", route)}
+            />
+          </SurfaceRow>
+          <SurfaceRow surface="codex">
+            <CodexDefault
+              value={defaults.codex}
+              models={view.codex.models}
+              disabled={busy !== null || !view.codex.configured}
+              onSave={(route) => void save("codex", route)}
             />
           </SurfaceRow>
         </ul>
@@ -271,7 +292,7 @@ function ClaudeDefault({
 }
 
 /** "logged in · expires in 41 days" — the access-token expiry, when known. */
-function cursorExpiry(expiresAt: number | null): string {
+function loginExpiry(expiresAt: number | null): string {
   if (expiresAt === null) return "logged in";
   const days = Math.floor((expiresAt - Date.now()) / 86_400_000);
   return days >= 0 ? `logged in · expires in ${days} day${days === 1 ? "" : "s"}` : "logged in";
@@ -303,5 +324,58 @@ function CursorDefault({
         </option>
       ))}
     </select>
+  );
+}
+
+/** 0050: codex takes a model and an effort (shared low..max enum) — the
+ *  same two-select shape as claude's row. */
+function CodexDefault({
+  value,
+  models,
+  disabled,
+  onSave,
+}: {
+  value: CodexRoute;
+  models: { id: string; label: string }[];
+  disabled: boolean;
+  onSave: (route: CodexRoute) => void;
+}) {
+  const set = (patch: Partial<CodexRoute>) => {
+    const next: CodexRoute = { ...value, ...patch };
+    if (!next.model) delete next.model;
+    if (!next.effort) delete next.effort;
+    onSave(next);
+  };
+  return (
+    <>
+      <select
+        aria-label="codex default model"
+        className={SELECT}
+        disabled={disabled}
+        value={value.model ?? ""}
+        onChange={(e) => set({ model: e.target.value || undefined })}
+      >
+        <option value="">model: adapter default (gpt-5.5)</option>
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>
+            model: {m.label}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="codex effort"
+        className={SELECT}
+        disabled={disabled}
+        value={value.effort ?? ""}
+        onChange={(e) => set({ effort: (e.target.value || undefined) as CodexRoute["effort"] })}
+      >
+        <option value="">effort: default</option>
+        {CLAUDE_EFFORTS.map((x) => (
+          <option key={x} value={x}>
+            effort: {x}
+          </option>
+        ))}
+      </select>
+    </>
   );
 }

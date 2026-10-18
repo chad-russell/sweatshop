@@ -2,8 +2,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * Brand marks for the coding harnesses. All draw in currentColor, so the
- * caller owns the colour: Claude in its brand orange, pi and Cursor in the text colour.
+ * caller owns the colour: Claude in its brand orange, pi, Cursor and
+ * Codex in the text colour.
  * Claude: simple-icons "claude" (CC0). pi: the three-block mark from pi.dev.
+ * Codex: the OpenAI knot simplified to a nested-hexagon outline.
  */
 
 export function ClaudeMark({ className }: { className?: string }) {
@@ -23,6 +25,20 @@ export function CursorMark({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Codex: a drawn hexagonal-knot outline (nested hexagons, the OpenAI/
+ * Codex mark simplified) — no brand asset is shipped, so like pi's mark
+ * this one is hand-drawn. Outline only: stroke=currentColor, no fill.
+ */
+export function CodexMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden className={className}>
+      <path d="M12 2.6 20.15 7.3v9.4L12 21.4 3.85 16.7V7.3Z" />
+      <path d="M12 7.6 15.9 9.85v4.3L12 16.4 8.1 14.15v-4.3Z" />
+    </svg>
+  );
+}
+
 export function PiMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 560 560" fill="currentColor" aria-hidden className={className}>
@@ -33,7 +49,7 @@ export function PiMark({ className }: { className?: string }) {
   );
 }
 
-export const HARNESS_LABEL: Record<string, string> = { pi: "Pi", claude: "Claude Code", cursor: "Cursor" };
+export const HARNESS_LABEL: Record<string, string> = { pi: "Pi", claude: "Claude Code", cursor: "Cursor", codex: "Codex" };
 
 /** A harness's mark in a small rounded tile (cards, headers). */
 export function HarnessLogo({
@@ -56,6 +72,8 @@ export function HarnessLogo({
         <ClaudeMark className={cn("size-4 text-brand-claude", markClassName)} />
       ) : kind === "cursor" ? (
         <CursorMark className={cn("size-4 text-foreground", markClassName)} />
+      ) : kind === "codex" ? (
+        <CodexMark className={cn("size-4 text-foreground", markClassName)} />
       ) : (
         <PiMark className={cn("size-3.5 text-foreground", markClassName)} />
       )}
@@ -82,6 +100,9 @@ export function HarnessMark({
   }
   if (kind === "cursor") {
     return <CursorMark className={cn("size-4 shrink-0", className)} />;
+  }
+  if (kind === "codex") {
+    return <CodexMark className={cn("size-4 shrink-0", className)} />;
   }
   if (kind === "pi") {
     return <PiMark className={cn("size-3.5 shrink-0", className)} />;
