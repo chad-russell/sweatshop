@@ -82,6 +82,15 @@ function messageText(message: PromptMessage): string {
     .join("");
 }
 
+/** Stable per-conversation ask id: a short hash of the send texts. Two
+ *  conversations never share it, so pending_inputs' conflict-do-nothing
+ *  insert can never silently swallow one test's card for another's. */
+function askCallId(sends: string[]): string {
+  let h = 0;
+  for (const t of sends) for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+  return `call_ask_${(h >>> 0).toString(36)}`;
+}
+
 function userTexts(prompt: LanguageModelV4CallOptions["prompt"]): string[] {
   return prompt
     .filter((message) => message.role === "user")
@@ -103,10 +112,21 @@ export function scriptedChatModel(): LanguageModel {
       }
 
       if (script === "approve" || script === "question") {
-        if (!sawToolResult) {
+        // Ask while the ask's own tool result is not the LAST message
+        // (the old "any tool message anywhere" skipped the ask when a
+        // replayed slice carried an earlier tool result). The ask's
+        // tool-call id is derived from the conversation's own sends so
+        // two conversations can never collide on the pending_inputs PK
+        // (recordPendingInput is conflict-do-nothing — a shared fixed id
+        // made one test's card silently swallow another's; the CI flake,
+        // 2026-10-17).
+        const lastIsAskResult =
+          options.prompt[options.prompt.length - 1]?.role === "tool";
+        const askId = askCallId(userTexts(options.prompt));
+        if (!lastIsAskResult) {
           return result(
             toolCallPart(
-              "call_ask_chad_1",
+              askId,
               "ask_chad",
               script === "question"
                 ? { kind: "question", question: "Which database should we use?" }

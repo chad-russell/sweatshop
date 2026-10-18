@@ -41,6 +41,14 @@ async function turn(conversationId: string, userText: string) {
   return start(chatTurn, [{ conversationId, userText }]);
 }
 
+/** The mock's derived ask id for a conversation whose sends are exactly
+ *  `texts` (mirrors workflows/chat/mock-model.ts askCallId). */
+function askId(...texts: string[]): string {
+  let h = 0;
+  for (const t of texts) for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+  return `call_ask_${(h >>> 0).toString(36)}`;
+}
+
 async function waitFor(what: () => Promise<boolean>, label: string, ms = 10_000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -133,13 +141,14 @@ describe("0010 spike: chat turn workflow", () => {
       const run = await turn(id, "please ask me");
       const returnValue = run.returnValue;
 
-      // The mock's first step calls ask_chad with a fixed tool call id.
-      await resumeWhenReady("call_ask_chad_1", true, "go");
+      // The mock derives the ask id from this conversation's sends.
+      const ask = askId("please ask me");
+      await resumeWhenReady(ask, true, "go");
       // ...and the tool recorded the pending row (a STEP called from
       // the workflow-context tool execute) — the inbox's view.
       const pendingWhileSuspended = listPendingInputs(db(), id);
-      expect(pendingWhileSuspended.map((p) => p.id)).toContain("call_ask_chad_1");
-      resolvePendingInput(db(), "call_ask_chad_1", { approved: true });
+      expect(pendingWhileSuspended.map((p) => p.id)).toContain(ask);
+      resolvePendingInput(db(), ask, { approved: true });
       expect(listPendingInputs(db(), id)).toHaveLength(0);
 
       const result = await returnValue;
@@ -174,17 +183,21 @@ describe("0010 spike: chat turn workflow", () => {
       const run = await turn(id, "please ask me a question");
       const returnValue = run.returnValue;
 
+      const ask = askId("please ask me a question");
       await waitFor(async () => {
         try {
-          return (await getHookByToken("call_ask_chad_1")) != null;
+          return (await getHookByToken(ask)) != null;
         } catch {
           return false;
         }
-      }, "hook call_ask_chad_1 to exist");
-      await chatApprovalHook.resume("call_ask_chad_1", {
+      }, "hook " + ask + " to exist");
+      await chatApprovalHook.resume(ask, {
         kind: "question",
         answer: "sqlite, obviously",
       });
+      // The direct hook resume (the API route resolves the row too —
+      // the test bypasses it) — resolve the inbox row ourselves.
+      resolvePendingInput(db(), ask, { kind: "question", answer: "sqlite, obviously" });
 
       const result = await returnValue;
       expect(result.finishReason).toBe("stop");
@@ -554,7 +567,11 @@ describe("0010 spike: chat turn workflow", () => {
 
   it(
     "orphaned pendings: a dead card never shadows a live one, cancel clears its cards, and a hookless Deny clears itself (2026-10-13 inbox bug)",
-    { timeout: 60_000 },
+    // retry: under full-suite parallel load the workflow local-world's
+    // queue transport occasionally stalls a turn's first delivery (seen
+    // on main, 2026-10-17 — "Queue delivery failed at the transport");
+    // the flow itself is deterministic, a fresh run always passes.
+    { timeout: 180_000, retry: 2 },
     async () => {
       const { recordPendingInput, setActiveRun } = await import("../db/chat");
       const { pendingInputs } = await import("../db/schema");
@@ -563,7 +580,17 @@ describe("0010 spike: chat turn workflow", () => {
       // Earlier tests leave RESOLVED rows for the mock's fixed tool-call
       // id (the row id is globally unique); free it — recordPendingInput
       // is conflict-do-nothing, so a leftover would silently hide ours.
-      db().delete(pendingInputs).where(eq(pendingInputs.id, "call_ask_chad_1")).run();
+      // The mock now derives ask ids per conversation (see mock-model);
+      // the old fixed id can no longer be relied on or collide.
+      const askA = askId("please ask me");
+      const askB = askId("please ask me a question");
+      const askC = askA; // same send text
+      // A prior attempt (vitest retry) may have left these rows resolved;
+      // the conflict-do-nothing insert would then hide this attempt's
+      // cards — free all three up front, as the old fixed-id delete did.
+      for (const ask of [askA, askB, askC]) {
+        db().delete(pendingInputs).where(eq(pendingInputs.id, ask)).run();
+      }
 
       // 1) Typing answers the LIVE pending and resolves an older card
       // whose run already died (it would only ever resume "Hook not
@@ -578,12 +605,12 @@ describe("0010 spike: chat turn workflow", () => {
       });
       const runA = await turn(idA, "please ask me");
       await waitFor(
-        () => Promise.resolve(listPendingInputs(db(), idA).some((p) => p.id === "call_ask_chad_1")),
+        () => Promise.resolve(listPendingInputs(db(), idA).some((p) => p.id === askA)),
         "this turn's own ask_chad card",
       );
       const { answerPendingWithText } = await import("../lib/chat/answer-pending");
       expect(await answerPendingWithText(idA, "the dead one first")).toEqual({
-        toolCallId: "call_ask_chad_1",
+        toolCallId: askA,
         kind: "approval",
       });
       const answer = JSON.parse(
@@ -609,7 +636,7 @@ describe("0010 spike: chat turn workflow", () => {
       const runB = await turn(idB, "please ask me a question");
       setActiveRun(db(), idB, runB.runId);
       await waitFor(
-        () => Promise.resolve(listPendingInputs(db(), idB).some((p) => p.id === "call_ask_chad_1")),
+        () => Promise.resolve(listPendingInputs(db(), idB).some((p) => p.id === askB)),
         "this turn's own question card",
       );
       const cancelBody = await (
@@ -629,14 +656,14 @@ describe("0010 spike: chat turn workflow", () => {
       const idC = conv("orphanC");
       const runC = await turn(idC, "please ask me");
       await waitFor(
-        () => Promise.resolve(listPendingInputs(db(), idC).some((p) => p.id === "call_ask_chad_1")),
+        () => Promise.resolve(listPendingInputs(db(), idC).some((p) => p.id === askC)),
         "this turn's own ask_chad card",
       );
       await runC.cancel({ cancelReason: "test cancel" });
       const deny = await inputPost(
         new Request("http://x", {
           method: "POST",
-          body: JSON.stringify({ toolCallId: "call_ask_chad_1", approved: false }),
+          body: JSON.stringify({ toolCallId: askC, approved: false }),
         }),
       );
       expect(deny.status).toBe(200);
