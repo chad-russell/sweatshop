@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { RoutePicker } from "@/components/route-picker";
 import { Button } from "@/components/ui/button";
+import { CodexLoginRow } from "@/components/settings/codex-login-row";
 import { LABEL, MONO } from "@/components/form-styles";
 import type { ModelsView } from "@/lib/providers/catalog-view";
 import {
@@ -80,6 +81,13 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
     setBusy(null);
   };
 
+  /** 0050: the codex login flips availability — re-read the view the
+   *  same way refresh() does after a catalog update. */
+  const reloadSettings = async () => {
+    const next = await fetch("/api/settings", { cache: "no-store" });
+    if (next.ok) setView((await next.json()) as ModelsView);
+  };
+
   const pickerView = { ...view, defaults };
   const providers = view.providers.filter((p) => p.available);
 
@@ -116,18 +124,7 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
               <span className={`${LABEL} w-full`}>{view.cursor.status}</span>
             )}
           </li>
-          {/* 0050: status only for now. 0050 phase 5: Log in with ChatGPT button. */}
-          <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
-            <span className="flex-1 font-medium">codex (subscription)</span>
-            <span className={`${MONO} text-muted-foreground`}>
-              {view.codex.configured
-                ? loginExpiry(view.codex.expiresAt) + (view.codex.accountId ? ` · ${view.codex.accountId}` : "")
-                : "not logged in"}
-            </span>
-            {!view.codex.configured && view.codex.status && (
-              <span className={`${LABEL} w-full`}>{view.codex.status}</span>
-            )}
-          </li>
+          <CodexLoginRow codex={view.codex} busy={busy !== null} onChanged={reloadSettings} />
         </ul>
       </section>
 
