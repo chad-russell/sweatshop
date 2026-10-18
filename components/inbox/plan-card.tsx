@@ -4,7 +4,7 @@ import { ClipboardList } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PlanApprove, PlanDocument } from "@/components/plan-card";
-import type { NeedsYouThread, PendingRequest } from "@/db/attention";
+import type { NeedsYouThread, PendingRequest } from "@/lib/read-models/attention";
 import { Where } from "./where";
 
 /**

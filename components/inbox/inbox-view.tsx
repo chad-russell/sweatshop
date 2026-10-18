@@ -11,7 +11,7 @@ import type {
   NeedsYouThread,
   PendingRequest,
   UnreadThread,
-} from "@/db/attention";
+} from "@/lib/read-models/attention";
 import { ApprovalCard } from "./approval-card";
 import { PlanReviewCard } from "./plan-card";
 import { PreviewFailureCard } from "./preview-failure-card";

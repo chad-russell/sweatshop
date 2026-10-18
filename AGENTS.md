@@ -155,7 +155,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   itself unattended.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is the
   `DESIGN.md` token contract: semantic tokens only, never raw hex/oklch in
-  TSX; themes `clickhouse` (default), `cal`, `nova`.
+  TSX; themes `clickhouse` (default), `cal`, `nova`. Components never
+  import `@/db` (lint-enforced); read-model types live in
+  `@/lib/read-models` (0049).
 - Models: providers and routes (0021). Providers are code, keys are
   env: `lib/providers/registry.ts` — GLM (Z.AI coding plan via
   `zhipu-ai-provider`, OpenAI surface for chats, Anthropic surface for

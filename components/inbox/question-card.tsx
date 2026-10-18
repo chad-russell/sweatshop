@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { NeedsYouThread, PendingRequest } from "@/db/attention";
+import type { NeedsYouThread, PendingRequest } from "@/lib/read-models/attention";
 import { DISMISS_ANSWER } from "@/lib/dismiss-answer";
 import { Where } from "./where";
 import { useRespond } from "./use-respond";
