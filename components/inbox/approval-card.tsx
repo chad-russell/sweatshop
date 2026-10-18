@@ -6,7 +6,7 @@ import { cn } from "cn";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import { PlanDocument } from "@/components/plan-card";
 import { Button } from "@/components/ui/button";
-import type { NeedsYouThread, PendingRequest, RequestOption } from "@/db/attention";
+import type { NeedsYouThread, PendingRequest, RequestOption } from "@/lib/read-models/attention";
 
 /** 0043: an exec ask — host line + the command as it will run, not JSON. */
 function ExecAsk({ exec }: { exec: NonNullable<PendingRequest["exec"]> }) {

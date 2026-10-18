@@ -1,12 +1,12 @@
-// Type-only imports: the store module pulls in node:crypto and sqlite,
-// which must never reach the client bundle.
+// Type-only imports: the shapes are read models (0049: @/lib/read-models,
+// away from the store layer, which must never reach the client bundle).
 import type {
   FolderNode,
   ShelvedItem,
   SidebarData,
   SidebarGroup,
   SidebarItem,
-} from "@/db/organize";
+} from "@/lib/read-models/sidebar";
 import type { SidebarTreeItem } from "@/lib/sidebar-tree";
 
 export type { FolderNode, ShelvedItem, SidebarData, SidebarGroup, SidebarItem, SidebarTreeItem };

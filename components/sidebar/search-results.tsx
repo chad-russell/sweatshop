@@ -2,7 +2,7 @@
 
 import { Archive } from "lucide-react";
 import Link from "next/link";
-import type { SearchHit } from "@/db/search";
+import type { SearchHit } from "@/lib/read-models/search";
 import { conversationHref } from "@/lib/conversation-href";
 import { useSidebar } from "./context";
 

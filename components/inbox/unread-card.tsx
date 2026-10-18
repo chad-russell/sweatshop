@@ -4,7 +4,7 @@ import { Circle, CircleDot } from "lucide-react";
 import Link from "next/link";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
-import type { UnreadThread } from "@/db/attention";
+import type { UnreadThread } from "@/lib/read-models/attention";
 import { conversationHref } from "@/lib/conversation-href";
 import { Where } from "./where";
 

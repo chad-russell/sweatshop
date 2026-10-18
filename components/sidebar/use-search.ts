@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { SearchHit } from "@/db/search";
+import type { SearchHit } from "@/lib/read-models/search";
 
 export interface SearchScope {
   /** Project id, "none" for Chats, undefined for everywhere. */

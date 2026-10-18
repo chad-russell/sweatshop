@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { NeedsYouPreview } from "@/db/attention";
+import type { NeedsYouPreview } from "@/lib/read-models/attention";
 import { Where } from "./where";
 
 /**

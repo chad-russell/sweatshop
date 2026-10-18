@@ -7,6 +7,27 @@ import {
   projects,
   sandboxes,
 } from "./schema";
+import type {
+  ConversationSandboxView,
+  SandboxDetail,
+  SandboxLink,
+  SandboxRef,
+  SandboxState,
+  SandboxSummary,
+  SandboxUser,
+} from "../lib/read-models/sandbox";
+
+// 0049: the view shapes moved to @/lib/read-models/sandbox; re-exported
+// here so server-side importers keep one door into the store layer.
+export type {
+  ConversationSandboxView,
+  SandboxDetail,
+  SandboxLink,
+  SandboxRef,
+  SandboxState,
+  SandboxSummary,
+  SandboxUser,
+} from "../lib/read-models/sandbox";
 
 /**
  * The chat's read-model of its sandboxes (0011 → 0031): the
@@ -14,33 +35,6 @@ import {
  * where the next one will. Pure reads over conversations / sandboxes;
  * no invariants live here (those are db/sandboxes.ts).
  */
-
-export interface SandboxRef {
-  id: string;
-  status: string;
-  /** Human label for the owner: a chat title or machine run name. */
-  ownerLabel: string;
-  ownerKind: string;
-  ownerId: string;
-  /** True when this conversation owns it (vs. joined someone else's). */
-  own: boolean;
-}
-
-/** Where the conversation's sandboxed calls run (0013: its binding). */
-export type SandboxState =
-  | { kind: "none" }
-  /** No sandbox exists yet; one is created on first use. */
-  | { kind: "pending" }
-  /** Plain chat with no project and no attach: nothing to run in. */
-  | { kind: "unavailable" }
-  | { kind: "own"; sandboxId: string; workDir: string }
-  | { kind: "attached"; sandboxId: string; workDir: string };
-
-export interface ConversationSandboxView {
-  state: SandboxState;
-  /** Every sandbox the state references, by id. */
-  sandboxes: Record<string, SandboxRef>;
-}
 
 function ownerLabel(db: Db, ownerKind: string, ownerId: string): string {
   // 0016: a branch preview's sandbox is owned by the preview (id = owner).
@@ -102,37 +96,6 @@ export function loadConversationSandboxView(
 }
 
 // ── /sandboxes (0011 phase 3) ────────────────────────────────────────────
-
-export interface SandboxSummary {
-  id: string;
-  status: string;
-  provider: string;
-  ref: string;
-  ownerKind: string;
-  ownerId: string;
-  ownerLabel: string;
-  /** Where the owner lives in the app (its chat or run page). */
-  ownerHref: string;
-  projectId: string | null;
-  projectName: string | null;
-  createdAt: number;
-  lastUsedAt: number;
-  destroyedAt: number | null;
-  /** Distinct chats bound to it (owning or attached). */
-  chats: number;
-}
-
-export interface SandboxUser {
-  conversationId: string;
-  title: string | null;
-  /** Owner (own dedicated sandbox) vs. joined someone else's. */
-  owner: boolean;
-  lastAt: number | null;
-}
-
-export interface SandboxDetail extends SandboxSummary {
-  users: SandboxUser[];
-}
 
 function ownerHref(ownerKind: string, ownerId: string): string {
   if (ownerKind === "preview") return `/previews?id=${ownerId}`;
@@ -235,13 +198,6 @@ export function getSandboxDetail(db: Db, id: string): SandboxDetail | null {
 }
 
 // ── Which sandbox does this session / run live in? ───────────────────────
-
-export interface SandboxLink {
-  id: string;
-  status: string;
-  /** Short note for the UI: how this thing relates to the sandbox. */
-  note: string;
-}
 
 function linkFor(db: Db, id: string, note: string): SandboxLink | null {
   const row = db

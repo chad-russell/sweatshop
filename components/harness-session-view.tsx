@@ -11,7 +11,7 @@ import { ListCard } from "@/components/ai-elements/list-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
-import type { SandboxLink } from "@/db/sandbox-view";
+import type { SandboxLink } from "@/lib/read-models/sandbox";
 import { TaskQuote } from "@/components/harness-card";
 import { HARNESS_LABEL, HarnessMark } from "@/components/harness-logo";
 import { buildTimeline, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
