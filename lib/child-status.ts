@@ -16,12 +16,12 @@ export interface ChildStatus {
   kind: "run" | "harness" | "thread";
   status: string;
   live: boolean;
-  /** Where to look closer (the run view, harness session, or thread). */
+  /** Where to look closer (the harness session or the thread). */
   href: string;
   startedAt: number;
   /** Unix ms of the last settle (null while it has never settled). */
   settledAt: number | null;
-  /** Where it is: a run's current stage, a thread's skill. */
+  /** Where it is: a thread's skill. */
   where: string | null;
   /** Clipped failure reason, when there is one. */
   error: string | null;

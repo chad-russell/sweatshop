@@ -6,7 +6,7 @@ import type { ChildStatus } from "@/lib/child-status";
 const POLL_MS = 5000;
 
 /**
- * Live status for a transcript card's background child (mr_… / hc_…):
+ * Live status for a transcript card's background child (hc_… / c_…):
  * fetched once, then polled every 5 s while the child is live AND the tab
  * is visible (the 0008 attention poll's rule); a settled child is never
  * fetched again. `id` null = nothing started (or not yet).
