@@ -13,6 +13,8 @@
  *   reconcile/follow tick (every 30 s; `PREVIEW_TICK=off` disables).
  * - 0022 wake sweep: deliver run settles the in-run wake missed (every
  *   30 s; `WAKE_SWEEP=off` disables).
+ * - 0050 codex: `CODEX_HOME` pointed at the app's harness-auth dir at
+ *   boot, before the adapter first reads it.
  */
 
 const REAP_INTERVAL_MS = 5 * 60_000;
@@ -23,6 +25,12 @@ type Globals = { [k: symbol]: unknown };
 
 export async function registerNode() {
   const g = globalThis as Globals;
+  // 0050: the codex adapter reads CODEX_HOME to find auth.json AND writes
+  // token refreshes back there — pointing it at our data dir keeps the
+  // operator's ~/.codex untouched. An existing CODEX_HOME wins.
+  const { resolveCodexHome } = await import("./lib/harness-auth/codex");
+  const codexHome = resolveCodexHome(process.env);
+  if (codexHome) process.env.CODEX_HOME = codexHome;
   startReaper(g);
   await startPreviews(g);
 }
