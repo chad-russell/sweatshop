@@ -10,7 +10,7 @@ import {
   urlHeadline,
   webFailureOf,
   webState,
-} from "@/lib/web-tool-view";
+} from "@/lib/tool-views/web";
 import { cn } from "@/lib/utils";
 
 /**

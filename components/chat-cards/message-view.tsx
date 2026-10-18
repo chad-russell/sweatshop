@@ -32,7 +32,7 @@ import {
 } from "./approvals";
 import { agentToolCard, ToolCallView } from "./dispatch";
 import { ToolGroupView } from "@/components/ai-elements/tool-group";
-import { groupParts, type PartLike } from "@/lib/tool-groups";
+import { groupParts, type PartLike } from "@/lib/tool-views/groups";
 import type { ViewingContext } from "@/lib/page-context";
 import { useMounted } from "@/lib/use-mounted";
 import { copyText } from "@/lib/clipboard";

@@ -6,7 +6,7 @@ import { useMemo, type ReactNode } from "react";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { Card, failureLines, statePill } from "@/components/ai-elements/agent-cards";
 import { MessageResponse } from "@/components/ai-elements/message";
-import { failureOf, type ToolState } from "@/lib/machine-tool-view";
+import { failureOf, type ToolState } from "@/lib/tool-views/inspect";
 import {
   cancelView,
   docTopics,
@@ -21,8 +21,8 @@ import {
   setupView,
   skillItems,
   skillView,
-} from "@/lib/info-tool-view";
-import { objectOf } from "@/lib/tool-fields";
+} from "@/lib/tool-views/info";
+import { objectOf } from "@/lib/tool-views/fields";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
  * get/save_preview_setup, cancel_run — plus gh and forgejo, which are
  * command-line calls in disguise and render as terminals (like
  * sandbox_exec). Built on the agent-cards shell; the views are pure
- * (lib/info-tool-view.ts) and defensive about stored input/output.
+ * (lib/tool-views/info.ts) and defensive about stored input/output.
  */
 
 interface CardProps {

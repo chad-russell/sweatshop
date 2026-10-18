@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { luminance, parseAnsi, stripAnsi } from "../lib/ansi";
-import { parseBash, splitCd } from "../lib/bash-view";
+import { parseBash, splitCd } from "../lib/tool-views/bash";
 
 describe("parseBash", () => {
   it("reads the chat tool's {exitCode, stdout, stderr}", () => {

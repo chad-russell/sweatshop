@@ -260,7 +260,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   descriptions + one instructions line). Cores
   `lib/agent/tools/web.ts` / `web-search.ts`, steps in
   `workflows/chat/steps.ts`, cards `components/ai-elements/web-cards.tsx`
-  on the shared agent-cards shell, views `lib/web-tool-view.ts`.
+  on the shared agent-cards shell, views `lib/tool-views/web.ts`.
 - Browser & screenshot evidence (0035): `Containerfile.sandbox` bakes
   agent-browser (npm pin) + its Chrome-for-Testing shared libs and
   binary (~/.agent-browser) at build — nothing downloads at runtime; a

@@ -21,7 +21,7 @@ import {
   QueryTerminal,
   SkillCard,
 } from "@/components/ai-elements/info-cards";
-import type { ToolState } from "@/lib/machine-tool-view";
+import type { ToolState } from "@/lib/tool-views/inspect";
 
 /**
  * Tool-call dispatch for the transcript — the designed card for a

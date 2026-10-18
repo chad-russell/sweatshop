@@ -13,7 +13,7 @@ import type { BundledLanguage } from "shiki";
 import { highlightCode, TokenSpan } from "@/components/ai-elements/code-block";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { copyText } from "@/lib/clipboard";
-import { parseFileTool, type DiffLine, type FileToolName, type FileToolView } from "@/lib/file-tool-view";
+import { parseFileTool, type DiffLine, type FileToolName, type FileToolView } from "@/lib/tool-views/file";
 import { cn } from "@/lib/utils";
 
 export type FileCardState = "running" | "completed" | "error";

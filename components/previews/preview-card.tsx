@@ -4,8 +4,8 @@ import { ArrowUpRightIcon, ChevronDownIcon, MonitorPlayIcon } from "lucide-react
 import { useEffect, useState } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PreviewView } from "@/lib/previews/service";
-import type { ToolState } from "@/lib/machine-tool-view";
-import { objectOf } from "@/lib/tool-fields";
+import type { ToolState } from "@/lib/tool-views/inspect";
+import { objectOf } from "@/lib/tool-views/fields";
 import { cn } from "@/lib/utils";
 import { PREVIEW_TONE, PreviewDot, previewName } from "./preview-pill";
 

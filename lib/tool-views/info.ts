@@ -1,9 +1,9 @@
-import { objectOf } from "./tool-fields";
+import { objectOf } from "./fields";
 
 /**
  * Normalisers for the "read-only information" tools — use_skill,
  * system_docs, list_projects, get/save_preview_setup, gh, forgejo and
- * cancel_run. Same posture as web-tool-view / machine-tool-view: the
+ * cancel_run. Same posture as tool-views/web / tool-views/inspect: the
  * tools return value-shaped JSON (`{ok:true,…}` / `{ok:false,code,message}`)
  * and everything here is pure and defensive about stored input/output.
  */

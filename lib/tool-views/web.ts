@@ -1,9 +1,9 @@
-import { objectOf } from "./tool-fields";
-import type { ToolState } from "./machine-tool-view";
+import { objectOf } from "./fields";
+import type { ToolState } from "./inspect";
 
 /**
  * 1.5 (roadmap): normalisers for the web tools' results — the same
- * posture as machine-tool-view: the tools return value-shaped JSON
+ * posture as tool-views/inspect: the tools return value-shaped JSON
  * (`{ok:true,…}` / `{ok:false,code,message}`), and everything here is
  * pure and defensive about stored input/output never trusting fields.
  */

@@ -1,5 +1,5 @@
-import { HARNESS_OUTPUT_CLIP } from "./harness-limits";
-import { field, numberField, objectOf } from "./tool-fields";
+import { HARNESS_OUTPUT_CLIP } from "../harness-limits";
+import { field, numberField, objectOf } from "./fields";
 
 /**
  * What the file-tool cards (write / edit / read) draw. Both harnesses
