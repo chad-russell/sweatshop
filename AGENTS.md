@@ -89,6 +89,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `lib/chat/harness-call-start.ts`). A turn that exhausts its budget
   mid-tool-call marks `metadata.exhausted` on its LAST assistant row;
   the wake then reports "ran out of steps" instead of "finished".
+  Transcript cards show the child's live status: `GET /api/x/status/<id>`
+  (`lib/child-status.ts`, both live kinds) polled by `useChildStatus`
+  every 5 s while the child is live and the tab visible, never once
+  settled.
 - Child threads (0037 phase 3): `start_thread({prompt, skill?, fresh?})`
   — every chat tool — starts a fresh child chat with its own context on
   the parent's project, ATTACHED to the parent's sandbox by default
@@ -116,8 +120,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `provider_models` (tool-capable only, ≤ daily). One ROUTE value
   (`lib/providers/route.ts`, pure zod): `{provider, model, thinking?}`
   for chats/titles, `{harness:"pi", provider, model, thinking?}`,
-  `{harness:"claude", model?, effort?}` — claude is subscription-only
-  (ToS by construction). `thinking` is the pi vocabulary, mapped per
+  `{harness:"claude", model?, effort?}`, `{harness:"cursor", model?}`
+  — claude and cursor are subscription-only (ToS by construction;
+  cursor routes validate against the CLI login: missing/invalid/expired
+  refuse value-shaped). `thinking` is the pi vocabulary, mapped per
   family in `chatLanguageModel(route)` and capability-gated by
   `ModelInfo.reasoning` — rejected at validation on models without a
   knob, never silently sent. Resolution per surface (`resolveRoute`):
@@ -177,8 +183,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   runtime; a custom `image_ref` without it degrades to agent-checkable,
   never a tool gate. Every sandboxed chat gets `attach_screenshot`:
   copy a PNG from the sandbox (magic-checked, ≤ 10 MiB) to
-  `data/attachments/att_<hex>.png`, served immutably by
-  `/api/attachments/[id]`. Core `lib/agent/tools/screenshot.ts`.
+  `data/attachments/att_<hex>.png` (`ATTACHMENTS_DIR` relocates the
+  root), served immutably by `/api/attachments/[id]`. Core
+  `lib/agent/tools/screenshot.ts`.
 - Image attachments (0042): the composer takes images by `+`, paste or
   drop (≤ 4 per message, ≤ 10 MiB, type by magic bytes,
   `lib/attachments.ts`). `POST /api/x/attachments` stores the file plus
@@ -331,8 +338,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`resumeFrom`) so the same kind's next call reattaches. claude auth:
   a setup-token as `CLAUDE_CODE_OAUTH_TOKEN` (`auth: "direct"`),
   env-gated until set. cursor (0038) authenticates from the CLI's
-  BROWSER-LOGIN `auth.json` (`data/harness-auth/cursor/auth.json`;
-  `lib/harness-auth/cursor.ts` is the one seam), re-planted into the
+  BROWSER-LOGIN `auth.json` (`data/harness-auth/cursor/auth.json`,
+  `HARNESS_AUTH_DIR` relocates; `lib/harness-auth/cursor.ts` is the one
+  seam), re-planted into the
   CLI's private HOME in the sandbox every step (env-var base64, never
   argv or logs); the access token as env var is REJECTED — only the
   file authenticates; a login inside 1 h of expiry is refused.
@@ -415,9 +423,12 @@ ONE instance (0020) — no dev server, no second checkout:
 
 - **The app** is the `sweatshop` rootless user quadlet on bee (cn
   `hosts/bee/sweatshop.nix`): `next start` of a production build of
-  THIS checkout, on http://localhost:3300 plus the preview proxy on
-  10.10.0.12:3301. Restart=always. Logs: `journalctl --user -u
-  sweatshop` (agent shells need `XDG_RUNTIME_DIR=/run/user/1000`).
+  THIS checkout, container name `sweatshop-dev` (kept so the
+  harness-network name and `sandbox:gc`'s default URL hold), image
+  `localhost/sweatshop-dev`, on http://localhost:3300 (host 3000 is
+  taken) plus the preview proxy on 10.10.0.12:3301. Restart=always,
+  starts at boot. Logs: `journalctl --user -u sweatshop` (agent shells
+  need `XDG_RUNTIME_DIR=/run/user/1000`).
 - **This checkout is the deploy checkout.** It tracks `main` on Forgejo
   and moves ONLY through the deploy workflow (0045): merge → checks →
   `scripts/ci-deploy.sh` inside the `sweatshop-deploy` transient user
@@ -440,7 +451,9 @@ ONE instance (0020) — no dev server, no second checkout:
   scripts/db-snapshot.mjs <name>` takes a consistent online copy.
 - `./dev exec -- <cmd>` — one-off command in a container with the
   app's mounts (the gate, migrations against a temp db, scripts).
-  `./dev install`, `./dev shell`, `./dev build`. node_modules live in
+  `./dev install`, `./dev shell`, `./dev build` (rebuilds the image the
+  service uses; container root maps to the host user; `.env.local`
+  passes via `--env-file`). node_modules live in
   the `sweatshop-node-modules` volume, SHARED with the running service
   — never `./dev install` on bee; dependency changes land by PR and
   `ci-deploy.sh` runs `npm ci` while the service is stopped. The host
@@ -451,6 +464,11 @@ ONE instance (0020) — no dev server, no second checkout:
   permissions — podman writes runtime state under `/run`.
 - Workflow SDK docs are vendored at `docs/workflows/` — read and grep
   them on the host (also `node_modules/ai/docs` for the AI SDK).
+- Live-check spikes (opt-in, env-gated, skipped in the normal gate; env
+  set INSIDE the container): `THINKING_SPIKE` (0021), `PI_SPIKE`
+  (0005/0006), `CLAUDE_SPIKE` (+`_LIVE`) (0006), `CURSOR_SPIKE`
+  (0038), `HOST_SPIKE` (0043), `PREVIEW_E2E` (0019), `SERVICES_SPIKE`
+  (0017).
 
 ## Old repo policy
 
