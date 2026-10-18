@@ -36,6 +36,11 @@ export interface HarnessSinkArgs {
   envelope?: Record<string, unknown>;
   onToolStart?: (toolName: string) => void;
   onToolResult?: (toolName: string, output: unknown) => void;
+  /** 0047: `finish-step` carries the step's usage when the adapter
+   *  includes it (LanguageModelV4Usage, nested input/output objects).
+   *  The AI SDK's UI-chunk transform currently drops that field; the
+   *  hook still fires whenever a usage object is present. */
+  onUsage?: (usage: unknown) => void;
 }
 
 export interface HarnessSink {
@@ -89,6 +94,12 @@ export function harnessEventSink(args: HarnessSinkArgs): HarnessSink {
           });
           break;
         }
+        case "finish-step":
+          // Last finish-step in the write wins; the caller sums across
+          // semantic steps. A chunk with no usage (the UI transform
+          // strips it) does not clobber an earlier one.
+          if (chunk.usage != null) args.onUsage?.(chunk.usage);
+          break;
       }
       const forwarded = args.forward ? args.forward(chunk) : chunk;
       if (forwarded !== undefined) {

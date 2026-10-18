@@ -53,12 +53,22 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
   let lastStepHadText = false;
   let toolCalls = 0;
   let steps = 0;
+  // 0047: summed across semantic steps (kept as the loop's running
+  // totals so each advance step can checkpoint them into the usage row).
+  let usage: import("../../lib/usage/pricing").UsageCounts | null = null;
   // do…while: the fresh state is "not_started", so a plain while never
   // ran the harness at all and every call "completed" in 0 s with no
   // output (caught live 2026-10-07). Same shape as run-machine's loop.
   try {
     do {
-      const r = await harnessAdvanceStep({ callId, conversationId, kind, route, state });
+      const r = await harnessAdvanceStep({
+        callId,
+        conversationId,
+        kind,
+        route,
+        state,
+        totals: { usage, steps, toolCalls },
+      });
       state = r.state;
       lastStepHadText = Boolean(r.text);
       if (r.text) {
@@ -66,7 +76,13 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
         finalText = r.text;
       }
       toolCalls += r.toolCalls;
-      steps += 1;
+      // 0047: the step already checkpointed these totals into the usage
+      // row — trust its fold (identical arithmetic, one source of truth).
+      if (r.totals) {
+        usage = r.totals.usage;
+        steps = r.totals.steps;
+        toolCalls = r.totals.toolCalls;
+      }
     } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
   } catch (err) {
     // A step that exhausts its retries (the bridge could not start, the
@@ -84,6 +100,9 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       text,
       finalText: resultText(finalText, lastStepHadText),
       toolCalls,
+      steps,
+      route,
+      usage,
       error: err instanceof Error ? err.message : String(err),
     });
     return { status: "failed" };
@@ -98,6 +117,9 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       text,
       finalText: resultText(finalText, lastStepHadText),
       toolCalls,
+      steps,
+      route,
+      usage,
       error: state.error ?? `${kind} turn failed`,
       // A failed turn can leave a LIVE session behind (the bridge process
       // keeps its port). Keep the handle so the next call reattaches to it
@@ -116,6 +138,9 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       text,
       finalText: resultText(finalText, lastStepHadText),
       toolCalls,
+      steps,
+      route,
+      usage,
       error: "harness requested a tool approval (unsupported in v1)",
     });
     return { status: "failed" };
@@ -129,6 +154,9 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       text,
       finalText: resultText(finalText, lastStepHadText),
       toolCalls,
+      steps,
+      route,
+      usage,
       error: `exceeded ${MAX_STEPS} agent steps`,
     });
     return { status: "failed" };
@@ -143,6 +171,9 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     text,
     finalText: resultText(finalText, lastStepHadText),
     toolCalls,
+    steps,
+    route,
+    usage,
     resumeFrom: state.resumeFrom,
   });
   return { status: "completed" };

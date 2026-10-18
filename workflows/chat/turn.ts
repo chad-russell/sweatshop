@@ -3,6 +3,7 @@ import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
+import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
 import { buildChatTools } from "./tools";
@@ -15,6 +16,7 @@ import {
   loadTurnHistory,
   maybeTitleStep,
   persistTurn,
+  recordUsageStep,
   recordUserMessage,
   resolveTurnRouteStep,
   wakeParentStep,
@@ -140,6 +142,11 @@ export async function chatTurn(input: ChatTurnInput) {
   let finishReason: string = "stop";
   let stored = 0;
   let exhausted = false;
+  // 0047: one usage_events row per turn. startedAt is the turn's own
+  // clock (before the first slice); token counts sum the slices.
+  const startedAt = Date.now();
+  let slices = 0;
+  let turnUsage: UsageCounts = { inputTokens: 0, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0 };
   // skip = everything already persisted (loaded history + this turn's
   // user message) plus the injected note, which sits right before it.
   const skip = history.length + (input.viewing ? 1 : 0) + 1;
@@ -149,57 +156,84 @@ export async function chatTurn(input: ChatTurnInput) {
   // It ends AFTER persistTurn: a browser that sees `finish` may reload
   // the conversation from sqlite (the fresh page's /c adoption does) and
   // must find the whole turn there.
+  // A slice that throws is caught so a turn that already talked to a
+  // model still records what it spent; the original error is rethrown
+  // after the write. A throw before any slice (nothing to meter) skips
+  // the row. The usage write itself never fails the turn.
+  let turnError: unknown;
   try {
-    for (let step = 0; step < maxSteps; step += 1) {
-      if (step > 0) {
-        const queued = await drainSteerStep(conversationId);
-        if (queued.length > 0) {
-          messages = [
-            ...messages,
-            ...queued.map((text) => ({ role: "user" as const, content: text })),
-          ];
+    try {
+      for (let step = 0; step < maxSteps; step += 1) {
+        if (step > 0) {
+          const queued = await drainSteerStep(conversationId);
+          if (queued.length > 0) {
+            messages = [
+              ...messages,
+              ...queued.map((text) => ({ role: "user" as const, content: text })),
+            ];
+          }
         }
+
+        const result = await agent.stream({
+          messages,
+          writable,
+          stopWhen: isStepCount(1),
+          preventClose: true,
+          sendFinish: false,
+        });
+        slices += 1;
+        turnUsage = addUsage(turnUsage, readSliceUsage(result));
+        messages = stripLeadingSystem(result.messages);
+        finishReason = result.finishReason;
+
+        // The turn ends when the latest assistant message asks for no tools.
+        // Computed BEFORE persisting this slice (0040 phase 3): when this
+        // is the LAST possible step and it still wants tools, the turn is
+        // about to end by running out of budget, not by the model's
+        // choice — tag that slice's own persist so the row carries it
+        // durably (the wake, in-run or swept later, reads it back).
+        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+        const wantsTools =
+          lastAssistant != null &&
+          Array.isArray(lastAssistant.content) &&
+          lastAssistant.content.some((part) => part.type === "tool-call");
+        const exhaustedThisSlice = wantsTools && step === maxSteps - 1;
+        // Each finished slice lands in sqlite now — a long turn is visible
+        // (inspect, monitors, reloads) while it runs, not only at its end.
+        stored += await persistTurn(conversationId, messages, skip, resolved, {
+          from: skip + stored,
+          final: false,
+          exhausted: exhaustedThisSlice,
+        });
+
+        if (!wantsTools) break;
+        if (exhaustedThisSlice) exhausted = true;
       }
 
-      const result = await agent.stream({
-        messages,
-        writable,
-        stopWhen: isStepCount(1),
-        preventClose: true,
-        sendFinish: false,
-      });
-      messages = stripLeadingSystem(result.messages);
-      finishReason = result.finishReason;
-
-      // The turn ends when the latest assistant message asks for no tools.
-      // Computed BEFORE persisting this slice (0040 phase 3): when this
-      // is the LAST possible step and it still wants tools, the turn is
-      // about to end by running out of budget, not by the model's
-      // choice — tag that slice's own persist so the row carries it
-      // durably (the wake, in-run or swept later, reads it back).
-      const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-      const wantsTools =
-        lastAssistant != null &&
-        Array.isArray(lastAssistant.content) &&
-        lastAssistant.content.some((part) => part.type === "tool-call");
-      const exhaustedThisSlice = wantsTools && step === maxSteps - 1;
-      // Each finished slice lands in sqlite now — a long turn is visible
-      // (inspect, monitors, reloads) while it runs, not only at its end.
-      stored += await persistTurn(conversationId, messages, skip, resolved, {
-        from: skip + stored,
-        final: false,
-        exhausted: exhaustedThisSlice,
-      });
-
-      if (!wantsTools) break;
-      if (exhaustedThisSlice) exhausted = true;
+      // The rest of the tail (normally nothing) and the active-run clear.
+      stored += await persistTurn(conversationId, messages, skip, resolved, { from: skip + stored, final: true });
+    } finally {
+      await finishTurnStream(writable);
     }
-
-    // The rest of the tail (normally nothing) and the active-run clear.
-    stored += await persistTurn(conversationId, messages, skip, resolved, { from: skip + stored, final: true });
-  } finally {
-    await finishTurnStream(writable);
+  } catch (err) {
+    turnError = err;
   }
+  if (slices > 0) {
+    try {
+      await recordUsageStep(
+        conversationId,
+        skip,
+        resolved.route,
+        turnUsage,
+        slices,
+        countToolCalls(messages, skip),
+        startedAt,
+      );
+    } catch (err) {
+      console.error("[usage] chat capture failed", err);
+    }
+  }
+  if (turnError) throw turnError;
   // 0037: a thread-skill turn that ran out of budget mid-work continues
   // in a fresh turn (bounded — see lib/chat/budget.ts).
   if (exhausted && skill) await continueAfterBudgetStep(conversationId);
@@ -221,4 +255,19 @@ export async function chatTurn(input: ChatTurnInput) {
  *  they must survive the loop — and persistTurn skips system rows.) */
 function stripLeadingSystem(messages: ModelMessage[]): ModelMessage[] {
   return messages[0]?.role === "system" ? messages.slice(1) : messages;
+}
+
+/** Tool calls this turn asked for — assistant parts from `from` on, so
+ *  an earlier turn's calls (still in the history prefix) are not counted
+ *  again. */
+function countToolCalls(messages: ModelMessage[], from: number): number {
+  let n = 0;
+  for (let i = from; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (!message || message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (part.type === "tool-call") n += 1;
+    }
+  }
+  return n;
 }

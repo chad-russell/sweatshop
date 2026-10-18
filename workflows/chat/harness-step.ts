@@ -1,6 +1,7 @@
 import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "../../lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { BoundSandbox } from "../../db/sandboxes";
+import { addUsage, normalizeUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { harnessEventSink } from "../shared/harness-sink";
 
 /** The resume handle a terminal state carries for the next user turn. */
@@ -140,11 +141,23 @@ export async function harnessAdvanceStep(input: {
   kind: "pi" | "claude" | "cursor";
   route: import("../../lib/providers/route").HarnessRoute;
   state: HarnessWorkflowState;
-}): Promise<{ state: HarnessWorkflowState; text: string; toolCalls: number }> {
+  /** 0047 review fix: running totals so far (tokens + steps) — the
+   *  step re-upserts the usage row so a CANCELLED call keeps every
+   *  completed step's metering (cancel never reaches the settle write). */
+  totals?: { usage: UsageCounts | null; steps: number; toolCalls: number };
+}): Promise<{
+  state: HarnessWorkflowState;
+  text: string;
+  toolCalls: number;
+  usage: UsageCounts | null;
+  totals: { usage: UsageCounts | null; steps: number; toolCalls: number };
+}> {
   "use step";
   // Tests: a scripted harness (no sandbox, no model) — two semantic
   // steps then finished, so the worker loop itself is exercised.
   // Double-gated like the chat mock (workflows/chat/model.ts).
+  // Mock steps report no usage (null); tests that need a row pass
+  // counts into harnessSettleStep directly.
   if (process.env.SWEATSHOP_HARNESS_MOCK && process.env.NODE_ENV === "test") {
     if (process.env.SWEATSHOP_HARNESS_MOCK === "throw") {
       // A step that dies outright (0038: Cursor's bridge could not start).
@@ -162,6 +175,8 @@ export async function harnessAdvanceStep(input: {
         } as unknown as HarnessWorkflowState,
         text: "",
         toolCalls: 0,
+        usage: null,
+        totals: { usage: null, steps: 0, toolCalls: 0 },
       };
     }
     const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
@@ -170,6 +185,8 @@ export async function harnessAdvanceStep(input: {
       state: { ...input.state, mockStep: n, status: done ? "finished" : "ready_for_next_step" } as HarnessWorkflowState,
       text: `mock-harness-step:${n}`,
       toolCalls: 1,
+      usage: null,
+      totals: { usage: null, steps: n, toolCalls: n },
     };
   }
   const [
@@ -205,6 +222,9 @@ export async function harnessAdvanceStep(input: {
   const out = getWritable<Record<string, unknown>>();
   const writer = out.getWriter();
   let toolCalls = 0;
+  // Last finish-step in this semantic step wins (steps are sequential;
+  // the worker sums the returned counts).
+  let stepUsage: UsageCounts | null = null;
   try {
     const { sink, text } = harnessEventSink({
       recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event),
@@ -216,6 +236,10 @@ export async function harnessAdvanceStep(input: {
       envelope: { chatConversation: input.conversationId, chatHarness: input.kind, callId: input.callId },
       onToolStart: (name) => {
         if (name !== "fileChange" && name !== "compaction") toolCalls += 1;
+      },
+      onUsage: (raw) => {
+        const next = normalizeUsage(raw);
+        if (next) stepUsage = next;
       },
     });
 
@@ -256,10 +280,78 @@ export async function harnessAdvanceStep(input: {
       kind: "step-end",
       text: clipHarnessText(text(), 500),
     });
-    return { state, text: text(), toolCalls };
+    // The UI-chunk transform drops finish-step usage. A finished step
+    // still carries a thin summary (input/output only) on finalResult.
+    if (!stepUsage) {
+      const summary = (state as { finalResult?: { usage?: unknown } }).finalResult?.usage;
+      stepUsage = normalizeUsage(summary);
+    }
+    // 0047 review fix: running totals + an incremental upsert. Cancel
+    // never reaches the settle step's usage write, so the row must be
+    // current the moment each step lands; the settle write then makes
+    // the final pass idempotent (same id, upsert again).
+    const totals = {
+      usage: input.totals?.usage && stepUsage
+        ? addUsage(input.totals.usage, stepUsage)
+        : (input.totals?.usage ?? stepUsage),
+      steps: (input.totals?.steps ?? 0) + 1,
+      toolCalls: (input.totals?.toolCalls ?? 0) + toolCalls,
+    };
+    try {
+      await writeHarnessUsageRow(input.callId, input.conversationId, input.route, totals);
+    } catch (err) {
+      console.error("[usage] harness checkpoint failed", err);
+    }
+    return { state, text: text(), toolCalls, usage: stepUsage, totals };
   } finally {
     writer.releaseLock();
   }
+}
+
+/**
+ * 0047 review fix: the ONE usage-row writer for harness calls — an
+ * idempotent upsert keyed u_hc_<callId>, shared by the advance-step
+ * checkpoint (cancelled calls keep completed metering) and the settle
+ * write (the final pass). Never throws at the caller: a metering
+ * failure must not fail the step or the settle.
+ */
+export async function writeHarnessUsageRow(
+  callId: string,
+  conversationId: string,
+  route: import("../../lib/providers/route").HarnessRoute | undefined,
+  totals: { usage: UsageCounts | null; steps: number; toolCalls: number },
+): Promise<void> {
+  const [{ db }, { getPrice, upsertUsageEvent }, { computeCost }, { getHarnessCall }] = await Promise.all([
+    import("../../db"),
+    import("../../db/usage"),
+    import("../../lib/usage/pricing"),
+    import("../../db/harness-calls"),
+  ]);
+  const counts = totals.usage ?? { inputTokens: 0, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+  let costUsd: number | null = null;
+  if (route?.harness === "pi") {
+    const price = getPrice(db(), route.provider, route.model);
+    if (price) costUsd = computeCost(price, counts);
+  }
+  const call = getHarnessCall(db(), callId);
+  const now = Date.now();
+  upsertUsageEvent(db(), {
+    id: `u_hc_${callId}`,
+    conversationId,
+    source: "harness",
+    harnessCallId: callId,
+    route: JSON.stringify(route ?? {}),
+    inputTokens: counts.inputTokens,
+    cachedTokens: counts.cachedTokens,
+    outputTokens: counts.outputTokens,
+    reasoningTokens: counts.reasoningTokens ?? 0,
+    steps: totals.steps,
+    toolCalls: totals.toolCalls,
+    costUsd,
+    startedAt: call?.createdAt ?? now,
+    endedAt: now,
+    createdAt: now,
+  });
 }
 
 /**
@@ -281,6 +373,12 @@ export async function harnessSettleStep(input: {
    *  actually deliver. */
   finalText: string;
   toolCalls: number;
+  /** Semantic steps the worker actually ran. */
+  steps?: number;
+  /** Resolved route (pi has provider+model; claude/cursor do not). */
+  route?: import("../../lib/providers/route").HarnessRoute;
+  /** Summed model usage; null when no finish-step reported any. */
+  usage?: UsageCounts | null;
   error?: string;
   resumeFrom?: unknown;
 }): Promise<void> {
@@ -344,6 +442,18 @@ export async function harnessSettleStep(input: {
         ? await saveResultFile(input.conversationId, input.callId, input.finalText)
         : null;
     if (resultOutcome) setCallResultFile(db(), input.callId, resultOutcome.path);
+    // 0047: one usage_events row per call. Recorded before the wake so a
+    // wake failure (no workflow runtime, in unit tests) still keeps the
+    // row — and a usage failure never fails the settle.
+    try {
+      await writeHarnessUsageRow(input.callId, input.conversationId, input.route, {
+        usage: input.usage ?? null,
+        steps: input.steps ?? 0,
+        toolCalls: input.toolCalls,
+      });
+    } catch (err) {
+      console.error("[usage] harness capture failed", err);
+    }
     await wakeConversation(input.conversationId, {
       kind: "harness",
       id: input.callId,

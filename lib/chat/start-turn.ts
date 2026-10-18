@@ -36,6 +36,14 @@ export async function startChatTurn(
   const conversation = getConversation(db(), conversationId);
   if (!conversation) throw new Error(`no conversation ${conversationId}`);
   resolveOrphanedPendingInputs(db(), conversationId, "run-ended");
+  // 0047 review fix (price cold-start): fire-and-forget price warm — the
+  // models JSON API used to be the only lazy fetcher, so a fresh deploy's
+  // first turns metered null-cost forever (cost-at-capture never
+  // backfills). Never awaited, never throws: a slow fetch costs nothing,
+  // a failed one keeps whatever rows exist.
+  import("../usage/prices-refresh").then(({ ensureModelPrices }) =>
+    ensureModelPrices(db()).catch(() => {}),
+  );
   const run = await start(chatTurn, [
     {
       conversationId,
