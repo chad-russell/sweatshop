@@ -192,15 +192,14 @@ export function resolveSandboxTarget(target: string): BoundSandbox {
   if (target.startsWith("sbx_")) {
     return { kind: "bound", sandboxId: target, workDir: ownerWorkDir(target), owner: false };
   }
-  const runId = /^mr_.+_\d+$/.test(target) ? target.replace(/_\d+$/, "") : target;
   const kind = db()
     .select({ kind: conversations.kind })
     .from(conversations)
-    .where(eq(conversations.id, runId))
+    .where(eq(conversations.id, target))
     .get()?.kind;
-  if (!kind) throw new Error(`no sandbox, chat, or run "${target}"`);
+  if (!kind) throw new Error(`no sandbox or chat "${target}"`);
   const binding = (() => {
-    const b = getConversationBinding(db(), runId);
+    const b = getConversationBinding(db(), target);
     return b?.kind === "bound" ? b : null;
   })();
   if (!binding) throw new Error(`${target} has no sandbox (yet)`);

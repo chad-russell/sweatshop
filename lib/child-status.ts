@@ -13,7 +13,7 @@ import { getChatChild } from "@/db/chat";
  */
 export interface ChildStatus {
   id: string;
-  kind: "run" | "harness" | "thread";
+  kind: "harness" | "thread";
   status: string;
   live: boolean;
   /** Where to look closer (the harness session or the thread). */

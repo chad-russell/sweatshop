@@ -109,7 +109,7 @@ describe("0013 sandbox_exec", () => {
     const provider = new FakeProvider();
     ensureConversation(db(), "c_exec_pending", "p_insp");
     await expect(sandboxExec("c_exec_pending", "ls", { provider })).rejects.toThrow(/has no sandbox/);
-    await expect(sandboxExec("c_exec_missing", "ls", { provider })).rejects.toThrow(/no sandbox, chat, or run/);
+    await expect(sandboxExec("c_exec_missing", "ls", { provider })).rejects.toThrow(/no sandbox or chat/);
 
     ensureConversation(db(), "c_exec_dead", "p_insp");
     const box = await openConversationSandbox("c_exec_dead", provider);

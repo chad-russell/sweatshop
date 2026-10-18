@@ -15,9 +15,12 @@
 --    LIKE patterns below capture exactly the two sets).
 DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE kind = 'run' OR kind = 'stage');
 --> statement-breakpoint
-DELETE FROM harness_events WHERE session_id IN (SELECT id FROM conversations WHERE kind = 'run' OR kind = 'stage');
+-- GLOB, not LIKE: underscore is literal in GLOB, so 'mr_*' sweeps stage
+-- visit sessions that never had a conversations row (0036: a harness
+-- visit's session id may exist in harness_events with no conversation).
+DELETE FROM harness_events WHERE session_id IN (SELECT id FROM conversations WHERE kind = 'run' OR kind = 'stage') OR session_id GLOB 'mr_*';
 --> statement-breakpoint
-DELETE FROM harness_runs WHERE session_id IN (SELECT id FROM conversations WHERE kind = 'run' OR kind = 'stage');
+DELETE FROM harness_runs WHERE session_id IN (SELECT id FROM conversations WHERE kind = 'run' OR kind = 'stage') OR session_id GLOB 'mr_*';
 --> statement-breakpoint
 DELETE FROM steer_queue WHERE conversation_id IN (SELECT id FROM conversations WHERE kind = 'run' OR kind = 'stage');
 --> statement-breakpoint
