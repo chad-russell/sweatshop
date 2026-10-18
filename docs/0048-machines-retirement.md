@@ -82,11 +82,34 @@ which DO exist and are readable). Then delete `/r`, the redirect,
 takes over), and `db/machines.ts`. Cost: a careful migration + the
 stage-graph chrome is gone forever. Benefit: the residue goes to ~zero.
 
-The deciding question for Chad: **is the stage-graph chrome of
-historical runs worth ~150 lines of permanent read paths (A), or is a
-flattened-but-preserved transcript enough (B)?** A is the zero-risk
-default; B is the honest end-state if the old runs' browsing value is
-low.
+## Live-DB evidence (2026-10-18, read-only query on bee)
+
+- `machine_runs`: **12 rows** — 7 completed, 5 cancelled.
+- `machine_stage_runs`: 37 rows. Run conversations: 12, none trashed.
+- All 12 created 2026-10-10 (the day 0037 phase 5 landed); none since.
+- Titles are e2e-test artifacts: "tabs or spaces?", "is a haiku 17
+  syllables?", "name one prime", "0012 e2e…", "0014 overlay check…",
+  plus one real question ("should a solo developer self-host…").
+
+There is no work product in these tables. Both options below were
+priced against "keep history browsable" — the data says there is
+nothing worth browsing.
+
+The deciding question, updated: **the ~150 read-path lines (A) and the
+backfill migration (B) both preserve garbage.** A third option now
+matches the 0032 precedent ("purely historical data can be deleted"):
+
+**C. Purge.** One migration: delete the 12 run conversations (their
+`stage` conversations and messages go with them via the existing purge
+path), drop `machine_runs` + `machine_stage_runs`, delete every read
+path in the residue list INCLUDING `/r`, the redirect, `hrefFor`'s run
+arm, the glyph, `runUnread`, and `db/machines.ts`. Residue to zero, no
+backfill, no kept tables. Cost: the one real conversation's words go
+(they are one question and its answer, Oct 10); nothing else of value
+exists to lose.
+
+Recommendation: **C** (or B if that one conversation's words matter —
+they can be re-asked in a chat in seconds).
 
 ## Plan (option A — the zero-risk default)
 
