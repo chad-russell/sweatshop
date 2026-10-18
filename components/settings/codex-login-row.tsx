@@ -4,20 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { LABEL, MONO } from "@/components/form-styles";
 import type { ModelsView } from "@/lib/providers/catalog-view";
-import type { CodexLoginHandle } from "@/lib/harness-auth/codex-login";
+import type { CodexBrowserHandle, CodexLoginHandle } from "@/lib/harness-auth/codex-login";
 
 /**
- * 0050 phase 5: the settings Providers row for codex, with the login.
- * "Log in with ChatGPT" runs the CLI's OAuth device flow through
- * /api/x/codex/login/* — the code + verification link render here, the
- * BROWSER polls our poll route on the issuer's cadence (the handle,
- * give-up stamp included, is client-held; the server is stateless), and
- * approval just reloads the models view. "Paste auth.json instead" is
- * the documented fallback for when device login is blocked. No token
- * text is ever rendered — the wire carries status shapes only.
+ * 0050 phases 5/5b: the settings Providers row for codex, with the
+ * login. The PRIMARY flow is the browser OAuth one ("Log in with
+ * ChatGPT" → authorize URL → the user pastes the localhost redirect
+ * back) — enterprise workspaces commonly BLOCK device-code auth
+ * (Chad's does — 2026-10-18 live), so browser-flow-first is
+ * deliberate. "Use a device code instead" keeps the CLI's device flow
+ * (code + link, polled here on the issuer's cadence), and "Paste
+ * auth.json instead" is the headless fallback. No token text is ever
+ * rendered — the wire carries status shapes only.
  */
 
-type Phase = "idle" | "starting" | "waiting";
+type Panel = "none" | "browser" | "device" | "paste";
+type DevicePhase = "idle" | "starting" | "waiting";
 
 /** Module scope (like loginExpiry below) so the impure clock read stays
  *  out of the component body. */
@@ -34,12 +36,19 @@ export function CodexLoginRow({
   busy: boolean;
   onChanged: () => Promise<void> | void;
 }) {
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [login, setLogin] = useState<{ userCode: string; verificationUrl: string } | null>(null);
+  const [panel, setPanel] = useState<Panel>("none");
   const [error, setError] = useState<string | null>(null);
-  const [pasteOpen, setPasteOpen] = useState(false);
-  const [pasteText, setPasteText] = useState("");
-  const [pasteBusy, setPasteBusy] = useState(false);
+
+  // Browser flow (5b, primary): the authorize URL + the pasted callback.
+  const [browserStarting, setBrowserStarting] = useState(false);
+  const [browser, setBrowser] = useState<{ authorizeUrl: string; handle: CodexBrowserHandle } | null>(null);
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const [completing, setCompleting] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Device flow (5, kept as a disclosure).
+  const [devicePhase, setDevicePhase] = useState<DevicePhase>("idle");
+  const [deviceLogin, setDeviceLogin] = useState<{ userCode: string; verificationUrl: string } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopTimer = () => {
@@ -52,34 +61,75 @@ export function CodexLoginRow({
   // Never leave a poll scheduled after unmount.
   useEffect(() => () => stopTimer(), []);
 
-  const fail = (message: string) => {
+  const closePanel = () => {
     stopTimer();
-    setPhase("idle");
-    setLogin(null);
-    setError(message);
+    setPanel("none");
+    setBrowser(null);
+    setCallbackUrl("");
+    setDeviceLogin(null);
+    setDevicePhase("idle");
+    setError(null);
   };
 
-  const start = async () => {
+  const startBrowser = async () => {
     setError(null);
-    setPasteOpen(false);
-    setPhase("starting");
+    setBrowserStarting(true);
     try {
-      const res = await fetch("/api/x/codex/login/start", { method: "POST" });
+      const res = await fetch("/api/x/codex/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "browser_start" }),
+      });
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
-        userCode?: string;
-        verificationUrl?: string;
-        handle?: CodexLoginHandle;
+        authorizeUrl?: string;
+        handle?: CodexBrowserHandle;
       };
-      if (!res.ok || !body.userCode || !body.verificationUrl || !body.handle) {
-        fail(body.error ?? `login failed (${res.status})`);
+      if (!res.ok || !body.authorizeUrl || !body.handle) {
+        setError(body.error ?? `login failed (${res.status})`);
         return;
       }
-      setLogin({ userCode: body.userCode, verificationUrl: body.verificationUrl });
-      setPhase("waiting");
-      schedulePoll(body.handle);
+      setBrowser({ authorizeUrl: body.authorizeUrl, handle: body.handle });
+      setPanel("browser");
     } catch {
-      fail("login failed — could not reach the server");
+      setError("login failed — could not reach the server");
+    } finally {
+      setBrowserStarting(false);
+    }
+  };
+
+  const completeBrowser = async () => {
+    if (!browser) return;
+    setCompleting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/x/codex/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "browser_complete", handle: browser.handle, callbackUrl }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(body.error ?? `login failed (${res.status})`);
+        return;
+      }
+      closePanel();
+      await onChanged();
+    } catch {
+      setError("login failed — could not reach the server");
+    } finally {
+      setCompleting(false);
+    }
+  };
+
+  const copyAuthorizeUrl = async () => {
+    if (!browser) return;
+    try {
+      await navigator.clipboard.writeText(browser.authorizeUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("could not copy — select the link text instead");
     }
   };
 
@@ -88,12 +138,14 @@ export function CodexLoginRow({
    *  back in the poll response). */
   const schedulePoll = (h: CodexLoginHandle) => {
     stopTimer();
-    timer.current = setTimeout(() => void poll(h), Math.max(1, h.interval) * 1000);
+    timer.current = setTimeout(() => void pollDevice(h), Math.max(1, h.interval) * 1000);
   };
 
-  const poll = async (h: CodexLoginHandle) => {
+  const pollDevice = async (h: CodexLoginHandle) => {
     if (handleExpired(h)) {
-      fail("the login window expired — start the login again");
+      setError("the login window expired — start the login again");
+      setDevicePhase("idle");
+      setDeviceLogin(null);
       return;
     }
     try {
@@ -113,18 +165,44 @@ export function CodexLoginRow({
       }
       if (res.ok && body.status === "approved") {
         stopTimer();
-        setPhase("idle");
-        setLogin(null);
+        closePanel();
         await onChanged();
         return;
       }
-      fail(body.error ?? `login failed (${res.status})`);
+      setError(body.error ?? `login failed (${res.status})`);
+      setDevicePhase("idle");
+      setDeviceLogin(null);
     } catch {
-      fail("login failed — could not reach the server");
+      setError("login failed — could not reach the server");
+      setDevicePhase("idle");
+      setDeviceLogin(null);
     }
   };
 
-  const cancel = () => fail("login cancelled");
+  const startDevice = async () => {
+    setError(null);
+    setDevicePhase("starting");
+    try {
+      const res = await fetch("/api/x/codex/login/start", { method: "POST" });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        userCode?: string;
+        verificationUrl?: string;
+        handle?: CodexLoginHandle;
+      };
+      if (!res.ok || !body.userCode || !body.verificationUrl || !body.handle) {
+        setError(body.error ?? `login failed (${res.status})`);
+        setDevicePhase("idle");
+        return;
+      }
+      setDeviceLogin({ userCode: body.userCode, verificationUrl: body.verificationUrl });
+      setDevicePhase("waiting");
+      schedulePoll(body.handle);
+    } catch {
+      setError("login failed — could not reach the server");
+      setDevicePhase("idle");
+    }
+  };
 
   const logout = async () => {
     setError(null);
@@ -141,27 +219,22 @@ export function CodexLoginRow({
     }
   };
 
-  const paste = async () => {
-    setPasteBusy(true);
-    setError(null);
+  const paste = async (authJson: string, onSaved: () => void) => {
     try {
       const res = await fetch("/api/x/codex/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "paste", authJson: pasteText }),
+        body: JSON.stringify({ action: "paste", authJson }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         setError(body.error ?? `save failed (${res.status})`);
         return;
       }
-      setPasteOpen(false);
-      setPasteText("");
+      onSaved();
       await onChanged();
     } catch {
       setError("save failed — could not reach the server");
-    } finally {
-      setPasteBusy(false);
     }
   };
 
@@ -178,94 +251,180 @@ export function CodexLoginRow({
           </Button>
         </>
       ) : (
-        <>
-          {phase !== "waiting" && (
-            <Button size="sm" variant="outline" disabled={busy || phase === "starting"} onClick={() => void start()}>
-              {phase === "starting" ? "Starting…" : "Log in with ChatGPT"}
+        panel === "none" && (
+          <>
+            <Button size="sm" variant="outline" disabled={busy || browserStarting} onClick={() => void startBrowser()}>
+              {browserStarting ? "Starting…" : "Log in with ChatGPT"}
             </Button>
-          )}
-          {!pasteOpen && phase === "idle" && (
             <button
               type="button"
               className="text-muted-foreground underline underline-offset-2"
-              onClick={() => setPasteOpen(true)}
+              onClick={() => setPanel("device")}
             >
-              Paste auth.json instead
+              Use a device code instead
             </button>
-          )}
-        </>
+          </>
+        )
       )}
-      {!codex.configured && codex.status && phase === "idle" && !pasteOpen && (
+      {!codex.configured && codex.status && panel === "none" && (
         <span className={`${LABEL} w-full`}>{codex.status}</span>
       )}
-      {phase === "waiting" && login && (
-        <div className="flex w-full flex-col gap-1 rounded-lg border border-border bg-background px-3 py-2.5">
-          <span className={LABEL}>Open the link, sign in with your ChatGPT account, and approve this code:</span>
-          <span className="w-fit rounded bg-muted px-2 py-1 font-mono text-lg tracking-widest select-all">
-            {login.userCode}
+
+      {panel === "browser" && browser && (
+        <div className="flex w-full flex-col gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
+          <span className={LABEL}>
+            Sign in, pick your workspace, then paste the localhost URL your browser ends up on back here — the page
+            will say it can&apos;t connect; that&apos;s expected.
           </span>
           <a
-            className="text-muted-foreground break-all underline underline-offset-2"
-            href={login.verificationUrl}
+            className="rounded bg-muted px-2 py-1.5 font-mono text-xs break-all text-foreground underline underline-offset-2"
+            href={browser.authorizeUrl}
             target="_blank"
             rel="noreferrer"
           >
-            {login.verificationUrl}
+            {browser.authorizeUrl}
           </a>
-          <span className="flex items-center gap-3">
-            <span className={LABEL}>waiting for approval…</span>
-            <button
-              type="button"
-              className="text-muted-foreground underline underline-offset-2"
-              onClick={cancel}
-            >
-              Cancel
-            </button>
+          <span className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => void copyAuthorizeUrl()}>
+              {copied ? "Copied" : "Copy link"}
+            </Button>
           </span>
-        </div>
-      )}
-      {pasteOpen && !codex.configured && (
-        <div className="flex w-full flex-col gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
-          <label className={LABEL} htmlFor="codex-auth-json">
-            The auth.json `codex login` writes (on any machine with a browser) — the documented fallback when device
-            login is blocked:
-          </label>
-          <textarea
-            id="codex-auth-json"
-            className="min-h-24 w-full rounded-lg border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
+          <input
+            aria-label="Callback URL"
+            className="h-8 w-full rounded-lg border border-border bg-background px-2 font-mono text-xs text-foreground"
             spellCheck={false}
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            placeholder='{"auth_mode":"chatgpt",…}'
+            value={callbackUrl}
+            onChange={(e) => setCallbackUrl(e.target.value)}
+            placeholder="http://localhost:1455/auth/callback?code=…&state=…"
           />
           <span className="flex items-center gap-2">
             <Button
               size="sm"
               variant="outline"
-              disabled={pasteBusy || !pasteText.trim()}
-              onClick={() => void paste()}
+              disabled={completing || !callbackUrl.trim()}
+              onClick={() => void completeBrowser()}
             >
-              Save
+              {completing ? "Completing…" : "Complete login"}
             </Button>
-            <button
-              type="button"
-              className="text-muted-foreground underline underline-offset-2"
-              onClick={() => {
-                setPasteOpen(false);
-                setPasteText("");
-              }}
-            >
-              Close
+            <button type="button" className="text-muted-foreground underline underline-offset-2" onClick={closePanel}>
+              Cancel
             </button>
           </span>
         </div>
       )}
+
+      {panel === "device" && (
+        <div className="flex w-full flex-col gap-1 rounded-lg border border-border bg-background px-3 py-2.5">
+          {devicePhase === "waiting" && deviceLogin ? (
+            <>
+              <span className={LABEL}>Open the link, sign in with your ChatGPT account, and approve this code:</span>
+              <span className="w-fit rounded bg-muted px-2 py-1 font-mono text-lg tracking-widest select-all">
+                {deviceLogin.userCode}
+              </span>
+              <a
+                className="text-muted-foreground break-all underline underline-offset-2"
+                href={deviceLogin.verificationUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {deviceLogin.verificationUrl}
+              </a>
+              <span className="flex items-center gap-3">
+                <span className={LABEL}>waiting for approval…</span>
+                <button type="button" className="text-muted-foreground underline underline-offset-2" onClick={closePanel}>
+                  Cancel
+                </button>
+              </span>
+            </>
+          ) : (
+            <>
+              <span className={LABEL}>
+                Device codes are blocked on some workspaces; if the browser flow above fails, this one may too.
+              </span>
+              <span className="flex items-center gap-2">
+                <Button size="sm" variant="outline" disabled={devicePhase === "starting"} onClick={() => void startDevice()}>
+                  {devicePhase === "starting" ? "Starting…" : "Get a device code"}
+                </Button>
+                <button type="button" className="text-muted-foreground underline underline-offset-2" onClick={closePanel}>
+                  Close
+                </button>
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
+      {panel === "none" && !codex.configured && <PasteDisclosure onPaste={paste} />}
+
       {error && (
         <span role="alert" className={`${LABEL} w-full text-destructive`}>
           {error}
         </span>
       )}
     </li>
+  );
+}
+
+/** The headless fallback: paste the auth.json `codex login` writes. */
+function PasteDisclosure({
+  onPaste,
+}: {
+  onPaste: (authJson: string, onSaved: () => void) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="text-muted-foreground underline underline-offset-2"
+        onClick={() => setOpen(true)}
+      >
+        Paste auth.json instead
+      </button>
+    );
+  }
+  return (
+    <div className="flex w-full flex-col gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
+      <label className={LABEL} htmlFor="codex-auth-json">
+        The auth.json `codex login` writes (on any machine with a browser) — the documented fallback:
+      </label>
+      <textarea
+        id="codex-auth-json"
+        className="min-h-24 w-full rounded-lg border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground"
+        spellCheck={false}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder='{"auth_mode":"chatgpt",…}'
+      />
+      <span className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={saving || !text.trim()}
+          onClick={() => {
+            setSaving(true);
+            void onPaste(text, () => {
+              setOpen(false);
+              setText("");
+            }).finally(() => setSaving(false));
+          }}
+        >
+          Save
+        </Button>
+        <button
+          type="button"
+          className="text-muted-foreground underline underline-offset-2"
+          onClick={() => {
+            setOpen(false);
+            setText("");
+          }}
+        >
+          Close
+        </button>
+      </span>
+    </div>
   );
 }
 

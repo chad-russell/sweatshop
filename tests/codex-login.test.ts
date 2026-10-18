@@ -1,12 +1,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CODEX_LOGIN_CLIENT_ID,
   codexLoginIssuer,
+  completeCodexBrowserLogin,
   pollCodexDeviceLogin,
+  startCodexBrowserLogin,
   startCodexDeviceLogin,
+  type CodexBrowserHandle,
   type CodexLoginHandle,
 } from "../lib/harness-auth/codex-login";
 import { codexAuthPath, codexCredential, parseCodexAuth } from "../lib/harness-auth/codex";
@@ -23,15 +27,26 @@ import { POST as pollRoute } from "../app/api/x/codex/login/poll/route";
 const ISSUER = "http://issuer.test";
 const ACCESS = "at_secret_token_value";
 
-/** A router keyed by URL path, calling back with the request body. */
+/** A router keyed by URL path, calling back with the request body.
+ *  JSON bodies parse; form-encoded bodies stay raw strings. */
 function fakeIssuer(routes: Record<string, (body: unknown) => { status: number; body: unknown }>) {
-  const calls: { url: string; body: unknown }[] = [];
+  const calls: { url: string; body: unknown; contentType?: string }[] = [];
   const doFetch = (async (url: string, init?: RequestInit) => {
     const pathname = new URL(url).pathname;
-    calls.push({ url: pathname, body: init?.body ? JSON.parse(String(init.body)) : null });
+    const raw = typeof init?.body === "string" ? init.body : null;
+    let parsed: unknown = raw;
+    if (raw !== null) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        /* form-encoded — keep the raw string */
+      }
+    }
+    const headers = init?.headers as Record<string, string> | undefined;
+    calls.push({ url: pathname, body: parsed, contentType: headers?.["content-type"] });
     const route = routes[pathname];
     if (!route) return Response.json({ error: `no route for ${pathname}` }, { status: 404 });
-    const { status, body } = route(calls.at(-1)!.body);
+    const { status, body } = route(parsed);
     return Response.json(body, { status });
   }) as typeof fetch;
   return { doFetch, calls };
@@ -93,6 +108,7 @@ describe("0050: startCodexDeviceLogin", () => {
     expect(issuer.calls[0]).toEqual({
       url: "/api/accounts/deviceauth/usercode",
       body: { client_id: "app_EMoamEEZ73f0CkXaXp7hrann" },
+      contentType: "application/json",
     });
     expect(CODEX_LOGIN_CLIENT_ID).toBe("app_EMoamEEZ73f0CkXaXp7hrann");
     expect(codexLoginIssuer()).toBe(ISSUER);
@@ -133,15 +149,14 @@ describe("0050: pollCodexDeviceLogin", () => {
     });
     const result = await pollCodexDeviceLogin(baseHandle, { fetch: issuer.doFetch });
     expect(result).toMatchObject({ ok: true, status: "approved" });
+    // The exchange is FORM-ENCODED (the CLI's TokenEncoding::Form) —
+    // byte-exact, content-type included.
     expect(issuer.calls[1]).toEqual({
       url: "/oauth/token",
-      body: {
-        grant_type: "authorization_code",
-        client_id: CODEX_LOGIN_CLIENT_ID,
-        code: "ac_1",
-        redirect_uri: `${ISSUER}/deviceauth/callback`,
-        code_verifier: "vfy_1",
-      },
+      body:
+        `grant_type=authorization_code&client_id=${CODEX_LOGIN_CLIENT_ID}&code=ac_1` +
+        `&redirect_uri=${encodeURIComponent(`${ISSUER}/deviceauth/callback`)}&code_verifier=vfy_1`,
+      contentType: "application/x-www-form-urlencoded",
     });
     const credential = codexCredential();
     expect(credential).toMatchObject({ ok: true, accountId: "org-9" });
@@ -211,6 +226,123 @@ describe("0050: pollCodexDeviceLogin", () => {
   });
 });
 
+describe("0050 phase 5b: browser flow (primary)", () => {
+  it("start pins the authorize URL byte shape — localhost redirect, %20 scope, S256, param order", () => {
+    const result = startCodexBrowserLogin();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [base, query] = result.authorizeUrl.split("?");
+    expect(base).toBe(`${ISSUER}/authorize`);
+    // Exact param order (the shipped CLI's byte shape).
+    expect(query.split("&").map((p) => p.slice(0, p.indexOf("=")))).toEqual([
+      "response_type",
+      "client_id",
+      "redirect_uri",
+      "scope",
+      "code_challenge",
+      "code_challenge_method",
+      "id_token_add_organizations",
+      "codex_cli_simplified_flow",
+      "state",
+      "originator",
+    ]);
+    const q = new URLSearchParams(query);
+    expect(q.get("response_type")).toBe("code");
+    expect(q.get("client_id")).toBe(CODEX_LOGIN_CLIENT_ID);
+    expect(q.get("redirect_uri")).toBe("http://localhost:1455/auth/callback"); // localhost, not 127.0.0.1
+    expect(q.get("scope")).toBe("openid profile email offline_access api.connectors.read api.connectors.invoke");
+    expect(result.authorizeUrl).toContain("scope=openid%20profile%20email"); // %20, never +
+    expect(q.get("code_challenge_method")).toBe("S256");
+    expect(createHash("sha256").update(result.handle.codeVerifier).digest("base64url")).toBe(q.get("code_challenge"));
+    expect(q.get("id_token_add_organizations")).toBe("true");
+    expect(q.get("codex_cli_simplified_flow")).toBe("true");
+    expect(q.get("originator")).toBe("codex_cli_rs");
+    expect(q.get("state")).toBe(result.handle.state);
+    expect(result.handle.codeVerifier).toMatch(/^[A-Za-z0-9_-]{86}$/); // 64 random bytes
+    expect(result.handle.state).toMatch(/^[A-Za-z0-9_-]{43}$/); // 32 random bytes
+  });
+
+  it("complete: form-encoded exchange byte-exact, account id lands in the file, no tokens in errors", async () => {
+    const start = startCodexBrowserLogin();
+    if (!start.ok) throw new Error("start failed");
+    const issuer = fakeIssuer({
+      "/oauth/token": () =>
+        tokenExchangeRoute({
+          access_token: jwt({ exp: Math.floor(expSoon / 1000) }),
+          refresh_token: "rt_9",
+          id_token: enterpriseIdToken,
+        }),
+    });
+    const callback = `http://localhost:1455/auth/callback?code=ac_9&state=${encodeURIComponent(start.handle.state)}`;
+    const result = await completeCodexBrowserLogin(start.handle, callback, { fetch: issuer.doFetch });
+    expect(result.ok).toBe(true);
+    expect(issuer.calls[0]).toEqual({
+      url: "/oauth/token",
+      body:
+        `grant_type=authorization_code&client_id=${CODEX_LOGIN_CLIENT_ID}&code=ac_9` +
+        `&redirect_uri=${encodeURIComponent("http://localhost:1455/auth/callback")}` +
+        `&code_verifier=${start.handle.codeVerifier}`,
+      contentType: "application/x-www-form-urlencoded",
+    });
+    expect(codexCredential()).toMatchObject({ ok: true, accountId: "org-9" });
+    const text = fs.readFileSync(codexAuthPath(), "utf8");
+    expect(parseCodexAuth(text).ok).toBe(true);
+    expect(JSON.parse(text).tokens.account_id).toBe("org-9");
+  });
+
+  it("a bare query string pastes fine too", async () => {
+    const start = startCodexBrowserLogin();
+    if (!start.ok) throw new Error("start failed");
+    const issuer = fakeIssuer({
+      "/oauth/token": () =>
+        tokenExchangeRoute({
+          access_token: jwt({ exp: Math.floor(expSoon / 1000) }),
+          refresh_token: "rt_9",
+          id_token: jwt({ sub: "auth0|personal" }),
+        }),
+    });
+    const result = await completeCodexBrowserLogin(
+      start.handle,
+      `?code=ac_2&state=${encodeURIComponent(start.handle.state)}`,
+      { fetch: issuer.doFetch },
+    );
+    expect(result.ok).toBe(true);
+    expect(issuer.calls[0].body).toContain("code=ac_2");
+    expect(codexCredential()).toMatchObject({ ok: true, accountId: null });
+  });
+
+  it("a wrong or stale state is rejected without calling the issuer, never naming tokens", async () => {
+    const start = startCodexBrowserLogin();
+    if (!start.ok) throw new Error("start failed");
+    const issuer = fakeIssuer({ "/oauth/token": () => tokenExchangeRoute({ access_token: ACCESS, refresh_token: "r" }) });
+    const result = await completeCodexBrowserLogin(
+      start.handle,
+      `http://localhost:1455/auth/callback?code=ac_9&state=${encodeURIComponent("attacker-state")}`,
+      { fetch: issuer.doFetch },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toBe("the callback does not match this login (wrong or stale state) — start again");
+      expect(result.message).not.toContain(ACCESS);
+    }
+    expect(issuer.calls).toHaveLength(0);
+  });
+
+  it("a callback without a code is rejected value-shaped", async () => {
+    const start = startCodexBrowserLogin();
+    if (!start.ok) throw new Error("start failed");
+    const issuer = fakeIssuer({ "/oauth/token": () => tokenExchangeRoute({ access_token: ACCESS, refresh_token: "r" }) });
+    const result = await completeCodexBrowserLogin(
+      start.handle,
+      `?state=${encodeURIComponent(start.handle.state)}`,
+      { fetch: issuer.doFetch },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("missing the authorization code");
+    expect(issuer.calls).toHaveLength(0);
+  });
+});
+
 describe("0050: /api/x/codex/login routes", () => {
   const validAuthJson = JSON.stringify({
     auth_mode: "chatgpt",
@@ -251,6 +383,55 @@ describe("0050: /api/x/codex/login routes", () => {
     const res = await logoutRoute();
     expect(res.status).toBe(200);
     expect(codexCredential().ok).toBe(false);
+  });
+
+  it("browser_start returns the authorize URL and handle; browser_complete returns status only", async () => {
+    const startRes = await accountRoute(
+      new Request("http://x/api/x/codex/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "browser_start" }),
+      }),
+    );
+    expect(startRes.status).toBe(200);
+    const startBody = (await startRes.json()) as { authorizeUrl: string; handle: CodexBrowserHandle };
+    expect(startBody.authorizeUrl).toContain(`${ISSUER}/authorize?`);
+    expect(startBody.handle.redirectUri).toBe("http://localhost:1455/auth/callback");
+
+    // Route the REAL global through the fake issuer for the exchange.
+    const issuer = fakeIssuer({
+      "/oauth/token": () =>
+        tokenExchangeRoute({
+          access_token: jwt({ exp: Math.floor(expSoon / 1000) }),
+          refresh_token: "rt_r",
+          id_token: enterpriseIdToken,
+        }),
+    });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = issuer.doFetch;
+    try {
+      const res = await accountRoute(
+        new Request("http://x/api/x/codex/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "browser_complete",
+            handle: startBody.handle,
+            callbackUrl: `http://localhost:1455/auth/callback?code=ac_r&state=${encodeURIComponent(startBody.handle.state)}`,
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; credential: Record<string, unknown> };
+      expect(body.ok).toBe(true);
+      expect(body.credential).toEqual({ configured: true, expiresAt: expect.any(Number), accountId: "org-9" });
+      const text = JSON.stringify(body);
+      expect(text).not.toContain("access_token");
+      expect(text).not.toContain("refresh_token");
+      expect(text).not.toContain('"json"');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   it("poll requires a well-formed handle; an approval carries the status shape only — never tokens", async () => {
