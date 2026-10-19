@@ -200,3 +200,57 @@ describe("0047 GET /api/x/stats", () => {
     expect(await res.json()).toEqual({ error: "not-found" });
   });
 });
+
+describe("0051 context block", () => {
+  it("reports used/window/pct from the chat's latest metered row", async () => {
+    ensureConversation(db(), "c_ctx_api");
+    event({
+      id: "u_c_ctx_api_0",
+      conversationId: "c_ctx_api",
+      route: JSON.stringify({ provider: "glm", model: "glm-5.3-flash" }),
+      lastInputTokens: 96_000,
+      lastOutputTokens: 6_400,
+    });
+
+    const res = await GET(new Request("http://localhost/api/x/stats/c_ctx_api"), {
+      params: Promise.resolve({ conversationId: "c_ctx_api" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.context).toEqual({
+      usedTokens: 102_400,
+      windowTokens: 128_000,
+      pct: 0.8,
+    });
+  });
+
+  it("is null when unmetered, pre-0051, or the model is unknown", async () => {
+    ensureConversation(db(), "c_ctx_api_empty");
+    const res1 = await GET(new Request("http://localhost/api/x/stats/c_ctx_api_empty"), {
+      params: Promise.resolve({ conversationId: "c_ctx_api_empty" }),
+    });
+    expect((await res1.json()).context).toBeNull();
+
+    // pre-0051 row (no last-slice columns) — no answer beats a stale one
+    ensureConversation(db(), "c_ctx_api_old");
+    event({ id: "u_c_ctx_api_old_0", conversationId: "c_ctx_api_old" });
+    const res2 = await GET(new Request("http://localhost/api/x/stats/c_ctx_api_old"), {
+      params: Promise.resolve({ conversationId: "c_ctx_api_old" }),
+    });
+    expect((await res2.json()).context).toBeNull();
+
+    // metered, but the model is not in the catalog
+    ensureConversation(db(), "c_ctx_api_unknown");
+    event({
+      id: "u_c_ctx_api_unknown_0",
+      conversationId: "c_ctx_api_unknown",
+      route: JSON.stringify({ provider: "gloo", model: "gloo-mystery" }),
+      lastInputTokens: 10,
+      lastOutputTokens: 5,
+    });
+    const res3 = await GET(new Request("http://localhost/api/x/stats/c_ctx_api_unknown"), {
+      params: Promise.resolve({ conversationId: "c_ctx_api_unknown" }),
+    });
+    expect((await res3.json()).context).toBeNull();
+  });
+});
