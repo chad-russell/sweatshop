@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,23 +41,38 @@ export function ContextMeter({
   started: boolean;
 }) {
   const [context, setContext] = useState<ContextStats | null>(null);
+  // Whether this mount ever saw a live turn — only then does the
+  // settle edge need its delayed follow-up (see below).
+  const sawBusy = useRef(false);
+  useEffect(() => {
+    if (busy) sawBusy.current = true;
+  }, [busy]);
 
   useEffect(() => {
     if (!started) return;
     let cancel = false;
-    fetch(`/api/x/stats/${conversationId}`)
-      .then(async (res) => (res.ok ? ((await res.json()) as StatsPayload) : null))
-      .then((body) => {
-        if (!cancel) setContext(body?.context ?? null);
-      })
-      .catch(() => {
-        /* the chip stays hidden on error — never blocks the header */
-      });
+    const load = () => {
+      fetch(`/api/x/stats/${conversationId}`)
+        .then(async (res) => (res.ok ? ((await res.json()) as StatsPayload) : null))
+        .then((body) => {
+          if (!cancel) setContext(body?.context ?? null);
+        })
+        .catch(() => {
+          /* the chip stays hidden on error — never blocks the header */
+        });
+    };
+    load();
+    // The usage row lands AFTER the stream finishes (persistTurn →
+    // finishTurnStream → recordUsageStep), so the settle-edge fetch can
+    // race the write and read the PREVIOUS turn. One delayed follow-up
+    // — only after a turn actually ran — closes the hole.
+    const timer = sawBusy.current ? setTimeout(() => { if (!cancel) load(); }, 1_500) : null;
     return () => {
       cancel = true;
+      if (timer) clearTimeout(timer);
     };
-    // busy is a deliberate non-dep: it only triggers the effect's edge
-    // (busy → idle), the fetch itself always reads current data.
+    // busy is a dep for its edge only (busy → idle re-runs the fetch);
+    // the body always reads current data.
   }, [started, conversationId, busy]);
 
   if (!context || context.windowTokens <= 0) return null;

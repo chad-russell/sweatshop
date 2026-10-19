@@ -19,11 +19,13 @@ over-counts (each slice re-sends the whole conversation).
 ## Semantics
 
 **Context usage after a turn = the LAST slice's `inputTokens +
-outputTokens` (+ `reasoningTokens` when reported).** The last slice's
-input re-sent the entire conversation, so it IS the conversation's size
-in tokens; its output is about to join it. Cached tokens count once
-(input already includes them — the same model as `computeCost`'s
-`fresh = input − cached`).
+outputTokens`.** The last slice's input re-sent the entire
+conversation, so it IS the conversation's size in tokens; its output is
+about to join it. Reasoning tokens are deliberately NOT added: per the
+schema's own convention they are a display-only slice of `outputTokens`
+(already inside it) — adding them would double-count. Cached tokens
+count once (input already includes them — the same model as
+`computeCost`'s `fresh = input − cached`).
 
 Scope: **per chat, not per thread-group.** Each conversation feeds its
 own model with its own history; children and harness calls never enter

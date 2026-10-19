@@ -254,3 +254,74 @@ describe("0051 context block", () => {
     expect((await res3.json()).context).toBeNull();
   });
 });
+
+describe("0051 context block — clamp and zero guards", () => {
+  it("clamps pct at 1 when used exceeds the window", async () => {
+    ensureConversation(db(), "c_ctx_api_over");
+    event({
+      id: "u_c_ctx_api_over_0",
+      conversationId: "c_ctx_api_over",
+      route: JSON.stringify({ provider: "glm", model: "glm-5.3-flash" }),
+      lastInputTokens: 200_000,
+      lastOutputTokens: 10_000,
+    });
+    const res = await GET(new Request("http://localhost/api/x/stats/c_ctx_api_over"), {
+      params: Promise.resolve({ conversationId: "c_ctx_api_over" }),
+    });
+    const body = await res.json();
+    expect(body.context).toEqual({
+      usedTokens: 210_000,
+      windowTokens: 128_000,
+      pct: 1,
+    });
+  });
+
+  it("nulls when the last slice reports zero tokens", async () => {
+    ensureConversation(db(), "c_ctx_api_zero");
+    event({
+      id: "u_c_ctx_api_zero_0",
+      conversationId: "c_ctx_api_zero",
+      route: JSON.stringify({ provider: "glm", model: "glm-5.3-flash" }),
+      lastInputTokens: 0,
+      lastOutputTokens: 0,
+    });
+    const res = await GET(new Request("http://localhost/api/x/stats/c_ctx_api_zero"), {
+      params: Promise.resolve({ conversationId: "c_ctx_api_zero" }),
+    });
+    expect((await res.json()).context).toBeNull();
+  });
+
+  it("picks the LATEST metered row when several exist (ended_at desc)", async () => {
+    ensureConversation(db(), "c_ctx_api_latest");
+    event({
+      id: "u_c_ctx_api_latest_0",
+      conversationId: "c_ctx_api_latest",
+      route: JSON.stringify({ provider: "glm", model: "glm-5.3-flash" }),
+      lastInputTokens: 10_000,
+      lastOutputTokens: 1_000,
+      endedAt: 5_000,
+      createdAt: 5_000,
+    });
+    event({
+      id: "u_c_ctx_api_latest_4",
+      conversationId: "c_ctx_api_latest",
+      route: JSON.stringify({ provider: "glm", model: "glm-5.3-flash" }),
+      lastInputTokens: 50_000,
+      lastOutputTokens: 5_000,
+      endedAt: 9_000,
+      createdAt: 9_000,
+    });
+    // A pre-0051 row ENDING LATEST must never win over metered rows.
+    event({
+      id: "u_c_ctx_api_latest_6",
+      conversationId: "c_ctx_api_latest",
+      endedAt: 12_000,
+      createdAt: 12_000,
+    });
+    const res = await GET(new Request("http://localhost/api/x/stats/c_ctx_api_latest"), {
+      params: Promise.resolve({ conversationId: "c_ctx_api_latest" }),
+    });
+    const body = await res.json();
+    expect(body.context).toEqual({ usedTokens: 55_000, windowTokens: 128_000, pct: 55_000 / 128_000 });
+  });
+});

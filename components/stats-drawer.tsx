@@ -151,7 +151,7 @@ function ContextReadout({ context }: { context: NonNullable<StatsPayload["contex
       </div>
       <div className="text-xs text-muted-foreground">
         <span className="font-mono tabular-nums">{pct}%</span> full — the conversation&apos;s size
-        after its last turn, against the current model&apos;s window.
+        after its last turn, against that turn&apos;s model&apos;s window.
       </div>
     </section>
   );

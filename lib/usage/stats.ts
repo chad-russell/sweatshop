@@ -69,7 +69,7 @@ export interface ConversationStats {
 export interface ContextStats {
   usedTokens: number;
   windowTokens: number;
-  /** 0..1, rounded to 2dp. */
+  /** 0..1, clamped at the top; unrounded — the UI rounds for display. */
   pct: number;
 }
 

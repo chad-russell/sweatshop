@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import { modelPrices, usageEvents } from "./schema";
 import {
@@ -106,39 +106,34 @@ export interface ContextUsageRow {
 }
 
 export function readContextUsage(db: Db, conversationId: string): ContextUsageRow | null {
-  const rows = db
+  // Pre-0051 rows (null last-slice) are excluded outright — an older
+  // metered turn is a WORSE answer than no answer.
+  const row = db
     .select({
       route: usageEvents.route,
       inputTokens: usageEvents.lastInputTokens,
       cachedTokens: usageEvents.lastCachedTokens,
       outputTokens: usageEvents.lastOutputTokens,
       reasoningTokens: usageEvents.lastReasoningTokens,
-      endedAt: usageEvents.endedAt,
-      createdAt: usageEvents.createdAt,
     })
     .from(usageEvents)
-    .where(and(eq(usageEvents.conversationId, conversationId), eq(usageEvents.source, "chat")))
-    .all();
-  let best: (typeof rows)[number] | null = null;
-  for (const row of rows) {
-    // Skip pre-0051 rows entirely (null last-slice) — an older metered
-    // turn is a WORSE answer than no answer.
-    if (row.inputTokens == null) continue;
-    if (
-      best == null ||
-      row.endedAt > best.endedAt ||
-      (row.endedAt === best.endedAt && (row.createdAt ?? 0) > (best.createdAt ?? 0))
-    ) {
-      best = row;
-    }
-  }
-  if (best == null) return null;
+    .where(
+      and(
+        eq(usageEvents.conversationId, conversationId),
+        eq(usageEvents.source, "chat"),
+        isNotNull(usageEvents.lastInputTokens),
+      ),
+    )
+    .orderBy(desc(usageEvents.endedAt), desc(usageEvents.createdAt), desc(usageEvents.id))
+    .limit(1)
+    .get();
+  if (row == null) return null;
   return {
-    route: best.route,
-    inputTokens: best.inputTokens ?? 0,
-    cachedTokens: best.cachedTokens ?? 0,
-    outputTokens: best.outputTokens ?? 0,
-    reasoningTokens: best.reasoningTokens ?? 0,
+    route: row.route,
+    inputTokens: row.inputTokens ?? 0,
+    cachedTokens: row.cachedTokens ?? 0,
+    outputTokens: row.outputTokens ?? 0,
+    reasoningTokens: row.reasoningTokens ?? 0,
   };
 }
 
