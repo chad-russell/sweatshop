@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, Inbox, MonitorPlay, Search, Settings, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, GitPullRequest, Inbox, MonitorPlay, Search, Settings, Trash2, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
@@ -211,6 +211,9 @@ export function ConversationSidebar({
               </span>
             )}
           </NavRow>
+          {/* 0053: every PR by his accounts, one page — no badge (a badge
+              needs a background poll; the page itself is the check). */}
+          <NavRow href="/prs" icon={GitPullRequest} label="PRs" active={page === "prs"} />
           <NavRow href="/projects" icon={FolderGit2} label="Projects" active={page === "projects"} />
           <div role="separator" className="mx-1 my-1.5 h-px bg-sidebar-border" />
           <NavRow href="/sandboxes" icon={Box} label="Sandboxes" active={page === "sandboxes"} />

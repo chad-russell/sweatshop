@@ -9,6 +9,7 @@ describe("activeNavPage (0040)", () => {
 
   it("matches the other pages by top-level segment, including detail routes", () => {
     expect(activeNavPage("/inbox")).toBe("inbox");
+    expect(activeNavPage("/prs")).toBe("prs"); // 0053: the PR dashboard
     expect(activeNavPage("/sandboxes")).toBe("sandboxes");
     expect(activeNavPage("/sandboxes/sb_123")).toBe("sandboxes");
     expect(activeNavPage("/previews")).toBe("previews");
@@ -25,5 +26,6 @@ describe("activeNavPage (0040)", () => {
   it("does not confuse a prefix with a segment", () => {
     expect(activeNavPage("/projectsfoo")).toBeNull();
     expect(activeNavPage("/inboxes")).toBeNull();
+    expect(activeNavPage("/prss")).toBeNull();
   });
 });
