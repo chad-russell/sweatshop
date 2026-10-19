@@ -15,7 +15,7 @@ import {
   presentPlan,
   type ApprovePlanDeps,
 } from "../lib/agent/tools/plan";
-import { derivePhase, diffLines, parseChecklist, phaseEvents, planHistory, type PlanSnapshot } from "../lib/plan";
+import { applyPRState, derivePhase, diffLines, parseChecklist, phaseEvents, planHistory, type PlanSnapshot } from "../lib/plan";
 import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 import { buildChatTools } from "../workflows/chat/tools";
 
@@ -188,6 +188,40 @@ describe("0041 plan derivations (pure)", () => {
         } as ModelMessage,
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("0052 applyPRState (phase chip live override)", () => {
+  const open = derivePhase([{ type: "pr-open", url: "http://x/pull/1" }]);
+  if (!open) throw new Error("unreachable: pr-open derives a phase");
+
+  it("relabels a pr-open phase by the host's live answer, keeping the URL", () => {
+    expect(applyPRState(open, { state: "merged", mergedAt: "t" })).toEqual({
+      label: "PR merged",
+      tone: "ok",
+      kind: "pr-open",
+      url: "http://x/pull/1",
+    });
+    expect(applyPRState(open, { state: "closed" })).toEqual({
+      label: "PR closed",
+      tone: "warn",
+      kind: "pr-open",
+      url: "http://x/pull/1",
+    });
+  });
+
+  it("keeps the derived phase when the answer is unknown or still open", () => {
+    expect(applyPRState(open, null)).toBe(open);
+    expect(applyPRState(open, { state: "open" })).toBe(open);
+  });
+
+  it("never touches another phase, or a missing one", () => {
+    const building = derivePhase([
+      { type: "plan", version: 1, status: "progress", checklist: { done: 1, total: 2 } },
+    ]);
+    if (!building) throw new Error("unreachable");
+    expect(applyPRState(building, { state: "merged" })).toBe(building);
+    expect(applyPRState(null, { state: "merged" })).toBeNull();
   });
 });
 
