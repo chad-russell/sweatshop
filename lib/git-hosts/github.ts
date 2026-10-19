@@ -1,4 +1,5 @@
 import {
+  getJSON,
   installCredentialStore,
   postJSON,
   remoteHost,
@@ -6,6 +7,7 @@ import {
   type CreatePRInput,
   type CreatePRResult,
   type GitHost,
+  type PRState,
 } from "@/lib/git-hosts/index";
 
 /** GitHub: token-authenticated https, host scope github.com. */
@@ -39,5 +41,28 @@ export const githubHost: GitHost = {
     const number = json.number;
     if (typeof number !== "number") throw new Error("github PR response missing number");
     return { url, number } satisfies CreatePRResult;
+  },
+  async getPRState(credential, remoteUrl, number, fetchImpl = fetch): Promise<PRState | null> {
+    try {
+      const path = repoPath(remoteUrl);
+      if (!path) return null;
+      const json = await getJSON(
+        `https://api.github.com/repos/${path.owner}/${path.repo}/pulls/${number}`,
+        {
+          authorization: `Bearer ${credential.secret}`,
+          accept: "application/vnd.github+json",
+        },
+        fetchImpl,
+      );
+      if (json.merged === true) {
+        const mergedAt = json.merged_at;
+        return { state: "merged", ...(typeof mergedAt === "string" ? { mergedAt } : {}) };
+      }
+      if (json.state === "closed") return { state: "closed" };
+      if (json.state === "open") return { state: "open" };
+      return null; // shape error
+    } catch {
+      return null; // non-2xx, network, or parse failure — unknown, never thrown
+    }
   },
 };

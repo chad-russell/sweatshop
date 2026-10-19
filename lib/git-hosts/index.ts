@@ -28,6 +28,13 @@ export interface CreatePRResult {
   number: number;
 }
 
+/** A PR's lifecycle state on its host (0052) — asked live, never stored. */
+export interface PRState {
+  state: "open" | "merged" | "closed";
+  /** When the host reports the merge (ISO timestamp, when it has one). */
+  mergedAt?: string;
+}
+
 /**
  * The pluggable VCS seam (0004): projects and repos never know which
  * implementation serves them — credentials resolve by host, auth installs
@@ -46,6 +53,14 @@ export interface GitHost {
     input: CreatePRInput,
     fetchImpl?: typeof fetch,
   ): Promise<CreatePRResult>;
+  /** The PR's live lifecycle state, or null when unknown (a not-found
+   *  PR, a host error, an unparseable answer) — never throws (0052). */
+  getPRState(
+    credential: GitCredential,
+    remoteUrl: string,
+    number: number,
+    fetchImpl?: typeof fetch,
+  ): Promise<PRState | null>;
 }
 
 /** Parse {host, owner, repo} from an https or ssh remote URL. */
@@ -71,6 +86,23 @@ export async function postJSON(
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
+  const text = await res.text();
+  const json: Record<string, unknown> = text ? JSON.parse(text) : {};
+  if (!res.ok) {
+    const message =
+      typeof json.message === "string" ? json.message : res.statusText;
+    throw new Error(`${url} → ${res.status}: ${message}`);
+  }
+  return json;
+}
+
+/** GET and require a 2xx, surfacing the provider's error body (0052). */
+export async function getJSON(
+  url: string,
+  headers: Record<string, string>,
+  fetchImpl: typeof fetch,
+): Promise<Record<string, unknown>> {
+  const res = await fetchImpl(url, { headers });
   const text = await res.text();
   const json: Record<string, unknown> = text ? JSON.parse(text) : {};
   if (!res.ok) {
