@@ -1,6 +1,7 @@
 # 0052 — PR lifecycle: the phase chip tells the truth
 
-Status: **draft**
+Status: **approved (in chat, 2026-10-19); implemented on
+`feat/0052-pr-lifecycle`.** Implementation notes at the end.
 
 ## Why
 
