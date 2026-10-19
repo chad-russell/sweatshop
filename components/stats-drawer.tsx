@@ -59,6 +59,8 @@ interface StatsPayload {
   byModel: ModelUsage[];
   byChild: ChildUsage[];
   cacheHitRate: number | null;
+  /** 0051: this conversation's context (null = unmetered/unknown window). */
+  context: { usedTokens: number; windowTokens: number; pct: number } | null;
 }
 
 const CHART = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
@@ -133,6 +135,28 @@ function Donut({ slices, center }: { slices: { fraction: number; color: string }
   );
 }
 
+function ContextReadout({ context }: { context: NonNullable<StatsPayload["context"]> }) {
+  const pct = Math.round(context.pct * 100);
+  const tone = pct >= 95 ? "bg-destructive" : pct >= 85 ? "bg-warning" : "bg-primary/60";
+  return (
+    <section aria-label="Context window" className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs text-muted-foreground">Context window</span>
+        <span className="text-xs text-muted-foreground font-mono tabular-nums">
+          {formatTokens(context.usedTokens)} / {formatTokens(context.windowTokens)} tokens
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full", tone)} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+      </div>
+      <div className="text-xs text-muted-foreground">
+        <span className="font-mono tabular-nums">{pct}%</span> full — the conversation&apos;s size
+        after its last turn, against that turn&apos;s model&apos;s window.
+      </div>
+    </section>
+  );
+}
+
 function StatsBody({ data }: { data: StatsPayload }) {
   if (data.byModel.length === 0) {
     return (
@@ -156,6 +180,7 @@ function StatsBody({ data }: { data: StatsPayload }) {
 
   return (
     <div className="flex flex-col gap-5">
+      {data.context && <ContextReadout context={data.context} />}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <div className="text-xs text-muted-foreground">Total</div>

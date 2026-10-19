@@ -147,6 +147,10 @@ export async function chatTurn(input: ChatTurnInput) {
   const startedAt = Date.now();
   let slices = 0;
   let turnUsage: UsageCounts = { inputTokens: 0, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+  // 0051: the LAST slice's own counts — its input re-sent the whole
+  // conversation, so lastSlice.input + lastSlice.output is the
+  // conversation's size in tokens once the turn lands.
+  let lastSliceUsage: UsageCounts | null = null;
   // skip = everything already persisted (loaded history + this turn's
   // user message) plus the injected note, which sits right before it.
   const skip = history.length + (input.viewing ? 1 : 0) + 1;
@@ -182,7 +186,9 @@ export async function chatTurn(input: ChatTurnInput) {
           sendFinish: false,
         });
         slices += 1;
-        turnUsage = addUsage(turnUsage, readSliceUsage(result));
+        const sliceUsage = readSliceUsage(result);
+        turnUsage = addUsage(turnUsage, sliceUsage);
+        lastSliceUsage = sliceUsage;
         messages = stripLeadingSystem(result.messages);
         finishReason = result.finishReason;
 
@@ -228,6 +234,7 @@ export async function chatTurn(input: ChatTurnInput) {
         slices,
         countToolCalls(messages, skip),
         startedAt,
+        lastSliceUsage,
       );
     } catch (err) {
       console.error("[usage] chat capture failed", err);

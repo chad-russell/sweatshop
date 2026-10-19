@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import { modelPrices, usageEvents } from "./schema";
 import {
@@ -90,6 +90,51 @@ export function getPrice(db: Db, provider: string, model: string): ModelPrice | 
 export function costFor(db: Db, provider: string, model: string, usage: UsageCounts): number | null {
   const price = getPrice(db, provider, model);
   return price ? computeCost(price, usage) : null;
+}
+
+/** 0051: the conversation's context usage — its LATEST chat usage
+ * row's last-slice counts (the last slice's input re-sent the whole
+ * conversation). Harness rows never answer a chat's context; children
+ * meter their own. Null when the chat has no metered chat turns, or
+ * only pre-0051 rows (all last-* null). */
+export interface ContextUsageRow {
+  route: string;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+}
+
+export function readContextUsage(db: Db, conversationId: string): ContextUsageRow | null {
+  // Pre-0051 rows (null last-slice) are excluded outright — an older
+  // metered turn is a WORSE answer than no answer.
+  const row = db
+    .select({
+      route: usageEvents.route,
+      inputTokens: usageEvents.lastInputTokens,
+      cachedTokens: usageEvents.lastCachedTokens,
+      outputTokens: usageEvents.lastOutputTokens,
+      reasoningTokens: usageEvents.lastReasoningTokens,
+    })
+    .from(usageEvents)
+    .where(
+      and(
+        eq(usageEvents.conversationId, conversationId),
+        eq(usageEvents.source, "chat"),
+        isNotNull(usageEvents.lastInputTokens),
+      ),
+    )
+    .orderBy(desc(usageEvents.endedAt), desc(usageEvents.createdAt), desc(usageEvents.id))
+    .limit(1)
+    .get();
+  if (row == null) return null;
+  return {
+    route: row.route,
+    inputTokens: row.inputTokens ?? 0,
+    cachedTokens: row.cachedTokens ?? 0,
+    outputTokens: row.outputTokens ?? 0,
+    reasoningTokens: row.reasoningTokens ?? 0,
+  };
 }
 
 /** Upsert price rows; `manual` rows already present are never

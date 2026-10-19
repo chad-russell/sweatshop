@@ -17,6 +17,7 @@ import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { PhaseChip } from "@/components/plan-card";
+import { ContextMeter } from "@/components/context-meter";
 import { StatsDrawer } from "@/components/stats-drawer";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { type ConversationSandboxViewData } from "@/components/sandbox-view";
@@ -517,6 +518,10 @@ export function ChatSurface({
           <PhaseChip phase={s.phase} variant="header" />
           {/* 0047: group cost, tokens, and time. Hidden until the chat exists. */}
           {conversationId ? <StatsDrawer conversationId={conversationId} /> : null}
+          {/* 0051: how full THIS chat's context is. Hidden until metered. */}
+          {conversationId ? (
+            <ContextMeter conversationId={conversationId} busy={s.busy} started={s.started} />
+          ) : null}
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
           <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}

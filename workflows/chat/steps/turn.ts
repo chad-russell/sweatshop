@@ -310,6 +310,8 @@ export async function recordUsageStep(
   steps: number,
   toolCalls: number,
   startedAt: number,
+  /** 0051: the turn's last slice's counts (the context meter's source). */
+  lastSlice: import("../../../lib/usage/pricing").UsageCounts | null,
 ): Promise<void> {
   "use step";
   const [{ db }, { getPrice, recordUsageEvent }, { computeCost }] = await Promise.all([
@@ -329,6 +331,10 @@ export async function recordUsageStep(
     cachedTokens: usage.cachedTokens,
     outputTokens: usage.outputTokens,
     reasoningTokens: usage.reasoningTokens ?? 0,
+    lastInputTokens: lastSlice?.inputTokens ?? null,
+    lastCachedTokens: lastSlice?.cachedTokens ?? null,
+    lastOutputTokens: lastSlice?.outputTokens ?? null,
+    lastReasoningTokens: lastSlice?.reasoningTokens ?? null,
     steps,
     toolCalls,
     costUsd: price ? computeCost(price, usage) : null,

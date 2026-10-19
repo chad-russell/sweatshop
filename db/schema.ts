@@ -757,6 +757,13 @@ export const usageEvents = sqliteTable(
     outputTokens: integer("output_tokens").notNull().default(0),
     /** Display-only slice of output (billed as output). */
     reasoningTokens: integer("reasoning_tokens"),
+    /** 0051: the turn's LAST slice's counts — its input re-sent the
+     * whole conversation, so lastInput+lastOutput ≈ the context's size
+     * now. Null on rows written before 0051 (forward-only, per 0047). */
+    lastInputTokens: integer("last_input_tokens"),
+    lastCachedTokens: integer("last_cached_tokens"),
+    lastOutputTokens: integer("last_output_tokens"),
+    lastReasoningTokens: integer("last_reasoning_tokens"),
     steps: integer("steps").notNull().default(0),
     toolCalls: integer("tool_calls").notNull().default(0),
     /** Computed at capture time; null = unmetered (plan). */

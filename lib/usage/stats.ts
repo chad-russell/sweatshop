@@ -3,7 +3,7 @@ import type { Db } from "../../db";
 import { conversationGroupIds, rootConversationId } from "../../db/organize";
 import { getModelInfo } from "../../db/providers";
 import { conversations, harnessCalls, messages, pendingInputs } from "../../db/schema";
-import { sumGroupUsage, type UsageEvent } from "../../db/usage";
+import { readContextUsage, sumGroupUsage, type UsageEvent } from "../../db/usage";
 import { PROVIDER_LABELS, type ProviderId } from "../providers/catalog";
 
 /**
@@ -60,6 +60,17 @@ export interface ConversationStats {
   byModel: ModelUsage[];
   byChild: ChildUsage[];
   cacheHitRate: number | null;
+  /** 0051: THIS conversation's context (not the group's) — the last
+   * metered slice's input+output against the model's window. Null when
+   * the chat has no metered turns or the model's window is unknown. */
+  context: ContextStats | null;
+}
+
+export interface ContextStats {
+  usedTokens: number;
+  windowTokens: number;
+  /** 0..1, clamped at the top; unrounded — the UI rounds for display. */
+  pct: number;
 }
 
 function isProvider(id: string): id is ProviderId {
@@ -253,6 +264,27 @@ export function readConversationStats(db: Db, conversationId: string, now = Date
     });
   }
 
+  // 0051: the context meter reads THIS conversation's own latest
+  // metered chat row — never the group's (each chat feeds its own model).
+  const ctxRow = readContextUsage(db, conversationId);
+  let context: ContextStats | null = null;
+  if (ctxRow) {
+    const bits = routeBits(ctxRow.route);
+    if (!bits.isHarness && isProvider(bits.provider)) {
+      const info = getModelInfo(db, bits.provider, bits.model);
+      if (info) {
+        const used = ctxRow.inputTokens + ctxRow.outputTokens;
+        if (used > 0 && info.contextWindow > 0) {
+          context = {
+            usedTokens: used,
+            windowTokens: info.contextWindow,
+            pct: Math.min(1, used / info.contextWindow),
+          };
+        }
+      }
+    }
+  }
+
   return {
     rootId,
     conversationIds: ids,
@@ -273,5 +305,6 @@ export function readConversationStats(db: Db, conversationId: string, now = Date
     byModel: modelsOf(db, group.events),
     byChild,
     cacheHitRate: group.inputTokens > 0 ? group.cachedTokens / group.inputTokens : null,
+    context,
   };
 }

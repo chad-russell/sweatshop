@@ -5,6 +5,7 @@ import {
   costFor,
   getPrice,
   pricesFetchedAt,
+  readContextUsage,
   recordUsageEvent,
   replaceModelPrices,
   sumGroupUsage,
@@ -162,5 +163,107 @@ describe("0047 computeCost null-price guard", () => {
   it("a missing price row never invents dollars", () => {
     // computeCost is only called with a row; costFor is the guard.
     expect(computeCost(price("glm", "plan-model", { source: "manual" }), { inputTokens: 1e6, cachedTokens: 0, outputTokens: 1e6 })).not.toBeNull();
+  });
+});
+
+describe("0051 readContextUsage", () => {
+  it("returns the conversation's latest metered chat row's last-slice counts", () => {
+    ensureConversation(db, "c_ctx");
+    recordUsageEvent(db, {
+      id: "u_c_ctx_0",
+      conversationId: "c_ctx",
+      source: "chat",
+      harnessCallId: null,
+      route: JSON.stringify({ provider: "glm", model: "glm-5.3-flash" }),
+      inputTokens: 900,
+      cachedTokens: 0,
+      outputTokens: 100,
+      reasoningTokens: 0,
+      lastInputTokens: 900,
+      lastCachedTokens: 0,
+      lastOutputTokens: 100,
+      lastReasoningTokens: 0,
+      steps: 1,
+      toolCalls: 0,
+      costUsd: null,
+      startedAt: 1_000,
+      endedAt: 2_000,
+      createdAt: 2_000,
+    });
+    recordUsageEvent(db, {
+      id: "u_c_ctx_2",
+      conversationId: "c_ctx",
+      source: "chat",
+      harnessCallId: null,
+      route: JSON.stringify({ provider: "glm", model: "glm-5.3-flash" }),
+      inputTokens: 3_000,
+      cachedTokens: 500,
+      outputTokens: 400,
+      reasoningTokens: 40,
+      lastInputTokens: 1_500,
+      lastCachedTokens: 500,
+      lastOutputTokens: 300,
+      lastReasoningTokens: 30,
+      steps: 2,
+      toolCalls: 1,
+      costUsd: null,
+      startedAt: 3_000,
+      endedAt: 4_000,
+      createdAt: 4_000,
+    });
+    const ctx = readContextUsage(db, "c_ctx");
+    expect(ctx).not.toBeNull();
+    expect(ctx!.inputTokens).toBe(1_500);
+    expect(ctx!.outputTokens).toBe(300);
+    expect(JSON.parse(ctx!.route)).toMatchObject({ model: "glm-5.3-flash" });
+  });
+
+  it("skips pre-0051 rows (null last-slice) — no answer beats a stale one", () => {
+    ensureConversation(db, "c_ctx_old");
+    recordUsageEvent(db, {
+      id: "u_c_ctx_old_0",
+      conversationId: "c_ctx_old",
+      source: "chat",
+      harnessCallId: null,
+      route: "{}",
+      inputTokens: 5_000,
+      cachedTokens: 0,
+      outputTokens: 10,
+      reasoningTokens: 0,
+      steps: 1,
+      toolCalls: 0,
+      costUsd: null,
+      startedAt: 1,
+      endedAt: 2,
+      createdAt: 2,
+    });
+    expect(readContextUsage(db, "c_ctx_old")).toBeNull();
+  });
+
+  it("never answers from a harness row or another conversation", () => {
+    ensureConversation(db, "c_ctx_h", null);
+    recordUsageEvent(db, {
+      id: "u_hc_ctxonly",
+      conversationId: "c_ctx_h",
+      source: "harness",
+      harnessCallId: "hc_ctxonly",
+      route: "{}",
+      inputTokens: 1,
+      cachedTokens: 0,
+      outputTokens: 1,
+      reasoningTokens: 0,
+      lastInputTokens: 1,
+      lastCachedTokens: 0,
+      lastOutputTokens: 1,
+      lastReasoningTokens: 0,
+      steps: 1,
+      toolCalls: 0,
+      costUsd: null,
+      startedAt: 1,
+      endedAt: 2,
+      createdAt: 2,
+    });
+    expect(readContextUsage(db, "c_ctx_h")).toBeNull();
+    expect(readContextUsage(db, "c_nothing")).toBeNull();
   });
 });
