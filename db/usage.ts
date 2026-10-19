@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import { modelPrices, usageEvents } from "./schema";
 import {
@@ -90,6 +90,56 @@ export function getPrice(db: Db, provider: string, model: string): ModelPrice | 
 export function costFor(db: Db, provider: string, model: string, usage: UsageCounts): number | null {
   const price = getPrice(db, provider, model);
   return price ? computeCost(price, usage) : null;
+}
+
+/** 0051: the conversation's context usage — its LATEST chat usage
+ * row's last-slice counts (the last slice's input re-sent the whole
+ * conversation). Harness rows never answer a chat's context; children
+ * meter their own. Null when the chat has no metered chat turns, or
+ * only pre-0051 rows (all last-* null). */
+export interface ContextUsageRow {
+  route: string;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+}
+
+export function readContextUsage(db: Db, conversationId: string): ContextUsageRow | null {
+  const rows = db
+    .select({
+      route: usageEvents.route,
+      inputTokens: usageEvents.lastInputTokens,
+      cachedTokens: usageEvents.lastCachedTokens,
+      outputTokens: usageEvents.lastOutputTokens,
+      reasoningTokens: usageEvents.lastReasoningTokens,
+      endedAt: usageEvents.endedAt,
+      createdAt: usageEvents.createdAt,
+    })
+    .from(usageEvents)
+    .where(and(eq(usageEvents.conversationId, conversationId), eq(usageEvents.source, "chat")))
+    .all();
+  let best: (typeof rows)[number] | null = null;
+  for (const row of rows) {
+    // Skip pre-0051 rows entirely (null last-slice) — an older metered
+    // turn is a WORSE answer than no answer.
+    if (row.inputTokens == null) continue;
+    if (
+      best == null ||
+      row.endedAt > best.endedAt ||
+      (row.endedAt === best.endedAt && (row.createdAt ?? 0) > (best.createdAt ?? 0))
+    ) {
+      best = row;
+    }
+  }
+  if (best == null) return null;
+  return {
+    route: best.route,
+    inputTokens: best.inputTokens ?? 0,
+    cachedTokens: best.cachedTokens ?? 0,
+    outputTokens: best.outputTokens ?? 0,
+    reasoningTokens: best.reasoningTokens ?? 0,
+  };
 }
 
 /** Upsert price rows; `manual` rows already present are never
