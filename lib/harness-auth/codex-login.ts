@@ -354,7 +354,7 @@ function composeAndSave(
   idToken: string | null,
   now: () => number,
 ): CompleteCodexBrowserLoginResult {
-  const accountId = idTokenClaim(idToken, "chatgpt_account_id");
+  const accountId = accountIdFromIdToken(idToken);
   const authJson =
     JSON.stringify(
       {
@@ -370,16 +370,38 @@ function composeAndSave(
   return { ok: true, credential };
 }
 
+/** The workspace id from the id_token. The claim is NOT top-level: the
+ *  CLI's own IdTokenInfo (codex-rs/login/src/token_data.rs) carries it
+ *  nested under the namespaced claim "https://api.openai.com/auth"
+ *  ({ chatgpt_account_id, chatgpt_user_id, chatgpt_plan_type, … }), and
+ *  the live login confirmed it (2026-10-18: the token's top-level names
+ *  are aud, client_id, the two namespaced objects, iss, pwd_auth_time,
+ *  scp, session_id, sl, sub, iat, exp, jti, nbf — no chatgpt_account_id
+ *  among them). A top-level chatgpt_account_id stays as a fallback for
+ *  robustness. */
+function accountIdFromIdToken(idToken: string | null): string | null {
+  const claims = idTokenClaims(idToken);
+  if (!claims) return null;
+  // Bracket form — the key contains slashes.
+  const auth = claims["https://api.openai.com/auth"];
+  if (auth && typeof auth === "object") {
+    const nested = (auth as Record<string, unknown>).chatgpt_account_id;
+    if (typeof nested === "string" && nested) return nested;
+  }
+  const top = claims.chatgpt_account_id;
+  return typeof top === "string" && top ? top : null;
+}
+
 /** The id_token's payload (a JWT): base64url middle segment, no
- *  verification (see above). Returns null for absent/undecodable. */
-function idTokenClaim(idToken: string | null, claim: string): string | null {
+ *  verification (it arrived directly from the issuer over TLS, same
+ *  trust the CLI gives it — we only read claims). Returns null for
+ *  absent/undecodable. */
+function idTokenClaims(idToken: string | null): Record<string, unknown> | null {
   if (!idToken) return null;
   const payload = idToken.split(".")[1];
   if (!payload) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
-    const value = parsed[claim];
-    return typeof value === "string" && value ? value : null;
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
   } catch {
     return null;
   }

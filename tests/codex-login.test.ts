@@ -55,7 +55,15 @@ function fakeIssuer(routes: Record<string, (body: unknown) => { status: number; 
 const jwt = (payload: Record<string, unknown>) =>
   ["e30", Buffer.from(JSON.stringify(payload)).toString("base64url"), "sig"].join(".");
 
-const enterpriseIdToken = jwt({ chatgpt_account_id: "org-9" });
+// Live shape (2026-10-18): the account id nests under the namespaced
+// "https://api.openai.com/auth" claim (codex-rs token_data.rs), with
+// the plan riding along. One fixture keeps the top-level form to pin
+// the fallback path.
+const LIVE_ORG_ID = "090e08ec-2abf-4e13-8a44-50b5e4ddb2f3";
+const enterpriseIdToken = jwt({
+  "https://api.openai.com/auth": { chatgpt_account_id: LIVE_ORG_ID, chatgpt_plan_type: "team" },
+});
+const topLevelAccountIdToken = jwt({ chatgpt_account_id: "org-top" });
 const expSoon = Date.now() + 30 * 86_400_000;
 
 const approvedTokenRoute = () => ({
@@ -159,12 +167,12 @@ describe("0050: pollCodexDeviceLogin", () => {
       contentType: "application/x-www-form-urlencoded",
     });
     const credential = codexCredential();
-    expect(credential).toMatchObject({ ok: true, accountId: "org-9" });
+    expect(credential).toMatchObject({ ok: true, accountId: LIVE_ORG_ID });
     // The exact text saved — the CLI's own file shape, round-trips.
     const text = fs.readFileSync(codexAuthPath(), "utf8");
     expect(JSON.parse(text)).toEqual({
       auth_mode: "chatgpt",
-      tokens: { access_token: jwt({ exp: Math.floor(expSoon / 1000) }), refresh_token: "rt_1", account_id: "org-9" },
+      tokens: { access_token: jwt({ exp: Math.floor(expSoon / 1000) }), refresh_token: "rt_1", account_id: LIVE_ORG_ID },
       last_refresh: JSON.parse(text).last_refresh,
     });
     expect(text.endsWith("\n")).toBe(true);
@@ -284,10 +292,30 @@ describe("0050 phase 5b: browser flow (primary)", () => {
         `&code_verifier=${start.handle.codeVerifier}`,
       contentType: "application/x-www-form-urlencoded",
     });
-    expect(codexCredential()).toMatchObject({ ok: true, accountId: "org-9" });
+    expect(codexCredential()).toMatchObject({ ok: true, accountId: LIVE_ORG_ID });
     const text = fs.readFileSync(codexAuthPath(), "utf8");
     expect(parseCodexAuth(text).ok).toBe(true);
-    expect(JSON.parse(text).tokens.account_id).toBe("org-9");
+    expect(JSON.parse(text).tokens.account_id).toBe(LIVE_ORG_ID);
+  });
+
+  it("a top-level chatgpt_account_id still works (fallback)", async () => {
+    const start = startCodexBrowserLogin();
+    if (!start.ok) throw new Error("start failed");
+    const issuer = fakeIssuer({
+      "/oauth/token": () =>
+        tokenExchangeRoute({
+          access_token: jwt({ exp: Math.floor(expSoon / 1000) }),
+          refresh_token: "rt_t",
+          id_token: topLevelAccountIdToken,
+        }),
+    });
+    const result = await completeCodexBrowserLogin(
+      start.handle,
+      `http://localhost:1455/auth/callback?code=ac_t&state=${encodeURIComponent(start.handle.state)}`,
+      { fetch: issuer.doFetch },
+    );
+    expect(result.ok).toBe(true);
+    expect(codexCredential()).toMatchObject({ ok: true, accountId: "org-top" });
   });
 
   it("a bare query string pastes fine too", async () => {
@@ -424,7 +452,7 @@ describe("0050: /api/x/codex/login routes", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { ok: boolean; credential: Record<string, unknown> };
       expect(body.ok).toBe(true);
-      expect(body.credential).toEqual({ configured: true, expiresAt: expect.any(Number), accountId: "org-9" });
+      expect(body.credential).toEqual({ configured: true, expiresAt: expect.any(Number), accountId: LIVE_ORG_ID });
       const text = JSON.stringify(body);
       expect(text).not.toContain("access_token");
       expect(text).not.toContain("refresh_token");
@@ -468,7 +496,7 @@ describe("0050: /api/x/codex/login routes", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { status: string; credential: Record<string, unknown> };
       expect(body.status).toBe("approved");
-      expect(body.credential).toEqual({ configured: true, expiresAt: expect.any(Number), accountId: "org-9" });
+      expect(body.credential).toEqual({ configured: true, expiresAt: expect.any(Number), accountId: LIVE_ORG_ID });
       const text = JSON.stringify(body);
       expect(text).not.toContain("access_token");
       expect(text).not.toContain("refresh_token");
