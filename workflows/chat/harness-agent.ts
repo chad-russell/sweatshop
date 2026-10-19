@@ -69,6 +69,10 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
     return new HarnessAgent({
       harness: createCursor({ port: harnessBridgePort("cursor") }),
       id: `cursor-${sessionId}`,
+      // Unset model would send the adapter's stale DEFAULT_CODEX_MODEL
+      // (gpt-5.5), which the backend rejects on ChatGPT subscriptions
+      // (live 2026-10-19) — the route default pins gpt-5.6-sol, so this
+      // spread is a defensive shape, not the way a bare default runs.
       ...(route.model ? { model: route.model } : {}),
       sandboxConfig: { workDir: "." },
       tools,

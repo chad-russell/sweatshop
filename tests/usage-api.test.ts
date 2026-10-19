@@ -138,7 +138,7 @@ describe("0047 GET /api/x/stats", () => {
       conversationId: "c_stats_child",
       source: "harness",
       harnessCallId: codexCall.id,
-      route: JSON.stringify({ harness: "codex", model: "gpt-5.5", effort: "high" }),
+      route: JSON.stringify({ harness: "codex", model: "gpt-5.6-sol", effort: "high" }),
       inputTokens: 10,
       outputTokens: 5,
       steps: 1,

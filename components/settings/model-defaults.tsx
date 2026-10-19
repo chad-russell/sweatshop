@@ -339,7 +339,6 @@ function CodexDefault({
 }) {
   const set = (patch: Partial<CodexRoute>) => {
     const next: CodexRoute = { ...value, ...patch };
-    if (!next.model) delete next.model;
     if (!next.effort) delete next.effort;
     onSave(next);
   };
@@ -352,7 +351,9 @@ function CodexDefault({
         value={value.model ?? ""}
         onChange={(e) => set({ model: e.target.value || undefined })}
       >
-        <option value="">model: adapter default (gpt-5.5)</option>
+        {/* 0050: no empty option — the model is always pinned (the
+            adapter's own gpt-5.5 default is rejected on subscriptions);
+            value.model ?? "" only guards a pre-0050 stored bare route. */}
         {models.map((m) => (
           <option key={m.id} value={m.id}>
             model: {m.label}

@@ -48,7 +48,18 @@ describe("0050: modelsView codex entry", () => {
     expect(view.codex.expiresAt).toBeNull();
     expect(view.codex.accountId).toBeNull();
     expect(view.codex.allowed).toBe(true);
-    expect(view.codex.models).toEqual([{ id: "gpt-5.5", label: "GPT-5.5" }]);
+    // 0050 close-out: the live-verified catalog (bee, 2026-10-19) —
+    // astra last (transient capacity error live), gpt-5.5 absent
+    // (subscriptions reject it).
+    expect(view.codex.models).toEqual([
+      { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+      { id: "gpt-6-sol", label: "GPT-6 Sol" },
+      { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
+      { id: "gpt-6-luna", label: "GPT-6 Luna" },
+      { id: "gpt-6-astra", label: "GPT-6 Astra" },
+    ]);
   });
 
   it("carries expiry and the account id once a login exists", () => {

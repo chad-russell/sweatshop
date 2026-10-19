@@ -51,7 +51,7 @@ describe("0050: buildHarnessAgent codex branch", () => {
     });
     expect(agent).toBeInstanceOf(HarnessAgent);
     const withModel = buildHarnessAgent({
-      route: { harness: "codex", model: "gpt-5.5", effort: "high" },
+      route: { harness: "codex", model: "gpt-5.6-sol", effort: "high" },
       sessionId: "c_x",
       tools: {},
     });

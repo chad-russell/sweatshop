@@ -122,12 +122,24 @@ export const CLAUDE_MODELS: readonly { id: string; label: string }[] = [
 ];
 
 /**
- * 0050: model ids offered for the Codex harness. Starts at the
- * adapter's own deliberate default — GPT-5.6 models use Responses
- * Lite, which hides code-mode tools from the custom provider
- * (openai/codex#31894) — and grows only from spike evidence
- * (tests/codex-spike.integration.test.ts, 0050 phase 6).
+ * 0050: model ids offered for the Codex harness — live-verified
+ * against a ChatGPT (team) account on 2026-10-19 over the production
+ * path (sandbox → toNetworkSandboxSession → buildHarnessAgent →
+ * driveHarnessTurn): each slug below finished a full turn, scratch file
+ * created and usage streamed. gpt-6-astra is last because it alone
+ * answered "Selected model is at capacity" live (accepted slug, auth
+ * passed) — transient, not a rejection. gpt-5.5 AND gpt-5.5-codex are
+ * deliberately ABSENT: the backend rejects both on subscriptions
+ * ("The 'X' model is not supported when using Codex with a ChatGPT
+ * account.") — the adapter's own DEFAULT_CODEX_MODEL (gpt-5.5) is
+ * API-key-era stale, so a route must always pin a model explicitly.
  */
 export const CODEX_MODELS: readonly { id: string; label: string }[] = [
-  { id: "gpt-5.5", label: "GPT-5.5" },
+  { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+  { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+  { id: "gpt-6-sol", label: "GPT-6 Sol" },
+  { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
+  { id: "gpt-6-luna", label: "GPT-6 Luna" },
+  { id: "gpt-6-astra", label: "GPT-6 Astra" },
 ];

@@ -48,9 +48,12 @@ export const cursorRouteSchema = z.strictObject({
   harness: z.literal("cursor"),
   model: modelId.optional(),
 });
-/** 0050: Codex — subscription only (ChatGPT-login auth.json); model
- *  unset = the adapter's own default (gpt-5.5). Codex accepts the same
- *  effort ladder as claude (createCodex reasoningEffort). */
+/** 0050: Codex — subscription only (ChatGPT-login auth.json). The
+ *  model must be PINNED: the adapter's own default (gpt-5.5) is
+ *  API-key-era stale and the backend rejects it on subscriptions
+ *  (live 2026-10-19) — see BUILTIN_DEFAULTS.codex and CODEX_MODELS.
+ *  Codex accepts the same effort ladder as claude (createCodex
+ *  reasoningEffort). */
 export const codexRouteSchema = z.strictObject({
   harness: z.literal("codex"),
   model: modelId.optional(),
@@ -102,7 +105,10 @@ export const BUILTIN_DEFAULTS: GlobalDefaults = {
   pi: { harness: "pi", provider: "glm", model: "glm-5.3-flash" },
   claude: { harness: "claude" },
   cursor: { harness: "cursor" },
-  codex: { harness: "codex" },
+  // Model always pinned — an empty model would let the adapter send
+  // its stale gpt-5.5 default, which subscriptions reject (live
+  // 2026-10-19).
+  codex: { harness: "codex", model: "gpt-5.6-sol" },
   titles: { provider: "glm", model: "glm-5.3-flash" },
 };
 

@@ -1,6 +1,7 @@
 # 0050 — Codex harness (OpenAI ChatGPT subscription, in-app browser login)
 
-Status: **proposed** (2026-10-12).
+Status: **v1 built + live-checked** (proposed 2026-10-12; built through
+2026-10-19; see "As built" at the bottom).
 
 ## Why
 
@@ -173,3 +174,56 @@ the paste fallback, not to a broken harness.
    real login flow → real turn through the production builder →
    negative control (no credential). Findings may grow `CODEX_MODELS`.
 7. AGENTS.md harness list updated; quality bar green throughout.
+
+## As built (live, 2026-10-18/19)
+
+The whole thing ran on bee over the production path (disposable sandbox →
+`toNetworkSandboxSession` → `buildHarnessAgent` → `driveHarnessTurn`).
+
+**Login as shipped.** The BROWSER flow is primary (Chad's enterprise
+workspace BLOCKS device-code auth — confirmed live, which is why the
+device flow is demoted to a disclosure): open the authorize URL, sign
+in, pick the workspace, paste the `localhost:1455/auth/callback?…` URL
+the browser lands on back into the settings panel (no local server
+listens — the CLI's port-1455 trick skipped; the redirect matches the
+issuer registration). The token exchange is form-encoded
+(`application/x-www-form-urlencoded`), matching the CLI's
+`exchange_code_for_tokens` byte-for-byte — verified live with a 200.
+The account id is NOT a top-level id_token claim: it nests under
+`"https://api.openai.com/auth"` (`chatgpt_account_id`, with
+`chatgpt_plan_type` alongside) — fixed in 38d8d77 after the live login
+proved the top-level read wrong. Device flow (kept for workspaces that
+allow it) and paste-auth.json are secondary/tertiary.
+
+**Models (CODEX_MODELS, live-verified against a ChatGPT team account):**
+
+| model | live result |
+| --- | --- |
+| gpt-5.6-sol | full turn finished, scratch file + usage |
+| gpt-5.6-terra | full turn finished |
+| gpt-6-sol | full turn finished |
+| gpt-6.1-sol | full turn finished |
+| gpt-6-luna | full turn finished |
+| gpt-6-astra | accepted slug, "Selected model is at capacity" — transient, offered (last) |
+| gpt-5.5 | REJECTED — "not supported when using Codex with a ChatGPT account." |
+| gpt-5.5-codex | rejected the same way |
+
+The adapter's own `DEFAULT_CODEX_MODEL` (gpt-5.5) is API-key-era stale
+— its upstream comment cites openai/codex#31894 for GPT-5.6, moot now
+that the backend rejects 5.5 outright on subscriptions. Consequence:
+`BUILTIN_DEFAULTS.codex` pins `gpt-5.6-sol` explicitly (an empty model
+would send the rejected default) and the settings select has no "adapter
+default" option anymore.
+
+**Negative control.** No credential → the bridge fails with
+"Missing environment variable: `CODEX_API_KEY`" — value-shaped,
+auth-gated exactly as designed (no sandbox, no turn, no leak).
+
+**CODEX_HOME/env notes.** `CODEX_HOME` is set per app process
+(instrumentation) — the adapter resolves and refreshes
+`auth.json` there; nothing is planted in the sandbox (unlike cursor's
+token file) and the enterprise account id rides the bridge start
+message as the `ChatGPT-Account-ID` header. The negative control
+confirms the env-carried auth is the only path: empty `CODEX_HOME`
+means no login, and the adapter falls through to an API-key variable
+that does not exist.

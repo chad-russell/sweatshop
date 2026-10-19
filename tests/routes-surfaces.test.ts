@@ -120,16 +120,17 @@ describe("global defaults write path", () => {
     process.env.HARNESS_AUTH_DIR = dir;
     try {
       // No login yet: the route is well-formed but cannot run.
-      expect(setDefaultRoute(db(), "codex", { harness: "codex", model: "gpt-5.5" }).ok).toBe(false);
+      expect(setDefaultRoute(db(), "codex", { harness: "codex", model: "gpt-5.6-sol" }).ok).toBe(false);
       saveCodexCredential(fakeCodexAuthJson(Date.now() + 30 * 86_400_000));
-      expect(setDefaultRoute(db(), "codex", { harness: "codex", model: "gpt-5.5", effort: "xhigh" }).ok).toBe(true);
-      expect(getGlobalDefaults(db()).codex).toEqual({ harness: "codex", model: "gpt-5.5", effort: "xhigh" });
+      expect(setDefaultRoute(db(), "codex", { harness: "codex", model: "gpt-5.6-sol", effort: "xhigh" }).ok).toBe(true);
+      expect(getGlobalDefaults(db()).codex).toEqual({ harness: "codex", model: "gpt-5.6-sol", effort: "xhigh" });
       // Nowhere to put a provider; the model must be one we offer.
       expect(setDefaultRoute(db(), "codex", { harness: "codex", provider: "gloo" }).ok).toBe(false);
       expect(setDefaultRoute(db(), "codex", { harness: "codex", model: "gpt-5.6-turbo" }).ok).toBe(false);
-      // Reset falls back to the built-in.
+      // Reset falls back to the built-in (model pinned — never the
+      // adapter's subscription-rejected gpt-5.5 default).
       expect(setDefaultRoute(db(), "codex", null)).toEqual({ ok: true });
-      expect(getGlobalDefaults(db()).codex).toEqual({ harness: "codex" });
+      expect(getGlobalDefaults(db()).codex).toEqual({ harness: "codex", model: "gpt-5.6-sol" });
     } finally {
       if (prev === undefined) delete process.env.HARNESS_AUTH_DIR;
       else process.env.HARNESS_AUTH_DIR = prev;

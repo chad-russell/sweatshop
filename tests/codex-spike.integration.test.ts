@@ -27,6 +27,23 @@ import { driveHarnessTurn } from "./helpers/drive-harness";
  *     finished turn). CODEX_SPIKE_IMAGE overrides the sandbox image
  *     (unset = localhost/sweatshop-sandbox; the codex CLI bootstrap
  *     needs pnpm, which the base image already bakes).
+ *
+ * AS RUN (bee, 2026-10-18/19 — these are facts, not guesses; keep them
+ * here so nobody re-derives them):
+ *   - Login: the BROWSER flow completed live (form-encoded exchange
+ *     HTTP 200); device auth is BLOCKED by Chad's enterprise workspace
+ *     — which is why browser+paste is primary. The account id lives
+ *     NESTED under the "https://api.openai.com/auth" id_token claim.
+ *   - Models that finished a full turn (scratch file + usage): gpt-5.6-sol,
+ *     gpt-5.6-terra, gpt-6-sol, gpt-6.1-sol, gpt-6-luna.
+ *   - gpt-6-astra: auth passes, backend answers "Selected model is at
+ *     capacity" — transient, offered in CODEX_MODELS.
+ *   - gpt-5.5 AND gpt-5.5-codex: rejected for ChatGPT auth — "The 'X'
+ *     model is not supported when using Codex with a ChatGPT account."
+ *     (the adapter's DEFAULT_CODEX_MODEL is API-key-era stale).
+ *   - Negative control: no credential → bridge fails "Missing
+ *     environment variable: `CODEX_API_KEY`" — value-shaped, the
+ *     auth gate works.
  */
 
 const MODE = process.env.CODEX_SPIKE;

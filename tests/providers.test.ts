@@ -53,7 +53,7 @@ function project(id: string) {
 
 describe("0038: the curated Cursor model list speaks ACP's vocabulary", () => {
   it("every offered model id is one Cursor's ACP server accepts", () => {
-    // A composed CLI id ("gpt-5.6-sol-high") or "auto" is rejected by ACP as
+    // A composed CLI id ("gpt-5.5-high") or "auto" is rejected by ACP as
     // Invalid params — the bug this guards (2026-10-11).
     for (const m of CURSOR_MODELS) expect(CURSOR_ACP_MODEL_IDS, m.id).toContain(m.id);
   });
@@ -81,12 +81,12 @@ describe("route schema", () => {
 
   it("0050: codex takes a model and effort — nowhere to put a provider, no extras", () => {
     expect(routeSchema.safeParse({ harness: "codex" }).success).toBe(true);
-    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.5" }).success).toBe(true);
-    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.5", effort: "xhigh" }).success).toBe(true);
+    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.6-sol" }).success).toBe(true);
+    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.6-sol", effort: "xhigh" }).success).toBe(true);
     expect(routeSchema.safeParse({ harness: "codex", provider: "openrouter", model: "x/y" }).success).toBe(false);
     expect(routeSchema.safeParse({ harness: "codex", thinking: "high" }).success).toBe(false);
     expect(routeSchema.safeParse({ harness: "windsurf" }).success).toBe(false);
-    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.5", bogus: 1 }).success).toBe(false);
+    expect(routeSchema.safeParse({ harness: "codex", model: "gpt-5.6-sol", bogus: 1 }).success).toBe(false);
   });
 
   it("has nowhere to put a provider on claude (ToS by construction)", () => {
@@ -159,8 +159,8 @@ describe("resolveRoute layers", () => {
       layer: "global",
     });
     expect(resolveRoute("codex", { global: g, stage: { harness: "cursor", model: "composer-2.5" } }).layer).toBe("global");
-    expect(resolveRoute("codex", { global: g, stage: { harness: "codex", model: "gpt-5.5" } })).toEqual({
-      route: { harness: "codex", model: "gpt-5.5" },
+    expect(resolveRoute("codex", { global: g, stage: { harness: "codex", model: "gpt-5.6-sol" } })).toEqual({
+      route: { harness: "codex", model: "gpt-5.6-sol" },
       layer: "stage",
     });
   });
@@ -239,9 +239,9 @@ describe("validateRoute", () => {
     expect(unknown.ok).toBe(false);
     if (!unknown.ok) {
       expect(unknown.issues[0]).toContain("not offered");
-      expect(unknown.issues[0]).toContain("gpt-5.5");
+      expect(unknown.issues[0]).toContain("gpt-5.6-sol");
     }
-    expect(validateRoute({ harness: "codex", model: "gpt-5.5", effort: "high" }, ctx()).ok).toBe(true);
+    expect(validateRoute({ harness: "codex", model: "gpt-5.6-sol", effort: "high" }, ctx()).ok).toBe(true);
     const project = { id: "p", allowedProviders: null, allowedHarnesses: ["pi"] as const };
     expect(validateRoute({ harness: "codex" }, ctx({ project })).ok).toBe(false);
   });
@@ -264,14 +264,14 @@ describe("validateRoute", () => {
 });
 
 describe("0050: codex defaults and label", () => {
-  it("BUILTIN_DEFAULTS includes the codex surface (model unset = adapter default)", () => {
-    expect(BUILTIN_DEFAULTS.codex).toEqual({ harness: "codex" });
+  it("BUILTIN_DEFAULTS includes the codex surface (model always pinned — the adapter's gpt-5.5 default is rejected on subscriptions, live 2026-10-19)", () => {
+    expect(BUILTIN_DEFAULTS.codex).toEqual({ harness: "codex", model: "gpt-5.6-sol" });
   });
 
   it("routeLabel renders codex like claude — model and effort when set", () => {
     expect(routeLabel({ harness: "codex" })).toBe("codex");
-    expect(routeLabel({ harness: "codex", model: "gpt-5.5" })).toBe("codex · gpt-5.5");
-    expect(routeLabel({ harness: "codex", model: "gpt-5.5", effort: "high" })).toBe("codex · gpt-5.5 (high)");
+    expect(routeLabel({ harness: "codex", model: "gpt-5.6-sol" })).toBe("codex · gpt-5.6-sol");
+    expect(routeLabel({ harness: "codex", model: "gpt-5.6-sol", effort: "high" })).toBe("codex · gpt-5.6-sol (high)");
     expect(routeLabel({ harness: "codex", effort: "max" })).toBe("codex (max)");
   });
 });

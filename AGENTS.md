@@ -121,7 +121,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   step's is used, prefixed to say so; every harness task gets an
   appended instruction to end with a real final message
   (`withResultInstruction`, `lib/chat/harness-call-start.ts`, the one
-  place task becomes the workflow prompt for pi/claude/cursor alike — the
+  place task becomes the workflow prompt for pi/claude/cursor/codex
+  alike — the
   stored `harness_calls.task` and the start event keep the raw ask).
   A thread turn that hits its own step budget mid-tool-call is marked
   `metadata.exhausted` on that turn's LAST assistant row
@@ -172,8 +173,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `/settings`). One ROUTE value (`lib/providers/route.ts`, pure zod):
   `{provider, model, thinking?}` for chats/agent stages/titles,
   `{harness:"pi", provider, model, thinking?}`, `{harness:"claude",
-  model?, effort?}` — claude has nowhere to put a provider
-  (subscription-only, ToS by construction). `thinking` on chat routes
+  model?, effort?}` — claude and codex (0050) have nowhere to put a
+  provider (subscription-only, ToS by construction). `thinking` on chat routes
   (0021 amendment) is the pi vocabulary, mapped per family in
   `chatLanguageModel(route)`: GLM `thinking.type` + `reasoningEffort`
   (off = real disable), Gloo/OpenRouter `reasoning_effort` injected via
@@ -184,7 +185,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   exempt (harness-pi owns its knob). Live check `THINKING_SPIKE=1`.
   Resolution per surface (`resolveRoute`): chat =
   conversation > project > global; agent = (stage layers historical, machines gone) project > global;
-  pi = conversation > project > global; claude and cursor = global
+  pi = conversation > project > global; claude, cursor and codex = global
   (never inherit a chat/project route); titles = the titles default, else the
   project's default when the project forbids it, else skipped. Project
   restrictions (`projects.allowed_providers` / `allowed_harnesses`,
@@ -194,7 +195,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   on a route that cannot run. Storage: `conversations.route`,
   `projects.default_route`, the `settings` table (per-surface global
   defaults; built-ins = GLM `glm-5.3-flash`, claude subscription
-  default).
+  default, codex `gpt-5.6-sol` — codex's model is always pinned; the
+  adapter's own default is rejected on subscriptions, 0050).
   What ran is recorded on the turn's first assistant row's
   `metadata.route` ({route, layer}). Write paths shared
   by UI and future tools live in `lib/providers/settings.ts`. Surfaces:
@@ -535,8 +537,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   conversation (hydrated before mount; initialMessages/activeRunId are
   init-only props).
 - Harness agents (0005/0006 + 0010 Phase 3 + 0022; 0038 amendment —
-  concurrency): project conversations have `pi`, `claude` and `cursor`
-  tools — separate coding harnesses on the conversation's sandbox (0010
+  concurrency): project conversations have `pi`, `claude`, `cursor` and
+  `codex` tools — separate coding harnesses on the conversation's sandbox (0010
   lease seam), up to `MAX_CONCURRENT_HARNESSES` (3) running at once, at
   most one call per kind (0006's "one harness at a time" became "one of
   each kind, up to a cap" — they share the sandbox's checkout, so the
@@ -579,7 +581,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (host processes have no route to podman bridge subnets — membership
   is the boundary, never a published LAN port) on its own port (0038
   amendment: `HARNESS_BRIDGE_PORTS` in `lib/sandboxes/harness-bridge.ts`
-  — claude 4000, cursor 4001, threaded through `buildHarnessAgent` and
+  — claude 4000, cursor 4001, codex 4002 (0050), threaded through `buildHarnessAgent` and
   the adapter's `toNetworkSandboxSession` `ports`/`getPortEndpoint`). A
   settled call's bridge process can be left running on purpose
   (`workflows/chat/harness-call.ts` keeps `resumeFrom` on both the
@@ -630,7 +632,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (0019: the New-preview first-fill path on real podman + a git-daemon
   upstream), `SERVICES_SPIKE=1` (0017 services substrate).
 - Repo AGENTS.md for agents (no design doc — approved in chat, 2026-10-16):
-  live testing showed none of pi, claude, cursor, or the top-level chat
+  live testing showed none of pi, claude, cursor, codex, or the top-level chat
   agent itself ever read a project repo's AGENTS.md unprompted. Two
   fixes, same caps (`lib/agent/repo-docs.ts`: 24 KB per file, a `cat
   <path>` pointer when cut). The top-level agent: at turn start, when the
