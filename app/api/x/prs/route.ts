@@ -45,6 +45,7 @@ async function prStateFor(
  *  keyed by the exact input URL. An unresolvable URL maps to null. */
 export async function GET(request: Request) {
   const urls = new URL(request.url).searchParams.getAll("url").slice(0, MAX_URLS);
+  if (urls.length === 0) return NextResponse.json({});
   const credentials = db().select().from(gitCredentials).all();
   const entries = await Promise.all(
     urls.map(async (url) => [url, await prStateFor(url, credentials)] as const),

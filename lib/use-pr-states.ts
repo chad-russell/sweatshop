@@ -56,8 +56,10 @@ export function usePRStates(
       if (timer) {
         clearInterval(timer);
         timer = null;
-        document.removeEventListener("visibilitychange", check);
       }
+      // Always removed — including a natural stop (all settled), where
+      // the inert closure would otherwise stay registered forever.
+      document.removeEventListener("visibilitychange", check);
     };
     const check = async () => {
       if (stop || busy || document.visibilityState !== "visible") return;

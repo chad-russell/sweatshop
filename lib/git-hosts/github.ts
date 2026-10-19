@@ -47,7 +47,7 @@ export const githubHost: GitHost = {
       const path = repoPath(remoteUrl);
       if (!path) return null;
       const json = await getJSON(
-        `https://api.github.com/repos/${path.owner}/${path.repo}/pulls/${number}`,
+        `https://api.github.com/repos/${encodeURIComponent(path.owner)}/${encodeURIComponent(path.repo)}/pulls/${number}`,
         {
           authorization: `Bearer ${credential.secret}`,
           accept: "application/vnd.github+json",

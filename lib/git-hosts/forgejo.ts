@@ -64,7 +64,7 @@ export const forgejoHost: GitHost = {
         `${credential.username}:${credential.secret}`,
       ).toString("base64");
       const json = await getJSON(
-        `${base}/api/v1/repos/${path.owner}/${path.repo}/pulls/${number}`,
+        `${base}/api/v1/repos/${encodeURIComponent(path.owner)}/${encodeURIComponent(path.repo)}/pulls/${number}`,
         { authorization: `Basic ${basic}` },
         fetchImpl,
       );
