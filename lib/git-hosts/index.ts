@@ -36,6 +36,160 @@ export interface PRState {
 }
 
 /**
+ * One PR as a host lists it (0053) — asked live for the dashboard,
+ * never stored. Author filtering is the caller's job (the seam stays
+ * dumb), so rows include PRs by anyone.
+ */
+export interface PRSummary {
+  number: number;
+  title: string;
+  /** Web URL of the pull request. */
+  url: string;
+  state: "open" | "merged" | "closed";
+  /** Branch name carrying the work. */
+  head: string;
+  /** Author's host login. */
+  author: string;
+  /** ISO. */
+  createdAt: string;
+  /** ISO (any activity: commits, comments, reviews). */
+  updatedAt: string;
+  /** Aggregated review verdict (null where the host/API can't answer;
+   *  settled PRs are never asked). */
+  reviewState: "changes-requested" | "approved" | "commented" | null;
+  /** Issue-style comment threads. */
+  commentCount: number | null;
+  /** Newest review timestamp, when any. */
+  lastReviewAt: string | null;
+}
+
+/** One host review row, normalized for aggregation (0053). */
+export interface ReviewSignal {
+  /** Reviewer's host login. */
+  reviewer: string;
+  /** The review's verdict, host-mapped onto the summary vocabulary. */
+  state: Exclude<PRSummary["reviewState"], null>;
+  /** ISO submitted-at; null sorts oldest (a review without a timestamp
+   *  can't claim to be anyone's latest). */
+  submittedAt: string | null;
+}
+
+/** Review fetches are bounded (0053): open PRs past this count per repo
+ *  get `reviewState: null` — the personal case never approaches it. */
+export const MAX_REVIEWED_PRS = 25;
+
+/** How strongly a verdict asks for the author's attention (0053):
+ *  changes-requested > approved > commented when reviewers disagree. */
+const REVIEW_RANK: Record<ReviewSignal["state"], number> = {
+  "changes-requested": 2,
+  approved: 1,
+  commented: 0,
+};
+
+/**
+ * Aggregate review rows into a PR's verdict (0053): per reviewer the
+ * latest review (by submitted_at) wins, then across reviewers
+ * changes-requested beats approved beats commented; lastReviewAt is the
+ * newest submitted_at. Pure — pinned by tests.
+ */
+export function aggregateReviews(
+  reviews: readonly ReviewSignal[],
+): Pick<PRSummary, "reviewState" | "lastReviewAt"> {
+  let lastReviewAt: string | null = null;
+  const latestByReviewer = new Map<string, ReviewSignal>();
+  for (const review of reviews) {
+    if (review.submittedAt && (!lastReviewAt || review.submittedAt > lastReviewAt)) {
+      lastReviewAt = review.submittedAt;
+    }
+    const prior = latestByReviewer.get(review.reviewer);
+    if (!prior || (review.submittedAt ?? "") > (prior.submittedAt ?? "")) {
+      latestByReviewer.set(review.reviewer, review);
+    }
+  }
+  let verdict: ReviewSignal["state"] | null = null;
+  for (const { state } of latestByReviewer.values()) {
+    if (verdict === null || REVIEW_RANK[state] > REVIEW_RANK[verdict]) verdict = state;
+  }
+  return { reviewState: verdict, lastReviewAt };
+}
+
+/** The `login` inside a host's actor object (`user`, `poster`, `reviewer`). */
+export function actorLogin(actor: unknown): string | null {
+  if (typeof actor !== "object" || actor === null) return null;
+  const login = (actor as Record<string, unknown>).login;
+  return typeof login === "string" ? login : null;
+}
+
+/** The branch name inside a host's head object (`{ref, sha, repo…}`). */
+export function headRef(head: unknown): string | null {
+  if (typeof head !== "object" || head === null) return null;
+  const ref = (head as Record<string, unknown>).ref;
+  return typeof ref === "string" ? ref : null;
+}
+
+/** A JSON field of a row (typed narrow for object payloads). */
+export function jsonField(row: unknown, key: string): unknown {
+  if (typeof row !== "object" || row === null) return null;
+  return (row as Record<string, unknown>)[key];
+}
+
+/** A string field of a JSON row, or null (the row's shape is untrusted). */
+export function strField(row: unknown, key: string): string | null {
+  const value = jsonField(row, key);
+  return typeof value === "string" ? value : null;
+}
+
+/**
+ * The shared listPRs driver (0053): list a repo's PRs, then aggregate a
+ * review verdict per OPEN PR by the credential's account (one reviews
+ * call each, bounded to MAX_REVIEWED_PRS — settled and foreign PRs are
+ * never asked). Hosts supply their row parsers and endpoint URLs.
+ * Returns null on any list failure — never throws (mirrors getPRState).
+ */
+export async function listPRsWithReviews(args: {
+  listUrl: string;
+  reviewsUrl: (number: number) => string;
+  headers: Record<string, string>;
+  /** The account whose PRs get review verdicts. */
+  username: string;
+  parsePR: (row: unknown) => PRSummary | null;
+  parseReview: (row: unknown) => ReviewSignal | null;
+  fetchImpl: typeof fetch;
+}): Promise<PRSummary[] | null> {
+  try {
+    const list = await getJSON(args.listUrl, args.headers, args.fetchImpl);
+    if (!Array.isArray(list)) return null; // shape error
+    const prs = list.map(args.parsePR).filter((pr): pr is PRSummary => pr !== null);
+    const askReviews = prs
+      .filter(
+        (pr) =>
+          pr.state === "open" &&
+          pr.author.toLowerCase() === args.username.toLowerCase(),
+      )
+      .slice(0, MAX_REVIEWED_PRS);
+    const verdicts = await Promise.all(
+      askReviews.map(async (pr): Promise<Pick<PRSummary, "reviewState" | "lastReviewAt"> | null> => {
+        try {
+          const rows = await getJSON(args.reviewsUrl(pr.number), args.headers, args.fetchImpl);
+          if (!Array.isArray(rows)) return null;
+          return aggregateReviews(
+            rows.map(args.parseReview).filter((s): s is ReviewSignal => s !== null),
+          );
+        } catch {
+          return null; // one failed reviews call never sinks the list
+        }
+      }),
+    );
+    askReviews.forEach((pr, i) => {
+      if (verdicts[i]) Object.assign(pr, verdicts[i]);
+    });
+    return prs;
+  } catch {
+    return null; // non-2xx, network, or parse failure — unknown, never thrown
+  }
+}
+
+/**
  * The pluggable VCS seam (0004): projects and repos never know which
  * implementation serves them — credentials resolve by host, auth installs
  * into a session sandbox, and provider-specific actions (createPR, …)
@@ -61,6 +215,14 @@ export interface GitHost {
     number: number,
     fetchImpl?: typeof fetch,
   ): Promise<PRState | null>;
+  /** The repo's PRs as the host lists them (0053) — open PRs by the
+   *  credential's account carry an aggregated review verdict — or null
+   *  when the host can't be asked; never throws (mirrors getPRState). */
+  listPRs(
+    credential: GitCredential,
+    remoteUrl: string,
+    fetchImpl?: typeof fetch,
+  ): Promise<PRSummary[] | null>;
 }
 
 /** Parse {host, owner, repo} from an https or ssh remote URL. */
