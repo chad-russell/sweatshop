@@ -102,6 +102,7 @@ describe("0041 plan derivations (pure)", () => {
     expect(derivePhase([...pr, { type: "pr-open", url: "http://x/pulls/1" }])).toEqual({
       label: "PR open",
       tone: "ok",
+      kind: "pr-open",
       url: "http://x/pulls/1",
     });
   });
