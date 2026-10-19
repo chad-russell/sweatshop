@@ -73,9 +73,5 @@
     "@ai-sdk/workflow-harness": {
       "workflow": "$workflow"
     }
-  },
-  "allowScripts": {
-    "protobufjs@7.6.5": true,
-    "protobufjs@7.6.6": true
   }
 }

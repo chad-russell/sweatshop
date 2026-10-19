@@ -203,7 +203,8 @@ describe("startHarnessCall", () => {
       if (!refused.ok) expect(refused.message).toContain("Log in with ChatGPT");
       expect(listActiveHarnessRuns(conv)).toHaveLength(0);
 
-      // With a login the builtin default route ({harness:"codex"}) resolves
+      // With a login the builtin default route ({harness:"codex",
+      // model:"gpt-5.6-sol"} — always pinned, 0050 review) resolves
       // and validates, and the call starts exactly like any other kind.
       const { saveCodexCredential } = await import("../lib/harness-auth/codex");
       saveCodexCredential(fakeCodexAuthJson(Date.now() + 30 * 86_400_000));

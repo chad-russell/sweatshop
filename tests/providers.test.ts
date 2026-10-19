@@ -225,13 +225,25 @@ describe("validateRoute", () => {
   });
 
   it("0050: rejects codex until a login exists, with the way out in the message", () => {
-    const r = validateRoute({ harness: "codex" }, ctx({ codexConfigured: false }));
+    const r = validateRoute({ harness: "codex", model: "gpt-5.6-sol" }, ctx({ codexConfigured: false }));
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.issues[0]).toContain("Log in with ChatGPT");
       expect(r.issues[0]).toContain("/settings");
     }
-    expect(validateRoute({ harness: "codex" }, ctx({ codexConfigured: true })).ok).toBe(true);
+    // 0050 review: bare codex routes still PARSE (legacy stored rows)
+    // but validation rejects them — the model must be pinned.
+    expect(validateRoute({ harness: "codex", model: "gpt-5.6-sol" }, ctx({ codexConfigured: true })).ok).toBe(true);
+  });
+
+  it("0050 review: a codex route with no model is rejected with the pin-it guidance", () => {
+    const r = validateRoute({ harness: "codex" }, ctx({ codexConfigured: true }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.issues).toContain(
+        "codex routes must pin a model — the adapter's own default (gpt-5.5) is rejected on ChatGPT accounts (live 2026-10-19); pick one on /settings",
+      );
+    }
   });
 
   it("0050: a codex model must be one we offer; a codex harness is restrictable", () => {
@@ -243,7 +255,7 @@ describe("validateRoute", () => {
     }
     expect(validateRoute({ harness: "codex", model: "gpt-5.6-sol", effort: "high" }, ctx()).ok).toBe(true);
     const project = { id: "p", allowedProviders: null, allowedHarnesses: ["pi"] as const };
-    expect(validateRoute({ harness: "codex" }, ctx({ project })).ok).toBe(false);
+    expect(validateRoute({ harness: "codex", model: "gpt-5.6-sol" }, ctx({ project })).ok).toBe(false);
   });
 
   it("rejects claude when its token is unset", () => {

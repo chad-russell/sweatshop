@@ -64,4 +64,25 @@ describe("0050: buildHarnessAgent codex branch", () => {
       buildHarnessAgent({ route: { harness: "codex" }, sessionId: "c_x", tools: {} }),
     ).toThrowError(/codex is not logged in/);
   });
+
+  // 0050 review: auto-auth shadows the subscription if ANY api-key env
+  // var is set (adapter resolveCodexEnv: gateway AI_GATEWAY_API_KEY /
+  // VERCEL_OIDC_TOKEN first, then OPENAI_API_KEY ?? CODEX_API_KEY) —
+  // the guard fails fast, naming the offender(s).
+  it("fails fast naming any api-key env var that would shadow the subscription", () => {
+    saveCodexCredential(fakeCodexAuthJson(Date.now() + 30 * 86_400_000));
+    const prev = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "sk-shadow";
+    try {
+      expect(() => buildHarnessAgent({ route: { harness: "codex", model: "gpt-5.6-sol" }, sessionId: "c_x", tools: {} }))
+        .toThrowError(/OPENAI_API_KEY is set — codex runs on the ChatGPT login; unset it/);
+    } finally {
+      if (prev === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = prev;
+    }
+    // All clear → it builds (no lingering guard state).
+    expect(
+      buildHarnessAgent({ route: { harness: "codex", model: "gpt-5.6-sol" }, sessionId: "c_x", tools: {} }),
+    ).toBeInstanceOf(HarnessAgent);
+  });
 });

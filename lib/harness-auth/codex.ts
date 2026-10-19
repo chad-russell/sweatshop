@@ -1,7 +1,17 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { EXPIRY_MARGIN_MS, harnessAuthRoot } from "./cursor";
-export { EXPIRY_MARGIN_MS } from "./cursor";
+import { harnessAuthRoot } from "./cursor";
+
+/**
+ * 0050 review: codex's own near-expiry margin — 10 min, NOT cursor's
+ * 1 h. The adapter refreshes only inside the last 5 min
+ * (DEFAULT_REFRESH_WINDOW_MS = 3e5, verified in @ai-sdk/harness-codex
+ * dist) and only once a session starts, so a 30-minutes-left login is
+ * perfectly usable — a 1 h margin would refuse it "expired" and the
+ * adapter's refresh would never get the chance. 10 min is turn-start
+ * safety only.
+ */
+export const CODEX_EXPIRY_MARGIN_MS = 10 * 60_000;
 
 /**
  * 0050: the Codex credential — the ChatGPT-login `auth.json` that
@@ -79,11 +89,11 @@ export function parseCodexAuth(text: string, now: number = Date.now()): CodexCre
     };
   }
   const expiresAt = jwtExpiry(access);
-  if (expiresAt !== null && expiresAt - now < EXPIRY_MARGIN_MS) {
+  if (expiresAt !== null && expiresAt - now < CODEX_EXPIRY_MARGIN_MS) {
     return {
       ok: false,
       reason: "expired",
-      message: `codex login expired ${new Date(expiresAt).toISOString().slice(0, 10)} — use Log in with ChatGPT on /settings, or replace the saved auth.json`,
+      message: `codex login expires ${new Date(expiresAt).toISOString().slice(0, 10)} — within the start-a-turn safety margin (the adapter refreshes near expiry, but only once a session starts); log in again on /settings`,
     };
   }
   return { ok: true, json: text, expiresAt, accountId: typeof account === "string" ? account : null };
@@ -145,4 +155,23 @@ export function codexCredentialSavedAt(): number | null {
  */
 export function resolveCodexHome(env: Readonly<Record<string, string | undefined>>): string | undefined {
   return env.CODEX_HOME ?? path.dirname(codexAuthPath());
+}
+
+/**
+ * 0050 review: an operator CODEX_HOME override can silently SPLIT the
+ * codex login — the /settings login writes our data dir while the
+ * adapter reads the override. Pure: returns the warning when the
+ * split is real (an override in use that is not our auth dir, and our
+ * own auth.json exists anyway), else null. `fileExists` is injected so
+ * tests need no real files.
+ */
+export function codexHomeSplitWarning(
+  env: Readonly<Record<string, string | undefined>>,
+  fileExists: (path: string) => boolean,
+): string | null {
+  const override = env.CODEX_HOME;
+  if (!override || override === path.dirname(codexAuthPath())) return null;
+  const ours = codexAuthPath();
+  if (!fileExists(ours)) return null;
+  return `CODEX_HOME is overridden (${override}) but a codex login exists at ${ours} — the /settings login writes that path while the adapter reads the override; move the file or unset CODEX_HOME`;
 }

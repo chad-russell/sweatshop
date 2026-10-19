@@ -69,10 +69,6 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
     return new HarnessAgent({
       harness: createCursor({ port: harnessBridgePort("cursor") }),
       id: `cursor-${sessionId}`,
-      // Unset model would send the adapter's stale DEFAULT_CODEX_MODEL
-      // (gpt-5.5), which the backend rejects on ChatGPT subscriptions
-      // (live 2026-10-19) — the route default pins gpt-5.6-sol, so this
-      // spread is a defensive shape, not the way a bare default runs.
       ...(route.model ? { model: route.model } : {}),
       sandboxConfig: { workDir: "." },
       tools,
@@ -88,7 +84,17 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
     // to the bridge. No file is planted in the sandbox (unlike cursor).
     // `auth` left default (auto): with no OPENAI_API_KEY/CODEX_API_KEY/
     // AI_GATEWAY_API_KEY in this process, auto resolves to the native
-    // subscription — the only mode we offer.
+    // subscription — the only mode we offer, and (0050 review) a
+    // checked fact: the guard below fails fast if any shadowing key
+    // IS set.
+    const shadowing = ["OPENAI_API_KEY", "CODEX_API_KEY", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"].filter(
+      (name) => process.env[name],
+    );
+    if (shadowing.length > 0) {
+      throw new Error(
+        `${shadowing.join(", ")} ${shadowing.length === 1 ? "is" : "are"} set — codex runs on the ChatGPT login; unset ${shadowing.length === 1 ? "it" : "them"} (they shadow the subscription; docs/0050)`,
+      );
+    }
     const credential = codexCredential();
     if (!credential.ok) throw new Error(credential.message);
     return new HarnessAgent({
@@ -97,6 +103,11 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
         ...(route.effort ? { reasoningEffort: route.effort } : {}),
       }),
       id: `codex-${sessionId}`,
+      // Unset model would send the adapter's stale DEFAULT_CODEX_MODEL
+      // (gpt-5.5), which the backend rejects on ChatGPT subscriptions
+      // (live 2026-10-19) — the route default pins gpt-5.6-sol, and
+      // validation rejects a bare codex route, so this spread is a
+      // defensive shape, not the way a route runs.
       ...(route.model ? { model: route.model } : {}),
       // The enterprise account header: the adapter's own injection path
       // (sandbox addRequestTransformations) does not exist on our network

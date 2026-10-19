@@ -8,7 +8,8 @@ import {
   codexConfigured,
   codexCredential,
   codexCredentialSavedAt,
-  EXPIRY_MARGIN_MS,
+  codexHomeSplitWarning,
+  CODEX_EXPIRY_MARGIN_MS,
   parseCodexAuth,
   resolveCodexHome,
   saveCodexCredential,
@@ -57,16 +58,19 @@ describe("parseCodexAuth", () => {
     expect(r).toMatchObject({ ok: true, accountId: null });
   });
 
-  it("refuses an expired login and one inside the safety margin, naming the fix", () => {
-    for (const exp of [NOW - DAY, NOW + EXPIRY_MARGIN_MS - 60_000]) {
+  it("refuses an expired login and one inside the (10 min, 0050 review) safety margin, naming the fix", () => {
+    for (const exp of [NOW - DAY, NOW + CODEX_EXPIRY_MARGIN_MS - 60_000]) {
       const r = parseCodexAuth(authJson(exp, "acct"), NOW);
       expect(r).toMatchObject({ ok: false, reason: "expired" });
       if (!r.ok) {
-        expect(r.message).toContain("Log in with ChatGPT");
+        expect(r.message).toContain("start-a-turn safety margin");
         expect(r.message).toContain("/settings");
       }
     }
-    expect(parseCodexAuth(authJson(NOW + EXPIRY_MARGIN_MS + 60_000), NOW).ok).toBe(true);
+    expect(parseCodexAuth(authJson(NOW + CODEX_EXPIRY_MARGIN_MS + 60_000), NOW).ok).toBe(true);
+    // NOT cursor's 1 h margin: a 30-minutes-left login is still usable —
+    // the adapter refreshes inside the last 5 min once a session starts.
+    expect(parseCodexAuth(authJson(NOW + 30 * 60_000), NOW).ok).toBe(true);
   });
 
   it("accepts a token with no exp claim (expiry unknown, still usable)", () => {
@@ -188,5 +192,18 @@ describe("resolveCodexHome", () => {
 
   it("respects an operator override", () => {
     expect(resolveCodexHome({ CODEX_HOME: "/srv/codex" })).toBe("/srv/codex");
+  });
+
+  // 0050 review: an override that diverges while our own login exists
+  // splits the login (UI writes ours, adapter reads the override) —
+  // the helper feeds instrumentation's boot warning.
+  it("codexHomeSplitWarning flags a diverging override only when our own login exists", () => {
+    const ours = codexAuthPath();
+    expect(codexHomeSplitWarning({}, () => true)).toBeNull();
+    expect(codexHomeSplitWarning({ CODEX_HOME: path.dirname(ours) }, () => true)).toBeNull();
+    expect(codexHomeSplitWarning({ CODEX_HOME: "/srv/codex" }, () => false)).toBeNull();
+    const warned = codexHomeSplitWarning({ CODEX_HOME: "/srv/codex" }, (p) => p === ours);
+    expect(warned).toContain("CODEX_HOME is overridden (/srv/codex)");
+    expect(warned).toContain(ours);
   });
 });

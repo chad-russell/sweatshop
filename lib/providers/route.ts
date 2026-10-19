@@ -290,6 +290,14 @@ export function validateRoute(route: Route, ctx: ValidationContext): RouteCheck 
       "cursor is not logged in — run `agent login` and save its auth.json (data/harness-auth/cursor/auth.json), see /settings",
     );
   }
+  // 0050 review: the model is REQUIRED at validation, not in the
+  // schema — stored legacy bare routes still parse, but nothing runs
+  // them. BUILTIN_DEFAULTS pins gpt-5.6-sol, so the reset path is safe.
+  if (isCodex(route) && !route.model) {
+    issues.push(
+      "codex routes must pin a model — the adapter's own default (gpt-5.5) is rejected on ChatGPT accounts (live 2026-10-19); pick one on /settings",
+    );
+  }
   if (isCodex(route) && route.model && !CODEX_MODELS.some((m) => m.id === route.model)) {
     issues.push(
       `codex model "${route.model}" is not offered (offered: ${CODEX_MODELS.map((m) => m.id).join(", ")}) — pick one on /settings or clear it`,
