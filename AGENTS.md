@@ -109,7 +109,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the `DESIGN.md` token contract: semantic tokens only, never raw
   hex/oklch in TSX; themes `clickhouse` (default), `cal`, `nova`.
   Components never import `@/db` (lint-enforced); read-model types live
-  in `@/lib/read-models` (0049).
+  in `@/lib/read-models` (0049). Chat header carries a context meter (0051): the
+  conversation's last metered slice input+output vs the model's
+  catalog window, percentage-first, warn-only.
 - Models: providers and routes (0021). Providers are code, keys are env:
   `lib/providers/registry.ts` — GLM (Z.AI coding plan, `ZAI_API_KEY`),
   Gloo (`GLOO_API_KEY`) and OpenRouter (`OPENROUTER_API_KEY`) via
