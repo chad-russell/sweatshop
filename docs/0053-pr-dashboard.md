@@ -1,6 +1,6 @@
 # 0053 — PR dashboard: every PR you own, on one page
 
-Status: **draft (for Chad's approval).**
+Status: **approved (in chat, 2026-10-19); implemented on `feat/0053-pr-dashboard`.**
 
 Agreed scope in chat: all PRs by his accounts (not agent-opened
 only), settled PRs shown dimmed below the open ones, a top-level
@@ -131,3 +131,21 @@ Pure-ish assembly over `db()`:
 ## Migration
 
 None — no schema change.
+
+## Implementation notes
+
+- The review aggregation and host row-parsers are shared: one
+  `listPRsWithReviews` driver in `lib/git-hosts/index.ts` takes
+  endpoint URLs + parse functions per host; `aggregateReviews` is
+  pure and pinned by tests.
+- Forgejo reviews use the gitea `PullReview` shape (`state` +
+  `reviewer.login` + `submitted_at`, `REQUEST_CHANGES` for changes
+  requested; `dismissed: true` rows dropped). If an instance ever
+  differs, the mapping is one table (`FJ_REVIEW_STATE`).
+- Settled PRs sort by `updatedAt` (a merge updates it) —
+  `PRSummary` carries no merge timestamp; an optional `mergedAt`
+  can be added later if exact merge-order matters.
+- Review verdicts are fetched ONLY for open PRs by the credential's
+  account, capped at 25 per repo (`MAX_REVIEWED_PRS`); a single
+  failed reviews call leaves that PR's verdict null, never sinks
+  the list.

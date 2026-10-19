@@ -182,6 +182,21 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   closed — derived purity holds, the override is render-time. The
   review skill treats `PLAN.md` as the agreed spec. No plan table, no
   hard gate on `create_pr`.
+- PR dashboard (0053): a top-level `/prs` page lists every PR by the
+  repo's own credential account across ALL project repos (hand-opened
+  and agent-opened alike) — asked LIVE through `GitHost.listPRs` on
+  page view, stored nothing (the 0052 philosophy; refresh re-asks).
+  The seam returns `PRSummary[] | null` (never throws): open PRs by
+  the account carry an aggregated review verdict (`aggregateReviews`
+  — latest review per reviewer, changes-requested > approved >
+  commented), comment counts ride the list rows, review fetches are
+  bounded to 25 open PRs per repo. Loader `lib/prs/dashboard.ts`
+  resolves each repo's credential, filters by author
+  case-insensitively, dedupes by canonical URL, sorts open first
+  (changes-requested → commented → activity); a repo that can't be
+  asked is a red note, never fatal. Sidebar nav row beside Inbox, no
+  badge (that would need background polling). No PR table, no
+  webhooks, no CI status (deferred).
 - Web tools (1.5): every chat has `web_search` and `web_fetch`.
   `web_fetch` is plain HTTP (redirects followed, 2 MiB download cap,
   60 k context clip, HTML stripped, textual content types only);
