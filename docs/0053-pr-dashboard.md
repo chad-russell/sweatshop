@@ -2,6 +2,10 @@
 
 Status: **draft (for Chad's approval).**
 
+Agreed scope in chat: all PRs by his accounts (not agent-opened
+only), settled PRs shown dimmed below the open ones, a top-level
+page + sidebar entry.
+
 ## Why
 
 Chad tracks his open PRs today as a browser bookmark folder ("PRs") of
@@ -47,18 +51,18 @@ interface PRSummary {
 ```
 
 - **GitHub:** `GET /repos/{owner}/{repo}/pulls?state=all&per_page=50`
-  per repo; for each open PR by the author,
-  `GET /repos/{owner}/{repo}/pulls/{n}/reviews` (latest review per
-  reviewer wins; CHANGES_REQUESTED > APPROVED > COMMENTED precedence)
-  and `GET …/pulls/{n}/comments`? No — comment count comes off the
-  list item (`comments` field) — no third call.
+  per repo — the list row already carries `comments` (count) and
+  `user.login` (author), so neither needs an extra call. For each
+  OPEN PR by the author, one `GET …/pulls/{n}/reviews` aggregates
+  the verdict: latest review per reviewer wins, then
+  CHANGES_REQUESTED > APPROVED > COMMENTED across reviewers.
 - **Forgejo:** `GET /api/v1/repos/{owner}/{repo}/pulls?state=all&limit=50`
-  (list rows carry `comments` count; review state derives from the
-  list row's `requested_reviewers`? No —) `GET …/pulls/{n}/reviews`
-  per open PR by the author for the aggregated verdict.
+  — rows carry `comments` (count) and `poster.login` (author); for
+  each OPEN PR by the author, `GET …/pulls/{n}/reviews` for the
+  aggregated verdict (same precedence rule).
 - Review fetches run only for OPEN PRs by the author (settled PRs
-  don't need review state) and are bounded (first 25 open PRs per
-  repo — the personal case never hits it).
+  get `reviewState: null`) and are bounded — first 25 open PRs per
+  repo; the personal case never approaches it.
 
 Author filtering happens client-side of the seam (the caller filters
 by credential username) so the seam stays dumb.
