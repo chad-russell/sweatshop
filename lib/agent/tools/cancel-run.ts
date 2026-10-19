@@ -53,7 +53,7 @@ async function cancelHarnessCall(runId: string): Promise<CancelRunResult> {
   }
   const settled = settleHarnessCall(db(), call.id, { status: "cancelled" });
   if (settled) {
-    recordHarnessRunEnd(call.conversationId, call.kind as "pi" | "claude" | "cursor", 0, "cancelled", "cancelled");
+    recordHarnessRunEnd(call.conversationId, call.kind as "pi" | "claude" | "cursor" | "codex", 0, "cancelled", "cancelled");
   }
   return {
     ok: true,

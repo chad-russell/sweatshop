@@ -8,6 +8,7 @@ import {
   type ProjectModels,
 } from "../../db/providers";
 import { cursorConfigured } from "../harness-auth/cursor";
+import { codexConfigured } from "../harness-auth/codex";
 import { availableProviders } from "./registry";
 import {
   resolveRoute,
@@ -42,6 +43,7 @@ export function validationContext(db: Db, project: ProjectModels | null): Valida
     },
     claudeConfigured: !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
     cursorConfigured: cursorConfigured(),
+    codexConfigured: codexConfigured(),
     project: project
       ? { id: project.id, allowedProviders: project.allowedProviders, allowedHarnesses: project.allowedHarnesses }
       : null,

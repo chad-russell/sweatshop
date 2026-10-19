@@ -11,7 +11,6 @@ import {
   MAX_CONCURRENT_HARNESSES,
   recordHarnessEvent,
   recordHarnessRunEnd,
-  type HarnessKind,
 } from "../lib/harness-events";
 
 
@@ -111,9 +110,10 @@ describe("harness event store (0006)", () => {
     expect(claimHarnessRun("wrun_cap", "cursor")).toMatchObject({ ok: true });
     expect(listActiveHarnessRuns("wrun_cap")).toHaveLength(MAX_CONCURRENT_HARNESSES);
 
-    // A fourth concurrent kind — synthetic, since today's roster is only
-    // 3 — hits the cap, distinct from a same-kind collision.
-    const fourth = claimHarnessRun("wrun_cap", "extra" as HarnessKind);
+    // A fourth concurrent kind — codex, real since 0050 made the roster
+    // four against a cap of three — hits the cap, distinct from a
+    // same-kind collision.
+    const fourth = claimHarnessRun("wrun_cap", "codex");
     expect(fourth).toMatchObject({ ok: false, reason: "cap" });
     if (!fourth.ok) expect(fourth.active).toHaveLength(3);
   });
@@ -141,7 +141,8 @@ describe("harness event store (0006)", () => {
   it("validates harness kinds", () => {
     expect(isHarnessKind("pi")).toBe(true);
     expect(isHarnessKind("claude")).toBe(true);
-    expect(isHarnessKind("codex")).toBe(false);
+    expect(isHarnessKind("codex")).toBe(true);
+    expect(isHarnessKind("gloo")).toBe(false);
   });
 
   it("clips event payloads through the shared helper", () => {

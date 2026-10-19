@@ -18,7 +18,7 @@ const exec = promisify(execFile);
 export const HARNESS_NETWORK = "sweatshop-harness";
 
 /**
- * 0038 amendment: bridge-backed kinds (claude, cursor) each get their
+ * 0038 amendment: bridge-backed kinds (claude, cursor, codex) each get their
  * OWN port inside the sandbox. Before this, both hardcoded the same
  * port — fine while only one harness ran at a time (0006), but once a
  * settled call's bridge is kept up for reattach (workflows/chat/
@@ -29,7 +29,9 @@ export const HARNESS_NETWORK = "sweatshop-harness";
 export const HARNESS_BRIDGE_PORTS = {
   claude: 4000,
   cursor: 4001,
-} as const satisfies Record<"claude" | "cursor", number>;
+  // 0050: codex's own port (same rule — one bridge per kind alive at once).
+  codex: 4002,
+} as const satisfies Record<"claude" | "cursor" | "codex", number>;
 
 export type BridgeHarnessKind = keyof typeof HARNESS_BRIDGE_PORTS;
 

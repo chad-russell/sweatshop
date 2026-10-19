@@ -103,7 +103,7 @@ export async function chatTurn(input: ChatTurnInput) {
   // (an un-skilled child that runs out just reports it, never re-fires
   // itself unattended).
   const maxSteps = resolveMaxSteps(Boolean(skill) || Boolean(input.hasParent), input.skillMaxSteps);
-  // Live testing showed none of pi/claude/cursor, nor this agent, ever
+  // Live testing showed none of pi/claude/cursor/codex, nor this agent, ever
   // read a project repo's AGENTS.md on their own — this appendix is the
   // top-level agent's fix (setupProjectWorkspace's work-root doc is the
   // harnesses'). Only a project conversation can have repo docs at all,

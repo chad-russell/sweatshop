@@ -51,7 +51,7 @@ export function useSandboxView(): ConversationSandboxViewData | null {
 }
 
 /** Tools whose calls run inside a sandbox (and so get a chip). */
-export const SANDBOXED_TOOLS = new Set(["bash", "pi", "claude", "cursor"]);
+export const SANDBOXED_TOOLS = new Set(["bash", "pi", "claude", "cursor", "codex"]);
 
 /**
  * The sandbox this conversation's sandboxed calls run in (its binding),

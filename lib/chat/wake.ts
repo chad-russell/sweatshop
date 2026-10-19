@@ -44,7 +44,7 @@ export interface WakeEvent {
   kind: "harness" | "thread" | "plan";
   /** hc_… / c_… — for inspect/cancel. */
   id: string;
-  /** The harness kind ("pi" / "claude" / "cursor") or the child thread's skill
+  /** The harness kind ("pi" / "claude" / "cursor" / "codex") or the child thread's skill
    *  ("review" — "thread" when it has none). */
   name: string;
   /** completed | failed | ran out of steps | needs-attention | waiting. */

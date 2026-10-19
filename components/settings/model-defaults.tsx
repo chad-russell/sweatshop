@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { RoutePicker } from "@/components/route-picker";
 import { Button } from "@/components/ui/button";
+import { CodexLoginRow } from "@/components/settings/codex-login-row";
 import { LABEL, MONO } from "@/components/form-styles";
 import type { ModelsView } from "@/lib/providers/catalog-view";
 import {
@@ -11,6 +12,7 @@ import {
   THINKING_LEVELS,
   type ChatRoute,
   type ClaudeRoute,
+  type CodexRoute,
   type CursorRoute,
   type GlobalDefaults,
   type PiRoute,
@@ -30,6 +32,7 @@ const SURFACE_COPY: Record<Surface, { title: string; hint: string }> = {
   pi: { title: "pi harness", hint: "pi tool calls and pi stages without a conversation, stage, or project route." },
   claude: { title: "claude harness", hint: "Subscription only — never provider-routed. Model and effort." },
   cursor: { title: "cursor harness", hint: "Subscription only — never provider-routed. Model." },
+  codex: { title: "codex harness", hint: "Subscription only — never provider-routed. Model and effort." },
   titles: { title: "Titles", hint: "Generated conversation titles. Keep it cheap and fast." },
 };
 
@@ -78,6 +81,13 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
     setBusy(null);
   };
 
+  /** 0050: the codex login flips availability — re-read the view the
+   *  same way refresh() does after a catalog update. */
+  const reloadSettings = async () => {
+    const next = await fetch("/api/settings", { cache: "no-store" });
+    if (next.ok) setView((await next.json()) as ModelsView);
+  };
+
   const pickerView = { ...view, defaults };
   const providers = view.providers.filter((p) => p.available);
 
@@ -108,12 +118,13 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
           <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
             <span className="flex-1 font-medium">cursor (subscription)</span>
             <span className={`${MONO} text-muted-foreground`}>
-              {view.cursor.configured ? cursorExpiry(view.cursor.expiresAt) : "not logged in"}
+              {view.cursor.configured ? loginExpiry(view.cursor.expiresAt) : "not logged in"}
             </span>
             {!view.cursor.configured && view.cursor.status && (
               <span className={`${LABEL} w-full`}>{view.cursor.status}</span>
             )}
           </li>
+          <CodexLoginRow codex={view.codex} busy={busy !== null} onChanged={reloadSettings} />
         </ul>
       </section>
 
@@ -153,6 +164,14 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
               models={view.cursor.models}
               disabled={busy !== null || !view.cursor.configured}
               onSave={(route) => void save("cursor", route)}
+            />
+          </SurfaceRow>
+          <SurfaceRow surface="codex">
+            <CodexDefault
+              value={defaults.codex}
+              models={view.codex.models}
+              disabled={busy !== null || !view.codex.configured}
+              onSave={(route) => void save("codex", route)}
             />
           </SurfaceRow>
         </ul>
@@ -270,7 +289,7 @@ function ClaudeDefault({
 }
 
 /** "logged in · expires in 41 days" — the access-token expiry, when known. */
-function cursorExpiry(expiresAt: number | null): string {
+function loginExpiry(expiresAt: number | null): string {
   if (expiresAt === null) return "logged in";
   const days = Math.floor((expiresAt - Date.now()) / 86_400_000);
   return days >= 0 ? `logged in · expires in ${days} day${days === 1 ? "" : "s"}` : "logged in";
@@ -302,5 +321,59 @@ function CursorDefault({
         </option>
       ))}
     </select>
+  );
+}
+
+/** 0050: codex takes a model and an effort (shared low..max enum) — the
+ *  same two-select shape as claude's row. */
+function CodexDefault({
+  value,
+  models,
+  disabled,
+  onSave,
+}: {
+  value: CodexRoute;
+  models: { id: string; label: string }[];
+  disabled: boolean;
+  onSave: (route: CodexRoute) => void;
+}) {
+  const set = (patch: Partial<CodexRoute>) => {
+    const next: CodexRoute = { ...value, ...patch };
+    if (!next.effort) delete next.effort;
+    onSave(next);
+  };
+  return (
+    <>
+      <select
+        aria-label="codex default model"
+        className={SELECT}
+        disabled={disabled}
+        value={value.model ?? ""}
+        onChange={(e) => set({ model: e.target.value || undefined })}
+      >
+        {/* 0050: no empty option — the model is always pinned (the
+            adapter's own gpt-5.5 default is rejected on subscriptions);
+            value.model ?? "" only guards a pre-0050 stored bare route. */}
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>
+            model: {m.label}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="codex effort"
+        className={SELECT}
+        disabled={disabled}
+        value={value.effort ?? ""}
+        onChange={(e) => set({ effort: (e.target.value || undefined) as CodexRoute["effort"] })}
+      >
+        <option value="">effort: default</option>
+        {CLAUDE_EFFORTS.map((x) => (
+          <option key={x} value={x}>
+            effort: {x}
+          </option>
+        ))}
+      </select>
+    </>
   );
 }

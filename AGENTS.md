@@ -86,7 +86,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   — it never derives a path. A harness call's result is its LAST step's
   own text (`resultText`), and every harness task carries the appended
   end-with-a-final-message instruction (`withResultInstruction`,
-  `lib/chat/harness-call-start.ts`). A turn that exhausts its budget
+  `lib/chat/harness-call-start.ts`, the one place task becomes the
+  workflow prompt for pi/claude/cursor/codex alike). A turn that exhausts its budget
   mid-tool-call marks `metadata.exhausted` on its LAST assistant row;
   the wake then reports "ran out of steps" instead of "finished".
   Transcript cards show the child's live status: `GET /api/x/status/<id>`
@@ -120,14 +121,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `provider_models` (tool-capable only, ≤ daily). One ROUTE value
   (`lib/providers/route.ts`, pure zod): `{provider, model, thinking?}`
   for chats/titles, `{harness:"pi", provider, model, thinking?}`,
-  `{harness:"claude", model?, effort?}`, `{harness:"cursor", model?}`
-  — claude and cursor are subscription-only (ToS by construction;
-  cursor routes validate against the CLI login: missing/invalid/expired
-  refuse value-shaped). `thinking` is the pi vocabulary, mapped per
+  `{harness:"claude", model?, effort?}`, `{harness:"cursor", model?}`,
+  `{harness:"codex", model, effort?}` — claude, cursor and codex are
+  subscription-only (ToS by construction; cursor routes validate against
+  the CLI login and codex routes against the saved ChatGPT login:
+  missing/invalid/expired refuse value-shaped, and a codex route must
+  PIN its model — the adapter's default is rejected on subscriptions,
+  0050). `thinking` is the pi vocabulary, mapped per
   family in `chatLanguageModel(route)` and capability-gated by
   `ModelInfo.reasoning` — rejected at validation on models without a
   knob, never silently sent. Resolution per surface (`resolveRoute`):
-  chat/pi = conversation > project > global; claude and cursor = global
+  chat/pi = conversation > project > global; claude, cursor and codex =
+  global
   only; titles = titles default, else project default when the project
   forbids it, else skipped. Project restrictions
   (`allowed_providers`/`allowed_harnesses`, null = all) apply AFTER
@@ -135,7 +140,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`checkRoute`/`requireRoute`) is the one resolver; steps throw
   FatalError on a route that cannot run. Storage:
   `conversations.route`, `projects.default_route`, the `settings` table
-  (built-ins = GLM `glm-5.3-flash`, claude subscription default). What
+  (built-ins = GLM `glm-5.3-flash`, claude subscription default, codex
+  `gpt-5.6-sol` — always pinned, 0050). What
   ran is recorded on the turn's first assistant row's `metadata.route`.
   Write paths live in `lib/providers/settings.ts`; surfaces are the
   chat's route picker (per conversation, not sticky), `/settings`, and
@@ -310,7 +316,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the transport's mid-turn reconnect only works while its useChat
   instance lives.
 - Harness agents (0005/0006, 0010 phase 3, 0022, 0038): project
-  conversations have `pi`, `claude` and `cursor` tools — separate
+  conversations have `pi`, `claude`, `cursor` and `codex` tools — separate
   coding harnesses on the conversation's sandbox, up to
   `MAX_CONCURRENT_HARNESSES` (3) at once, at most one call per kind
   (they share the sandbox's checkout — the instructions say to give
@@ -334,7 +340,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   in-sandbox bridge process over the private `sweatshop-harness` podman
   network (membership is the boundary, never a published LAN port),
   each kind on its OWN port (`HARNESS_BRIDGE_PORTS` — claude 4000,
-  cursor 4001); a settled call's bridge is kept running on purpose
+  cursor 4001, codex 4002 (0050)); a settled call's bridge is kept
+  running on purpose
   (`resumeFrom`) so the same kind's next call reattaches. claude auth:
   a setup-token as `CLAUDE_CODE_OAUTH_TOKEN` (`auth: "direct"`),
   env-gated until set. cursor (0038) authenticates from the CLI's
@@ -343,7 +350,21 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   seam), re-planted into the
   CLI's private HOME in the sandbox every step (env-var base64, never
   argv or logs); the access token as env var is REJECTED — only the
-  file authenticates; a login inside 1 h of expiry is refused.
+  file authenticates; a login inside 1 h of expiry is refused. codex
+  (0050) authenticates from the ChatGPT-login `auth.json`
+  (`data/harness-auth/codex/auth.json`, same root; `lib/harness-auth/
+  codex.ts` the seam) — auth is ENV-CARRIED, nothing planted: the
+  adapter resolves the subscription from `CODEX_HOME` (pointed at the
+  auth dir at boot), refreshes tokens in place, and forwards
+  `CODEX_API_KEY` to the bridge; the enterprise account id rides the
+  agent `headers` (`ChatGPT-Account-ID`). Login is IN-APP
+  (`lib/harness-auth/codex-login.ts` + `/api/x/codex/login/*`): the
+  browser OAuth flow is primary (PKCE + state, the pasted
+  `localhost:1455` callback, form-encoded exchange), device-code
+  secondary (blocked by enterprise workspaces — Chad's is), paste
+  third. Any API-key env var (`OPENAI_API_KEY`/`CODEX_API_KEY`/
+  `AI_GATEWAY_API_KEY`/`VERCEL_OIDC_TOKEN`) SHADOWS the subscription —
+  the builder fails fast naming it.
   Persistence: `harness_events` + `harness_runs` keyed (conversation,
   harness); `/h/<harness>/<conversationId>` is the one URL shape
   (legacy shapes permanent-redirect). Packaging pins:

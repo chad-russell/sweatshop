@@ -8,8 +8,8 @@ import { harnessEvents, harnessRuns } from "@/db/schema";
  * reads (WAL is the cross-process transport), and the log is durable.
  */
 
-/** Harnesses with a first-class Eve tool (0006). */
-export const HARNESS_KINDS = ["pi", "claude", "cursor"] as const;
+/** Harnesses with a first-class tool (0006; cursor 0038, codex 0050). */
+export const HARNESS_KINDS = ["pi", "claude", "cursor", "codex"] as const;
 export type HarnessKind = (typeof HARNESS_KINDS)[number];
 
 export function isHarnessKind(value: string): value is HarnessKind {

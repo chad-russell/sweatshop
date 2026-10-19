@@ -33,9 +33,9 @@ describe("toNetworkSandboxSession (0013)", () => {
     });
     expect(session.id).toBe("sbx_1");
     expect(session.defaultWorkingDirectory).toBe("/work/c1");
-    // claude and cursor each get their own port — claimed concurrently,
-    // their bridges must never share one.
-    expect(session.ports).toEqual([4000, 4001]);
+    // Every bridge-backed kind gets its own port — claimed concurrently,
+    // their bridges must never share one (claude/cursor 0038, codex 0050).
+    expect(session.ports).toEqual([4000, 4001, 4002]);
   });
 
   it("accepts an explicit ports override", () => {

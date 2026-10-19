@@ -1,8 +1,10 @@
 import { HarnessAgent } from "@ai-sdk/harness/agent";
 import { createClaudeCode } from "@ai-sdk/harness-claude-code";
+import { createCodex } from "@ai-sdk/harness-codex";
 import { createCursor } from "@ai-sdk/harness-cursor";
 import { createPi } from "@ai-sdk/harness-pi";
 import { isStepCount, type ToolSet } from "ai";
+import { codexCredential } from "@/lib/harness-auth/codex";
 import type { ModelInfo } from "@/lib/providers/catalog";
 import { piProviderConfig } from "@/lib/providers/registry";
 import type { HarnessRoute } from "@/lib/providers/route";
@@ -68,6 +70,50 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
       harness: createCursor({ port: harnessBridgePort("cursor") }),
       id: `cursor-${sessionId}`,
       ...(route.model ? { model: route.model } : {}),
+      sandboxConfig: { workDir: "." },
+      tools,
+      stopWhen: isStepCount(1),
+    });
+  }
+  if (route.harness === "codex") {
+    // 0050: read the credential fresh per call — a 401-stale file fails
+    // here, value-shaped, instead of as an opaque bridge error later.
+    // Auth is env-carried: the adapter resolves the ChatGPT subscription
+    // from CODEX_HOME/auth.json (refreshed in place, wiring lives in
+    // instrumentation-node) and forwards CODEX_API_KEY/OPENAI_BASE_URL
+    // to the bridge. No file is planted in the sandbox (unlike cursor).
+    // `auth` left default (auto): with no OPENAI_API_KEY/CODEX_API_KEY/
+    // AI_GATEWAY_API_KEY in this process, auto resolves to the native
+    // subscription — the only mode we offer, and (0050 review) a
+    // checked fact: the guard below fails fast if any shadowing key
+    // IS set.
+    const shadowing = ["OPENAI_API_KEY", "CODEX_API_KEY", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"].filter(
+      (name) => process.env[name],
+    );
+    if (shadowing.length > 0) {
+      throw new Error(
+        `${shadowing.join(", ")} ${shadowing.length === 1 ? "is" : "are"} set — codex runs on the ChatGPT login; unset ${shadowing.length === 1 ? "it" : "them"} (they shadow the subscription; docs/0050)`,
+      );
+    }
+    const credential = codexCredential();
+    if (!credential.ok) throw new Error(credential.message);
+    return new HarnessAgent({
+      harness: createCodex({
+        port: harnessBridgePort("codex"),
+        ...(route.effort ? { reasoningEffort: route.effort } : {}),
+      }),
+      id: `codex-${sessionId}`,
+      // Unset model would send the adapter's stale DEFAULT_CODEX_MODEL
+      // (gpt-5.5), which the backend rejects on ChatGPT subscriptions
+      // (live 2026-10-19) — the route default pins gpt-5.6-sol, and
+      // validation rejects a bare codex route, so this spread is a
+      // defensive shape, not the way a route runs.
+      ...(route.model ? { model: route.model } : {}),
+      // The enterprise account header: the adapter's own injection path
+      // (sandbox addRequestTransformations) does not exist on our network
+      // session, but the agent's `headers` is the designed seam — they
+      // ride the bridge start message (verified in adapter source).
+      ...(credential.accountId ? { headers: { "ChatGPT-Account-ID": credential.accountId } } : {}),
       sandboxConfig: { workDir: "." },
       tools,
       stopWhen: isStepCount(1),

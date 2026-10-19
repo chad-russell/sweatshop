@@ -102,7 +102,7 @@ export interface HarnessToolStepInput {
   conversationId: string;
   /** 0034 A: the owning run — propose_pr records against it. */
   runId: string;
-  kind: "pi" | "claude" | "cursor";
+  kind: "pi" | "claude" | "cursor" | "codex";
   task: string;
   /** 0013: run in this binding (the run's) with this project. */
   inherited: { binding: BoundSandbox; projectId: string };
@@ -126,7 +126,7 @@ export interface HarnessToolStepResult {
  */
 export async function startHarnessCallStep(input: {
   conversationId: string;
-  kind: "pi" | "claude" | "cursor";
+  kind: "pi" | "claude" | "cursor" | "codex";
   task: string;
 }): Promise<import("../../lib/chat/harness-call-start").StartHarnessCallResult> {
   "use step";
@@ -138,7 +138,7 @@ export async function startHarnessCallStep(input: {
 export async function harnessAdvanceStep(input: {
   callId: string;
   conversationId: string;
-  kind: "pi" | "claude" | "cursor";
+  kind: "pi" | "claude" | "cursor" | "codex";
   route: import("../../lib/providers/route").HarnessRoute;
   state: HarnessWorkflowState;
   /** 0047 review fix: running totals so far (tokens + steps) — the
@@ -362,7 +362,7 @@ export async function writeHarnessUsageRow(
 export async function harnessSettleStep(input: {
   callId: string;
   conversationId: string;
-  kind: "pi" | "claude" | "cursor";
+  kind: "pi" | "claude" | "cursor" | "codex";
   status: "completed" | "failed";
   /** The whole step-by-step log, joined — kept for harness_events (the
    *  per-step "step-end" events already carry each step's own text; this
@@ -375,7 +375,7 @@ export async function harnessSettleStep(input: {
   toolCalls: number;
   /** Semantic steps the worker actually ran. */
   steps?: number;
-  /** Resolved route (pi has provider+model; claude/cursor do not). */
+  /** Resolved route (pi has provider+model; claude/cursor/codex do not). */
   route?: import("../../lib/providers/route").HarnessRoute;
   /** Summed model usage; null when no finish-step reported any. */
   usage?: UsageCounts | null;

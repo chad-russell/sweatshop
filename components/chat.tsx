@@ -124,7 +124,7 @@ function SandboxPicker({
           <button
             type="button"
             aria-label="Sandbox"
-            title="Where this conversation's bash / pi / claude calls run (fixed for this conversation)"
+            title="Where this conversation's bash / harness calls run (fixed for this conversation)"
             className={cn(SANDBOX_TRIGGER, className)}
           >
             <span className="truncate">{label}</span>
@@ -171,7 +171,7 @@ function SandboxPicker({
         <button
           type="button"
           aria-label="Sandbox"
-          title="Where this conversation's bash / pi / claude calls will run — chosen once, now"
+          title="Where this conversation's bash / harness calls will run — chosen once, now"
           className={cn(SANDBOX_TRIGGER, className)}
         >
           <span className="truncate">{label}</span>

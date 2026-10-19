@@ -1,7 +1,8 @@
 import type { Db } from "../../db";
 import { getGlobalDefaults, getProjectModels, listProviderModels, type ProjectModels } from "../../db/providers";
 import { cursorConfigured, cursorCredential } from "../harness-auth/cursor";
-import { CLAUDE_MODELS, CURSOR_MODELS, PROVIDER_IDS, PROVIDER_LABELS, type ModelInfo, type ProviderId } from "./catalog";
+import { codexConfigured, codexCredential } from "../harness-auth/codex";
+import { CLAUDE_MODELS, CODEX_MODELS, CURSOR_MODELS, PROVIDER_IDS, PROVIDER_LABELS, type ModelInfo, type ProviderId } from "./catalog";
 import { availableProviders } from "./registry";
 import type { GlobalDefaults, RouteHarness } from "./route";
 
@@ -30,6 +31,17 @@ export interface ModelsView {
     status: string | null;
     expiresAt: number | null;
   };
+  /** 0050: same shape as cursor plus `accountId` — the enterprise
+   *  workspace id the builder forwards as ChatGPT-Account-ID (null for
+   *  personal logins). */
+  codex: {
+    configured: boolean;
+    allowed: boolean;
+    models: { id: string; label: string }[];
+    status: string | null;
+    expiresAt: number | null;
+    accountId: string | null;
+  };
   piAllowed: boolean;
   defaults: GlobalDefaults;
   project: ProjectModels | null;
@@ -56,6 +68,7 @@ export function modelsView(db: Db, projectId?: string | null): ModelsView {
       models: [...CLAUDE_MODELS],
     },
     cursor: cursorView(harnessAllowed("cursor")),
+    codex: codexView(harnessAllowed("codex")),
     piAllowed: harnessAllowed("pi"),
     defaults: getGlobalDefaults(db),
     project,
@@ -70,5 +83,17 @@ function cursorView(allowed: boolean): ModelsView["cursor"] {
     models: [...CURSOR_MODELS],
     status: credential.ok ? null : credential.message,
     expiresAt: credential.ok ? credential.expiresAt : null,
+  };
+}
+
+function codexView(allowed: boolean): ModelsView["codex"] {
+  const credential = codexCredential();
+  return {
+    configured: codexConfigured(),
+    allowed,
+    models: [...CODEX_MODELS],
+    status: credential.ok ? null : credential.message,
+    expiresAt: credential.ok ? credential.expiresAt : null,
+    accountId: credential.ok ? credential.accountId : null,
   };
 }

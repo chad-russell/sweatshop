@@ -34,7 +34,7 @@ export function listHarnessCalls(
 
 export function createHarnessCall(
   db: Db,
-  input: { conversationId: string; kind: "pi" | "claude" | "cursor"; task: string },
+  input: { conversationId: string; kind: "pi" | "claude" | "cursor" | "codex"; task: string },
   now = Date.now(),
 ): HarnessCall {
   const id = `hc_${now.toString(36)}${randomUUID().replace(/-/g, "").slice(0, 6)}`;

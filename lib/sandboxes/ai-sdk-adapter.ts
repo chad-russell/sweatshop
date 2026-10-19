@@ -172,8 +172,9 @@ export interface NetworkSandboxSessionArgs {
    *  joining the sweatshop-harness network (injectable for tests). */
   resolveAddress?: (ref: string) => Promise<string>;
   /** 0038 amendment: ports this session's bridges may use — every
-   *  bridge-backed kind's own port by default (HARNESS_BRIDGE_PORTS), so
-   *  claude and cursor can each hold theirs at once in the same sandbox.
+   *  bridge-backed kind's own port by default (HARNESS_BRIDGE_PORTS —
+   *  claude/cursor/codex as of 0050), so two kinds' bridges can hold
+   * theirs at once in the same sandbox.
    *  Only a fallback: `getPortEndpoint` resolves whatever port it is
    *  asked for, and every call here passes one explicitly. */
   ports?: readonly number[];

@@ -21,7 +21,7 @@ import { REPO_DOC_TOTAL_CAP, capRepoDoc, readCappedFile } from "@/lib/agent/repo
  * identical workspace.
  *
  * It also writes `<root>/AGENTS.md` and `<root>/CLAUDE.md` (identical
- * content): the harnesses (pi/claude/cursor) start with cwd at the work
+ * content): the harnesses (pi/claude/cursor/codex) start with cwd at the work
  * root, not inside a repo, and live testing showed none of them load a
  * repo's own AGENTS.md unprompted — this file points them at it.
  */

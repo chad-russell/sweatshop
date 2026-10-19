@@ -336,8 +336,8 @@ describe("0010 chat tool cores", () => {
     const names = (hasSandbox: boolean, hasProject: boolean) =>
       Object.keys(buildChatTools("c_x", { hasSandbox, hasProject }));
 
-    it("project chats get bash/pi/claude/cursor", () => {
-      expect(names(true, true)).toEqual(expect.arrayContaining(["bash", "pi", "claude", "cursor"]));
+    it("project chats get bash/pi/claude/cursor/codex", () => {
+      expect(names(true, true)).toEqual(expect.arrayContaining(["bash", "pi", "claude", "cursor", "codex"]));
     });
     it("0016: preview tools come with the sandbox", () => {
       const previews = ["start_preview", "preview_status", "stop_preview"];
@@ -347,7 +347,7 @@ describe("0010 chat tool cores", () => {
     it("chats with no sandbox get none of them", () => {
       for (const hasProject of [true, false]) {
         const tools = names(false, hasProject);
-        for (const t of ["bash", "pi", "claude", "cursor"]) expect(tools).not.toContain(t);
+        for (const t of ["bash", "pi", "claude", "cursor", "codex"]) expect(tools).not.toContain(t);
       }
     });
     it("a plain chat started attached gets bash only", () => {
@@ -356,6 +356,7 @@ describe("0010 chat tool cores", () => {
       expect(tools).not.toContain("pi");
       expect(tools).not.toContain("claude");
       expect(tools).not.toContain("cursor");
+      expect(tools).not.toContain("codex");
     });
     it("attach_sandbox is gone — attaching is a start-of-chat choice", () => {
       expect(names(true, true)).not.toContain("attach_sandbox");
