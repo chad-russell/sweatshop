@@ -41,7 +41,9 @@ export async function createPrStep(
   ]);
   const projectId = getConversation(db(), conversationId)?.projectId;
   if (!projectId) throw new Error("no project bound to this conversation");
-  return openProjectPR({ projectId, ...input });
+  // 0052: the host's answer at creation — the transcript copy stays true.
+  const result = await openProjectPR({ projectId, ...input });
+  return { ...result, state: "open" as const };
 }
 
 /** 0034 Phase A: validate a create_pr proposal and build the approval

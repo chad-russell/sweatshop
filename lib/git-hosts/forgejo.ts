@@ -1,4 +1,5 @@
 import {
+  getJSON,
   installCredentialStore,
   postJSON,
   remoteHost,
@@ -6,6 +7,7 @@ import {
   type CreatePRInput,
   type CreatePRResult,
   type GitHost,
+  type PRState,
 } from "@/lib/git-hosts/index";
 
 /** Forgejo: token-authenticated https against a self-hosted instance. */
@@ -51,5 +53,31 @@ export const forgejoHost: GitHost = {
     const number = json.number;
     if (typeof number !== "number") throw new Error("forgejo PR response missing number");
     return { url, number } satisfies CreatePRResult;
+  },
+  async getPRState(credential, remoteUrl, number, fetchImpl = fetch): Promise<PRState | null> {
+    try {
+      if (!credential.baseUrl) return null;
+      const path = repoPath(remoteUrl);
+      if (!path) return null;
+      const base = credential.baseUrl.replace(/\/$/, "");
+      const basic = Buffer.from(
+        `${credential.username}:${credential.secret}`,
+      ).toString("base64");
+      const json = await getJSON(
+        `${base}/api/v1/repos/${encodeURIComponent(path.owner)}/${encodeURIComponent(path.repo)}/pulls/${number}`,
+        { authorization: `Basic ${basic}` },
+        fetchImpl,
+      );
+      // Forgejo's `merged` is the merge timestamp (falsy until merged).
+      if (json.merged) {
+        const mergedAt = json.merged;
+        return { state: "merged", ...(typeof mergedAt === "string" ? { mergedAt } : {}) };
+      }
+      if (json.state === "closed") return { state: "closed" };
+      if (json.state === "open") return { state: "open" };
+      return null; // shape error
+    } catch {
+      return null; // non-2xx, network, or parse failure — unknown, never thrown
+    }
   },
 };

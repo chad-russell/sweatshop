@@ -129,6 +129,27 @@ export interface Phase {
   label: string;
   tone: "warn" | "running" | "ok";
   url?: string;
+  /** 0052: "pr-open" marks the one phase a live host check may relabel. */
+  kind?: "pr-open";
+}
+
+/** A PR's live state on its host (0052) — the /api/x/prs answer, shaped
+ *  here rather than imported from the seam so plan.ts stays free of
+ *  server-side imports (client- and server-safe). */
+export interface PRState {
+  state: "open" | "merged" | "closed";
+  mergedAt?: string;
+}
+
+/** 0052: the chip's live override — a PR-open phase relabeled by what
+ *  the host says now (merged → ok, closed → warn; the URL stays the
+ *  link). Everything else — no phase, another phase, an unknown or
+ *  still-open answer — keeps the derived phase. */
+export function applyPRState(phase: Phase | null, live: PRState | null): Phase | null {
+  if (!phase || phase.kind !== "pr-open" || !live) return phase;
+  if (live.state === "merged") return { ...phase, label: "PR merged", tone: "ok" };
+  if (live.state === "closed") return { ...phase, label: "PR closed", tone: "warn" };
+  return phase;
 }
 
 /** The phase chip, derived — never stored (0041). */
@@ -159,7 +180,7 @@ export function derivePhase(events: readonly PhaseEvent[]): Phase | null {
     }
   }
   if (pr?.state === "pending") return { label: "PR · needs you", tone: "warn" };
-  if (pr?.state === "open") return { label: "PR open", tone: "ok", ...(pr.url ? { url: pr.url } : {}) };
+  if (pr?.state === "open") return { label: "PR open", tone: "ok", kind: "pr-open", ...(pr.url ? { url: pr.url } : {}) };
   if (!plan) return null;
   if (plan.open && !approved) return { label: `Plan v${plan.version} · needs you`, tone: "warn" };
   const { done, total } = plan.checklist;

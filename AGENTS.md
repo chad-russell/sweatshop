@@ -176,9 +176,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `accept_plan` (itself approval-gated) when Chad approves in chat.
   After approval `present_plan` is a progress snapshot (`reapprove:
   true` reopens review). The header PHASE chip (`lib/plan.ts`, pure,
-  derived from the transcript, never stored). The review skill treats
-  `PLAN.md` as the agreed spec. No plan table, no hard gate on
-  `create_pr`.
+  derived from the transcript, never stored) says what the host says
+  now: while it shows an open PR, the client polls `GET /api/x/prs`
+  (`GitHost.getPRState`, 0052) and `applyPRState` relabels it merged/
+  closed — derived purity holds, the override is render-time. The
+  review skill treats `PLAN.md` as the agreed spec. No plan table, no
+  hard gate on `create_pr`.
 - Web tools (1.5): every chat has `web_search` and `web_fetch`.
   `web_fetch` is plain HTTP (redirects followed, 2 MiB download cap,
   60 k context clip, HTML stripped, textual content types only);

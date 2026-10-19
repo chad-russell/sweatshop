@@ -188,3 +188,80 @@ describe("GitHost.createPR", () => {
     ).rejects.toThrow(/422: pull request already exists/);
   });
 });
+
+describe("GitHost.getPRState (0052)", () => {
+  const gh = cred({ id: "gh", kind: "github" });
+  const fj = cred({ id: "fj", kind: "forgejo", baseUrl: "https://git.example.com" });
+
+  it("github asks the pulls API with bearer auth and maps merged", async () => {
+    const { impl, calls } = stubFetch(200, {
+      state: "closed",
+      merged: true,
+      merged_at: "2026-10-01T10:00:00Z",
+    });
+    expect(await githubHost.getPRState(gh, "https://github.com/o/r.git", 7, impl)).toEqual({
+      state: "merged",
+      mergedAt: "2026-10-01T10:00:00Z",
+    });
+    expect(calls[0]?.url).toBe("https://api.github.com/repos/o/r/pulls/7");
+    expect(calls[0]?.headers.authorization).toBe("Bearer tok");
+    expect(calls[0]?.headers.accept).toBe("application/vnd.github+json");
+  });
+
+  it("github maps merged without a timestamp, closed, and open", async () => {
+    const noTime = stubFetch(200, { state: "closed", merged: true, merged_at: null });
+    expect(await githubHost.getPRState(gh, "https://github.com/o/r.git", 7, noTime.impl)).toEqual({
+      state: "merged",
+    });
+    const closed = stubFetch(200, { state: "closed", merged: false });
+    expect(await githubHost.getPRState(gh, "https://github.com/o/r.git", 7, closed.impl)).toEqual({
+      state: "closed",
+    });
+    const open = stubFetch(200, { state: "open", merged: false });
+    expect(await githubHost.getPRState(gh, "https://github.com/o/r.git", 7, open.impl)).toEqual({
+      state: "open",
+    });
+  });
+
+  it("github returns null on 404, a garbage shape, or an unparseable remote", async () => {
+    const notFound = stubFetch(404, { message: "Not Found" });
+    expect(await githubHost.getPRState(gh, "https://github.com/o/r.git", 7, notFound.impl)).toBeNull();
+    const garbage = stubFetch(200, { title: "not a pull request" });
+    expect(await githubHost.getPRState(gh, "https://github.com/o/r.git", 7, garbage.impl)).toBeNull();
+    const fine = stubFetch(200, { state: "open" });
+    expect(await githubHost.getPRState(gh, "garbage", 7, fine.impl)).toBeNull();
+  });
+
+  it("forgejo asks the instance API with basic auth and maps its merged timestamp", async () => {
+    const { impl, calls } = stubFetch(200, { state: "open", merged: "2026-10-02T09:00:00Z" });
+    expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, impl)).toEqual({
+      state: "merged",
+      mergedAt: "2026-10-02T09:00:00Z",
+    });
+    expect(calls[0]?.url).toBe("https://git.example.com/api/v1/repos/o/r/pulls/2");
+    const expected = Buffer.from("chad:tok").toString("base64");
+    expect(calls[0]?.headers.authorization).toBe(`Basic ${expected}`);
+  });
+
+  it("forgejo maps closed and open", async () => {
+    const closed = stubFetch(200, { state: "closed", merged: null });
+    expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, closed.impl)).toEqual({
+      state: "closed",
+    });
+    const open = stubFetch(200, { state: "open", merged: null });
+    expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, open.impl)).toEqual({
+      state: "open",
+    });
+  });
+
+  it("forgejo returns null on 404, a garbage shape, or a missing baseUrl", async () => {
+    const notFound = stubFetch(404, { message: "Not Found" });
+    expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, notFound.impl)).toBeNull();
+    const garbage = stubFetch(200, {});
+    expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, garbage.impl)).toBeNull();
+    const fine = stubFetch(200, { state: "open" });
+    expect(
+      await forgejoHost.getPRState(cred({ kind: "forgejo" }), "https://git.example.com/o/r", 2, fine.impl),
+    ).toBeNull();
+  });
+});

@@ -9,6 +9,7 @@ import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PlanDocument } from "@/components/plan-card";
 import { DISMISS_ANSWER } from "@/lib/dismiss-answer";
 import { isPlanCard } from "@/lib/plan";
+import { usePRStates } from "@/lib/use-pr-states";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
 import { cn } from "@/lib/utils";
@@ -97,7 +98,12 @@ export function PendingPRApproval({ toolCallId }: { toolCallId: string }) {
   );
 }
 
-/** One create_pr call: status pill, title, branch chips, link out. */
+/**
+ * One create_pr call: status pill, title, branch chips, link out. Once
+ * a PR URL exists the pill follows the host's live answer (0052): open
+ * (or unknown pre-first-response) shows "opened", merged shows "merged",
+ * closed shows "closed" — the tool result's own text stays as it was.
+ */
 export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
   const running = part.state === "input-streaming" || part.state === "input-available";
   const failed = part.state === "output-error";
@@ -120,6 +126,11 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
       : undefined;
   const url = typeof output?.url === "string" ? output.url : undefined;
   const prNumber = typeof output?.number === "number" ? output.number : undefined;
+  // 0052: the host's live answer (settled PRs stop polling on their own).
+  const prStates = usePRStates(url ? [url] : null);
+  const live = url ? prStates[url] ?? null : null;
+  const closed = !running && !failed && live?.state === "closed";
+  const merged = !running && !failed && live?.state === "merged";
   const coords = url ? prUrlCoords(url) : null;
   const numberText = coords?.number ?? (prNumber !== undefined ? String(prNumber) : undefined);
   const errorText = failed ? (part.errorText ?? "create_pr failed") : undefined;
@@ -131,7 +142,7 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
           <GitPullRequest
             className={cn(
               "size-4 shrink-0",
-              failed ? "text-destructive" : running ? "text-info" : "text-success",
+              failed ? "text-destructive" : running ? "text-info" : closed ? "text-warning" : "text-success",
             )}
             aria-hidden
           />
@@ -145,10 +156,12 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
                 ? "bg-destructive/15 text-destructive"
                 : running
                   ? "animate-pulse bg-info/15 text-info"
-                  : "bg-success/15 text-success")
+                  : closed
+                    ? "bg-warning/15 text-warning"
+                    : "bg-success/15 text-success")
             }
           >
-            {failed ? "failed" : running ? "opening" : "opened"}
+            {failed ? "failed" : running ? "opening" : closed ? "closed" : merged ? "merged" : "opened"}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">

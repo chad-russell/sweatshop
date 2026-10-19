@@ -32,7 +32,8 @@ import {
 import { ComposerAddButton, ComposerAttachments, attachmentErrorMessage } from "@/components/composer-attachments";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from "@/lib/attachment-ref";
 import { PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-card";
-import { derivePhase, phaseEvents, planHistory, type Phase } from "@/lib/plan";
+import { applyPRState, derivePhase, phaseEvents, planHistory, type Phase } from "@/lib/plan";
+import { usePRStates } from "@/lib/use-pr-states";
 import { Spinner } from "@/components/ui/spinner";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ViewingContext } from "@/lib/page-context";
@@ -326,6 +327,16 @@ export function ChatSession({
   // page watches for it the same way.
   const plans = useMemo(() => planHistory(messages), [messages]);
   const phase = useMemo(() => derivePhase(phaseEvents(messages)), [messages]);
+  // 0052: while the derived phase is an open PR, ask the host what it
+  // says now (visible-tab poll; stops once merged/closed) — merged/
+  // closed relabels the chip, unknown keeps the derived label. The
+  // PR URL stays the link.
+  const prUrls = useMemo(
+    () => (phase?.kind === "pr-open" && phase.url ? [phase.url] : null),
+    [phase],
+  );
+  const prStates = usePRStates(prUrls);
+  const shownPhase = prUrls ? applyPRState(phase, prStates[prUrls[0]] ?? null) : phase;
   const awaitingWake =
     (adopted || selfAdopted) && !isBusy && (hasBackgroundChild(messages) || plans.openReviewId !== null);
   const chatRef = useRef(chat);
@@ -498,7 +509,7 @@ export function ChatSession({
     busy: isBusy,
     status,
     clearDraft: () => window.localStorage.removeItem(draftKey),
-    phase,
+    phase: shownPhase,
   };
 
   // 0041: Quote — a plan selection lands in the composer as a `>` block.
