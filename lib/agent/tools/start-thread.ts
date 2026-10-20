@@ -9,7 +9,7 @@ import {
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
 import { attachConversation, openConversationSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
-import { readSkill } from "@/lib/skills";
+import { listThreadSkills } from "@/lib/skills";
 
 /**
  * 0037 phase 3: the start_thread tool's core — a fresh child chat with
@@ -56,7 +56,10 @@ export async function startThread(
     start?: (conversationId: string, text: string) => Promise<{ runId: string }>;
   },
 ): Promise<StartThreadResult> {
-  if (input.skill && !(await readSkill(input.skill))) {
+  // 0054: binding a NEW child can only pick an ACTIVE thread skill —
+  // readSkill would also resolve a disabled/deleted one (by design,
+  // for a thread that's already running it), which is wrong here.
+  if (input.skill && !(await listThreadSkills()).some((s) => s.id === input.skill)) {
     return {
       ok: false,
       code: "no-skill",

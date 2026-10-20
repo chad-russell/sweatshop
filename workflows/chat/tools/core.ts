@@ -7,7 +7,7 @@ import { z } from "zod";
 import { chatApprovalHook } from "../hooks";
 import { ownerName } from "../../../lib/agent/owner";
 import { commandDescription } from "./shared";
-import { bindSkillStep, createPrPreviewStep, createPrStep, inspectStep, pendingStep, sandboxExecStep, systemDocsStep } from "../steps";
+import { applyApprovedPromptChangeStep, bindSkillStep, createPrPreviewStep, createPrStep, inspectStep, pendingStep, promptChangePreviewStep, sandboxExecStep, systemDocsStep } from "../steps";
 
 export function coreTools(
   conversationId: string,
@@ -114,6 +114,43 @@ export function coreTools(
         "later turn and the thread gets the background work budget. Omit id to list skills.",
       inputSchema: z.object({ id: z.string().optional().describe("Skill id; omit to list") }),
       execute: ({ id }) => bindSkillStep(conversationId, id),
+    }),
+
+    propose_prompt_change: tool({
+      description:
+        "Propose a change to an app prompt section or the skill catalog. This can edit prompt/skill text, " +
+        "create a skill, or change a skill's description, thread binding, or reversible status. Chad sees the " +
+        "complete change and must explicitly approve before it is written. This cannot change tools, approval " +
+        "gates, command restrictions, or provider/model validation.",
+      inputSchema: z.object({
+        kind: z.enum(["section", "skill"]),
+        key: z.string().describe("base|harness_steering|host_routing, or a skill id"),
+        body: z.string().max(64 * 1024).optional(),
+        description: z.string().max(500).optional().describe("skill only"),
+        thread: z.boolean().optional().describe("skill only"),
+        status: z.enum(["active", "disabled", "deleted"]).optional().describe("skill only"),
+        note: z.string().trim().min(1).max(500).refine((value) => !/[\r\n]/.test(value), "note must be one line").describe("What changed and why"),
+      }),
+      execute: async (input, { toolCallId }) => {
+        const preview = await promptChangePreviewStep(input);
+        if (!preview.ok) return preview;
+        await pendingStep(conversationId, toolCallId, preview.summary, "approval", preview.card);
+        const answer = await chatApprovalHook.create({ token: toolCallId });
+        if (!(answer.kind === "approval" && answer.approved)) {
+          const comment = answer.kind === "approval" ? answer.comment?.trim() : undefined;
+          return {
+            ok: false,
+            code: "denied" as const,
+            message: comment || "Chad declined — nothing was changed",
+          };
+        }
+        return applyApprovedPromptChangeStep(
+          preview.target,
+          preview.patch,
+          preview.expectedVersion,
+          input.note,
+        );
+      },
     }),
 
     system_docs: tool({

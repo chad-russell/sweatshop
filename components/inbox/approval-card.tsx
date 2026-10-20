@@ -4,6 +4,7 @@ import { ShieldQuestion } from "lucide-react";
 import Link from "next/link";
 import { cn } from "cn";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
+import { PromptChangeDetails } from "@/components/chat-cards/approvals";
 import { PlanDocument } from "@/components/plan-card";
 import { Button } from "@/components/ui/button";
 import type { NeedsYouThread, PendingRequest, RequestOption } from "@/lib/read-models/attention";
@@ -84,7 +85,8 @@ export function ApprovalCard({
             {request.prompt}
           </p>
           {request.exec && <ExecAsk exec={request.exec} />}
-          {!request.exec && input && (
+          {request.promptChange && <PromptChangeDetails card={request.promptChange} />}
+          {!request.exec && !request.promptChange && input && (
             <pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap">
               {input}
             </pre>

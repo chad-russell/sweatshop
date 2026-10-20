@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { ToolUIPart } from "ai";
 import { ChevronDown, GitPullRequest } from "lucide-react";
 import { Tool, ToolContent, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
@@ -13,6 +13,7 @@ import { usePRStates } from "@/lib/use-pr-states";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
 import { cn } from "@/lib/utils";
+import type { PromptChangeCard as PromptChangeCardData } from "@/lib/read-models/attention";
 
 /**
  * Approval-gated transcript cards (create_pr, ask_chad, accept_plan, exec,
@@ -379,6 +380,120 @@ export function AcceptPlanCard({ part }: { part: ToolUIPart }) {
  * tool): while the part is unresolved, the transcript shows the
  * approval buttons right there — same POST as the inbox card. */
 export const GATED_TOOLS = new Set(["create_project", "delete_project"]);
+
+export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
+  const fields = (["description", "thread", "status"] as const).filter((key) => key in card.patch);
+  const value = (v: unknown) => typeof v === "boolean" ? String(v) : v == null ? "(unset)" : String(v);
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium">{card.title}</span>
+        <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">
+          based on v{card.currentVersion}
+        </span>
+      </div>
+      {fields.length > 0 && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-background p-2 text-xs">
+          {fields.map((key) => (
+            <Fragment key={key}>
+              <dt className="font-mono text-muted-foreground">{key}</dt>
+              <dd className="min-w-0 break-words">
+                <span className="text-destructive line-through">{value(card.before?.[key])}</span>
+                <span className="px-1.5" aria-hidden>→</span>
+                <span className="text-success">{value(card.patch[key])}</span>
+              </dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
+      {card.affectedThreads && card.affectedThreads.length > 0 && (
+        <div className="rounded-md border border-warning/40 bg-warning/5 p-2 text-xs">
+          <p className="font-medium">Currently running bound threads</p>
+          <ul className="mt-1 space-y-0.5 font-mono text-muted-foreground">
+            {card.affectedThreads.map((thread) => (
+              <li key={thread.id}>{thread.title ?? thread.id} · {thread.id}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-muted-foreground">They keep using this skill; the status only affects new bindings.</p>
+        </div>
+      )}
+      {card.diff && (
+        <pre className="overflow-x-auto rounded-md border bg-background p-2 font-mono text-xs whitespace-pre-wrap break-words">
+          {card.diff.map((line, index) => (
+            <span
+              key={index}
+              className={cn(
+                "block min-h-[1lh]",
+                line.op === "add" && "bg-success/10 text-success",
+                line.op === "del" && "bg-destructive/10 text-destructive",
+                line.op === "same" && "text-muted-foreground",
+              )}
+            >
+              {line.op === "add" ? "+" : line.op === "del" ? "-" : " "} {line.text}
+            </span>
+          ))}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/** The complete immutable proposal snapshot, fetched from pending_inputs. */
+export function PromptChangeApprovalCard({ part }: { part: ToolUIPart }) {
+  const [card, setCard] = useState<PromptChangeCardData | null>(null);
+  const [busy, setBusy] = useState(false);
+  const answered = part.state === "output-available" || part.state === "output-error";
+  useEffect(() => {
+    if (card) return;
+    let stop = false;
+    const load = async () => {
+      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(part.toolCallId)}`).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { evidence?: unknown } | null;
+      const value = body?.evidence as Partial<PromptChangeCardData> | undefined;
+      if (!stop && value?.kind === "prompt_change") setCard(value as PromptChangeCardData);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => { stop = true; window.clearInterval(timer); };
+  }, [part.toolCallId, card]);
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="my-1 space-y-3 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      {card ? <PromptChangeDetails card={card} /> : <p className="text-xs text-muted-foreground">Loading the proposed change…</p>}
+      {!answered ? (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={busy || !card}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+          >
+            Approve change
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
+          >
+            Deny
+          </button>
+        </div>
+      ) : <p className="text-xs text-muted-foreground">Answered — the agent continues.</p>}
+    </div>
+  );
+}
 
 /** 0043: an exec call waiting on Chad — approve it right here (the
  *  inbox card posts to the same endpoint); typing below answers it as a

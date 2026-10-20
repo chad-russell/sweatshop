@@ -24,7 +24,7 @@ import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
 import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
 import { answerPendingWithText } from "@/lib/chat/answer-pending";
-import { readSkill } from "@/lib/skills";
+import { listThreadSkills } from "@/lib/skills";
 import { checkClaimable } from "@/db/attachments";
 import { MAX_IMAGES_PER_MESSAGE, parseAttachmentRef } from "@/lib/attachments";
 
@@ -127,9 +127,12 @@ export async function POST(request: Request) {
   }
   const projectId = existing ? existing.projectId : ((body.projectId as string | undefined) ?? null);
   // 0039: a skill is chosen by the creating send (use_skill covers
-  // later); unknown ids reject before anything is created.
+  // later); unknown ids reject before anything is created. 0054: a new
+  // binding can only pick an ACTIVE thread skill — readSkill would also
+  // resolve a disabled/deleted one (that's its whole point for a thread
+  // already running one), which is wrong for a brand-new bind.
   const skill = !existing && typeof body.skill === "string" && body.skill ? body.skill : null;
-  if (skill && !(await readSkill(skill))) {
+  if (skill && !(await listThreadSkills()).some((s) => s.id === skill)) {
     return NextResponse.json({ error: `no skill "${skill}"` }, { status: 400 });
   }
   let pickedRoute: import("@/lib/providers/route").ChatRoute | null | undefined;
