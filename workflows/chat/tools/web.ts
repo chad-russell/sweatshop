@@ -65,12 +65,12 @@ export function queryTools() {
     // tool's twin for the self-hosted instance.
     forgejo: tool({
       description:
-        "Run one read-only forgejo API GET against Chad's self-hosted instance (git.crussell.io) " +
-        "with his stored credentials. Paths: /repos/search?q=…, /repos/{owner}/{repo}, " +
+        "Run one read-only forgejo API GET against the configured forgejo instance " +
+        "with the owner's stored credentials. Paths: /repos/search?q=…, /repos/{owner}/{repo}, " +
         "/orgs/{org}/repos, /users/{user}/repos, and …/branches, …/issues[/{n}], …/pulls[/{n}], " +
         "…/releases under a repo, plus /user. Query params go in params (e.g. {q: \"sweatshop\", limit: \"10\"}).",
       inputSchema: z.object({
-        path: z.string().min(1).max(200).describe("API path, e.g. \"/repos/search\" or \"/repos/chad/sweatshop\""),
+        path: z.string().min(1).max(200).describe("API path, e.g. \"/repos/search\" or \"/repos/{owner}/{repo}\""),
         params: z.record(z.string(), z.string()).optional().describe("Query parameters"),
       }),
       execute: ({ path, params }) => forgejoStep(path, params ?? {}),
