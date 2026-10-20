@@ -148,9 +148,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   Write paths live in `lib/providers/settings.ts`; surfaces are the
   chat's route picker (per conversation, not sticky), `/settings`, and
   the project page Models card.
-- Skills (0039): markdown runbooks in `skills/<id>/SKILL.md` (front
-  matter `description`, plus `thread: true` for one bindable to a
-  conversation; loader `lib/skills.ts`). A thread runs one via
+- Skills (0039, 0054): markdown runbooks in `skills/<id>/SKILL.md` are
+  shipped defaults (front matter `description`, `thread: true` for a
+  bindable runbook). SQLite `skills` / `skill_versions` hold the active
+  catalog; `lib/skills.ts` reads it (lazy seed once from Git, no silent
+  overwrite on deploy). `/settings` edits or resets individual skills;
+  agent `propose_prompt_change` changes require approval. Status is
+  versioned: active, disabled, deleted (tombstone); existing bound
+  threads still read the current body even if disabled/deleted, but only
+  active thread skills can be newly bound. A thread runs one via
   `conversations.skill` — chosen by the creating send (the picker,
   `?skill=<id>`; unknown ids rejected before creating anything) or
   mid-thread by `use_skill`. Its body joins the turn instructions and
@@ -161,6 +167,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   then ship steps, then a fresh-eyes `review` child before `create_pr`),
   `review` (fresh context, severity-ranked findings, changes nothing).
   Skills without `thread: true` are reference material — never bindable.
+- Prompt sections (0054): three app-supplied instruction blocks in
+  `workflows/chat/instructions.ts` ship as Git defaults; SQLite
+  `prompt_sections` / `prompt_section_versions` own active text (lazy
+  seeded, reset copies the current Git default as a new version). The
+  base, sandbox and host guidance are all editable in `/settings`, with
+  history, compare, preview and optimistic concurrency. The same store
+  validates agent proposals (`propose_prompt_change`), which always
+  ask Chad before writing. Tool availability, approval and lockout gates
+  remain code-enforced, never controlled by prompt prose.
 - Plan files (0041): a plan is a scratch `PLAN.md` in the
   conversation's work root (`/work/<conv>/` — never in a PR), written
   with `bash`, never re-injected into context. `present_plan`

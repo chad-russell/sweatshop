@@ -4,8 +4,10 @@ import { db } from "../db";
 import { appendMessages, ensureConversation, getConversation, setConversationSkill } from "../db/chat";
 import { conversations, messages } from "../db/schema";
 import { listSkills, listThreadSkills, readSkill } from "../lib/skills";
+import { getTarget, publishEdit, restoreVersion } from "../db/prompt-settings";
 import { CONTINUE_TEXT, MAX_CONTINUATIONS, continueAfterBudget, continuationsSinceHuman } from "../lib/chat/budget";
 import { POST as postChat } from "../app/api/x/chat/route";
+import { bindSkillStep, loadSkillStep } from "../workflows/chat/steps/turn";
 
 /**
  * 0039: skills (markdown runbooks under skills/<id>/SKILL.md; thread
@@ -115,5 +117,91 @@ describe("chat route skill binding", () => {
     // directory, decides (a plain reference skill never appears).
     expect((await listThreadSkills()).map((s) => s.id).sort()).toEqual(["review", "ship", "ticket"]);
     expect((await listSkills()).every((s) => typeof s.thread === "boolean")).toBe(true);
+  });
+});
+
+describe("0054: use_skill binding checks the active thread catalog", () => {
+  it("binds an active thread skill", async () => {
+    const id = conv("bind_active");
+    expect(await bindSkillStep(id, "review")).toMatchObject({ ok: true, id: "review" });
+    expect(getConversation(db(), id)?.skill).toBe("review");
+  });
+
+  for (const status of ["disabled", "deleted"] as const) {
+    it(`rejects a ${status} skill without changing an existing binding`, async () => {
+      const id = conv(`bind_${status}`);
+      setConversationSkill(db(), id, "review");
+      const target = { kind: "skill" as const, id: "ship" };
+      const original = getTarget(db(), target)!;
+      expect(publishEdit(db(), target, { patch: { status }, expectedVersion: original.version })).toMatchObject({ ok: true });
+      try {
+        // Existing bindings still resolve through readSkill, independently
+        // of whether the skill is offered for new use_skill calls.
+        expect((await readSkill("ship"))?.id).toBe("ship");
+        const result = await bindSkillStep(id, "ship") as { ok: boolean; code: string; skills: { id: string }[] };
+        expect(result).toMatchObject({ ok: false, code: "unknown-skill" });
+        expect(result.skills.map((s) => s.id)).not.toContain("ship");
+        expect(getConversation(db(), id)?.skill).toBe("review");
+      } finally {
+        const live = getTarget(db(), target)!;
+        expect(publishEdit(db(), target, { patch: { status: original.status }, expectedVersion: live.version })).toMatchObject({ ok: true });
+      }
+    });
+  }
+
+  it("keeps resolving an already-bound skill after it is disabled", async () => {
+    const id = conv("already_bound");
+    setConversationSkill(db(), id, "ship");
+    const target = { kind: "skill" as const, id: "ship" };
+    const original = getTarget(db(), target)!;
+    expect(publishEdit(db(), target, { patch: { status: "disabled" }, expectedVersion: original.version })).toMatchObject({ ok: true });
+    try {
+      expect(await loadSkillStep(id)).toMatchObject({ id: "ship", body: original.body });
+    } finally {
+      const live = getTarget(db(), target)!;
+      expect(publishEdit(db(), target, { patch: { status: original.status }, expectedVersion: live.version })).toMatchObject({ ok: true });
+    }
+  });
+});
+
+describe("0054: DB-backed status — disable/delete hide from catalogs, never from a bound read", () => {
+  it("disabling ship drops it from the bindable catalog but not from listSkills or readSkill", async () => {
+    const live = getTarget(db(), { kind: "skill", id: "ship" })!;
+    expect(live.status).toBe("active");
+    expect(
+      publishEdit(db(), { kind: "skill", id: "ship" }, { patch: { status: "disabled" }, expectedVersion: live.version }),
+    ).toMatchObject({ ok: true });
+
+    // Not bindable to a new thread...
+    expect((await listThreadSkills()).map((s) => s.id)).not.toContain("ship");
+    // ...but still in the general catalog, and readSkill (the path an
+    // already-bound thread's loadSkillStep uses) ignores status entirely.
+    expect((await listSkills()).map((s) => s.id)).toContain("ship");
+    expect((await readSkill("ship"))?.body.startsWith("# Ship")).toBe(true);
+
+    // Leave it as found, for any test that runs after this one.
+    const disabled = getTarget(db(), { kind: "skill", id: "ship" })!;
+    publishEdit(db(), { kind: "skill", id: "ship" }, { patch: { status: "active" }, expectedVersion: disabled.version });
+  });
+
+  it("deleting (tombstoning) ticket drops it from both catalogs; restoring the pre-delete version undoes it", async () => {
+    const live = getTarget(db(), { kind: "skill", id: "ticket" })!;
+    publishEdit(db(), { kind: "skill", id: "ticket" }, { patch: { status: "deleted" }, expectedVersion: live.version });
+
+    expect((await listThreadSkills()).map((s) => s.id)).not.toContain("ticket");
+    expect((await listSkills()).map((s) => s.id)).not.toContain("ticket");
+    // A deleted skill is a tombstone, not a removed row: readSkill still
+    // resolves it (an already-bound thread keeps running).
+    expect((await readSkill("ticket"))?.title).toMatch(/^Ticket/);
+
+    const tombstoned = getTarget(db(), { kind: "skill", id: "ticket" })!;
+    expect(
+      restoreVersion(
+        db(),
+        { kind: "skill", id: "ticket" },
+        { version: live.version, expectedVersion: tombstoned.version },
+      ),
+    ).toMatchObject({ ok: true });
+    expect((await listThreadSkills()).map((s) => s.id)).toContain("ticket");
   });
 });

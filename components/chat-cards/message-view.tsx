@@ -29,6 +29,7 @@ import {
   GatedApprovalCard,
   GATED_TOOLS,
   PullRequestToolCard,
+  PromptChangeApprovalCard,
 } from "./approvals";
 import { agentToolCard, ToolCallView } from "./dispatch";
 import { ToolGroupView } from "@/components/ai-elements/tool-group";
@@ -165,6 +166,9 @@ export const ChatMessageView = memo(function ChatMessageView({
             }
             if (toolPart.type === "tool-create_pr") {
               return <PullRequestToolCard key={i} part={toolPart} />;
+            }
+            if (toolPart.type === "tool-propose_prompt_change") {
+              return <PromptChangeApprovalCard key={i} part={toolPart} />;
             }
             // 0041: the plan document and its chat-approval gate.
             if (toolPart.type === "tool-present_plan") {

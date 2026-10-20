@@ -20,6 +20,7 @@ import type {
   UnreadThread,
   Where,
 } from "../lib/read-models/attention";
+import type { PromptChangeCard } from "../lib/read-models/attention";
 
 // 0049: the view shapes moved to @/lib/read-models/attention; re-exported
 // here so server-side importers keep one door into the store layer.
@@ -77,17 +78,30 @@ export function isExecCard(value: unknown): value is NonNullable<PendingRequest[
   );
 }
 
-function parseCard(
-  card: string | null,
-): { evidence: PendingRequest["evidence"]; plan: PendingRequest["plan"]; exec: PendingRequest["exec"] } {
-  if (!card) return { evidence: null, plan: null, exec: null };
+export function isPromptChangeCard(value: unknown): value is PromptChangeCard {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return v.kind === "prompt_change" && typeof v.title === "string" &&
+    typeof v.currentVersion === "number" && !!v.target && typeof v.target === "object" &&
+    !!v.patch && typeof v.patch === "object";
+}
+
+function parseCard(card: string | null): {
+  evidence: PendingRequest["evidence"];
+  plan: PendingRequest["plan"];
+  exec: PendingRequest["exec"];
+  promptChange: PendingRequest["promptChange"];
+} {
+  const empty = { evidence: null, plan: null, exec: null, promptChange: null };
+  if (!card) return empty;
   try {
     const value = JSON.parse(card) as unknown;
-    if (isPlanCard(value)) return { evidence: null, plan: value, exec: null };
-    if (isExecCard(value)) return { evidence: null, plan: null, exec: value };
-    return { evidence: value as PendingRequest["evidence"], plan: null, exec: null };
+    if (isPlanCard(value)) return { ...empty, plan: value };
+    if (isExecCard(value)) return { ...empty, exec: value };
+    if (isPromptChangeCard(value)) return { ...empty, promptChange: value };
+    return { ...empty, evidence: value as PendingRequest["evidence"] };
   } catch {
-    return { evidence: null, plan: null, exec: null };
+    return empty;
   }
 }
 
@@ -139,12 +153,15 @@ export function loadPendingRequests(
             { id: "deny", label: "Deny", style: "danger" },
           ],
       allowFreeform: true,
-      toolName: isPlan ? "present_plan" : card.plan ? "accept_plan" : card.exec ? "exec" : "ask_chad",
+      toolName: isPlan ? "present_plan" : card.plan ? "accept_plan" : card.exec ? "exec" : card.promptChange ? "propose_prompt_change" : "ask_chad",
       // 0043: an exec ask renders its own block — no generic JSON dump.
-      toolInput: isPlan || card.plan || card.exec ? null : { kind: row.kind, question: row.question },
+      toolInput: isPlan || card.plan || card.exec || card.promptChange
+        ? null
+        : { kind: row.kind, question: row.question },
       evidence: card.evidence,
       plan: card.plan,
       exec: card.exec,
+      promptChange: card.promptChange,
       at: row.createdAt,
     });
     out.set(row.conversationId, list);
@@ -361,4 +378,3 @@ export function loadInbox(db: Conn): InboxData {
 
   return { needsYou, unread };
 }
-

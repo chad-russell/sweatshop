@@ -134,15 +134,29 @@ export async function loadSkillStep(
  *  body (followed from this turn on; later turns get it as instructions). */
 export async function bindSkillStep(conversationId: string, id?: string): Promise<unknown> {
   "use step";
-  const [{ db, chat }, { listThreadSkills, readSkill }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
-  const list = async () =>
-    (await listThreadSkills()).map((s) => ({ id: s.id, title: s.title, description: s.description }));
-  if (!id) return { ok: true, skills: await list() };
-  const skill = await readSkill(id);
-  if (!skill || !skill.thread)
-    return { ok: false, code: "unknown-skill", message: `No thread skill "${id}".`, skills: await list() };
+  const [{ db, chat }, { listThreadSkills }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
+  const available = await listThreadSkills();
+  const catalog = available.map((s) => ({ id: s.id, title: s.title, description: s.description }));
+  if (!id) return { ok: true, skills: catalog };
+  // readSkill deliberately resolves disabled/deleted skills for existing
+  // bindings; a NEW binding must use the active thread-only catalog.
+  const skill = available.find((s) => s.id === id);
+  if (!skill)
+    return { ok: false, code: "unknown-skill", message: `No thread skill "${id}".`, skills: catalog };
   chat.setConversationSkill(db, conversationId, skill.id);
   return { ok: true, id: skill.id, note: "Bound to this thread — follow it from now on.", skill: skill.body };
+}
+
+/** 0054: the three editable instruction sections, resolved to their
+ *  current (possibly Settings-edited) bodies — seeded from git on
+ *  first touch. Shaped to drop straight into buildInstructions's
+ *  `sections` input. */
+export async function loadPromptSectionsStep(): Promise<{ base: string; harnessSteering: string; hostRouting: string }> {
+  "use step";
+  const [{ db }, store] = await Promise.all([import("../../../db"), import("../../../db/prompt-settings")]);
+  const conn = db();
+  const body = (key: "base" | "harness_steering" | "host_routing") => store.getTarget(conn, { kind: "section", key })!.body;
+  return { base: body("base"), harnessSteering: body("harness_steering"), hostRouting: body("host_routing") };
 }
 
 /**

@@ -5,6 +5,29 @@
 import type { ApprovalEvidence } from "../agent/tools/evidence";
 import type { PlanCard } from "../plan";
 
+export interface PromptChangeCard {
+  kind: "prompt_change";
+  target:
+    | { kind: "section"; key: "base" | "harness_steering" | "host_routing" }
+    | { kind: "skill"; id: string };
+  title: string;
+  currentVersion: number;
+  patch: {
+    body?: string;
+    description?: string;
+    thread?: boolean;
+    status?: "active" | "disabled" | "deleted";
+  };
+  before: {
+    body?: string;
+    description?: string;
+    thread?: boolean;
+    status?: "active" | "disabled" | "deleted";
+  } | null;
+  affectedThreads?: { id: string; title: string | null }[];
+  diff?: { op: "same" | "add" | "del"; text: string }[];
+}
+
 export interface RequestOption {
   id: string;
   label: string;
@@ -38,6 +61,8 @@ export interface PendingRequest {
     /** The agent's "what this is for" line (absent on older rows). */
     description?: string;
   } | null;
+  /** 0054: exact snapshot of an agent-proposed prompt/catalog change. */
+  promptChange: PromptChangeCard | null;
   /** Unix ms the request was raised. */
   at: number;
 }

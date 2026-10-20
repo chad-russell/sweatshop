@@ -592,6 +592,93 @@ export const sandboxServices = sqliteTable(
 export type SandboxServiceRow = typeof sandboxServices.$inferSelect;
 
 /**
+ * 0054: the three fixed app-prompt blocks buildInstructions assembles
+ * (base/harness_steering/host_routing). Exactly one row per key, seeded
+ * from the current git default (workflows/chat/instructions.ts's
+ * GIT_DEFAULT_SECTIONS) the first time it's read. `version` is bumped
+ * by every write (publish/restore/reset/an approved agent proposal);
+ * `prompt_section_versions` keeps the full history forward-only.
+ */
+export const promptSections = sqliteTable("prompt_sections", {
+  /** "base" | "harness_steering" | "host_routing". */
+  key: text("key").primaryKey(),
+  body: text("body").notNull(),
+  version: integer("version").notNull(),
+  /** "git" (the seed row only) | "user" | "agent". */
+  editedBy: text("edited_by").notNull(),
+  note: text("note"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const promptSectionVersions = sqliteTable(
+  "prompt_section_versions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    key: text("key")
+      .notNull()
+      .references(() => promptSections.key),
+    version: integer("version").notNull(),
+    body: text("body").notNull(),
+    editedBy: text("edited_by").notNull(),
+    note: text("note"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [uniqueIndex("prompt_section_versions_key_version_idx").on(table.key, table.version)],
+);
+
+export type PromptSectionRow = typeof promptSections.$inferSelect;
+
+/**
+ * 0054: the skill catalog, DB-backed after first read (was fs-only,
+ * 0039 — skills/<id>/SKILL.md stays the git-shipped default, read live
+ * for seeding and reset). `origin` distinguishes a shipped skill (can
+ * reset to its current git content) from a Chad/agent-created one (no
+ * git default). `status` replaces a plain "enabled" boolean —
+ * "active" | "disabled" | "deleted" — and, like description/thread/
+ * body, is itself VERSIONED: disabling and deleting are both ordinary
+ * writes, so both are undoable by restoring an earlier version. No row
+ * is ever hard-deleted; "deleted" is a tombstone status, not a DELETE.
+ */
+export const skills = sqliteTable("skills", {
+  id: text("id").primaryKey(),
+  /** "git" | "user". */
+  origin: text("origin").notNull(),
+  description: text("description").notNull(),
+  thread: integer("thread", { mode: "boolean" }).notNull().default(false),
+  /** "active" | "disabled" | "deleted". */
+  status: text("status").notNull().default("active"),
+  body: text("body").notNull(),
+  version: integer("version").notNull(),
+  /** "git" (the seed row only) | "user" | "agent". */
+  editedBy: text("edited_by").notNull(),
+  note: text("note"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const skillVersions = sqliteTable(
+  "skill_versions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    skillId: text("skill_id")
+      .notNull()
+      .references(() => skills.id),
+    version: integer("version").notNull(),
+    description: text("description").notNull(),
+    thread: integer("thread", { mode: "boolean" }).notNull(),
+    status: text("status").notNull(),
+    body: text("body").notNull(),
+    editedBy: text("edited_by").notNull(),
+    note: text("note"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [uniqueIndex("skill_versions_skill_id_version_idx").on(table.skillId, table.version)],
+);
+
+export type SkillRow = typeof skills.$inferSelect;
+
+/**
  * 0016 previews: a long-running HTTP-serving process in a sandbox,
  * reachable at `pv-<slug>.<PREVIEW_BASE_DOMAIN>` through the preview
  * proxy. Owned by its SANDBOX, not by whatever started it — it outlives

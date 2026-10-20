@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REPO_DOC_FILE_CAP, REPO_DOC_TOTAL_CAP, type RepoDoc } from "../lib/agent/repo-docs";
-import { buildInstructions, buildRepoDocsSection } from "../workflows/chat/instructions";
+import { buildInstructions, buildRepoDocsSection, GIT_DEFAULT_SECTIONS } from "../workflows/chat/instructions";
 
 /**
  * Pure routing-guidance additions to the turn's instructions: host
@@ -45,6 +45,41 @@ describe("buildInstructions", () => {
     const plain = buildInstructions({ hasSandbox: false, hosts: [], repoDocs: [] });
     expect(plain).toContain("You are sweatshop's agent");
     expect(plain).not.toContain("# Repo instructions");
+  });
+
+  it("0054: omitting `sections` reproduces today's exact output (regression guard)", () => {
+    const withoutSections = buildInstructions(base);
+    const explicitDefaults = buildInstructions({
+      ...base,
+      sections: {
+        base: GIT_DEFAULT_SECTIONS.base,
+        harnessSteering: GIT_DEFAULT_SECTIONS.harness_steering,
+        hostRouting: GIT_DEFAULT_SECTIONS.host_routing,
+      },
+    });
+    expect(explicitDefaults).toBe(withoutSections);
+  });
+
+  it("0054: a custom `sections` override replaces each block verbatim", () => {
+    const out = buildInstructions({
+      ...base,
+      hosts: [{ name: "bee", address: "10.0.0.1", user: "chad", apiBase: null }],
+      sections: { base: "CUSTOM BASE", harnessSteering: "CUSTOM HARNESS", hostRouting: "CUSTOM HOST" },
+    });
+    expect(out).toContain("CUSTOM BASE");
+    expect(out).toContain("CUSTOM HARNESS");
+    expect(out).toContain("CUSTOM HOST");
+    expect(out).not.toContain("You are sweatshop's agent");
+    expect(out).not.toContain("Use bash to look around");
+    expect(out).not.toContain("exec is only for live state on a host");
+  });
+});
+
+describe("GIT_DEFAULT_SECTIONS", () => {
+  it("exposes the exact text buildInstructions falls back to", () => {
+    expect(GIT_DEFAULT_SECTIONS.base).toContain("You are sweatshop's agent");
+    expect(GIT_DEFAULT_SECTIONS.harness_steering).toContain("Use bash to look around");
+    expect(GIT_DEFAULT_SECTIONS.host_routing).toContain("exec is only for live state on a host");
   });
 });
 
