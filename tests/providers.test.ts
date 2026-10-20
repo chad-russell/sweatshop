@@ -13,7 +13,7 @@ import { projects, providerModels, settings } from "../db/schema";
 import { CURSOR_MODELS, GLM_MODELS, GLOO_MODELS } from "../lib/providers/catalog";
 import { CURSOR_ACP_MODEL_IDS } from "./fixtures/cursor-acp-models";
 import { ensureOpenRouterCatalog, parseOpenRouterModels } from "../lib/providers/openrouter";
-import { fillToolDescriptions, effortLevel, zhipuThinkingSettings } from "../lib/providers/registry";
+import { fillToolDescriptions, effortLevel, openRouterHeaders, zhipuThinkingSettings } from "../lib/providers/registry";
 import { checkRoute } from "../lib/providers/resolve";
 import {
   BUILTIN_DEFAULTS,
@@ -343,6 +343,19 @@ describe("thinking on chat routes (0021 amendment)", () => {
     expect(effortLevel("off")).toBeNull();
     expect(effortLevel(undefined)).toBeNull();
     expect(effortLevel("medium")).toBe("medium");
+  });
+
+  it("OpenRouter referer follows SWEATSHOP_PUBLIC_ORIGIN, defaulting to localhost; X-Title is fixed", () => {
+    const saved = process.env.SWEATSHOP_PUBLIC_ORIGIN;
+    try {
+      delete process.env.SWEATSHOP_PUBLIC_ORIGIN;
+      expect(openRouterHeaders()).toEqual({ "HTTP-Referer": "http://localhost:3000", "X-Title": "sweatshop" });
+      process.env.SWEATSHOP_PUBLIC_ORIGIN = "https://sweatshop.example.com ";
+      expect(openRouterHeaders()).toEqual({ "HTTP-Referer": "https://sweatshop.example.com", "X-Title": "sweatshop" });
+    } finally {
+      if (saved === undefined) delete process.env.SWEATSHOP_PUBLIC_ORIGIN;
+      else process.env.SWEATSHOP_PUBLIC_ORIGIN = saved;
+    }
   });
 
   it("the static catalogs mark the reasoning models", () => {

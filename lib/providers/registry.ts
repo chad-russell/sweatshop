@@ -84,6 +84,20 @@ export function effortLevel(thinking: Thinking | undefined): "low" | "medium" | 
   return thinking === "low" || thinking === "medium" || thinking === "high" ? thinking : null;
 }
 
+/**
+ * OpenRouter's attribution headers. The referer says where this
+ * deployment's calls come from: `SWEATSHOP_PUBLIC_ORIGIN` (this app's
+ * public origin — the same var the preview "not running" page links
+ * back to), defaulting to the local dev origin when unset. X-Title
+ * stays the product name.
+ */
+export function openRouterHeaders(): Record<string, string> {
+  return {
+    "HTTP-Referer": process.env.SWEATSHOP_PUBLIC_ORIGIN?.trim() || "http://localhost:3000",
+    "X-Title": "sweatshop",
+  };
+}
+
 /** The AI SDK model for chats, agent stages, and titles. */
 export function chatLanguageModel(route: ChatRoute): LanguageModel {
   const effort = effortLevel(route.thinking);
@@ -108,7 +122,7 @@ export function chatLanguageModel(route: ChatRoute): LanguageModel {
         baseURL: OPENROUTER_BASE,
         apiKey: providerKey("openrouter") ?? "",
         includeUsage: true,
-        headers: { "HTTP-Referer": "https://sweatshop.internal.crussell.io", "X-Title": "sweatshop" },
+        headers: openRouterHeaders(),
       });
       return openrouter.chatModel(route.model);
   }
@@ -126,7 +140,7 @@ function effortCompatible(provider: "gloo" | "openrouter", effort: "low" | "medi
     apiKey: providerKey(provider) ?? "",
     includeUsage: true,
     ...(provider === "openrouter"
-      ? { headers: { "HTTP-Referer": "https://sweatshop.internal.crussell.io", "X-Title": "sweatshop" } }
+      ? { headers: openRouterHeaders() }
       : {}),
     // Body transform: compose the base (gloo's tool-description fill)
     // with the effort injection. The injection happens first so the
