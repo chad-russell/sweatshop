@@ -44,6 +44,12 @@ ENGINE_SOCK=""
 if [[ "$ENGINE" == podman ]]; then
   ENGINE_SOCK="${PODMAN_SOCK:-/run/user/$(id -u)/podman/podman.sock}"
 elif [[ -n "${DOCKER_SOCK:-}" ]]; then
+  # An explicit override pointing nowhere is an error, not a skip — a
+  # silently unmounted socket means broken sandboxes later.
+  if [[ ! -S "$DOCKER_SOCK" ]]; then
+    echo "error: DOCKER_SOCK is set but $DOCKER_SOCK is not a socket" >&2
+    exit 2
+  fi
   ENGINE_SOCK="$DOCKER_SOCK"
 else
   for candidate in \
