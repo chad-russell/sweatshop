@@ -94,6 +94,8 @@ describe("loadPRDashboard (0053)", () => {
           pr({ number: 2, url: "https://x.example/pulls/2", reviewState: "changes-requested", updatedAt: "2026-10-01T00:00:00Z" }),
           pr({ number: 3, url: "https://x.example/pulls/3", reviewState: "commented", updatedAt: "2026-10-05T00:00:00Z" }),
           pr({ number: 4, url: "https://x.example/pulls/4", updatedAt: "2026-10-09T00:00:00Z" }),
+          // same activity as #1 — the URL is the deterministic tiebreak
+          pr({ number: 8, url: "https://x.example/pulls/8", reviewState: "approved", updatedAt: "2026-10-07T00:00:00Z" }),
           pr({ number: 5, url: "https://x.example/pulls/5", state: "merged", updatedAt: "2026-10-03T00:00:00Z" }),
           pr({ number: 6, url: "https://x.example/pulls/6", state: "closed", updatedAt: "2026-10-08T00:00:00Z" }),
           pr({ number: 7, url: "https://x.example/pulls/7", state: "merged", updatedAt: "2026-10-06T00:00:00Z" }),
@@ -104,7 +106,8 @@ describe("loadPRDashboard (0053)", () => {
       2, // changes requested — always first
       3, // then commented
       4, // then the rest by last activity (10-09 …
-      1, // … 10-07)
+      1, // … 10-07; #8 ties #1's activity, url asc)
+      8, //
       7, // settled: merged (10-06) …
       5, // … merged (10-03), before …
       6, // … closed (10-08) — merged sorts ahead of closed regardless of time

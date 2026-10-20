@@ -51,15 +51,24 @@ const at = (iso: string): number => {
 };
 
 /** PRSummary carries no merge time, so last activity (which the merge
- *  updates) is the settled order: merged before closed, newest first. */
+ *  updates) is the settled order: merged before closed, newest first.
+ *  URL is the final tiebreak so equal-activity rows (Map insertion is
+ *  Promise.all completion order) can't swap between loads. */
 function sortPRs(prs: DashboardPR[]): DashboardPR[] {
   const open = prs
     .filter((pr) => pr.state === "open")
-    .sort((a, b) => openRank(a) - openRank(b) || at(b.updatedAt) - at(a.updatedAt));
+    .sort(
+      (a, b) =>
+        openRank(a) - openRank(b) || at(b.updatedAt) - at(a.updatedAt) || a.url.localeCompare(b.url),
+    );
   const settled = prs
     .filter((pr) => pr.state !== "open")
     .sort((a, b) =>
-      a.state === b.state ? at(b.updatedAt) - at(a.updatedAt) : a.state === "merged" ? -1 : 1,
+      a.state === b.state
+        ? at(b.updatedAt) - at(a.updatedAt) || a.url.localeCompare(b.url)
+        : a.state === "merged"
+          ? -1
+          : 1,
     );
   return [...open, ...settled];
 }

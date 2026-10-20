@@ -116,7 +116,6 @@ export function PRDashboard({ data }: { data: PRDashboardData }) {
   const open = data.prs.filter((pr) => pr.state === "open");
   const settled = data.prs.filter((pr) => pr.state !== "open");
   const settledShown = showAllSettled ? settled : settled.slice(0, SETTLED_SHOWN);
-  const more = settled.length - settledShown.length;
 
   return (
     <div className="mx-auto flex h-full w-full max-w-(--content-max) flex-col gap-8 overflow-y-auto p-4 md:p-6">
@@ -162,13 +161,16 @@ export function PRDashboard({ data }: { data: PRDashboardData }) {
           {settledShown.map((pr) => (
             <PRRow key={pr.url} pr={pr} settled />
           ))}
-          {more !== 0 && (
+          {/* Shown whenever there is anything hidden — the button both
+              expands and collapses (the old "more > 0" test could never
+              be false once expanded, so "Show fewer" was unreachable). */}
+          {settled.length > SETTLED_SHOWN && (
             <button
               type="button"
               onClick={() => setShowAllSettled(!showAllSettled)}
               className="self-start rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              {more > 0 ? `+${more} more` : "Show fewer"}
+              {showAllSettled ? "Show fewer" : `+${settled.length - SETTLED_SHOWN} more`}
             </button>
           )}
         </Section>
