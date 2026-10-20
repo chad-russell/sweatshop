@@ -10,6 +10,7 @@ export {
   finishTurnStream,
   loadSkillStep,
   bindSkillStep,
+  loadPromptSectionsStep,
   loadRepoDocsStep,
   continueAfterBudgetStep,
   pendingStep,
@@ -58,5 +59,11 @@ export {
   hostExecStep,
   getHostAutoApproveStep,
 } from "./hosts";
+export {
+  promptChangePreviewStep,
+  applyApprovedPromptChangeStep,
+} from "./prompt-change";
+
+export type { PromptChangeCard } from "./prompt-change";
 
 export type { CreateProjectToolInput } from "./projects";

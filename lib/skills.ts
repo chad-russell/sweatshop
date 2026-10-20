@@ -1,19 +1,21 @@
-import { readFile, readdir, stat } from "node:fs/promises";
-import path from "node:path";
+import type { TargetListItem } from "../db/prompt-settings";
+import { deriveSkillTitle } from "./skill-files";
 
 /**
- * 0039: skills — markdown runbooks under skills/<id>/SKILL.md, read at
- * call time from the app's checkout (like system_docs). Front matter
- * carries `description` and, for a **thread skill**, `thread: true` —
- * bindable to a conversation as that thread's way of working: the body
- * joins the turn instructions and the step budget rises
- * (workflows/chat/turn.ts). Skills without `thread: true` are reference
- * material (the rest of roadmap 2.3 — grants, harness mounting — builds
- * on the same directory). Supersedes 0037's playbooks, folded in here.
+ * 0039/0054: skills — runbooks for a kind of work. A skill with
+ * `thread: true` is a **thread skill**: bindable to a conversation as
+ * that thread's way of working (the body joins the turn instructions
+ * and raises the step budget, workflows/chat/turn.ts).
+ *
+ * 0054: the catalog moved from fs-only to DB-backed
+ * (`db/prompt-settings.ts`), seeded lazily from `skills/<id>/SKILL.md`
+ * on first read, editable from Settings and proposable by the agent
+ * (approval-gated) from then on. This module's public functions keep
+ * their exact names and return shapes from before 0054 — every call
+ * site (workflows/chat/tools/core.ts, lib/agent/tools/start-thread.ts,
+ * app/api/skills/route.ts, workflows/chat/mock-model.ts,
+ * lib/tool-views/*) is unaffected by the storage change underneath.
  */
-
-const ROOT = path.join(process.cwd(), "skills");
-const ID = /^[a-z][a-z0-9-]{0,40}$/;
 
 export interface Skill {
   id: string;
@@ -24,43 +26,54 @@ export interface Skill {
   body: string;
 }
 
-function parse(id: string, text: string): Skill {
-  const front = /^---\n([\s\S]*?)\n---\n/.exec(text);
-  const body = (front ? text.slice(front[0].length) : text).trim();
-  const header = front?.[1] ?? "";
-  const description = /^description:\s*(.+)$/m.exec(header)?.[1].trim() ?? "";
-  const thread = /^thread:\s*true\s*$/m.test(header);
-  const title = /^#\s+(.+)$/m.exec(body)?.[1].trim() ?? id;
-  return { id, title, description, thread, body };
-}
-
+/** A thread's already-bound skill is looked up by id regardless of
+ *  status — "disabled"/"deleted" only hide a skill from the catalog
+ *  and from a NEW use_skill bind (listSkills/listThreadSkills below),
+ *  never from a thread already running it. Unknown or malformed ids
+ *  return null, same as a missing file did before 0054. */
 export async function readSkill(id: string): Promise<Skill | null> {
-  if (!ID.test(id)) return null;
-  try {
-    const file = path.join(ROOT, id, "SKILL.md");
-    // A bare file is not a skill — the directory shape is the contract
-    // 2.3's mounting work builds on.
-    if (!(await stat(file)).isFile()) return null;
-    return parse(id, await readFile(file, "utf8"));
-  } catch {
-    return null;
-  }
+  const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
+  const row = store.getTarget(db(), { kind: "skill", id });
+  if (!row) return null;
+  return {
+    id,
+    title: deriveSkillTitle(row.body, id),
+    description: row.description ?? "",
+    thread: row.thread ?? false,
+    body: row.body,
+  };
 }
 
+type SkillTarget = TargetListItem & { kind: "skill"; id: string };
+
+function isSkillTarget(t: TargetListItem): t is SkillTarget {
+  return t.kind === "skill";
+}
+
+function toSkill(row: SkillTarget): Skill {
+  return {
+    id: row.id,
+    title: deriveSkillTitle(row.body, row.id),
+    description: row.description ?? "",
+    thread: row.thread ?? false,
+    body: row.body,
+  };
+}
+
+/** The general catalog: every skill that isn't tombstoned (deleted),
+ *  active or disabled alike — sorted by id. */
 export async function listSkills(): Promise<Skill[]> {
-  const entries = (await readdir(ROOT, { withFileTypes: true }).catch(() => []))
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name)
-    .sort();
-  const out: Skill[] = [];
-  for (const id of entries) {
-    const skill = await readSkill(id);
-    if (skill) out.push(skill);
-  }
-  return out;
+  const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
+  return store.listTargets(db(), { includeDeleted: false }).filter(isSkillTarget).map(toSkill);
 }
 
-/** The bindable catalog: thread skills only (pickers, use_skill, start_thread). */
+/** The bindable catalog: active thread skills only (pickers, use_skill,
+ *  start_thread). */
 export async function listThreadSkills(): Promise<Skill[]> {
-  return (await listSkills()).filter((s) => s.thread);
+  const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
+  return store
+    .listTargets(db(), { includeDeleted: false })
+    .filter(isSkillTarget)
+    .filter((row) => row.thread && row.status === "active")
+    .map(toSkill);
 }

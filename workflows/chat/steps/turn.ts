@@ -145,6 +145,18 @@ export async function bindSkillStep(conversationId: string, id?: string): Promis
   return { ok: true, id: skill.id, note: "Bound to this thread — follow it from now on.", skill: skill.body };
 }
 
+/** 0054: the three editable instruction sections, resolved to their
+ *  current (possibly Settings-edited) bodies — seeded from git on
+ *  first touch. Shaped to drop straight into buildInstructions's
+ *  `sections` input. */
+export async function loadPromptSectionsStep(): Promise<{ base: string; harnessSteering: string; hostRouting: string }> {
+  "use step";
+  const [{ db }, store] = await Promise.all([import("../../../db"), import("../../../db/prompt-settings")]);
+  const conn = db();
+  const body = (key: "base" | "harness_steering" | "host_routing") => store.getTarget(conn, { kind: "section", key })!.body;
+  return { base: body("base"), harnessSteering: body("harness_steering"), hostRouting: body("host_routing") };
+}
+
 /**
  * Repo AGENTS.md for the top-level agent's instructions appendix — only
  * when the conversation has a project AND its sandbox is already BOUND

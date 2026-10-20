@@ -11,6 +11,7 @@ import {
   continueAfterBudgetStep,
   drainSteerStep,
   finishTurnStream,
+  loadPromptSectionsStep,
   loadRepoDocsStep,
   loadSkillStep,
   loadTurnHistory,
@@ -98,6 +99,9 @@ export async function chatTurn(input: ChatTurnInput) {
   // 0039: a thread running a skill gets its runbook in the
   // instructions and the background budget.
   const skill = await loadSkillStep(conversationId);
+  // 0054: the three editable instruction sections (Settings-edited or
+  // still the git default) — resolved once per turn, same as skill.
+  const sections = await loadPromptSectionsStep();
   // 0040 phase 3: a child thread gets the background budget too, even
   // with no skill bound — the budget CONTINUATION below stays skill-only
   // (an un-skilled child that runs out just reports it, never re-fires
@@ -117,6 +121,7 @@ export async function chatTurn(input: ChatTurnInput) {
       hosts: input.hosts ?? [],
       repoDocs,
       skill,
+      sections,
     }),
     // 0042: WorkflowAgent hard-codes supportedUrls: {}, so the SDK would try
     // to fetch every URL part itself. Returning null passes `attachment:`

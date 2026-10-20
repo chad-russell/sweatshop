@@ -39,11 +39,28 @@ const HARNESS_STEERING =
 const HOST_ROUTING =
   "Repo work happens in your sandbox: edit, test, commit, create_pr. exec is only for live state on a host: check, restart, roll back, read logs. Never edit a repo checkout on a host, and never open a PR from a host.";
 
+/**
+ * 0054: the current git default for each editable prompt section —
+ * reading "what's shipped now" is just importing this module, so the
+ * text never needs its own files. `db/prompt-settings.ts` seeds
+ * `prompt_sections` from this map on first read and reads it again
+ * (live) on every Reset.
+ */
+export const GIT_DEFAULT_SECTIONS = {
+  get base() { return baseInstructions(); },
+  harness_steering: HARNESS_STEERING,
+  host_routing: HOST_ROUTING,
+} as const;
+
 export interface BuildInstructionsInput {
   hasSandbox: boolean;
   hosts: readonly { name: string; address: string; user: string; apiBase: string | null }[];
   repoDocs: readonly RepoDoc[];
   skill?: { id: string; title: string; body: string } | null;
+  /** 0054: resolved section bodies (Settings-editable, DB-backed);
+   *  omitted = the git defaults above — every existing caller that
+   *  doesn't pass it keeps today's exact output. */
+  sections?: { base: string; harnessSteering: string; hostRouting: string };
 }
 
 /**
@@ -79,9 +96,9 @@ export function buildRepoDocsSection(docs: readonly RepoDoc[]): string {
 
 /** Build the turn's full instructions (pure — no sandbox or db access). */
 export function buildInstructions(input: BuildInstructionsInput): string {
-  const parts = [baseInstructions()];
-  if (input.hasSandbox) parts.push(HARNESS_STEERING);
-  if (input.hosts.length > 0) parts.push(HOST_ROUTING);
+  const parts = [input.sections?.base ?? baseInstructions()];
+  if (input.hasSandbox) parts.push(input.sections?.harnessSteering ?? HARNESS_STEERING);
+  if (input.hosts.length > 0) parts.push(input.sections?.hostRouting ?? HOST_ROUTING);
   const repoSection = buildRepoDocsSection(input.repoDocs);
   if (repoSection) parts.push(repoSection);
   if (input.skill) {
