@@ -25,7 +25,7 @@ describe("0055 cache-write migration", () => {
       sqlite.exec(`INSERT INTO usage_events
         (id, conversation_id, source, route, input_tokens, cached_tokens, cost_usd, started_at, ended_at, created_at)
         VALUES ('old', 'c_old', 'chat', '{}', 1000, 100, 5.34, 1, 2, 2)`);
-      sqlite.exec(readFileSync("drizzle/0058_cache_write_usage.sql", "utf8"));
+      sqlite.exec(readFileSync("drizzle/0061_cache_write_usage.sql", "utf8"));
       expect(sqlite.prepare("SELECT input_tokens, cached_tokens, cache_write_tokens, cost_usd FROM usage_events").get())
         .toEqual({ input_tokens: 1000, cached_tokens: 100, cache_write_tokens: 0, cost_usd: 5.34 });
     } finally {

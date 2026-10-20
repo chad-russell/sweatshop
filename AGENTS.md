@@ -153,7 +153,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   Write paths live in `lib/providers/settings.ts`; surfaces are the
   chat's route picker (per conversation, not sticky), `/settings`, and
   the project page Models card.
-- Gloo prompt caching (0055): Anthropic chat/title and pi requests send
+- Gloo prompt caching (0057): Anthropic chat/title and pi requests send
   `X-Cache-TTL: 5m`; other families cache implicitly. Chat provider usage
   normalizes standard cache fields plus Anthropic aliases before workflow
   capture. `usage_events.cache_write_tokens` is separate from cache reads
