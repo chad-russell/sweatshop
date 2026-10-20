@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# sweatshop tool wrapper — everything runs in podman; nothing installs on the
-# host. The repo is bind-mounted at /workspace and node_modules live in a
-# named volume so the host tree never contains dependencies.
+# sweatshop tool wrapper — everything runs in a Docker-compatible engine
+# (podman or docker); nothing installs on the host. The repo is
+# bind-mounted at /workspace and node_modules live in a named volume so
+# the host tree never contains dependencies.
 #
 # The app itself is NOT run from here (0020): the `sweatshop` rootless user
 # quadlet serves a production build of this checkout, and the Forgejo
@@ -12,26 +13,64 @@
 #   ./dev exec -- CMD  one-off CMD in a container with the same mounts
 #   ./dev shell        interactive shell in a fresh container
 #   ./dev build        rebuild the image (Containerfile.dev; the service uses it too)
+#
+# CONTAINER_ENGINE picks the engine: auto (default) uses podman when
+# installed, else docker; podman and docker pin it explicitly.
 set -euo pipefail
 
 IMAGE=localhost/sweatshop-dev
 MODULES_VOLUME=sweatshop-node-modules
 CACHE_VOLUME=sweatshop-npm-cache
-# Host rootless podman socket, mounted into the dev container at the
-# docker CLI's default path so the eve Docker sandbox provider creates
-# sibling containers on host podman.
-PODMAN_SOCK="${PODMAN_SOCK:-/run/user/1000/podman/podman.sock}"
+
+case "${CONTAINER_ENGINE:-auto}" in
+  podman) ENGINE=podman ;;
+  docker) ENGINE=docker ;;
+  auto)
+    if command -v podman >/dev/null 2>&1; then ENGINE=podman; else ENGINE=docker; fi
+    ;;
+  *)
+    echo "error: CONTAINER_ENGINE must be auto, podman, or docker (got '${CONTAINER_ENGINE}')" >&2
+    exit 2
+    ;;
+esac
+
+# Host engine socket, mounted into the dev container at the docker
+# CLI's default path so the eve Docker sandbox provider creates
+# sibling containers on the host engine. Podman: the rootless socket
+# (PODMAN_SOCK overrides). Docker: the first existing socket in the
+# probe below (OrbStack, colima, Docker Desktop, system) — DOCKER_SOCK
+# overrides the probe; none found means no mount.
+ENGINE_SOCK=""
+if [[ "$ENGINE" == podman ]]; then
+  ENGINE_SOCK="${PODMAN_SOCK:-/run/user/$(id -u)/podman/podman.sock}"
+elif [[ -n "${DOCKER_SOCK:-}" ]]; then
+  ENGINE_SOCK="$DOCKER_SOCK"
+else
+  for candidate in \
+    "$HOME/.orbstack/run/docker.sock" \
+    "$HOME/.colima/docker.sock" \
+    "$HOME/.colima/default/docker.sock" \
+    "$HOME/.docker/run/docker.sock" \
+    /var/run/docker.sock
+  do
+    if [[ -S "$candidate" ]]; then
+      ENGINE_SOCK="$candidate"
+      break
+    fi
+  done
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The dev image bakes the docker CLI (see Containerfile.dev); build it on
 # first use so plain ./dev just works.
-podman image exists "$IMAGE" || podman build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
+"$ENGINE" image exists "$IMAGE" || "$ENGINE" build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
 
 # Private network shared by the dev container (eve runtime) and session
 # sandboxes (0006): bridge-backed harnesses (claude, later cursor) connect
 # over it. Never published to the LAN — membership is the boundary.
 HARNESS_NET=sweatshop-harness
-podman network exists "$HARNESS_NET" 2>/dev/null || podman network create "$HARNESS_NET" >/dev/null
+"$ENGINE" network exists "$HARNESS_NET" 2>/dev/null || "$ENGINE" network create "$HARNESS_NET" >/dev/null
 
 ENV_ARGS=()
 if [[ -f "$ROOT/.env.local" ]]; then
@@ -56,16 +95,16 @@ common_args=(
   "${ENV_ARGS[@]}"
 )
 
-# Mount the host podman socket when present: the eve Docker sandbox
+# Mount the host engine socket when found: the eve Docker sandbox
 # provider shells out to `docker`, which talks to this socket; sandboxes
-# run as siblings on host podman (no nesting).
-if [[ -S "$PODMAN_SOCK" ]]; then
-  common_args+=(-v "$PODMAN_SOCK":/var/run/docker.sock)
+# run as siblings on the host engine (no nesting).
+if [[ -n "$ENGINE_SOCK" && -S "$ENGINE_SOCK" ]]; then
+  common_args+=(-v "$ENGINE_SOCK":/var/run/docker.sock)
 fi
 
 case "${1:-}" in
   install)
-    exec podman run --rm "${common_args[@]}" "$IMAGE" \
+    exec "$ENGINE" run --rm "${common_args[@]}" "$IMAGE" \
       sh -lc 'npm install --no-audit --no-fund'
     ;;
   exec)
@@ -73,13 +112,13 @@ case "${1:-}" in
     [[ "${1:-}" == "--" ]] && shift
     # DEV_EXEC_NAME names the container so a caller can remove it
     # (scripts/ci-deploy.sh stops a build that will not exit).
-    exec podman run --rm ${DEV_EXEC_NAME:+--name "$DEV_EXEC_NAME"} "${common_args[@]}" "$IMAGE" "$@"
+    exec "$ENGINE" run --rm ${DEV_EXEC_NAME:+--name "$DEV_EXEC_NAME"} "${common_args[@]}" "$IMAGE" "$@"
     ;;
   shell)
-    exec podman run --rm -it "${common_args[@]}" "$IMAGE" bash
+    exec "$ENGINE" run --rm -it "${common_args[@]}" "$IMAGE" bash
     ;;
   build)
-    exec podman build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
+    exec "$ENGINE" build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
     ;;
   *)
     echo "usage: ./dev [install|exec -- CMD|shell|build]   (the app runs as the sweatshop service — 0020)" >&2
