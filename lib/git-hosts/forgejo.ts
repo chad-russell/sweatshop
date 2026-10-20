@@ -28,18 +28,21 @@ const FJ_REVIEW_STATE: Record<string, ReviewSignal["state"]> = {
   COMMENT: "commented",
 };
 
-/** One `/pulls` list row → a summary, or null on an untrusted shape
- *  (`poster.login` is the author, a `merged` timestamp → merged). */
+/** One `/pulls` list row → a summary, or null on an untrusted shape.
+ *  Verified live (0053 review): the author is at `user.login` (NOT
+ *  `poster` — that's the Issue shape); `merged` is a BOOLEAN
+ *  (x-go-name HasMerged) with the timestamp at `merged_at`. */
 function fjPRSummary(row: unknown): PRSummary | null {
   const title = strField(row, "title");
   const url = strField(row, "html_url");
   const head = headRef(jsonField(row, "head"));
-  const author = actorLogin(jsonField(row, "poster"));
+  const author = actorLogin(jsonField(row, "user"));
   const createdAt = strField(row, "created_at");
   const updatedAt = strField(row, "updated_at");
   const number = jsonField(row, "number");
   const comments = jsonField(row, "comments");
-  const merged = strField(row, "merged");
+  const mergedAt = strField(row, "merged_at");
+  const hasMerged = jsonField(row, "merged") === true || mergedAt !== null;
   const state = strField(row, "state");
   if (
     !title || !url || !head || !author || !createdAt || !updatedAt ||
@@ -47,7 +50,7 @@ function fjPRSummary(row: unknown): PRSummary | null {
   ) {
     return null;
   }
-  const lifecycle = merged ? "merged" : state === "closed" ? "closed" : state === "open" ? "open" : null;
+  const lifecycle = hasMerged ? "merged" : state === "closed" ? "closed" : state === "open" ? "open" : null;
   if (!lifecycle) return null;
   return {
     number,
@@ -65,10 +68,11 @@ function fjPRSummary(row: unknown): PRSummary | null {
 }
 
 /** One `/pulls/{n}/reviews` row → a signal; an unshaped or dismissed
- *  row → null (`reviewer.login`, `state`, `submitted_at`). */
+ *  row → null (verified live: reviewer at `user.login`, `state`,
+ *  `submitted_at`). */
 function fjReviewSignal(row: unknown): ReviewSignal | null {
   if (jsonField(row, "dismissed") === true) return null;
-  const reviewer = actorLogin(jsonField(row, "reviewer"));
+  const reviewer = actorLogin(jsonField(row, "user"));
   const raw = strField(row, "state");
   const state = raw ? FJ_REVIEW_STATE[raw] : undefined;
   if (!reviewer || !state) return null;
@@ -133,9 +137,10 @@ export const forgejoHost: GitHost = {
         { authorization: `Basic ${basic}` },
         fetchImpl,
       );
-      // Forgejo's `merged` is the merge timestamp (falsy until merged).
-      if (json.merged) {
-        const mergedAt = json.merged;
+      // Forgejo's `merged` is a BOOLEAN ("has merged", x-go-name
+      // HasMerged); `merged_at` is the merge timestamp (null until merged).
+      if (json.merged === true || typeof json.merged_at === "string") {
+        const mergedAt = json.merged_at;
         return { state: "merged", ...(typeof mergedAt === "string" ? { mergedAt } : {}) };
       }
       if (json.state === "closed") return { state: "closed" };

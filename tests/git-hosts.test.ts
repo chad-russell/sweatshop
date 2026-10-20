@@ -232,8 +232,12 @@ describe("GitHost.getPRState (0052)", () => {
     expect(await githubHost.getPRState(gh, "garbage", 7, fine.impl)).toBeNull();
   });
 
-  it("forgejo asks the instance API with basic auth and maps its merged timestamp", async () => {
-    const { impl, calls } = stubFetch(200, { state: "open", merged: "2026-10-02T09:00:00Z" });
+  it("forgejo asks the instance API with basic auth and maps its merged_at timestamp", async () => {
+    const { impl, calls } = stubFetch(200, {
+      state: "closed",
+      merged: true, // boolean (HasMerged) — the timestamp is merged_at
+      merged_at: "2026-10-02T09:00:00Z",
+    });
     expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, impl)).toEqual({
       state: "merged",
       mergedAt: "2026-10-02T09:00:00Z",
@@ -243,12 +247,16 @@ describe("GitHost.getPRState (0052)", () => {
     expect(calls[0]?.headers.authorization).toBe(`Basic ${expected}`);
   });
 
-  it("forgejo maps closed and open", async () => {
-    const closed = stubFetch(200, { state: "closed", merged: null });
+  it("forgejo maps merged without a timestamp, closed, and open", async () => {
+    const noTime = stubFetch(200, { state: "closed", merged: true, merged_at: null });
+    expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, noTime.impl)).toEqual({
+      state: "merged",
+    });
+    const closed = stubFetch(200, { state: "closed", merged: false, merged_at: null });
     expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, closed.impl)).toEqual({
       state: "closed",
     });
-    const open = stubFetch(200, { state: "open", merged: null });
+    const open = stubFetch(200, { state: "open", merged: false, merged_at: null });
     expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, open.impl)).toEqual({
       state: "open",
     });
@@ -284,7 +292,9 @@ describe("GitHost.listPRs (0053)", () => {
     return { impl, calls };
   }
 
-  /** A github list row in the API's own shape. */
+  /** A github list row in the API's own shape (live-verified 0053
+   *  review: list rows carry NO `comments` — that field exists on the
+   *  single-PR GET / issues API only, so GitHub counts stay null). */
   const ghRow = (over: Record<string, unknown>) => ({
     number: 1,
     title: "Add thing",
@@ -295,7 +305,6 @@ describe("GitHost.listPRs (0053)", () => {
     head: { ref: "feat/thing" },
     created_at: "2026-10-01T10:00:00Z",
     updated_at: "2026-10-02T10:00:00Z",
-    comments: 0,
     ...over,
   });
 
@@ -316,7 +325,6 @@ describe("GitHost.listPRs (0053)", () => {
           title: "Needs work",
           html_url: "https://github.com/o/r/pull/7",
           user: { login: "Chad" }, // author match is case-insensitive
-          comments: 2,
           updated_at: "2026-10-03T10:00:00Z",
         }),
         // settled by chad → merged, never asked for reviews
@@ -337,7 +345,7 @@ describe("GitHost.listPRs (0053)", () => {
         createdAt: "2026-10-01T10:00:00Z",
         updatedAt: "2026-10-03T10:00:00Z",
         reviewState: "changes-requested", // one blocker beats one approval
-        commentCount: 2,
+        commentCount: null, // list rows carry no `comments` — count shows only when known
         lastReviewAt: "2026-10-03T09:00:00Z",
       },
       {
@@ -350,7 +358,7 @@ describe("GitHost.listPRs (0053)", () => {
         createdAt: "2026-10-01T10:00:00Z",
         updatedAt: "2026-09-20T10:00:00Z",
         reviewState: null,
-        commentCount: 0,
+        commentCount: null,
         lastReviewAt: null,
       },
       {
@@ -363,7 +371,7 @@ describe("GitHost.listPRs (0053)", () => {
         createdAt: "2026-10-01T10:00:00Z",
         updatedAt: "2026-10-02T10:00:00Z",
         reviewState: null,
-        commentCount: 0,
+        commentCount: null,
         lastReviewAt: null,
       },
     ]);
@@ -425,18 +433,21 @@ describe("GitHost.listPRs (0053)", () => {
     expect(await githubHost.listPRs(gh, "garbage", fine.impl)).toBeNull();
   });
 
-  /** A forgejo list row in the API's own shape. */
+  /** A forgejo list row in the API's own shape (live-verified 0053
+   *  review: author at `user.login` — `poster` is the Issue shape;
+   *  `merged` is a boolean, the timestamp is `merged_at`). */
   const fjRow = (over: Record<string, unknown>) => ({
     number: 1,
     title: "Add thing",
     html_url: "https://git.example.com/o/r/pulls/1",
     state: "open",
-    merged: null,
-    poster: { login: "chad" },
+    merged: false,
+    merged_at: null,
+    user: { login: "chad" },
     head: { ref: "feat/thing" },
     created_at: "2026-10-01T10:00:00Z",
     updated_at: "2026-10-02T10:00:00Z",
-    comments: 0,
+    comments: 0, // forgejo list rows DO carry counts
     ...over,
   });
 
@@ -446,13 +457,13 @@ describe("GitHost.listPRs (0053)", () => {
       seen.push({ url: String(url), headers: (init?.headers ?? {}) as Record<string, string> });
       const body = String(url).endsWith("/reviews")
         ? [
-            { reviewer: { login: "glen" }, state: "REQUEST_CHANGES", submitted_at: "2026-10-02T09:00:00Z" },
-            { reviewer: { login: "mia" }, state: "COMMENT", submitted_at: "2026-10-02T08:00:00Z" },
+            { user: { login: "glen" }, state: "REQUEST_CHANGES", submitted_at: "2026-10-02T09:00:00Z" },
+            { user: { login: "mia" }, state: "COMMENT", submitted_at: "2026-10-02T08:00:00Z" },
           ]
         : [
             fjRow({ number: 2, html_url: "https://git.example.com/o/r/pulls/2", comments: 3, updated_at: "2026-10-03T10:00:00Z" }),
-            // forgejo's `merged` IS the timestamp
-            fjRow({ number: 1, state: "closed", merged: "2026-09-20T10:00:00Z", updated_at: "2026-09-20T10:00:00Z" }),
+            // `merged` is a boolean (HasMerged); the timestamp is `merged_at`
+            fjRow({ number: 1, state: "closed", merged: true, merged_at: "2026-09-20T10:00:00Z", updated_at: "2026-09-20T10:00:00Z" }),
           ];
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -460,6 +471,7 @@ describe("GitHost.listPRs (0053)", () => {
       });
     };
     const prs = (await forgejoHost.listPRs(fj, "https://git.example.com/o/r", impl))!;
+    // prs[0]: merged:false + merged_at:null (fixture default) → open
     expect(prs[0]).toEqual({
       number: 2,
       title: "Add thing",
@@ -488,8 +500,8 @@ describe("GitHost.listPRs (0053)", () => {
       seen.push({ url: String(url), headers: (init?.headers ?? {}) as Record<string, string> });
       const body = String(url).endsWith("/reviews")
         ? [
-            { reviewer: { login: "glen" }, state: "REQUEST_CHANGES", submitted_at: "2026-10-02T09:00:00Z", dismissed: true },
-            { reviewer: { login: "mia" }, state: "APPROVED", submitted_at: "2026-10-02T10:00:00Z" },
+            { user: { login: "glen" }, state: "REQUEST_CHANGES", submitted_at: "2026-10-02T09:00:00Z", dismissed: true },
+            { user: { login: "mia" }, state: "APPROVED", submitted_at: "2026-10-02T10:00:00Z" },
           ]
         : [fjRow({})];
       return new Response(JSON.stringify(body), {
