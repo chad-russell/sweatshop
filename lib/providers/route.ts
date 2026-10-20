@@ -51,7 +51,7 @@ export const cursorRouteSchema = z.strictObject({
 /** 0050: Codex — subscription only (ChatGPT-login auth.json). The
  *  model must be PINNED: the adapter's own default (gpt-5.5) is
  *  API-key-era stale and the backend rejects it on subscriptions
- *  (live 2026-10-19) — see BUILTIN_DEFAULTS.codex and CODEX_MODELS.
+ *  (live 2026-10-19) — see the codex built-in in deriveBuiltinDefaults and CODEX_MODELS.
  *  Codex accepts the same effort ladder as claude (createCodex
  *  reasoningEffort). */
 export const codexRouteSchema = z.strictObject({
@@ -99,18 +99,58 @@ export interface Resolved<S extends Surface> {
 /** The per-surface global defaults (the settings rows; decision 3). */
 export type GlobalDefaults = { [S in Surface]: SurfaceRoute<S> };
 
-export const BUILTIN_DEFAULTS: GlobalDefaults = {
-  chat: { provider: "glm", model: "glm-5.3-flash" },
-  agent: { provider: "glm", model: "glm-5.3-flash" },
-  pi: { harness: "pi", provider: "glm", model: "glm-5.3-flash" },
-  claude: { harness: "claude" },
-  cursor: { harness: "cursor" },
-  // Model always pinned — an empty model would let the adapter send
-  // its stale gpt-5.5 default, which subscriptions reject (live
-  // 2026-10-19).
-  codex: { harness: "codex", model: "gpt-5.6-sol" },
-  titles: { provider: "glm", model: "glm-5.3-flash" },
+/** The model ids each provider's built-in default runs on (the titles
+ *  default rides the same provider with its own id). */
+const BUILTIN_MODEL_BY_PROVIDER: Record<ProviderId, { model: string; titlesModel: string }> = {
+  glm: { model: "glm-5.3-flash", titlesModel: "glm-5.3-flash" },
+  // OpenRouter's catalog is fetched (dynamic), so any id passes as
+  // "unknown" pre-fetch — a pinned default is fine either way.
+  openrouter: { model: "openai/gpt-5.6-sol", titlesModel: "openai/gpt-5.6-sol" },
+  gloo: { model: "gloo-openai-gpt-6-sol", titlesModel: "gloo-openai-gpt-6-sol" },
 };
+
+/**
+ * The built-in defaults for the provider-routed surfaces, DERIVED from
+ * which providers are configured (their keys present): glm (the
+ * historical built-in) > openrouter > gloo, so an install without the
+ * GLM plan still gets a runnable default. With none available the glm
+ * ids stay — validation then reports "provider not configured" with
+ * the key's env name instead of a mystery 401. `override` (the
+ * SWEATSHOP_DEFAULT_PROVIDER + SWEATSHOP_DEFAULT_MODEL pair, both
+ * required, the provider must be known) wins over derivation; the
+ * model is judged by route validation as usual. Subscription-harness
+ * defaults never move. Pure — the caller supplies the available set
+ * (registry.ts cannot be imported here without a cycle).
+ */
+export function deriveBuiltinDefaults(
+  available: ReadonlySet<ProviderId>,
+  override?: { provider?: string; model?: string },
+): GlobalDefaults {
+  const forced =
+    override?.provider && override.model && (PROVIDER_IDS as readonly string[]).includes(override.provider)
+      ? { provider: override.provider as ProviderId, model: override.model, titlesModel: override.model }
+      : null;
+  const derived: ProviderId = available.has("glm")
+    ? "glm"
+    : available.has("openrouter")
+      ? "openrouter"
+      : available.has("gloo")
+        ? "gloo"
+        : "glm";
+  const pick = forced ?? { provider: derived, ...BUILTIN_MODEL_BY_PROVIDER[derived] };
+  return {
+    chat: { provider: pick.provider, model: pick.model },
+    agent: { provider: pick.provider, model: pick.model },
+    pi: { harness: "pi", provider: pick.provider, model: pick.model },
+    claude: { harness: "claude" },
+    cursor: { harness: "cursor" },
+    // Model always pinned — an empty model would let the adapter send
+    // its stale gpt-5.5 default, which subscriptions reject (live
+    // 2026-10-19).
+    codex: { harness: "codex", model: "gpt-5.6-sol" },
+    titles: { provider: pick.provider, model: pick.titlesModel },
+  };
+}
 
 /** A run's overrides (`startRun({ overrides })`; UI lands with 2.1). */
 export const runOverridesSchema = z.strictObject({
@@ -292,7 +332,7 @@ export function validateRoute(route: Route, ctx: ValidationContext): RouteCheck 
   }
   // 0050 review: the model is REQUIRED at validation, not in the
   // schema — stored legacy bare routes still parse, but nothing runs
-  // them. BUILTIN_DEFAULTS pins gpt-5.6-sol, so the reset path is safe.
+  // them. The built-in codex default pins gpt-5.6-sol, so the reset path is safe.
   if (isCodex(route) && !route.model) {
     issues.push(
       "codex routes must pin a model — the adapter's own default (gpt-5.5) is rejected on ChatGPT accounts (live 2026-10-19); pick one on /settings",
