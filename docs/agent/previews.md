@@ -2,7 +2,10 @@
 
 A preview is a long-running HTTP server in a sandbox, owned by the
 sandbox (it outlives the chat or run that started it). Reached at
-`https://pv-<slug>.internal.crussell.io` — LAN/Nebula only.
+`<scheme>://pv-<slug>.<base>` — the base comes from the server's
+`PREVIEW_BASE_DOMAIN` (unset: `previews.localhost`, which the browser
+resolves to this machine), so ask (or read the URL a tool returned)
+rather than guessing it.
 
 ## Two kinds
 
@@ -35,7 +38,7 @@ Platform env is final over the layered env: `PORT`, `HOST`,
 - **Agents QA at `http://localhost:<port>`.** agent-browser runs inside
   the same sandbox as the server, so localhost is the app's own dev
   origin — no proxy, no origin rules, local auth fallbacks work.
-- **Chad views the preview URL.** A dev server reached through any
+- **The owner views the preview URL.** A dev server reached through any
   non-localhost host is a "forwarded host" (like a tunnel or a
   Codespaces port): `next dev` refuses its HMR/dev resources unless the
   host is in `allowedDevOrigins` (the page renders but never hydrates),
@@ -49,7 +52,7 @@ Platform env is final over the layered env: `PORT`, `HOST`,
 1. `get_preview_setup` — if unset, discover: package.json scripts,
    workspace layout (pnpm/turbo), which app is the previewable one.
 2. Propose the setup (install / command / port / services) and save
-   it with Chad's nod — or have him confirm the form on `/previews`,
+   it with the owner's nod — or have them confirm the form on `/previews`,
    which prefills the same discovery.
 3. Idle previews stop after 12 h; the sandbox follows the shared
    reaper window. Stopped previews resume; destroyed ones are gone.

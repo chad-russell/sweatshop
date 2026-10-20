@@ -3,12 +3,12 @@ import type { Db } from "./index";
 import { projects, providerModels, settings } from "./schema";
 import { staticModels, type ModelInfo, type ProviderId } from "../lib/providers/catalog";
 import {
-  BUILTIN_DEFAULTS,
   SURFACES,
   chatRouteSchema,
   claudeRouteSchema,
   codexRouteSchema,
   cursorRouteSchema,
+  deriveBuiltinDefaults,
   piRouteSchema,
   type ChatRoute,
   type GlobalDefaults,
@@ -17,6 +17,7 @@ import {
   type SurfaceRoute,
 } from "../lib/providers/route";
 import { PROVIDER_IDS } from "../lib/providers/catalog";
+import { availableProviders } from "../lib/providers/registry";
 
 /**
  * 0021 store: global per-surface default routes (`settings`), the cached
@@ -50,10 +51,24 @@ function parseJson(value: string | null | undefined): unknown {
   }
 }
 
+/**
+ * SWEATSHOP_DEFAULT_PROVIDER + SWEATSHOP_DEFAULT_MODEL (both required to
+ * count) — the env override of the derived built-ins, read fresh per
+ * call so a restart is the only rollout step. An unknown provider is
+ * ignored by the derivation itself.
+ */
+function envDefaultOverride(): { provider?: string; model?: string } {
+  const provider = process.env.SWEATSHOP_DEFAULT_PROVIDER?.trim();
+  const model = process.env.SWEATSHOP_DEFAULT_MODEL?.trim();
+  return provider && model ? { provider, model } : {};
+}
+
 export function getGlobalDefaults(db: Db): GlobalDefaults {
   const rows = db.select().from(settings).all();
   const byKey = new Map(rows.map((r) => [r.key, r.value]));
-  const out = { ...BUILTIN_DEFAULTS } as Record<Surface, unknown>;
+  const out = {
+    ...deriveBuiltinDefaults(availableProviders(), envDefaultOverride()),
+  } as Record<Surface, unknown>;
   for (const surface of SURFACES) {
     const parsed = SURFACE_SCHEMA[surface].safeParse(parseJson(byKey.get(settingKey(surface))));
     if (parsed.success) out[surface] = parsed.data;

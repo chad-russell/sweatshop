@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { ownerName } from "@/lib/agent/owner";
+
 /**
  * 0015 Part B — what page the user is on, as the agent's "this".
  * Pages register a small context (kind, id, title, selection); the
@@ -79,7 +81,7 @@ export function viewingNote(viewing: ViewingContext): string {
         ? "inspect"
         : null;
   return (
-    `${VIEWING_NOTE_PREFIX} Chad is viewing ${what}${details ? ` — ${details}` : ""}. ` +
+    `${VIEWING_NOTE_PREFIX} ${ownerName()} is viewing ${what}${details ? ` — ${details}` : ""}. ` +
     `"This" and "it" refer to it${fetch ? `; read details with ${fetch}` : ""}.`
   );
 }

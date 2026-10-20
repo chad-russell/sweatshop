@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { ownerName } from "../../lib/agent/owner";
 
 /**
  * 0016/0017: the preview tool definitions, shared by chats and machine
@@ -14,7 +15,7 @@ export function previewTools(run: PreviewRunner) {
   return {
     start_preview: tool({
       description:
-        "Start (or restart) a long-running dev server in this sandbox and get a URL Chad can open in his " +
+        `Start (or restart) a long-running dev server in this sandbox and get a URL ${ownerName()} can open in their ` +
         "browser. It keeps running after this turn ends and shows as an Open button on the chat. With the " +
         "project's saved setup (get_preview_setup), dir/command/port/env all default from it; otherwise " +
         "omitting command/port prefills from this directory's package.json. The process's env = the setup's " +

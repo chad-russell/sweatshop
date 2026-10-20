@@ -10,14 +10,14 @@ import {
   setProjectModels,
 } from "../db/providers";
 import { projects, providerModels, settings } from "../db/schema";
-import { CURSOR_MODELS, GLM_MODELS, GLOO_MODELS } from "../lib/providers/catalog";
+import { CURSOR_MODELS, GLM_MODELS, GLOO_MODELS, PROVIDER_IDS, type ProviderId } from "../lib/providers/catalog";
 import { CURSOR_ACP_MODEL_IDS } from "./fixtures/cursor-acp-models";
 import { ensureOpenRouterCatalog, parseOpenRouterModels } from "../lib/providers/openrouter";
-import { fillToolDescriptions, effortLevel, zhipuThinkingSettings } from "../lib/providers/registry";
+import { fillToolDescriptions, effortLevel, openRouterHeaders, zhipuThinkingSettings } from "../lib/providers/registry";
 import { checkRoute } from "../lib/providers/resolve";
 import {
-  BUILTIN_DEFAULTS,
   checkRestrictions,
+  deriveBuiltinDefaults,
   parseRouteAs,
   resolveRoute,
   routeLabel,
@@ -101,7 +101,7 @@ describe("route schema", () => {
 });
 
 describe("resolveRoute layers", () => {
-  const g = BUILTIN_DEFAULTS;
+  const g = deriveBuiltinDefaults(new Set(PROVIDER_IDS));
   const conv = { provider: "gloo" as const, model: "gloo-openai-gpt-6-sol" };
   const proj = { provider: "openrouter" as const, model: "anthropic/claude-sonnet-4.6" };
 
@@ -276,8 +276,8 @@ describe("validateRoute", () => {
 });
 
 describe("0050: codex defaults and label", () => {
-  it("BUILTIN_DEFAULTS includes the codex surface (model always pinned — the adapter's gpt-5.5 default is rejected on subscriptions, live 2026-10-19)", () => {
-    expect(BUILTIN_DEFAULTS.codex).toEqual({ harness: "codex", model: "gpt-5.6-sol" });
+  it("the derived built-ins pin the codex surface's model (the adapter's gpt-5.5 default is rejected on subscriptions, live 2026-10-19)", () => {
+    expect(deriveBuiltinDefaults(new Set()).codex).toEqual({ harness: "codex", model: "gpt-5.6-sol" });
   });
 
   it("routeLabel renders codex like claude — model and effort when set", () => {
@@ -289,17 +289,18 @@ describe("0050: codex defaults and label", () => {
 });
 
 describe("titleRoute", () => {
+  const g = deriveBuiltinDefaults(new Set());
   it("uses the titles default when allowed", () => {
-    expect(titleRoute(BUILTIN_DEFAULTS, null)).toEqual(BUILTIN_DEFAULTS.titles);
+    expect(titleRoute(g, null)).toEqual(g.titles);
   });
 
   it("falls back to the project's default when the titles provider is forbidden", () => {
     const def = { provider: "gloo" as const, model: "gloo-qwen-3.8-flash" };
-    expect(titleRoute(BUILTIN_DEFAULTS, { id: "p", allowedProviders: ["gloo"], defaultRoute: def })).toEqual(def);
+    expect(titleRoute(g, { id: "p", allowedProviders: ["gloo"], defaultRoute: def })).toEqual(def);
   });
 
   it("skips the title rather than break a restriction", () => {
-    expect(titleRoute(BUILTIN_DEFAULTS, { id: "p", allowedProviders: ["gloo"], defaultRoute: null })).toBeNull();
+    expect(titleRoute(g, { id: "p", allowedProviders: ["gloo"], defaultRoute: null })).toBeNull();
   });
 });
 
@@ -343,6 +344,19 @@ describe("thinking on chat routes (0021 amendment)", () => {
     expect(effortLevel("off")).toBeNull();
     expect(effortLevel(undefined)).toBeNull();
     expect(effortLevel("medium")).toBe("medium");
+  });
+
+  it("OpenRouter referer follows SWEATSHOP_PUBLIC_ORIGIN, defaulting to localhost; X-Title is fixed", () => {
+    const saved = process.env.SWEATSHOP_PUBLIC_ORIGIN;
+    try {
+      delete process.env.SWEATSHOP_PUBLIC_ORIGIN;
+      expect(openRouterHeaders()).toEqual({ "HTTP-Referer": "http://localhost:3000", "X-Title": "sweatshop" });
+      process.env.SWEATSHOP_PUBLIC_ORIGIN = "https://sweatshop.example.com ";
+      expect(openRouterHeaders()).toEqual({ "HTTP-Referer": "https://sweatshop.example.com", "X-Title": "sweatshop" });
+    } finally {
+      if (saved === undefined) delete process.env.SWEATSHOP_PUBLIC_ORIGIN;
+      else process.env.SWEATSHOP_PUBLIC_ORIGIN = saved;
+    }
   });
 
   it("the static catalogs mark the reasoning models", () => {
@@ -447,18 +461,108 @@ describe("catalogs", () => {
   });
 });
 
+describe("derived built-in defaults (no GLM plan required)", () => {
+  const set = (...ids: ProviderId[]) => new Set<ProviderId>(ids);
+
+  it("glm available keeps the historical glm-5.3-flash on every provider-routed surface", () => {
+    const d = deriveBuiltinDefaults(set("glm", "gloo", "openrouter"));
+    expect(d.chat).toEqual({ provider: "glm", model: "glm-5.3-flash" });
+    expect(d.agent).toEqual({ provider: "glm", model: "glm-5.3-flash" });
+    expect(d.pi).toEqual({ harness: "pi", provider: "glm", model: "glm-5.3-flash" });
+    expect(d.titles).toEqual({ provider: "glm", model: "glm-5.3-flash" });
+  });
+
+  it("openrouter-only derives the pinned OpenRouter default", () => {
+    const d = deriveBuiltinDefaults(set("openrouter"));
+    expect(d.chat).toEqual({ provider: "openrouter", model: "openai/gpt-5.6-sol" });
+    expect(d.pi).toEqual({ harness: "pi", provider: "openrouter", model: "openai/gpt-5.6-sol" });
+    expect(d.titles).toEqual({ provider: "openrouter", model: "openai/gpt-5.6-sol" });
+  });
+
+  it("gloo-only derives the gloo default", () => {
+    const d = deriveBuiltinDefaults(set("gloo"));
+    expect(d.chat).toEqual({ provider: "gloo", model: "gloo-openai-gpt-6-sol" });
+    expect(d.titles).toEqual({ provider: "gloo", model: "gloo-openai-gpt-6-sol" });
+  });
+
+  it("none available keeps glm — validation reports the missing key, not a mystery", () => {
+    const d = deriveBuiltinDefaults(set());
+    expect(d.chat).toEqual({ provider: "glm", model: "glm-5.3-flash" });
+    const none: ValidationContext = {
+      availableProviders: new Set(),
+      hasModel: () => true,
+      claudeConfigured: true,
+      cursorConfigured: true,
+      codexConfigured: true,
+      project: null,
+    };
+    const check = validateRoute(d.chat, none);
+    expect(check.ok).toBe(false);
+    if (!check.ok) expect(check.issues[0]).toContain("is not configured");
+  });
+
+  it("subscription-harness defaults never move", () => {
+    const d = deriveBuiltinDefaults(set("gloo"));
+    expect(d.claude).toEqual({ harness: "claude" });
+    expect(d.cursor).toEqual({ harness: "cursor" });
+    expect(d.codex).toEqual({ harness: "codex", model: "gpt-5.6-sol" });
+  });
+
+  it("override wins when provider and model are both set; unknown provider or half a pair is ignored", () => {
+    const forced = deriveBuiltinDefaults(set("glm"), { provider: "gloo", model: "gloo-kimi-k3" });
+    expect(forced.chat).toEqual({ provider: "gloo", model: "gloo-kimi-k3" });
+    expect(forced.titles).toEqual({ provider: "gloo", model: "gloo-kimi-k3" });
+    expect(deriveBuiltinDefaults(set("glm"), { provider: "nope", model: "x" }).chat).toEqual({
+      provider: "glm",
+      model: "glm-5.3-flash",
+    });
+    expect(deriveBuiltinDefaults(set("glm"), { provider: "gloo" }).chat).toEqual({
+      provider: "glm",
+      model: "glm-5.3-flash",
+    });
+  });
+
+  it("wired through getGlobalDefaults: available keys derive, SWEATSHOP_DEFAULT_* overrides", () => {
+    const savedKeys = { ...saved };
+    const envNames = ["ZAI_API_KEY", "GLOO_API_KEY", "OPENROUTER_API_KEY", "SWEATSHOP_DEFAULT_PROVIDER", "SWEATSHOP_DEFAULT_MODEL"] as const;
+    try {
+      delete process.env.ZAI_API_KEY;
+      delete process.env.OPENROUTER_API_KEY;
+      delete process.env.SWEATSHOP_DEFAULT_PROVIDER;
+      delete process.env.SWEATSHOP_DEFAULT_MODEL;
+      db().delete(settings).run();
+      // gloo only
+      process.env.GLOO_API_KEY = "k";
+      expect(getGlobalDefaults(db()).chat).toEqual({ provider: "gloo", model: "gloo-openai-gpt-6-sol" });
+      // env override wins over derivation
+      process.env.SWEATSHOP_DEFAULT_PROVIDER = "openrouter";
+      process.env.SWEATSHOP_DEFAULT_MODEL = "anthropic/claude-sonnet-4.6";
+      expect(getGlobalDefaults(db()).chat).toEqual({ provider: "openrouter", model: "anthropic/claude-sonnet-4.6" });
+      // ...and a stored settings row still beats both
+      setGlobalDefault(db(), "chat", { provider: "glm", model: "glm-5.3" });
+      expect(getGlobalDefaults(db()).chat).toEqual({ provider: "glm", model: "glm-5.3" });
+    } finally {
+      for (const k of envNames) {
+        const v = savedKeys[k];
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+});
+
 describe("store + checkRoute", () => {
   it("global defaults fall back to built-ins and round-trip", () => {
-    expect(getGlobalDefaults(db())).toEqual(BUILTIN_DEFAULTS);
+    expect(getGlobalDefaults(db())).toEqual(deriveBuiltinDefaults(new Set(PROVIDER_IDS)));
     setGlobalDefault(db(), "chat", { provider: "gloo", model: "gloo-kimi-k3" });
     expect(getGlobalDefaults(db()).chat).toEqual({ provider: "gloo", model: "gloo-kimi-k3" });
     setGlobalDefault(db(), "chat", null);
-    expect(getGlobalDefaults(db()).chat).toEqual(BUILTIN_DEFAULTS.chat);
+    expect(getGlobalDefaults(db()).chat).toEqual(deriveBuiltinDefaults(new Set(PROVIDER_IDS)).chat);
   });
 
   it("a malformed stored default is ignored, not fatal", () => {
     db().insert(settings).values({ key: "default_route.chat", value: "{bad", updatedAt: 0 }).run();
-    expect(getGlobalDefaults(db()).chat).toEqual(BUILTIN_DEFAULTS.chat);
+    expect(getGlobalDefaults(db()).chat).toEqual(deriveBuiltinDefaults(new Set(PROVIDER_IDS)).chat);
   });
 
   it("project models round-trip, unknown list entries drop", () => {

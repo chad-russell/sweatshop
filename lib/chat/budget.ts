@@ -1,5 +1,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { ownerName } from "@/lib/agent/owner";
 import type { MessageRowMetadata } from "@/db/chat";
 import { messages } from "@/db/schema";
 
@@ -32,7 +33,7 @@ export function continuationsSinceHuman(conversationId: string): number {
 
 export const CONTINUE_TEXT =
   "[budget] Your turn hit its step budget mid-work. Continue from where you are — " +
-  "or, if you are stuck, stop and ask Chad (ask_chad) what he wants.";
+  `or, if you are stuck, stop and ask ${ownerName()} (ask_chad) what they want.`;
 
 /** Start the continuation turn, or report that the bound was reached. */
 export async function continueAfterBudget(

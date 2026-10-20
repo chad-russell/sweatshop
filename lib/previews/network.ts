@@ -40,9 +40,15 @@ export const harnessPreviewNetwork: PreviewNetwork = {
   },
 };
 
-/** The public host suffix previews are served under. */
+/**
+ * The public host suffix previews are served under. `PREVIEW_BASE_DOMAIN`
+ * is the full override (a real wildcard-cert domain). Unset, the
+ * zero-config fallback is `previews.localhost`: browsers resolve
+ * `*.localhost` to 127.0.0.1, so `pv-<slug>.previews.localhost` reaches
+ * the local preview proxy (scheme per `PREVIEW_URL_SCHEME`, below).
+ */
 export function previewBaseDomain(): string {
-  return process.env.PREVIEW_BASE_DOMAIN?.trim() || "internal.crussell.io";
+  return process.env.PREVIEW_BASE_DOMAIN?.trim() || "previews.localhost";
 }
 
 /** `pv-<slug>.<base>` — flat under the existing wildcard cert (0016). */
@@ -51,7 +57,12 @@ export function previewHost(slug: string): string {
 }
 
 export function previewUrl(slug: string): string {
-  const scheme = process.env.PREVIEW_URL_SCHEME?.trim() || "https";
+  // An explicit PREVIEW_URL_SCHEME always wins. Otherwise https on a
+  // real PREVIEW_BASE_DOMAIN (wildcard cert); the zero-config
+  // `previews.localhost` fallback has no cert, so it defaults to http.
+  const scheme =
+    process.env.PREVIEW_URL_SCHEME?.trim() ||
+    (process.env.PREVIEW_BASE_DOMAIN?.trim() ? "https" : "http");
   return `${scheme}://${previewHost(slug)}`;
 }
 

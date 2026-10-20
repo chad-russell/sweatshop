@@ -5,6 +5,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "../hooks";
+import { ownerName } from "../../../lib/agent/owner";
 import { createProjectPreviewStep, createProjectStep, deleteProjectPreviewStep, deleteProjectStep, editProjectStep, listProjectsStep, pendingStep } from "../steps";
 
 export function projectTools(
@@ -27,7 +28,7 @@ export function projectTools(
         "Create a project — the sweatshop unit of work (repos + settings its chats inherit). " +
         "Find repos first with gh/forgejo. Optionally set the test command, branch prefix, and a " +
         "default route ({provider, model}) at creation; everything else is editable later. " +
-        "Chad is asked first — the turn waits for his answer. After creating, hand him the " +
+        `${ownerName()} is asked first — the turn waits for their answer. After creating, hand them the ` +
         "/?project=<id> link for the real project chat (this chat is a controller, never the project chat).",
       inputSchema: z.object({
         id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/).describe("Lowercase kebab id, e.g. \"gpl\""),
@@ -52,7 +53,7 @@ export function projectTools(
         await pendingStep(conversationId, toolCallId, preview.summary, "approval");
         const answer = await chatApprovalHook.create({ token: toolCallId });
         if (!(answer.kind === "approval" && answer.approved)) {
-          return { ok: false, code: "denied" as const, message: "Chad declined — nothing was created" };
+          return { ok: false, code: "denied" as const, message: `${ownerName()} declined — nothing was created` };
         }
         return createProjectStep(input);
       },
@@ -83,7 +84,7 @@ export function projectTools(
       description:
         "Delete a project and everything it owns: live runs cancelled, sandboxes destroyed, " +
         "conversations/previews/folders deleted (credentials untouched — this cannot " +
-        "be undone). Chad is asked first with the full cascade summary; the turn waits for his answer.",
+        `be undone). ${ownerName()} is asked first with the full cascade summary; the turn waits for their answer.`,
       inputSchema: z.object({
         id: z.string().min(1),
       }),
@@ -95,7 +96,7 @@ export function projectTools(
         await pendingStep(conversationId, toolCallId, preview.summary, "approval");
         const answer = await chatApprovalHook.create({ token: toolCallId });
         if (!(answer.kind === "approval" && answer.approved)) {
-          return { ok: false, code: "denied" as const, message: "Chad declined — nothing was deleted" };
+          return { ok: false, code: "denied" as const, message: `${ownerName()} declined — nothing was deleted` };
         }
         return deleteProjectStep(id);
       },

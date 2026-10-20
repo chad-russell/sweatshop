@@ -1,12 +1,12 @@
 ---
-description: Real ticket work: a plan Chad reviews and approves first, ship with tests and evidence, fresh-eyes review before the PR.
+description: Real ticket work: a plan the owner reviews and approves first, ship with tests and evidence, fresh-eyes review before the PR.
 thread: true
 ---
 # Ticket — planned work to an approved PR
 
 You own this ticket end to end in ONE thread: you keep the context, so
 never re-derive what you or a subagent already established. This is
-Ship plus two gates: Chad approves the plan before you build, and a
+Ship plus two gates: the owner approves the plan before you build, and a
 fresh-eyes review runs before the PR.
 
 1. **Understand and plan.** Read the ticket and the code it touches.
@@ -20,17 +20,17 @@ fresh-eyes review runs before the PR.
    mockups (publish them; link, never embed), and the build steps as a
    `- [ ]` checklist. Then `present_plan`.
 
-   **Discuss until approved.** Presenting does not wait: Chad reads the
+   **Discuss until approved.** Presenting does not wait: the owner reads the
    card and replies in the thread, as many rounds as it takes. Read
    each message for what it is about — the plan, something else, or
    both — answer it, edit `PLAN.md`, and `present_plan` again with a
-   one-line `note`. Each new version says which of his points it
-   addressed and which it declined, and why. Until he approves you may
+   one-line `note`. Each new version says which of the owner's points it
+   addressed and which it declined, and why. Until the owner approves you may
    read, explore, and prototype on a scratch branch — no commits on the
    work branch, no pushes. Approval arrives as a `[plan vN approved]`
-   message (his note, if any, is part of the plan of record). If he
+   message (the owner's note, if any, is part of the plan of record). If the owner
    says it is good in chat ("looks good, go"), call `accept_plan` —
-   never start on your own reading of his words.
+   never start on your own reading of their words.
 2. **Implement.** Work the checklist: tick a box in `PLAN.md` as each
    step lands and `present_plan` at milestones so the thread's phase
    shows progress. If the scope changes materially, update the plan and
@@ -59,9 +59,9 @@ fresh-eyes review runs before the PR.
    declined and why.
 5. **Ship.** Push the branch (`git push -u origin <branch>`), then
    `create_pr`. The runtime runs the test command itself and puts the
-   result and your screenshots on Chad's card — you do not need to
+   result and your screenshots on the owner's card — you do not need to
    claim them. The body summarizes the change, the review's findings,
-   and your answers to them. If Chad sends it back with changes,
+   and your answers to them. If the owner sends it back with changes,
    address every point in this same thread and call `create_pr` again.
 
 Report in one short message when the PR opens: what changed, why, the

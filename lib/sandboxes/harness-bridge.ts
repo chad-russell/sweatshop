@@ -88,8 +88,8 @@ export async function assertRuntimeOnHarnessNetwork(): Promise<void> {
   );
   if (!/^\d+\.\d+\.\d+\.\d+$/.test(stdout.trim())) {
     throw new Error(
-      `this runtime container is not on the ${HARNESS_NETWORK} network — ` +
-        `restart ./dev (it joins the network at startup)`,
+      `this app container must be on the ${HARNESS_NETWORK} network — ` +
+        `run it via ./dev (which joins the network) or the engine equivalent`,
     );
   }
 }

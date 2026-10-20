@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "./hooks";
+import { ownerName } from "../../lib/agent/owner";
 import { acceptPlanApprovedStep, acceptPlanPreviewStep, pendingStep, presentPlanStep } from "./steps";
 
 /**
@@ -15,15 +16,15 @@ export function planTools(conversationId: string) {
   return {
     present_plan: tool({
       description:
-        "Show Chad the plan: snapshots PLAN.md from the work root (beside the repos — never inside one; write and " +
+        `Show ${ownerName()} the plan: snapshots PLAN.md from the work root (beside the repos — never inside one; write and ` +
         "edit it with bash like any file) as a versioned card with a diff against the last version. Returns at " +
-        "once — never waits. Before approval it opens a review: keep exploring and answering Chad, edit the file, " +
-        "and present again; each new version should say which of his points it addressed or declined. Approval " +
+        `once — never waits. Before approval it opens a review: keep exploring and answering ${ownerName()}, edit the file, ` +
+        "and present again; each new version should say which of their points it addressed or declined. Approval " +
         "arrives as a [plan approved] message. After approval, calling it shows progress (tick the file's " +
         "`- [ ]` checklist first); pass reapprove: true when the scope changed materially.",
       inputSchema: z.object({
         note: z.string().max(500).optional().describe("One line on what changed in this version"),
-        reapprove: z.boolean().optional().describe("After approval: the scope changed — ask Chad to approve again"),
+        reapprove: z.boolean().optional().describe(`After approval: the scope changed — ask ${ownerName()} to approve again`),
       }),
       execute: (input, { toolCallId, messages }) => {
         // The live prompt holds this turn's earlier snapshots (a turn
@@ -35,9 +36,9 @@ export function planTools(conversationId: string) {
 
     accept_plan: tool({
       description:
-        "When Chad approves the plan in chat (\"looks good, go\"), call this instead of proceeding on your reading: " +
-        "it puts an Approve button for the plan version in review on his screen and waits. Approved → build. " +
-        "Denied → his comment is feedback; the review stays open.",
+        `When ${ownerName()} approves the plan in chat ("looks good, go"), call this instead of proceeding on your reading: ` +
+        "it puts an Approve button for the plan version in review on their screen and waits. Approved → build. " +
+        "Denied → their comment is feedback; the review stays open.",
       inputSchema: z.object({}),
       execute: async (_input, { toolCallId }) => {
         const preview = (await acceptPlanPreviewStep(conversationId)) as
@@ -51,8 +52,8 @@ export function planTools(conversationId: string) {
           return {
             approved: false as const,
             message: comment
-              ? `Chad did not approve yet: ${comment} — the review stays open; revise and present again.`
-              : "Chad did not approve — the review stays open.",
+              ? `${ownerName()} did not approve yet: ${comment} — the review stays open; revise and present again.`
+              : `${ownerName()} did not approve — the review stays open.`,
           };
         }
         return acceptPlanApprovedStep(preview.rowId, answer.comment?.trim() || undefined);

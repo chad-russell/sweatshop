@@ -1,8 +1,8 @@
 # Sandboxes — where the work runs
 
-Every project chat and machine run works in a sandbox: a podman
-container (sibling of the app, on the private `sweatshop-harness`
-network) with the project's repos cloned under `/work/<id>/<repo>`.
+Every project chat and machine run works in a sandbox: a container
+(sibling of the app, on the private `sweatshop-harness` network) with
+the project's repos cloned under `/work/<id>/<repo>`.
 
 ## Bindings — the one rule
 
@@ -39,6 +39,8 @@ directory (`fresh: true` in `start_machine` opts out with a new one).
 
 Unset = `localhost/sweatshop-sandbox` (node 24 + git + docker-cli).
 A project can pin any image ref (nix, rust, flutter) on its page —
-the image must exist in bee's podman or be pullable. Verify the
-toolchain with `bash` (e.g. `node --version`, `nix --version`)
-before starting work that depends on it.
+the image must exist in (or be pullable by) the host's container
+engine — any Docker-compatible one: podman, OrbStack, Docker
+Desktop, colima. Verify the toolchain with `bash` (e.g.
+`node --version`, `nix --version`) before starting work that depends
+on it.

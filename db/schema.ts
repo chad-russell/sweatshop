@@ -702,7 +702,7 @@ export const previewEvents = sqliteTable(
 /**
  * 0021: app settings — one JSON value per key. Today: the per-surface
  * default routes (`default_route.<surface>`); a missing row = the
- * built-in default (lib/providers/route.ts BUILTIN_DEFAULTS).
+ * derived built-in default (lib/providers/route.ts deriveBuiltinDefaults).
  */
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),

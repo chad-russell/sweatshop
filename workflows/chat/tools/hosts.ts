@@ -5,6 +5,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "../hooks";
+import { ownerName, possessive } from "../../../lib/agent/owner";
 import { isLockoutSensitiveCommand } from "../../../lib/hosts/lockout";
 import { commandDescription } from "./shared";
 import { getHostAutoApproveStep, hostExecPreviewStep, hostExecStep, pendingStep } from "../steps";
@@ -24,7 +25,7 @@ export function hostTools(
           "Repo work happens in your sandbox, never here — exec is only for live state on a real host " +
           "(check, restart, roll back, read logs); never edit a repo checkout on a host, and never open a PR " +
           "from one. Run a command on a real host over SSH, as the host's user, via bash -lc — calls wait for " +
-          "Chad's approval with the exact command on his card, unless he has turned on auto-approve for this " +
+          `${possessive()} approval with the exact command on their card, unless they have turned on auto-approve for this ` +
           "chat (lockout-sensitive commands always ask). This project's hosts: " +
           hosts
             .map((h) => `${h.name} (${h.user}@${h.address}${h.apiBase ? `, API ${h.apiBase}` : ""})`)
@@ -77,8 +78,8 @@ export function hostTools(
               ok: false as const,
               code: comment ? ("changes-requested" as const) : ("denied" as const),
               message: comment
-                ? `Chad rejected the command with a comment — nothing ran. Address it, then call exec again: ${comment}`
-                : "Chad declined — nothing ran on the host",
+                ? `${ownerName()} rejected the command with a comment — nothing ran. Address it, then call exec again: ${comment}`
+                : `${ownerName()} declined — nothing ran on the host`,
             };
           }
           return hostExecStep(conversationId, input, false);
