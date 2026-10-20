@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
+import { ownerName } from "@/lib/agent/owner";
 import { chatApprovalHook } from "@/workflows/chat/hooks";
 
 export const dynamic = "force-dynamic";
@@ -86,7 +87,7 @@ async function approvePlanFromCard(rowId: string, note: string | undefined) {
         id,
         name: `plan v${version}`,
         status: "approved",
-        detail: `Chad approved plan v${version}${n ? `: ${n}` : ""}. Start building from PLAN.md.`,
+        detail: `${ownerName()} approved plan v${version}${n ? `: ${n}` : ""}. Start building from PLAN.md.`,
         url: `/c/${conversationId}`,
       }),
   });

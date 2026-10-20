@@ -5,6 +5,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { startHarnessCallStep } from "../harness-step";
+import { possessive } from "../../../lib/agent/owner";
 import { commandDescription } from "./shared";
 import { bashStep, previewToolStep, screenshotStep } from "../steps";
 import { previewTools } from "../preview-tools";
@@ -77,7 +78,7 @@ export function sandboxTools(
           "Hand a coding task to the Cursor agent harness — it runs in the BACKGROUND in this " +
           "conversation's sandbox with Cursor's own read/edit/shell tools. Returns a handle " +
           "immediately; this conversation gets a \"[cursor finished]\" message with the result when " +
-          "it ends. cursor keeps context across calls. Needs Chad's Cursor login (it errors " +
+          `it ends. cursor keeps context across calls. Needs ${possessive()} Cursor login (it errors ` +
           "value-shaped when not logged in). inspect (hc_…) checks progress; cancel_run stops it. " +
           "pi, claude, cursor and codex can run at once in this chat, but they share this sandbox's " +
           "checkout — give each one separate files or areas; for work that could collide, use " +

@@ -9,10 +9,10 @@ and a project with no hosts simply has no `exec` tool.
 `exec(host, command, timeout?)` runs a bash command (`bash -lc`) on the
 named host, as the host's configured user:
 
-- **Calls ask Chad first** unless he has switched on **auto-approve**
+- **Calls ask the owner first** unless they have switched on **auto-approve**
   for the chat (a toggle by the model picker, shown only for projects
-  with hosts; it stays on until he turns it off). The approval card
-  shows the host and the exact command; his Approve runs it, typing in
+  with hosts; it stays on until they turn it off). The approval card
+  shows the host and the exact command; their Approve runs it, typing in
   the thread denies it (the text goes back to the model as the reason).
   With auto-approve on, a command runs straight away and its card gets
   an "auto-approved" chip, except lockout-sensitive commands (sshd,

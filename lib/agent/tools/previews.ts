@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { ownerName } from "@/lib/agent/owner";
 import { getConversation } from "@/db/chat";
 import { getPreview, listPreviewsForSandboxes } from "@/db/previews";
 import { getPreviewSetup, getPreviewSetupDefinition, savePreviewSetup } from "@/db/preview-setups";
@@ -128,7 +129,7 @@ export async function startPreviewTool(
     );
     const note =
       preview.status === "healthy"
-        ? `serving at ${preview.url} — Chad can open it from the chat header`
+        ? `serving at ${preview.url} — ${ownerName()} can open it from the chat header`
         : preview.status === "starting"
           ? `launched but not answering on port ${port} yet — check preview_status, or the log below`
           : `the server exited — read the log, fix the cause, and call start_preview again (it restarts the same preview)`;

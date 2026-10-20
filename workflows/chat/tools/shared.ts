@@ -4,12 +4,14 @@
  */
 import { z } from "zod";
 
+import { ownerName } from "../../../lib/agent/owner";
+
 export const commandDescription = z
   .string()
   .min(1)
   .max(120)
   .describe(
     "What this command is for, in 5-10 words of active voice — e.g. \"Run the store tests\", " +
-      "\"Find callers of resolveRoute\". Shown to Chad as the call's title.",
+      `"Find callers of resolveRoute". Shown to ${ownerName()} as the call's title.`,
   );
 

@@ -5,6 +5,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { chatApprovalHook } from "../hooks";
+import { ownerName } from "../../../lib/agent/owner";
 import { commandDescription } from "./shared";
 import { bindSkillStep, createPrPreviewStep, createPrStep, inspectStep, pendingStep, sandboxExecStep, systemDocsStep } from "../steps";
 
@@ -14,9 +15,9 @@ export function coreTools(
   return {
     ask_chad: tool({
       description:
-        "Ask Chad for input. The turn waits for his answer. kind=approval when you want " +
-        "permission to do something (he can approve or deny, optionally with a comment); " +
-        "kind=question when you need information or a freeform decision from him.",
+        `Ask ${ownerName()} for input. The turn waits for their answer. kind=approval when you want ` +
+        "permission to do something (they can approve or deny, optionally with a comment); " +
+        "kind=question when you need information or a freeform decision from them.",
       inputSchema: z.object({
         kind: z.enum(["approval", "question"]).describe("approval = permission ask; question = freeform answer needed"),
         question: z.string().max(2_000).describe("What you are asking, phrased so it stands alone."),
@@ -30,22 +31,22 @@ export function coreTools(
         const answer = await hook;
         if (answer.kind === "question") {
           if (typeof answer.answer !== "string" || !answer.answer.trim()) {
-            return `Chad did not answer the question. Question was: ${question}`;
+            return `${ownerName()} did not answer the question. Question was: ${question}`;
           }
-          return `Chad answered: ${answer.answer.trim()}`;
+          return `${ownerName()} answered: ${answer.answer.trim()}`;
         }
         const { approved, comment } = answer;
         return approved
-          ? `Chad approved${comment ? `: ${comment}` : " (no comment)"}. Question was: ${question}`
-          : `Chad denied${comment ? `: ${comment}` : " (no comment)"}. Question was: ${question}`;
+          ? `${ownerName()} approved${comment ? `: ${comment}` : " (no comment)"}. Question was: ${question}`
+          : `${ownerName()} denied${comment ? `: ${comment}` : " (no comment)"}. Question was: ${question}`;
       },
     }),
 
     create_pr: tool({
       description:
         "Open a pull request for a branch of one of this project's repos (github or forgejo). " +
-        "Push the branch first (git push in the sandbox). Chad approves every PR — the turn waits " +
-        "on his answer (the card shows the commits and diffstat) and the PR opens only when he accepts.",
+        `Push the branch first (git push in the sandbox). ${ownerName()} approves every PR — the turn waits ` +
+        "on their answer (the card shows the commits and diffstat) and the PR opens only when they accept.",
       inputSchema: z.object({
         repo: z.string().describe("Repo directory name under the work root"),
         head: z.string().describe("Branch containing the work"),
@@ -74,8 +75,8 @@ export function coreTools(
             ok: false,
             code: comment ? ("changes-requested" as const) : ("denied" as const),
             message: comment
-              ? `Chad sent the PR back with changes — nothing was opened. Address this, then call create_pr again: ${comment}`
-              : "Chad declined the PR — nothing was opened",
+              ? `${ownerName()} sent the PR back with changes — nothing was opened. Address this, then call create_pr again: ${comment}`
+              : `${ownerName()} declined the PR — nothing was opened`,
           };
         }
         return createPrStep(conversationId, input);
@@ -109,7 +110,7 @@ export function coreTools(
     use_skill: tool({
       description:
         "Run this thread by a skill — a runbook for a kind of work (e.g. \"ship\": ticket to approved PR). " +
-        "Call it when Chad asks for that kind of work mid-thread (\"ship it\"); the skill then guides every " +
+        `Call it when ${ownerName()} asks for that kind of work mid-thread (\"ship it\"); the skill then guides every ` +
         "later turn and the thread gets the background work budget. Omit id to list skills.",
       inputSchema: z.object({ id: z.string().optional().describe("Skill id; omit to list") }),
       execute: ({ id }) => bindSkillStep(conversationId, id),
@@ -119,7 +120,7 @@ export function coreTools(
       description:
         "Read a capability doc: how this system's pieces work and how to drive them — " +
         "projects, previews, sandboxes, models. Call it before setting one up, " +
-        "explaining one to Chad, or when a capability behaves unexpectedly. Omit topic to list what exists.",
+        `explaining one to ${ownerName()}, or when a capability behaves unexpectedly. Omit topic to list what exists.`,
       inputSchema: z.object({
         topic: z.string().optional().describe("The doc to read (e.g. \"machines\"); omit to list topics"),
       }),

@@ -5,6 +5,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { forgejoStep, ghStep, webFetchStep, webSearchStep } from "../steps";
+import { possessive } from "../../../lib/agent/owner";
 
 export function queryTools() {
   return {
@@ -49,8 +50,8 @@ export function queryTools() {
     // (private repos).
     gh: tool({
       description:
-        "Run one read-only GitHub CLI command with Chad's stored github credentials — " +
-        "see private repos his user can (e.g. find a repo in an org: gh search repos + `org:` " +
+        `Run one read-only GitHub CLI command with ${possessive()} stored github credentials — ` +
+        "see private repos their user can (e.g. find a repo in an org: gh search repos + `org:` " +
         "qualifier, or repo view TangoGroup/name --json name,defaultBranchRef,url). " +
         "Read-only allowlist: repo list/view, search repos/code/issues/prs/commits, " +
         "org list, pr list/view/checks/diff, issue list/view, release list/view. " +
@@ -66,7 +67,7 @@ export function queryTools() {
     forgejo: tool({
       description:
         "Run one read-only forgejo API GET against the configured forgejo instance " +
-        "with the owner's stored credentials. Paths: /repos/search?q=…, /repos/{owner}/{repo}, " +
+        `with ${possessive()} stored credentials. Paths: /repos/search?q=…, /repos/{owner}/{repo}, ` +
         "/orgs/{org}/repos, /users/{user}/repos, and …/branches, …/issues[/{n}], …/pulls[/{n}], " +
         "…/releases under a repo, plus /user. Query params go in params (e.g. {q: \"sweatshop\", limit: \"10\"}).",
       inputSchema: z.object({

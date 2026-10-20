@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import { ownerName, possessive } from "@/lib/agent/owner";
 import { db } from "@/db";
 import { listModelMessages } from "@/db/chat";
 import {
@@ -92,9 +93,9 @@ export async function presentPlan(
       status: review ? "review" : "progress",
       ...(note ? { note } : {}),
       next: review
-        ? `Plan v${version} is on Chad's screen for review. Keep going: answer his messages, edit ${PLAN_FILE}, and present again. ` +
-          "Do not commit on the work branch or push before he approves — approval arrives as a [plan approved] message " +
-          "(or call accept_plan when he says so in chat)."
+        ? `Plan v${version} is on ${possessive()} screen for review. Keep going: answer their messages, edit ${PLAN_FILE}, and present again. ` +
+          "Do not commit on the work branch or push before the owner approves — approval arrives as a [plan approved] message " +
+          "(or call accept_plan when they say so in chat)."
         : `Progress snapshot v${version} (${checklist.done}/${checklist.total}) shown; the plan stays approved.`,
     };
   } catch (err) {
@@ -133,7 +134,7 @@ export function acceptPlanApproved(
   return {
     approved: true,
     version: v,
-    message: `Chad approved plan v${v}${comment ? `: ${comment}` : ""}. Start building from ${PLAN_FILE}.`,
+    message: `${ownerName()} approved plan v${v}${comment ? `: ${comment}` : ""}. Start building from ${PLAN_FILE}.`,
   };
 }
 
