@@ -60,8 +60,6 @@ export function AgentSettings() {
   const [conflict, setConflict] = useState<Row | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const sequence = useRef(0);
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
   const listSequence = useRef(0);
   const refreshList = useCallback(async () => {
     const token = ++listSequence.current;
@@ -71,7 +69,12 @@ export function AgentSettings() {
     })); if (token === listSequence.current) setListDefaults(Object.fromEntries(defaults.filter((entry): entry is readonly [string, Default] => entry !== null))); }
     catch (e) { if (token === listSequence.current) setError(String(e)); }
   }, [showDeleted]);
-  useEffect(() => { void refreshList(); }, [refreshList]);
+  useEffect(() => {
+    // Start after the effect has returned; cleanup invalidates any in-flight reply.
+    const sequenceForEffect = listSequence;
+    const task = setTimeout(() => { void refreshList(); }, 0);
+    return () => { clearTimeout(task); ++sequenceForEffect.current; };
+  }, [refreshList]);
   const leave = () => { ++sequence.current; setTarget(null); setCreating(false); setConfirmation(null); setPreview(null); setError(""); setNotice(""); };
   const open = async (t: Target) => {
     const token = ++sequence.current;
@@ -130,10 +133,10 @@ export function AgentSettings() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "preview", target: section, body: snapshot }),
       } : undefined);
-      if (token !== sequence.current || previewToken !== previewSequence.current || (section && snapshot !== draftRef.current.body)) return;
+      if (token !== sequence.current || previewToken !== previewSequence.current) return;
       setPreview(data.prompt);
     } catch (e) {
-      if (token === sequence.current && previewToken === previewSequence.current && (!section || snapshot === draftRef.current.body)) {
+      if (token === sequence.current && previewToken === previewSequence.current) {
         setPreview(null);
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -147,7 +150,7 @@ export function AgentSettings() {
       {(["prompts", "skills"] as const).map(t => <button key={t} role="tab" type="button" id={`agent-tab-${t}`} aria-controls="agent-panel" aria-selected={tab === t} className={`rounded-t-lg px-4 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring ${tab === t ? "border-b-2 border-primary font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"}`} onClick={() => switchTab(t)}>{t === "prompts" ? "Prompt sections" : "Skills"}</button>)}
     </div>
     <div role="tabpanel" id="agent-panel" aria-labelledby={`agent-tab-${tab}`} className="space-y-4">
-      {!target && !creating && tab === "prompts" && <><p className="text-sm text-muted-foreground">Three independently editable blocks. Git updates never overwrite saved versions; “Shipped update” marks a difference from the current shipped text.</p><div className="divide-y divide-border rounded-lg border border-border">{SECTIONS.map(s => { const item = list.find(x => x.kind === "section" && x.key === s.key); return <button key={s.key} type="button" className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => void open({ kind: "section", key: s.key })}><span><strong className="text-sm">{s.name}</strong><small className="block text-muted-foreground">{s.hint}</small></span><span className="text-xs text-muted-foreground">{item && listDefaults[s.key] && isDifferent(item, listDefaults[s.key], false) ? "Differs from shipped · " : ""}v{item?.version ?? "…"} · Edit →</span></button>; })}</div><Button variant="outline" onClick={() => void showPreview()}>Preview saved assembled prompt</Button></>}
+      {!target && !creating && tab === "prompts" && <><p className="text-sm text-muted-foreground">Three independently editable blocks. Git updates never overwrite saved versions. A “Differs from shipped” label marks any difference from the current Git default.</p><div className="divide-y divide-border rounded-lg border border-border">{SECTIONS.map(s => { const item = list.find(x => x.kind === "section" && x.key === s.key); return <button key={s.key} type="button" className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring" onClick={() => void open({ kind: "section", key: s.key })}><span><strong className="text-sm">{s.name}</strong><small className="block text-muted-foreground">{s.hint}</small></span><span className="text-xs text-muted-foreground">{item && listDefaults[s.key] && isDifferent(item, listDefaults[s.key], false) ? "Differs from shipped · " : ""}v{item?.version ?? "…"} · Edit →</span></button>; })}</div><Button variant="outline" onClick={() => void showPreview()}>Preview saved assembled prompt</Button></>}
       {!target && !creating && tab === "skills" && <><div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Active and disabled skills. Deleted skills remain restorable in history.</p><Button onClick={beginCreate}>New skill</Button></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showDeleted} onChange={e => setShowDeleted(e.target.checked)} /> Show deleted</label><div className="divide-y divide-border rounded-lg border border-border">{list.filter(x => x.kind === "skill").map(x => <button key={x.id} type="button" onClick={() => void open({ kind: "skill", id: x.id })} className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring"><span><strong className="text-sm">{title(x.body)}</strong><small className="block font-mono text-muted-foreground">{x.id}</small></span><span className="text-xs text-muted-foreground">{x.thread ? "Thread · " : ""}{listDefaults[x.id] && isDifferent(x, listDefaults[x.id], true) ? "Differs from shipped · " : ""}{x.status} · v{x.version} →</span></button>)}</div></>}
       {(target || creating) && <div className="space-y-5"><Button size="sm" variant="ghost" onClick={leave}>← Back to {tab === "skills" ? "skills" : "prompt sections"}</Button><div className="space-y-4 rounded-lg border border-border p-4"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-semibold">{creating ? "New skill" : target?.kind === "section" ? SECTIONS.find(s => s.key === target.key)?.name : `Skill: ${target?.id}`}</h3>{current && <span className="text-xs text-muted-foreground">v{current.version} · {current.editedBy}</span>}{current && defaultChecked && shipped && isDifferent(current, shipped, !!skill) && <span className="rounded-md bg-warning/10 px-2 py-0.5 text-xs text-warning">Differs from shipped default</span>}</div>
       {creating && <label className="block text-sm">Skill id <input aria-invalid={newId !== "" && !ID.test(newId)} className="mt-1 block w-full rounded-lg border border-border bg-background p-2 font-mono text-sm" value={newId} onChange={e => setNewId(e.target.value)} placeholder="my-skill" /><span className="text-xs text-muted-foreground">Lowercase letter first, then lowercase letters, digits or hyphens; at most 41 characters. This id cannot be renamed.</span></label>}
