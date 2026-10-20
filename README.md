@@ -44,15 +44,19 @@ engine's network — `DOCKER_HOST` does not change that.
 ## Quickstart
 
 ```sh
+cp .env.example .env.local                      # set at least one key FIRST
 ./dev install                                   # deps, inside the engine
-cp .env.example .env.local                      # then edit .env.local
 ./dev exec -- npm run db:migrate
-./dev exec -- npm run dev                       # or: build && start
+DEV_PUBLISH=3000:3000 ./dev exec -- npm run dev # or: build && start
 ```
 
 `./dev` runs everything inside the dev container with the repo
-bind-mounted; `.env.local` is passed through. Point your browser at the
-port `next dev` prints (default 3000). Set `SWEATSHOP_DB` to move the
+bind-mounted; `.env.local` is passed through. The wrapper publishes
+nothing by default — in the all-local mode set `DEV_PUBLISH` (a comma
+list of host:container pairs) so your browser can reach the app, e.g.
+`DEV_PUBLISH=3000:3000,80:3001` also fronts the preview proxy on port
+80 for the `pv-<slug>.previews.localhost` URLs. Point your browser at
+http://localhost:3000. Set `SWEATSHOP_DB` to move the
 sqlite database (default `./data/sweatshop.db`).
 
 Before your first sandbox: build the sandbox image —
@@ -95,10 +99,12 @@ see `.env.example` for the insert statement shape.
 
 Preview URLs are `pv-<slug>.<PREVIEW_BASE_DOMAIN>` (scheme per
 `PREVIEW_URL_SCHEME`). Unset, the base falls back to
-`previews.localhost` — fine on a laptop, unreachable from other
-machines. On a home-server setup set `PREVIEW_BASE_DOMAIN` to your
-wildcard domain. The proxy listens on `PREVIEW_PROXY_PORT` (3001) and
-must be published where browsers can reach it.
+`previews.localhost` — fine on a laptop (publish the proxy with
+`DEV_PUBLISH=...,80:3001` so `http://pv-<slug>.previews.localhost`
+resolves to it), unreachable from other machines. On a home-server
+setup set `PREVIEW_BASE_DOMAIN` to your wildcard domain. The proxy
+listens on `PREVIEW_PROXY_PORT` (3001) and must be published where
+browsers can reach it.
 
 ## Security posture
 

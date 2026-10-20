@@ -70,13 +70,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The dev image bakes the docker CLI (see Containerfile.dev); build it on
 # first use so plain ./dev just works.
-"$ENGINE" image exists "$IMAGE" || "$ENGINE" build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
+# docker has no `image exists`/`network exists` subcommands — inspect is
+# the portable check across podman and docker.
+image_ready() { "$ENGINE" image inspect "$IMAGE" >/dev/null 2>&1; }
 
 # Private network shared by the dev container (eve runtime) and session
 # sandboxes (0006): bridge-backed harnesses (claude, later cursor) connect
 # over it. Never published to the LAN — membership is the boundary.
 HARNESS_NET=sweatshop-harness
-"$ENGINE" network exists "$HARNESS_NET" 2>/dev/null || "$ENGINE" network create "$HARNESS_NET" >/dev/null
+network_ready() { "$ENGINE" network inspect "$HARNESS_NET" >/dev/null 2>&1; }
+network_ready || "$ENGINE" network create "$HARNESS_NET" >/dev/null
 
 ENV_ARGS=()
 if [[ -f "$ROOT/.env.local" ]]; then
@@ -85,6 +88,8 @@ elif [[ ! -f "$ROOT/.env.example" ]]; then
   echo "error: create .env.local (copy .env.example) before running sweatshop" >&2
   exit 1
 fi
+
+image_ready || "$ENGINE" build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
 
 # Common mounts/identity for every invocation. Rootless podman maps
 # container uid 0 to the host user, so container-root writes land
@@ -98,7 +103,7 @@ common_args=(
   -v "$MODULES_VOLUME":/workspace/node_modules
   -v "$CACHE_VOLUME":/root/.npm
   -w /workspace
-  "${ENV_ARGS[@]}"
+  ${ENV_ARGS[@]+"${ENV_ARGS[@]}"}
 )
 
 # Mount the host engine socket when found: the eve Docker sandbox
@@ -108,9 +113,20 @@ if [[ -n "$ENGINE_SOCK" && -S "$ENGINE_SOCK" ]]; then
   common_args+=(-v "$ENGINE_SOCK":/var/run/docker.sock)
 fi
 
+# Optional publish for the all-local mode (laptop engine): a comma list of
+# host:container pairs, e.g. DEV_PUBLISH=3000:3000,80:3001 ./dev shell.
+# Empty/unset (default; the author's deployment) publishes nothing.
+PUBLISH_ARGS=()
+if [[ -n "${DEV_PUBLISH:-}" ]]; then
+  IFS="," read -ra _pairs <<< "$DEV_PUBLISH"
+  for _p in "${_pairs[@]}"; do
+    PUBLISH_ARGS+=(-p "$_p")
+  done
+fi
+
 case "${1:-}" in
   install)
-    exec "$ENGINE" run --rm "${common_args[@]}" "$IMAGE" \
+    exec "$ENGINE" run --rm ${PUBLISH_ARGS[@]+"${PUBLISH_ARGS[@]}"} "${common_args[@]}" "$IMAGE" \
       sh -lc 'npm install --no-audit --no-fund'
     ;;
   exec)
@@ -118,10 +134,10 @@ case "${1:-}" in
     [[ "${1:-}" == "--" ]] && shift
     # DEV_EXEC_NAME names the container so a caller can remove it
     # (scripts/ci-deploy.sh stops a build that will not exit).
-    exec "$ENGINE" run --rm ${DEV_EXEC_NAME:+--name "$DEV_EXEC_NAME"} "${common_args[@]}" "$IMAGE" "$@"
+    exec "$ENGINE" run --rm ${PUBLISH_ARGS[@]+"${PUBLISH_ARGS[@]}"} ${DEV_EXEC_NAME:+--name "$DEV_EXEC_NAME"} "${common_args[@]}" "$IMAGE" "$@"
     ;;
   shell)
-    exec "$ENGINE" run --rm -it "${common_args[@]}" "$IMAGE" bash
+    exec "$ENGINE" run --rm -it ${PUBLISH_ARGS[@]+"${PUBLISH_ARGS[@]}"} "${common_args[@]}" "$IMAGE" bash
     ;;
   build)
     exec "$ENGINE" build -t "$IMAGE" -f "$ROOT/Containerfile.dev" "$ROOT"
