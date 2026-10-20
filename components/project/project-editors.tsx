@@ -459,15 +459,15 @@ export function ProjectHostsEditor({ projectId, hosts }: { projectId: string; ho
           <div className="grid grid-cols-[1fr_1fr_1fr_2fr] gap-3">
             <label className={FIELD} htmlFor="host-name">
               <span className={LABEL}>Name (also the env-var key)</span>
-              <Input id="host-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="bee" className={MONO} />
+              <Input id="host-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="web-1" className={MONO} />
             </label>
             <label className={FIELD} htmlFor="host-address">
               <span className={LABEL}>Address</span>
-              <Input id="host-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="10.10.0.12" className={MONO} />
+              <Input id="host-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.1.50" className={MONO} />
             </label>
             <label className={FIELD} htmlFor="host-user">
               <span className={LABEL}>User</span>
-              <Input id="host-user" value={user} onChange={(e) => setUser(e.target.value)} placeholder="crussell" className={MONO} />
+              <Input id="host-user" value={user} onChange={(e) => setUser(e.target.value)} placeholder="deploy" className={MONO} />
             </label>
             <label className={FIELD} htmlFor="host-api">
               <span className={LABEL}>API base (optional)</span>
