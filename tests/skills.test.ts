@@ -7,6 +7,7 @@ import { listSkills, listThreadSkills, readSkill } from "../lib/skills";
 import { getTarget, publishEdit, restoreVersion } from "../db/prompt-settings";
 import { CONTINUE_TEXT, MAX_CONTINUATIONS, continueAfterBudget, continuationsSinceHuman } from "../lib/chat/budget";
 import { POST as postChat } from "../app/api/x/chat/route";
+import { bindSkillStep, loadSkillStep } from "../workflows/chat/steps/turn";
 
 /**
  * 0039: skills (markdown runbooks under skills/<id>/SKILL.md; thread
@@ -116,6 +117,50 @@ describe("chat route skill binding", () => {
     // directory, decides (a plain reference skill never appears).
     expect((await listThreadSkills()).map((s) => s.id).sort()).toEqual(["review", "ship", "ticket"]);
     expect((await listSkills()).every((s) => typeof s.thread === "boolean")).toBe(true);
+  });
+});
+
+describe("0054: use_skill binding checks the active thread catalog", () => {
+  it("binds an active thread skill", async () => {
+    const id = conv("bind_active");
+    expect(await bindSkillStep(id, "review")).toMatchObject({ ok: true, id: "review" });
+    expect(getConversation(db(), id)?.skill).toBe("review");
+  });
+
+  for (const status of ["disabled", "deleted"] as const) {
+    it(`rejects a ${status} skill without changing an existing binding`, async () => {
+      const id = conv(`bind_${status}`);
+      setConversationSkill(db(), id, "review");
+      const target = { kind: "skill" as const, id: "ship" };
+      const original = getTarget(db(), target)!;
+      expect(publishEdit(db(), target, { patch: { status }, expectedVersion: original.version })).toMatchObject({ ok: true });
+      try {
+        // Existing bindings still resolve through readSkill, independently
+        // of whether the skill is offered for new use_skill calls.
+        expect((await readSkill("ship"))?.id).toBe("ship");
+        const result = await bindSkillStep(id, "ship") as { ok: boolean; code: string; skills: { id: string }[] };
+        expect(result).toMatchObject({ ok: false, code: "unknown-skill" });
+        expect(result.skills.map((s) => s.id)).not.toContain("ship");
+        expect(getConversation(db(), id)?.skill).toBe("review");
+      } finally {
+        const live = getTarget(db(), target)!;
+        expect(publishEdit(db(), target, { patch: { status: original.status }, expectedVersion: live.version })).toMatchObject({ ok: true });
+      }
+    });
+  }
+
+  it("keeps resolving an already-bound skill after it is disabled", async () => {
+    const id = conv("already_bound");
+    setConversationSkill(db(), id, "ship");
+    const target = { kind: "skill" as const, id: "ship" };
+    const original = getTarget(db(), target)!;
+    expect(publishEdit(db(), target, { patch: { status: "disabled" }, expectedVersion: original.version })).toMatchObject({ ok: true });
+    try {
+      expect(await loadSkillStep(id)).toMatchObject({ id: "ship", body: original.body });
+    } finally {
+      const live = getTarget(db(), target)!;
+      expect(publishEdit(db(), target, { patch: { status: original.status }, expectedVersion: live.version })).toMatchObject({ ok: true });
+    }
   });
 });
 
