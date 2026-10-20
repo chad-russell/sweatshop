@@ -57,7 +57,12 @@ export function previewHost(slug: string): string {
 }
 
 export function previewUrl(slug: string): string {
-  const scheme = process.env.PREVIEW_URL_SCHEME?.trim() || "https";
+  // An explicit PREVIEW_URL_SCHEME always wins. Otherwise https on a
+  // real PREVIEW_BASE_DOMAIN (wildcard cert); the zero-config
+  // `previews.localhost` fallback has no cert, so it defaults to http.
+  const scheme =
+    process.env.PREVIEW_URL_SCHEME?.trim() ||
+    (process.env.PREVIEW_BASE_DOMAIN?.trim() ? "https" : "http");
   return `${scheme}://${previewHost(slug)}`;
 }
 

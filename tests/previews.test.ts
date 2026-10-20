@@ -12,7 +12,7 @@ import { ensureConversation } from "../db/chat";
 import { bindConversation } from "../db/sandboxes";
 import { projectRepos, projects } from "../db/schema";
 import { previewStatusTool, startPreviewTool, stopPreviewTool } from "../lib/agent/tools/previews";
-import { previewBaseDomain, previewHost, slugFromHost } from "../lib/previews/network";
+import { previewBaseDomain, previewHost, previewUrl, slugFromHost } from "../lib/previews/network";
 import { describeDir, discoverPreviewCandidates } from "../lib/previews/discover";
 import { savePreviewSetup } from "../db/preview-setups";
 import {
@@ -80,6 +80,31 @@ describe("0016 preview registry", () => {
     }
   });
 
+  it("preview url scheme: http on the localhost fallback, https on a set base, PREVIEW_URL_SCHEME wins", () => {
+    const savedBase = process.env.PREVIEW_BASE_DOMAIN;
+    const savedScheme = process.env.PREVIEW_URL_SCHEME;
+    try {
+      delete process.env.PREVIEW_URL_SCHEME;
+      // zero-config fallback has no wildcard cert — http
+      delete process.env.PREVIEW_BASE_DOMAIN;
+      expect(previewUrl("main-ab12")).toBe("http://pv-main-ab12.previews.localhost");
+      // a real base domain carries the wildcard cert — https
+      process.env.PREVIEW_BASE_DOMAIN = "previews.example.com";
+      expect(previewUrl("main-ab12")).toBe("https://pv-main-ab12.previews.example.com");
+      // an explicit scheme overrides both defaults
+      process.env.PREVIEW_URL_SCHEME = "http";
+      expect(previewUrl("main-ab12")).toBe("http://pv-main-ab12.previews.example.com");
+      delete process.env.PREVIEW_BASE_DOMAIN;
+      process.env.PREVIEW_URL_SCHEME = "https";
+      expect(previewUrl("main-ab12")).toBe("https://pv-main-ab12.previews.localhost");
+    } finally {
+      if (savedBase === undefined) delete process.env.PREVIEW_BASE_DOMAIN;
+      else process.env.PREVIEW_BASE_DOMAIN = savedBase;
+      if (savedScheme === undefined) delete process.env.PREVIEW_URL_SCHEME;
+      else process.env.PREVIEW_URL_SCHEME = savedScheme;
+    }
+  });
+
   it("frees a slug when its preview is deleted, keeping the row", () => {
     const sandboxId = lease();
     const p = insertPreview(db(), {
@@ -106,7 +131,7 @@ describe("0016 preview lifecycle", () => {
     );
     expect(preview.status).toBe("healthy");
     expect(log).toBeUndefined();
-    expect(preview.url).toMatch(/^https:\/\/pv-feat-x-[a-z0-9]{4}\.previews\.localhost$/);
+    expect(preview.url).toMatch(/^http:\/\/pv-feat-x-[a-z0-9]{4}\.previews\.localhost$/);
     expect(network.connected).toEqual([`ref-${sandboxId}`]);
     const launch = sbx.scripts.find((s) => s.command.includes("setsid nohup"))!;
     expect(launch.command).toContain("cd '/work/c1/app'");
@@ -411,7 +436,7 @@ describe("0016 preview tools", () => {
       SHARED: "setup",
       OVERRIDDEN: "per-preview",
       EXTRA: "yes",
-      SITE: expect.stringContaining("https://pv-"),
+      SITE: expect.stringContaining("http://pv-"),
       PORT: "3000",
       HOST: "0.0.0.0",
     });
