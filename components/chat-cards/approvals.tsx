@@ -418,7 +418,7 @@ export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
         </div>
       )}
       {card.diff && (
-        <pre className="overflow-x-auto rounded-md border bg-background p-2 font-mono text-xs whitespace-pre-wrap break-words">
+        <pre className="max-h-[32rem] overflow-auto rounded-md border bg-background p-2 font-mono text-xs whitespace-pre-wrap break-words">
           {card.diff.map((line, index) => (
             <span
               key={index}
