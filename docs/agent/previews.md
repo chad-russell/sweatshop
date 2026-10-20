@@ -2,7 +2,10 @@
 
 A preview is a long-running HTTP server in a sandbox, owned by the
 sandbox (it outlives the chat or run that started it). Reached at
-`https://pv-<slug>.internal.crussell.io` — LAN/Nebula only.
+`<scheme>://pv-<slug>.<base>` — the base comes from the server's
+`PREVIEW_BASE_DOMAIN` (unset: `previews.localhost`, which the browser
+resolves to this machine), so ask (or read the URL a tool returned)
+rather than guessing it.
 
 ## Two kinds
 

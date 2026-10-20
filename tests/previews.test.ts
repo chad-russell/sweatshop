@@ -12,7 +12,7 @@ import { ensureConversation } from "../db/chat";
 import { bindConversation } from "../db/sandboxes";
 import { projectRepos, projects } from "../db/schema";
 import { previewStatusTool, startPreviewTool, stopPreviewTool } from "../lib/agent/tools/previews";
-import { slugFromHost } from "../lib/previews/network";
+import { previewBaseDomain, previewHost, slugFromHost } from "../lib/previews/network";
 import { describeDir, discoverPreviewCandidates } from "../lib/previews/discover";
 import { savePreviewSetup } from "../db/preview-setups";
 import {
@@ -62,6 +62,24 @@ describe("0016 preview registry", () => {
     expect(slugFromHost(undefined)).toBeNull();
   });
 
+  it("base domain: zero-config previews.localhost fallback, PREVIEW_BASE_DOMAIN override", () => {
+    const saved = process.env.PREVIEW_BASE_DOMAIN;
+    try {
+      delete process.env.PREVIEW_BASE_DOMAIN;
+      expect(previewBaseDomain()).toBe("previews.localhost");
+      expect(previewHost("main-ab12")).toBe("pv-main-ab12.previews.localhost");
+      process.env.PREVIEW_BASE_DOMAIN = "previews.example.com";
+      expect(previewBaseDomain()).toBe("previews.example.com");
+      expect(previewHost("main-ab12")).toBe("pv-main-ab12.previews.example.com");
+      // slugFromHost parses either form's labels identically
+      expect(slugFromHost("pv-main-ab12.previews.localhost")).toBe("main-ab12");
+      expect(slugFromHost("pv-main-ab12.previews.example.com:443")).toBe("main-ab12");
+    } finally {
+      if (saved === undefined) delete process.env.PREVIEW_BASE_DOMAIN;
+      else process.env.PREVIEW_BASE_DOMAIN = saved;
+    }
+  });
+
   it("frees a slug when its preview is deleted, keeping the row", () => {
     const sandboxId = lease();
     const p = insertPreview(db(), {
@@ -88,7 +106,7 @@ describe("0016 preview lifecycle", () => {
     );
     expect(preview.status).toBe("healthy");
     expect(log).toBeUndefined();
-    expect(preview.url).toMatch(/^https:\/\/pv-feat-x-[a-z0-9]{4}\.internal\.crussell\.io$/);
+    expect(preview.url).toMatch(/^https:\/\/pv-feat-x-[a-z0-9]{4}\.previews\.localhost$/);
     expect(network.connected).toEqual([`ref-${sandboxId}`]);
     const launch = sbx.scripts.find((s) => s.command.includes("setsid nohup"))!;
     expect(launch.command).toContain("cd '/work/c1/app'");
