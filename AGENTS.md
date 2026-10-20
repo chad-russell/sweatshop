@@ -461,6 +461,10 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 
 ## Environment
 
+This section describes the author's deployment (bee); for running
+sweatshop elsewhere — another engine, a laptop, another host — see
+README.md.
+
 Nothing is installed on the host; everything runs in podman. There is
 ONE instance (0020) — no dev server, no second checkout:
 
