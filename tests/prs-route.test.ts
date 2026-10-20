@@ -47,12 +47,12 @@ const request = (urls: string[]) =>
 
 describe("0052 GET /api/x/prs", () => {
   it("answers a batch keyed by the exact input URLs", async () => {
-    // Each host answers in its own shape: github flags merged + a
-    // merged_at timestamp; forgejo's `merged` IS the timestamp.
+    // Each host answers in its own shape (live-verified 0053 review):
+    // both carry a merged boolean + merged_at timestamp.
     stubFetchJson(200, (url: string) =>
       url.startsWith("https://api.github.com")
         ? { state: "closed", merged: true, merged_at: "2026-10-01T10:00:00Z" }
-        : { state: "open", merged: "2026-10-01T10:00:00Z" },
+        : { state: "open", merged: true, merged_at: "2026-10-01T10:00:00Z" },
     );
     const res = await GET(request([GH_URL, FJ_URL]));
     expect(res.status).toBe(200);

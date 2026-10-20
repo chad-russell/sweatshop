@@ -1,14 +1,76 @@
 import {
+  actorLogin,
   getJSON,
+  headRef,
   installCredentialStore,
+  jsonField,
+  listPRsWithReviews,
   postJSON,
   remoteHost,
   repoPath,
+  strField,
   type CreatePRInput,
   type CreatePRResult,
   type GitHost,
   type PRState,
+  type PRSummary,
+  type ReviewSignal,
 } from "@/lib/git-hosts/index";
+
+/** GitHub review `state` strings → the dashboard verdict vocabulary. */
+const GH_REVIEW_STATE: Record<string, ReviewSignal["state"]> = {
+  CHANGES_REQUESTED: "changes-requested",
+  APPROVED: "approved",
+  COMMENTED: "commented",
+};
+
+/** One `…/pulls` row → a summary, or null on an untrusted shape.
+ *  Live-verified (0053 review): LIST rows carry no `comments` — that
+ *  field exists on the single-PR GET / issues API only — so GitHub
+ *  counts stay null (the summary allows null; the badge shows only
+ *  when known). Author is `user.login`, `merged_at` set → merged. */
+function ghPRSummary(row: unknown): PRSummary | null {
+  const title = strField(row, "title");
+  const url = strField(row, "html_url");
+  const head = headRef(jsonField(row, "head"));
+  const author = actorLogin(jsonField(row, "user"));
+  const createdAt = strField(row, "created_at");
+  const updatedAt = strField(row, "updated_at");
+  const number = jsonField(row, "number");
+  const comments = jsonField(row, "comments");
+  const mergedAt = strField(row, "merged_at");
+  const state = strField(row, "state");
+  if (
+    !title || !url || !head || !author || !createdAt || !updatedAt ||
+    typeof number !== "number" || !state
+  ) {
+    return null;
+  }
+  const lifecycle = mergedAt ? "merged" : state === "closed" ? "closed" : state === "open" ? "open" : null;
+  if (!lifecycle) return null;
+  return {
+    number,
+    title,
+    url,
+    state: lifecycle,
+    head,
+    author,
+    createdAt,
+    updatedAt,
+    reviewState: null,
+    commentCount: typeof comments === "number" ? comments : null,
+    lastReviewAt: null,
+  };
+}
+
+/** One `…/pulls/{n}/reviews` row → a signal; an unshaped row → null. */
+function ghReviewSignal(row: unknown): ReviewSignal | null {
+  const reviewer = actorLogin(jsonField(row, "user"));
+  const raw = strField(row, "state");
+  const state = raw ? GH_REVIEW_STATE[raw] : undefined;
+  if (!reviewer || !state) return null;
+  return { reviewer, state, submittedAt: strField(row, "submitted_at") };
+}
 
 /** GitHub: token-authenticated https, host scope github.com. */
 export const githubHost: GitHost = {
@@ -64,5 +126,24 @@ export const githubHost: GitHost = {
     } catch {
       return null; // non-2xx, network, or parse failure — unknown, never thrown
     }
+  },
+  async listPRs(credential, remoteUrl, fetchImpl = fetch): Promise<PRSummary[] | null> {
+    const path = repoPath(remoteUrl);
+    if (!path) return null;
+    const owner = encodeURIComponent(path.owner);
+    const repo = encodeURIComponent(path.repo);
+    return listPRsWithReviews({
+      listUrl: `https://api.github.com/repos/${owner}/${repo}/pulls?state=all&per_page=50`,
+      reviewsUrl: (number) =>
+        `https://api.github.com/repos/${owner}/${repo}/pulls/${number}/reviews`,
+      headers: {
+        authorization: `Bearer ${credential.secret}`,
+        accept: "application/vnd.github+json",
+      },
+      username: credential.username,
+      parsePR: ghPRSummary,
+      parseReview: ghReviewSignal,
+      fetchImpl,
+    });
   },
 };

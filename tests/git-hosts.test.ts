@@ -232,8 +232,12 @@ describe("GitHost.getPRState (0052)", () => {
     expect(await githubHost.getPRState(gh, "garbage", 7, fine.impl)).toBeNull();
   });
 
-  it("forgejo asks the instance API with basic auth and maps its merged timestamp", async () => {
-    const { impl, calls } = stubFetch(200, { state: "open", merged: "2026-10-02T09:00:00Z" });
+  it("forgejo asks the instance API with basic auth and maps its merged_at timestamp", async () => {
+    const { impl, calls } = stubFetch(200, {
+      state: "closed",
+      merged: true, // boolean (HasMerged) — the timestamp is merged_at
+      merged_at: "2026-10-02T09:00:00Z",
+    });
     expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, impl)).toEqual({
       state: "merged",
       mergedAt: "2026-10-02T09:00:00Z",
@@ -243,12 +247,16 @@ describe("GitHost.getPRState (0052)", () => {
     expect(calls[0]?.headers.authorization).toBe(`Basic ${expected}`);
   });
 
-  it("forgejo maps closed and open", async () => {
-    const closed = stubFetch(200, { state: "closed", merged: null });
+  it("forgejo maps merged without a timestamp, closed, and open", async () => {
+    const noTime = stubFetch(200, { state: "closed", merged: true, merged_at: null });
+    expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, noTime.impl)).toEqual({
+      state: "merged",
+    });
+    const closed = stubFetch(200, { state: "closed", merged: false, merged_at: null });
     expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, closed.impl)).toEqual({
       state: "closed",
     });
-    const open = stubFetch(200, { state: "open", merged: null });
+    const open = stubFetch(200, { state: "open", merged: false, merged_at: null });
     expect(await forgejoHost.getPRState(fj, "https://git.example.com/o/r", 2, open.impl)).toEqual({
       state: "open",
     });
@@ -263,5 +271,260 @@ describe("GitHost.getPRState (0052)", () => {
     expect(
       await forgejoHost.getPRState(cred({ kind: "forgejo" }), "https://git.example.com/o/r", 2, fine.impl),
     ).toBeNull();
+  });
+});
+
+describe("GitHost.listPRs (0053)", () => {
+  const gh = cred({ id: "gh", kind: "github" });
+  const fj = cred({ id: "fj", kind: "forgejo", baseUrl: "https://git.example.com" });
+
+  /** fetch stub answering per-URL (a list + per-PR reviews), recording calls. */
+  function routeFetch(body: (url: string) => unknown, status = 200) {
+    const calls: string[] = [];
+    const impl: typeof fetch = async (url) => {
+      const target = String(url);
+      calls.push(target);
+      return new Response(JSON.stringify(body(target)), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    return { impl, calls };
+  }
+
+  /** A github list row in the API's own shape (live-verified 0053
+   *  review: list rows carry NO `comments` — that field exists on the
+   *  single-PR GET / issues API only, so GitHub counts stay null). */
+  const ghRow = (over: Record<string, unknown>) => ({
+    number: 1,
+    title: "Add thing",
+    html_url: "https://github.com/o/r/pull/1",
+    state: "open",
+    merged_at: null,
+    user: { login: "chad" },
+    head: { ref: "feat/thing" },
+    created_at: "2026-10-01T10:00:00Z",
+    updated_at: "2026-10-02T10:00:00Z",
+    ...over,
+  });
+
+  /** A github reviews array in the API's own shape. */
+  const ghReviews = (...rows: Record<string, unknown>[]) => rows;
+
+  it("github lists with bearer auth, maps rows, and aggregates the verdict", async () => {
+    const { impl, calls } = routeFetch((url) => {
+      if (url.endsWith("/pulls/7/reviews")) {
+        return ghReviews(
+          { user: { login: "alice" }, state: "CHANGES_REQUESTED", submitted_at: "2026-10-02T09:00:00Z" },
+          { user: { login: "bob" }, state: "APPROVED", submitted_at: "2026-10-03T09:00:00Z" },
+        );
+      }
+      return [
+        ghRow({
+          number: 7,
+          title: "Needs work",
+          html_url: "https://github.com/o/r/pull/7",
+          user: { login: "Chad" }, // author match is case-insensitive
+          updated_at: "2026-10-03T10:00:00Z",
+        }),
+        // settled by chad → merged, never asked for reviews
+        ghRow({ number: 6, state: "closed", merged_at: "2026-09-20T10:00:00Z", updated_at: "2026-09-20T10:00:00Z" }),
+        // open but someone else's → listed, never asked for reviews
+        ghRow({ number: 5, user: { login: "someone" } }),
+      ];
+    });
+    const prs = await githubHost.listPRs(gh, "https://github.com/o/r.git", impl);
+    expect(prs).toEqual([
+      {
+        number: 7,
+        title: "Needs work",
+        url: "https://github.com/o/r/pull/7",
+        state: "open",
+        head: "feat/thing",
+        author: "Chad",
+        createdAt: "2026-10-01T10:00:00Z",
+        updatedAt: "2026-10-03T10:00:00Z",
+        reviewState: "changes-requested", // one blocker beats one approval
+        commentCount: null, // list rows carry no `comments` — count shows only when known
+        lastReviewAt: "2026-10-03T09:00:00Z",
+      },
+      {
+        number: 6,
+        title: "Add thing",
+        url: "https://github.com/o/r/pull/1",
+        state: "merged",
+        head: "feat/thing",
+        author: "chad",
+        createdAt: "2026-10-01T10:00:00Z",
+        updatedAt: "2026-09-20T10:00:00Z",
+        reviewState: null,
+        commentCount: null,
+        lastReviewAt: null,
+      },
+      {
+        number: 5,
+        title: "Add thing",
+        url: "https://github.com/o/r/pull/1",
+        state: "open",
+        head: "feat/thing",
+        author: "someone",
+        createdAt: "2026-10-01T10:00:00Z",
+        updatedAt: "2026-10-02T10:00:00Z",
+        reviewState: null,
+        commentCount: null,
+        lastReviewAt: null,
+      },
+    ]);
+    // One list call (path-encoded owner/repo, bearer auth) + one reviews
+    // call for the only OPEN PR by the account — settled and foreign PRs
+    // are never asked.
+    expect(calls).toEqual([
+      "https://api.github.com/repos/o/r/pulls?state=all&per_page=50",
+      "https://api.github.com/repos/o/r/pulls/7/reviews",
+    ]);
+  });
+
+  it("github aggregates per reviewer: the latest review wins, then changes > approved > commented", async () => {
+    const { impl } = routeFetch((url) => {
+      if (url.endsWith("/pulls/1/reviews")) {
+        return ghReviews(
+          // alice's latest (11:00) is a plain comment, superseding her 10:00 approval
+          { user: { login: "alice" }, state: "APPROVED", submitted_at: "2026-10-02T10:00:00Z" },
+          { user: { login: "alice" }, state: "COMMENTED", submitted_at: "2026-10-02T11:00:00Z" },
+          { user: { login: "bob" }, state: "APPROVED", submitted_at: "2026-10-02T12:00:00Z" },
+        );
+      }
+      return [ghRow({})];
+    });
+    const [pr] = (await githubHost.listPRs(gh, "https://github.com/o/r", impl))!;
+    expect(pr.reviewState).toBe("approved"); // bob's approval outranks alice's comment
+    expect(pr.lastReviewAt).toBe("2026-10-02T12:00:00Z");
+
+    const noReviews = routeFetch(() => [ghRow({})]);
+    const [bare] = (await githubHost.listPRs(gh, "https://github.com/o/r", noReviews.impl))!;
+    expect(bare.reviewState).toBeNull();
+    expect(bare.lastReviewAt).toBeNull();
+  });
+
+  it("github bounds review fetches at the first 25 open PRs by the account", async () => {
+    const rows = Array.from({ length: 26 }, (_, i) => ghRow({ number: i + 1 }));
+    const { impl, calls } = routeFetch((url) =>
+      url.endsWith("/reviews") ? [] : rows,
+    );
+    const prs = (await githubHost.listPRs(gh, "https://github.com/o/r", impl))!;
+    expect(prs).toHaveLength(26);
+    // 1 list call + reviews for the first 25; the 26th is never asked.
+    expect(calls).toHaveLength(26);
+    expect(calls.filter((url) => url.endsWith("/reviews"))).toHaveLength(25);
+    expect(prs[24]!.reviewState).toBeNull(); // empty reviews array → null, not a fetch error
+    expect(prs[24]!.lastReviewAt).toBeNull();
+  });
+
+  it("github returns null on a host error, a rejected fetch, a non-array body, or an unparseable remote", async () => {
+    const error = routeFetch(() => ({ message: "boom" }), 500);
+    expect(await githubHost.listPRs(gh, "https://github.com/o/r", error.impl)).toBeNull();
+    const down: typeof fetch = async () => {
+      throw new Error("network");
+    };
+    expect(await githubHost.listPRs(gh, "https://github.com/o/r", down)).toBeNull();
+    const shaped = routeFetch(() => ({ not: "a list" }));
+    expect(await githubHost.listPRs(gh, "https://github.com/o/r", shaped.impl)).toBeNull();
+    const fine = routeFetch(() => []);
+    expect(await githubHost.listPRs(gh, "garbage", fine.impl)).toBeNull();
+  });
+
+  /** A forgejo list row in the API's own shape (live-verified 0053
+   *  review: author at `user.login` — `poster` is the Issue shape;
+   *  `merged` is a boolean, the timestamp is `merged_at`). */
+  const fjRow = (over: Record<string, unknown>) => ({
+    number: 1,
+    title: "Add thing",
+    html_url: "https://git.example.com/o/r/pulls/1",
+    state: "open",
+    merged: false,
+    merged_at: null,
+    user: { login: "chad" },
+    head: { ref: "feat/thing" },
+    created_at: "2026-10-01T10:00:00Z",
+    updated_at: "2026-10-02T10:00:00Z",
+    comments: 0, // forgejo list rows DO carry counts
+    ...over,
+  });
+
+  it("forgejo lists with basic auth, maps rows, and aggregates REQUEST_CHANGES", async () => {
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const impl: typeof fetch = async (url, init) => {
+      seen.push({ url: String(url), headers: (init?.headers ?? {}) as Record<string, string> });
+      const body = String(url).endsWith("/reviews")
+        ? [
+            { user: { login: "glen" }, state: "REQUEST_CHANGES", submitted_at: "2026-10-02T09:00:00Z" },
+            { user: { login: "mia" }, state: "COMMENT", submitted_at: "2026-10-02T08:00:00Z" },
+          ]
+        : [
+            fjRow({ number: 2, html_url: "https://git.example.com/o/r/pulls/2", comments: 3, updated_at: "2026-10-03T10:00:00Z" }),
+            // `merged` is a boolean (HasMerged); the timestamp is `merged_at`
+            fjRow({ number: 1, state: "closed", merged: true, merged_at: "2026-09-20T10:00:00Z", updated_at: "2026-09-20T10:00:00Z" }),
+          ];
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const prs = (await forgejoHost.listPRs(fj, "https://git.example.com/o/r", impl))!;
+    // prs[0]: merged:false + merged_at:null (fixture default) → open
+    expect(prs[0]).toEqual({
+      number: 2,
+      title: "Add thing",
+      url: "https://git.example.com/o/r/pulls/2",
+      state: "open",
+      head: "feat/thing",
+      author: "chad",
+      createdAt: "2026-10-01T10:00:00Z",
+      updatedAt: "2026-10-03T10:00:00Z",
+      reviewState: "changes-requested",
+      commentCount: 3,
+      lastReviewAt: "2026-10-02T09:00:00Z",
+    });
+    expect(prs[1]).toMatchObject({ number: 1, state: "merged", reviewState: null });
+    expect(seen.map((c) => c.url)).toEqual([
+      "https://git.example.com/api/v1/repos/o/r/pulls?state=all&limit=50",
+      "https://git.example.com/api/v1/repos/o/r/pulls/2/reviews",
+    ]);
+    const expected = Buffer.from("chad:tok").toString("base64");
+    expect(seen[0]!.headers.authorization).toBe(`Basic ${expected}`);
+  });
+
+  it("forgejo auth is basic and a dismissed review never counts", async () => {
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const impl: typeof fetch = async (url, init) => {
+      seen.push({ url: String(url), headers: (init?.headers ?? {}) as Record<string, string> });
+      const body = String(url).endsWith("/reviews")
+        ? [
+            { user: { login: "glen" }, state: "REQUEST_CHANGES", submitted_at: "2026-10-02T09:00:00Z", dismissed: true },
+            { user: { login: "mia" }, state: "APPROVED", submitted_at: "2026-10-02T10:00:00Z" },
+          ]
+        : [fjRow({})];
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const [pr] = (await forgejoHost.listPRs(fj, "https://git.example.com/o/r", impl))!;
+    expect(pr.reviewState).toBe("approved"); // the dismissed blocker is dropped
+    const expected = Buffer.from("chad:tok").toString("base64");
+    expect(seen[0]).toEqual({
+      url: "https://git.example.com/api/v1/repos/o/r/pulls?state=all&limit=50",
+      headers: { authorization: `Basic ${expected}` },
+    });
+  });
+
+  it("forgejo returns null on a host error, a missing baseUrl, or an unparseable remote", async () => {
+    const error = routeFetch(() => ({ message: "boom" }), 404);
+    expect(await forgejoHost.listPRs(fj, "https://git.example.com/o/r", error.impl)).toBeNull();
+    const fine = routeFetch(() => []);
+    expect(
+      await forgejoHost.listPRs(cred({ kind: "forgejo" }), "https://git.example.com/o/r", fine.impl),
+    ).toBeNull();
+    expect(await forgejoHost.listPRs(fj, "garbage", fine.impl)).toBeNull();
   });
 });
