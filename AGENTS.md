@@ -189,7 +189,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   The seam returns `PRSummary[] | null` (never throws): open PRs by
   the account carry an aggregated review verdict (`aggregateReviews`
   — latest review per reviewer, changes-requested > approved >
-  commented), comment counts ride the list rows, review fetches are
+  commented), comment counts ride the list rows on Forgejo (GitHub
+  list rows lack the field, so counts show only when known), review
+  fetches are
   bounded to 25 open PRs per repo. Loader `lib/prs/dashboard.ts`
   resolves each repo's credential, filters by author
   case-insensitively, dedupes by canonical URL, sorts open first

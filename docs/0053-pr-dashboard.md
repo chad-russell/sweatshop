@@ -45,20 +45,25 @@ interface PRSummary {
   // Review signals, aggregated from reviews (nulls where the host/API
   // can't answer):
   reviewState: "changes-requested" | "approved" | "commented" | null;
-  commentCount: number | null;  // issue-style comment threads
+  commentCount: number | null;  // issue-style comment threads; null
+                                // where the list API carries no count
+                                // (GitHub list rows lack the field)
   lastReviewAt: string | null;  // newest review timestamp, when any
 }
 ```
 
 - **GitHub:** `GET /repos/{owner}/{repo}/pulls?state=all&per_page=50`
-  per repo — the list row already carries `comments` (count) and
-  `user.login` (author), so neither needs an extra call. For each
-  OPEN PR by the author, one `GET …/pulls/{n}/reviews` aggregates
+  per repo — the list row carries `user.login` (author) but NOT
+  `comments` (live-verified: that field exists on the single-PR GET /
+  issues API only), so GitHub counts show only when known (null). For
+  each OPEN PR by the author, one `GET …/pulls/{n}/reviews` aggregates
   the verdict: latest review per reviewer wins, then
   CHANGES_REQUESTED > APPROVED > COMMENTED across reviewers.
 - **Forgejo:** `GET /api/v1/repos/{owner}/{repo}/pulls?state=all&limit=50`
-  — rows carry `comments` (count) and `poster.login` (author); for
-  each OPEN PR by the author, `GET …/pulls/{n}/reviews` for the
+  — rows carry `comments` (count), the author at `user.login` (NOT
+  `poster` — that's the Issue shape), and a boolean `merged` with the
+  merge timestamp at `merged_at`; for each OPEN PR by the author,
+  `GET …/pulls/{n}/reviews` (reviewer at `user.login`) for the
   aggregated verdict (same precedence rule).
 - Review fetches run only for OPEN PRs by the author (settled PRs
   get `reviewState: null`) and are bounded — first 25 open PRs per
@@ -139,7 +144,7 @@ None — no schema change.
   endpoint URLs + parse functions per host; `aggregateReviews` is
   pure and pinned by tests.
 - Forgejo reviews use the gitea `PullReview` shape (`state` +
-  `reviewer.login` + `submitted_at`, `REQUEST_CHANGES` for changes
+  `user.login` + `submitted_at`, `REQUEST_CHANGES` for changes
   requested; `dismissed: true` rows dropped). If an instance ever
   differs, the mapping is one table (`FJ_REVIEW_STATE`).
 - Settled PRs sort by `updatedAt` (a merge updates it) —
@@ -149,3 +154,11 @@ None — no schema change.
   account, capped at 25 per repo (`MAX_REVIEWED_PRS`); a single
   failed reviews call leaves that PR's verdict null, never sinks
   the list.
+- API shapes were verified LIVE after the fresh-eyes review (against
+  git.crussell.io, codeberg.org, gitea.com, api.github.com and
+  Forgejo's swagger) and corrected: the draft's `poster`/`reviewer`
+  field names and "`merged` is the timestamp" note were wrong —
+  Forgejo pulls carry the author at `user.login` and a boolean
+  `merged` + `merged_at` timestamp, reviews carry the reviewer at
+  `user.login`, and GitHub list rows carry no `comments`. The test
+  fixtures are pinned to those live shapes.

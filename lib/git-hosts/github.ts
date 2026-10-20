@@ -24,8 +24,11 @@ const GH_REVIEW_STATE: Record<string, ReviewSignal["state"]> = {
   COMMENTED: "commented",
 };
 
-/** One `…/pulls` row → a summary, or null on an untrusted shape
- *  (`user.login` is the author, `merged_at` set → merged). */
+/** One `…/pulls` row → a summary, or null on an untrusted shape.
+ *  Live-verified (0053 review): LIST rows carry no `comments` — that
+ *  field exists on the single-PR GET / issues API only — so GitHub
+ *  counts stay null (the summary allows null; the badge shows only
+ *  when known). Author is `user.login`, `merged_at` set → merged. */
 function ghPRSummary(row: unknown): PRSummary | null {
   const title = strField(row, "title");
   const url = strField(row, "html_url");
