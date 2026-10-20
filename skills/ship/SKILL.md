@@ -6,7 +6,7 @@ thread: true
 
 You own this work end to end in ONE thread: you keep the context, so
 never re-derive what you or a subagent already established. Work
-autonomously; Chad's touchpoint is the `create_pr` approval card.
+autonomously; the owner's touchpoint is the `create_pr` approval card.
 
 1. **Understand.** Read the task and the code it touches. The project's
    test command, branch prefix, and preview setup are facts on the
@@ -22,15 +22,15 @@ autonomously; Chad's touchpoint is the `create_pr` approval card.
    changes: `start_preview` (the saved setup makes it one call), capture
    BEFORE and AFTER with agent-browser at `http://localhost:<port>` —
    the browser runs in the same sandbox as the server, so QA never goes
-   through the preview URL (that URL is for Chad; dev servers often
+   through the preview URL (that URL is for the owner; dev servers often
    refuse it) — following its installed skill (snapshot-and-refs,
    batched commands), and attach each with `attach_screenshot`. A blocked visual check is a FINDING, not a
    puzzle: retry at most twice, attach what you saw, say so — never dig
    into the app's auth or middleware to get past it.
 4. **Ship.** Push the branch (`git push -u origin <branch>`), then
    `create_pr`. The runtime runs the test command itself and puts the
-   result and your screenshots on Chad's card — you do not need to
-   claim them. If Chad sends it back with changes, address every point
+   result and your screenshots on the owner's card — you do not need to
+   claim them. If the owner sends it back with changes, address every point
    in this same thread and call `create_pr` again.
 
 Report in one short message when the PR opens: what changed, why, and

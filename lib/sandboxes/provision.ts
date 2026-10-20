@@ -14,7 +14,8 @@ const exec = promisify(execFile);
 
 /** The image a sandbox runs when its project's config names none
  * (built from Containerfile.sandbox). SWEATSHOP_SANDBOX_IMAGE
- * overrides the default ref (e.g. a differently-tagged build). */
+ * overrides the default ref (e.g. a differently-tagged build) — read
+ * at module load, not per call. */
 export const DEFAULT_SANDBOX_IMAGE = process.env.SWEATSHOP_SANDBOX_IMAGE || "localhost/sweatshop-sandbox";
 
 /** Container lifecycle primitives (0010 Phase 2): the podman provider

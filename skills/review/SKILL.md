@@ -11,7 +11,7 @@ the work; assume nothing about why it is what it is.
 
 You are attached to the same sandbox and checkout as the thread that
 built the work. If `PLAN.md` exists in the work root (beside the
-repos), it is the plan Chad approved — the agreed spec, not the
+repos), it is the plan the owner approved — the agreed spec, not the
 builder's reasoning. Check the diff against it: every step done, and
 nothing done that it ruled out.
 
