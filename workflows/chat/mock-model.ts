@@ -12,8 +12,9 @@ import type { LanguageModel } from "ai";
  * the workflow serializes the model across step boundaries, so instance
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
- * "hang" | "create-pr" | "viewing" | "skill" | "loop" | "accept-plan") is read at call time so a test file can
- * switch scripts between turns.
+ * "hang" | "create-pr" | "viewing" | "thread-state" | "skill" | "loop" |
+ * "accept-plan") is read at call time so a test file can switch scripts
+ * between turns.
  *
  * The "steer" script never touches the database itself: workflow context
  * (where doStream runs) forbids Node APIs. The TEST enqueues the steer
@@ -139,15 +140,15 @@ export function scriptedChatModel(): LanguageModel {
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }
 
-      // 0037/0039: bind a skill mid-thread; later turns see it in the
-      // system prompt ("mock-skill:<in-system>").
+      // 0055: use_skill is list-only now — calling it can never bind the
+      // thread (binding is enter_mode / the creating send / start_thread
+      // only). The tool's own result (the catalog) lands in the
+      // persisted history regardless of what this script echoes back.
       if (script === "skill") {
-        const system = options.prompt.find((m) => m.role === "system");
-        const inSystem = system ? messageText(system).includes("# Skill: Ship") : false;
-        if (!sawToolResult && !inSystem) {
-          return result(toolCallPart("call_skill_1", "use_skill", { id: "ship" }));
+        if (!sawToolResult) {
+          return result(toolCallPart("call_skill_1", "use_skill", {}));
         }
-        return result(textPart(`mock-skill:${inSystem}`));
+        return result(textPart("mock-skill-done"));
       }
 
       // 0037: a turn that never stops calling tools — exhausts its budget.
@@ -202,6 +203,17 @@ export function scriptedChatModel(): LanguageModel {
           (m) => m.role === "user" && messageText(m).startsWith("[viewing]"),
         ).length;
         return result(textPart(`mock-viewing:${notes}`));
+      }
+
+      // 0055: report how many "[thread state]" notes the model was shown
+      // this turn — present (exactly once) for a moded conversation with
+      // a phase set, absent for a plain chat or a legacy ticket-skill
+      // thread (bound before 0055, null phase).
+      if (script === "thread-state") {
+        const notes = options.prompt.filter(
+          (m) => m.role === "user" && messageText(m).startsWith("[thread state]"),
+        ).length;
+        return result(textPart(`mock-thread-state:${notes}`));
       }
 
       // 0042: report what the model received for each image part — the

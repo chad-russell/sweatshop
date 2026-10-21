@@ -3,6 +3,7 @@ import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
+import { isTicketPhase, threadStateNote } from "../../lib/agent/mode-ids";
 import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
@@ -114,6 +115,10 @@ export async function chatTurn(input: ChatTurnInput) {
   // so plain chats skip the step call entirely (no extra round trip on
   // every turn for something that can never apply).
   const repoDocs = input.hasProject === true ? await loadRepoDocsStep(conversationId) : [];
+  // 0055: a mode's phase, when set — drives both the instructions'
+  // skill-section skip and the per-turn [thread state] note below.
+  const modePhase = skill?.modePhase ?? null;
+  const ticketPhase = isTicketPhase(modePhase) ? modePhase : null;
   const agent = new WorkflowAgent({
     model,
     instructions: buildInstructions({
@@ -121,6 +126,7 @@ export async function chatTurn(input: ChatTurnInput) {
       hosts: input.hosts ?? [],
       repoDocs,
       skill,
+      modePhase,
       sections,
     }),
     // 0042: WorkflowAgent hard-codes supportedUrls: {}, so the SDK would try
@@ -139,9 +145,14 @@ export async function chatTurn(input: ChatTurnInput) {
   // the send (the agent forbids system messages in `messages`), model
   // input only — it is persisted as metadata on the user row above and
   // rebuilt by listTurnMessages; persistTurn's skip keeps it out.
+  // 0055: the [thread state] note is built the same way but from LIVE
+  // state, not a per-send payload — rebuilt fresh every turn (never
+  // persisted; a mid-turn advance_phase reaches the model through its
+  // own tool result, so no per-slice re-injection is needed).
   let messages: ModelMessage[] = [
     ...history,
     ...(input.viewing ? [{ role: "user" as const, content: viewingNote(input.viewing) }] : []),
+    ...(ticketPhase ? [{ role: "user" as const, content: threadStateNote(ticketPhase) }] : []),
     { role: "user", content: userContent },
   ];
   let finishReason: string = "stop";
@@ -157,8 +168,8 @@ export async function chatTurn(input: ChatTurnInput) {
   // conversation's size in tokens once the turn lands.
   let lastSliceUsage: UsageCounts | null = null;
   // skip = everything already persisted (loaded history + this turn's
-  // user message) plus the injected note, which sits right before it.
-  const skip = history.length + (input.viewing ? 1 : 0) + 1;
+  // user message) plus the injected notes, which sit right before it.
+  const skip = history.length + (input.viewing ? 1 : 0) + (ticketPhase ? 1 : 0) + 1;
   // One durable stream per TURN, not per slice: every slice leaves it
   // open and unfinished; finishTurnStream ends it exactly once — also
   // when a slice throws, so a reconnected browser is never left hanging.

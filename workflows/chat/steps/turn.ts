@@ -120,15 +120,20 @@ export async function finishTurnStream(
   await writable.close();
 }
 
-/** 0039: the thread's skill (null = plain chat). */
+/** 0039: the thread's skill (null = plain chat). 0055: `modePhase` rides
+ *  along — it is a property of the CONVERSATION, not the skill, but
+ *  every caller needs them together (buildInstructions's mode-skip
+ *  check, the [thread state] note) and null skill always means null
+ *  phase anyway (a mode is only ever entered together with its skill). */
 export async function loadSkillStep(
   conversationId: string,
-): Promise<{ id: string; title: string; body: string } | null> {
+): Promise<{ id: string; title: string; body: string; modePhase: string | null } | null> {
   "use step";
   const [{ db, chat }, { readSkill }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
-  const id = chat.getConversation(db, conversationId)?.skill;
+  const conversation = chat.getConversation(db, conversationId);
+  const id = conversation?.skill;
   const skill = id ? await readSkill(id) : null;
-  return skill ? { id: skill.id, title: skill.title, body: skill.body } : null;
+  return skill ? { id: skill.id, title: skill.title, body: skill.body, modePhase: conversation?.modePhase ?? null } : null;
 }
 
 /** 0039: list thread skills, or bind one to the thread and return its

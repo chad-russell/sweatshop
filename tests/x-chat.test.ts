@@ -438,6 +438,38 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "thread state: a moded conversation gets the [thread state] note every turn; a plain chat and a legacy ticket-skill thread (null phase) get none (0055)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "thread-state";
+      const { setConversationMode, setConversationSkill } = await import("../db/chat");
+
+      const plain = conv("thread-state-plain");
+      const plainRun = await start(chatTurn, [{ conversationId: plain, userText: "hi" }]);
+      await plainRun.returnValue;
+      expect(serialized(plain)).toContain("mock-thread-state:0");
+
+      const legacy = conv("thread-state-legacy");
+      setConversationSkill(db(), legacy, "ticket"); // bound, no phase — pre-0055 shape
+      const legacyRun = await start(chatTurn, [{ conversationId: legacy, userText: "hi" }]);
+      await legacyRun.returnValue;
+      expect(serialized(legacy)).toContain("mock-thread-state:0");
+
+      const moded = conv("thread-state-moded");
+      setConversationMode(db(), moded, "ticket", "implement");
+      const modedRun = await start(chatTurn, [{ conversationId: moded, userText: "hi" }]);
+      await modedRun.returnValue;
+      // The model saw exactly one note (proven by the mock's own count,
+      // since the note itself is never persisted — rebuilt fresh every
+      // turn from the live column, same as it was never in the prompt
+      // in the first place as far as sqlite is concerned).
+      expect(serialized(moded)).toContain("mock-thread-state:1");
+      const rows = (await import("../db/chat")).listMessageTexts(db(), moded);
+      expect(rows.some((r) => r.text.startsWith("[thread state]"))).toBe(false);
+    },
+  );
+
+  it(
     "background harness call: the worker advances the harness, settles with its text, and wakes the chat (0022)",
     { timeout: 30_000 },
     async () => {
@@ -673,19 +705,18 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "skill: use_skill binds it, and the next turn runs with it in the instructions (0037/0039)",
+    "skill: use_skill lists skills but never binds (0055)",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_CHAT_MOCK = "skill";
       const { getConversation } = await import("../db/chat");
       const id = conv("skill");
-      await (await turn(id, "ship it")).returnValue;
-      expect(getConversation(db(), id)?.skill).toBe("ship");
-      expect(serialized(id)).toContain("Bound to this thread");
-      expect(serialized(id)).toContain("mock-skill:false");
-
-      await (await turn(id, "status?")).returnValue;
-      expect(serialized(id)).toContain("mock-skill:true");
+      await (await turn(id, "what skills exist?")).returnValue;
+      expect(getConversation(db(), id)?.skill).toBeNull();
+      const history = serialized(id);
+      expect(history).toContain('"skills"');
+      expect(history).toContain("ticket");
+      expect(history).toContain("mock-skill-done");
     },
   );
 

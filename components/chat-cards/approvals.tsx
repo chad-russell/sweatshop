@@ -378,8 +378,9 @@ export function AcceptPlanCard({ part }: { part: ToolUIPart }) {
 
 /** Tools whose execute asks Chad first (the ask_chad pattern inside a
  * tool): while the part is unresolved, the transcript shows the
- * approval buttons right there — same POST as the inbox card. */
-export const GATED_TOOLS = new Set(["create_project", "delete_project"]);
+ * approval buttons right there — same POST as the inbox card. 0055:
+ * enter_mode reuses this same card — no new card kind. */
+export const GATED_TOOLS = new Set(["create_project", "delete_project", "enter_mode"]);
 
 export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
   const fields = (["description", "thread", "status"] as const).filter((key) => key in card.patch);
@@ -568,7 +569,9 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
   const headline =
     name === "create_project"
       ? `Create project ${str("id") ?? "?"}${str("name") ? ` ("${str("name")}")` : ""}`
-      : `Delete project ${str("id") ?? "?"} — and everything it owns`;
+      : name === "delete_project"
+        ? `Delete project ${str("id") ?? "?"} — and everything it owns`
+        : `Enter ticket mode${str("ticket") ? `: ${str("ticket")}` : ""}`;
   const answered = part.state === "output-available" || part.state === "output-error";
 
   const post = async (approved: boolean) => {
@@ -587,7 +590,7 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
   return (
     <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
       <p className="text-sm font-medium">{headline}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">The agent is waiting for your approval.</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{str("reason") ?? "The agent is waiting for your approval."}</p>
       {!answered ? (
         <div className="mt-2 flex gap-2">
           <button
