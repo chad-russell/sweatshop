@@ -16,6 +16,7 @@ import {
   publishEdit,
   PROMPT_SECTION_MAX_BYTES,
   PRE_0055_BASE_PLACEHOLDER,
+  PRE_GIT_LINKS_BASE,
   PRE_0055_TICKET_BODY,
   PRE_PLACEHOLDER_CHAD_BASE,
   resetToGitDefault,
@@ -439,6 +440,14 @@ describe("repairing a stale pre-placeholder base row", () => {
     seedBaseDirectly(conn, PRE_0055_BASE_PLACEHOLDER, "git");
     const repaired = getTarget(conn, { kind: "section", key: "base" });
     expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0055 ticket mode" });
+  });
+
+  it("a row still at the pre-git-links default upgrades to the current default", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_GIT_LINKS_BASE, "git");
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "git-host links" });
+    expect(GIT_DEFAULT_SECTIONS.base).toContain("github.com/<owner>/<repo>/commit/<sha>");
   });
 });
 
