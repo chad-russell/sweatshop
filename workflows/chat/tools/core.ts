@@ -1,5 +1,5 @@
 /**
- * Always-on tools: ask_chad, create_pr, inspect, sandbox_exec, use_skill, system_docs, note.
+ * Always-on tools: ask_owner, create_pr, inspect, sandbox_exec, use_skill, system_docs, note.
  */
 
 import { tool } from "ai";
@@ -13,7 +13,7 @@ export function coreTools(
   conversationId: string,
 ) {
   return {
-    ask_chad: tool({
+    ask_owner: tool({
       description:
         `Ask ${ownerName()} for input. The turn waits for their answer. kind=approval when you want ` +
         "permission to do something (they can approve or deny, optionally with a comment); " +
@@ -119,7 +119,7 @@ export function coreTools(
     propose_prompt_change: tool({
       description:
         "Propose a change to an app prompt section or the skill catalog. This can edit prompt/skill text, " +
-        "create a skill, or change a skill's description, thread binding, or reversible status. Chad sees the " +
+        `create a skill, or change a skill's description, thread binding, or reversible status. ${ownerName()} sees the ` +
         "complete change and must explicitly approve before it is written. This cannot change tools, approval " +
         "gates, command restrictions, or provider/model validation.",
       inputSchema: z.object({
@@ -141,7 +141,7 @@ export function coreTools(
           return {
             ok: false,
             code: "denied" as const,
-            message: comment || "Chad declined — nothing was changed",
+            message: comment || `${ownerName()} declined — nothing was changed`,
           };
         }
         return applyApprovedPromptChangeStep(

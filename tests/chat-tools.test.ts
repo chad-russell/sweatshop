@@ -376,3 +376,11 @@ describe("0037 phase 5: the tool catalog after machines", () => {
     }
   });
 });
+
+describe("owner genericization: ask_owner", () => {
+  it("every chat has ask_owner, never the old ask_chad name", () => {
+    const names = Object.keys(buildChatTools("c_x", { hasSandbox: false, hasProject: false }));
+    expect(names).toContain("ask_owner");
+    expect(names).not.toContain("ask_chad");
+  });
+});

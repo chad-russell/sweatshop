@@ -52,12 +52,12 @@ export function queryTools() {
       description:
         `Run one read-only GitHub CLI command with ${possessive()} stored github credentials — ` +
         "see private repos their user can (e.g. find a repo in an org: gh search repos + `org:` " +
-        "qualifier, or repo view TangoGroup/name --json name,defaultBranchRef,url). " +
+        "qualifier, or repo view acme/widgets --json name,defaultBranchRef,url). " +
         "Read-only allowlist: repo list/view, search repos/code/issues/prs/commits, " +
         "org list, pr list/view/checks/diff, issue list/view, release list/view. " +
         "Output is plain text or --json; clip long output yourself with --limit or --jq.",
       inputSchema: z.object({
-        args: z.array(z.string().min(1)).min(1).max(12).describe("The gh argv, e.g. [\"repo\", \"view\", \"TangoGroup/360-gpl\"]"),
+        args: z.array(z.string().min(1)).min(1).max(12).describe("The gh argv, e.g. [\"repo\", \"view\", \"acme/widgets\"]"),
       }),
       execute: ({ args }) => ghStep(args),
     }),

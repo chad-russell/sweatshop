@@ -1,8 +1,7 @@
 # Projects — repos, credentials, and work settings
 
 A project is a unit of work: one or more git repos plus settings that
-machine runs and project chats inherit. GPL, open-bible, sweatshop
-itself are (or will be) projects.
+machine runs and project chats inherit.
 
 ## What's on a project
 
@@ -28,8 +27,8 @@ itself are (or will be) projects.
 
 Finding repos: the `gh` tool runs the real GitHub CLI with the owner's
 stored credentials — including PRIVATE repos their user can see
-(`gh search repos "org:TangoGroup gpl"`, `gh repo view
-TangoGroup/360-gpl --json name,defaultBranchRef,url`). The `forgejo`
+(`gh search repos "org:acme widgets"`, `gh repo view
+acme/widgets --json name,defaultBranchRef,url`). The `forgejo`
 tool is its twin for the configured forgejo instance (read-only API GETs:
 `/repos/search?q=…`, `/repos/{owner}/{repo}`, `/orgs/{org}/repos`…).
 Both are read-only allowlists; either reports `not-configured` when

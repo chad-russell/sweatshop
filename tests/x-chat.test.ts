@@ -169,12 +169,12 @@ describe("0010 spike: chat turn workflow", () => {
         if (done) break;
         parts.push(value);
       }
-      expect(JSON.stringify(parts)).toContain("ask_chad");
+      expect(JSON.stringify(parts)).toContain("ask_owner");
     },
   );
 
   it(
-    "question: a freeform ask_chad suspends on the hook and returns Chad's answer",
+    "question: a freeform ask_owner suspends on the hook and returns Chad's answer",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_CHAT_MOCK = "question";
@@ -606,7 +606,7 @@ describe("0010 spike: chat turn workflow", () => {
       const runA = await turn(idA, "please ask me");
       await waitFor(
         () => Promise.resolve(listPendingInputs(db(), idA).some((p) => p.id === askA)),
-        "this turn's own ask_chad card",
+        "this turn's own ask_owner card",
       );
       const { answerPendingWithText } = await import("../lib/chat/answer-pending");
       expect(await answerPendingWithText(idA, "the dead one first")).toEqual({
@@ -657,7 +657,7 @@ describe("0010 spike: chat turn workflow", () => {
       const runC = await turn(idC, "please ask me");
       await waitFor(
         () => Promise.resolve(listPendingInputs(db(), idC).some((p) => p.id === askC)),
-        "this turn's own ask_chad card",
+        "this turn's own ask_owner card",
       );
       await runC.cancel({ cancelReason: "test cancel" });
       const deny = await inputPost(

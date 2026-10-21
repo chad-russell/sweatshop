@@ -161,7 +161,7 @@ describe("needs you", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       requestId: "call_x1",
-      toolName: "ask_chad",
+      toolName: "ask_owner",
     });
 
     resolvePendingInput(tdb, "call_x1", { approved: true });

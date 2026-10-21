@@ -1,5 +1,12 @@
+import path from "node:path";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { describe, expect, it } from "vitest";
-import { db } from "../db";
+import { db, openDb, type Db } from "../db";
+import { promptSections, promptSectionVersions } from "../db/schema";
 import { GIT_DEFAULT_SECTIONS } from "../workflows/chat/instructions";
 import {
   applyApprovedChange,
@@ -8,6 +15,7 @@ import {
   listVersions,
   publishEdit,
   PROMPT_SECTION_MAX_BYTES,
+  PRE_PLACEHOLDER_CHAD_BASE,
   resetToGitDefault,
   restoreVersion,
   SKILL_BODY_MAX_BYTES,
@@ -34,6 +42,13 @@ describe("getTarget / listTargets: seeding", () => {
     const second = getTarget(db(), target);
     expect(second?.version).toBe(1);
     expect(second?.body).toBe(first?.body);
+  });
+
+  it("seeds base as {{owner}}/{{owner's}} placeholder text, never an owner's literal name", () => {
+    const first = getTarget(db(), { kind: "section", key: "base" });
+    expect(first?.body).toContain("{{owner}}");
+    expect(first?.body).toContain("{{owner's}}");
+    expect(first?.body).not.toContain("Chad");
   });
 
   it("seeds a git-shipped skill (ship) but returns null for an unknown id", () => {
@@ -357,5 +372,63 @@ describe("seeding is transactional (2): row + history never drift, even seeded m
     getTarget(db(), skill);
     const history = listVersions(db(), skill);
     expect(history.filter((v) => v.version === 1)).toHaveLength(1);
+  });
+});
+
+/**
+ * Owner-placeholder repair: a `base` row already seeded (pre-fix) with the literal
+ * "Chad" default gets upgraded to the placeholder default on next read.
+ * This mutates the singleton `base` row directly, so it runs against
+ * its own freshly migrated scratch db — never the shared `db()` every
+ * other test in this file reads/writes.
+ */
+describe("repairing a stale pre-placeholder base row", () => {
+  function freshDb(): Db {
+    const dir = mkdtempSync(path.join(tmpdir(), "sweatshop-prompt-repair-"));
+    const dbPath = path.join(dir, "t.db");
+    const sqlite = new Database(dbPath);
+    sqlite.pragma("foreign_keys = OFF");
+    migrate(drizzle(sqlite), { migrationsFolder: path.join(process.cwd(), "drizzle") });
+    sqlite.close();
+    return openDb(dbPath);
+  }
+
+  function seedBaseDirectly(conn: Db, body: string, editedBy: "git" | "user" | "agent") {
+    const now = Date.now();
+    conn.insert(promptSections).values({ key: "base", body, version: 1, editedBy, note: null, createdAt: now, updatedAt: now }).run();
+    conn.insert(promptSectionVersions).values({ key: "base", version: 1, body, editedBy, note: null, createdAt: now }).run();
+  }
+
+  it("upgrades an old git-seeded Chad default to the new placeholder default, as a new git version", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_PLACEHOLDER_CHAD_BASE, "git");
+
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "owner placeholders" });
+
+    const history = listVersions(conn, { kind: "section", key: "base" });
+    expect(history.map((v) => v.version)).toEqual([2, 1]);
+  });
+
+  it("is idempotent — a second read does not bump the version again", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_PLACEHOLDER_CHAD_BASE, "git");
+    getTarget(conn, { kind: "section", key: "base" });
+    const second = getTarget(conn, { kind: "section", key: "base" });
+    expect(second?.version).toBe(2);
+  });
+
+  it("never rewrites a user- or agent-edited row, even one that happens to match the old text byte-for-byte", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_PLACEHOLDER_CHAD_BASE, "user");
+    const untouched = getTarget(conn, { kind: "section", key: "base" });
+    expect(untouched).toMatchObject({ version: 1, body: PRE_PLACEHOLDER_CHAD_BASE, editedBy: "user" });
+  });
+
+  it("leaves an already-placeholder git row alone", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, GIT_DEFAULT_SECTIONS.base, "git");
+    const same = getTarget(conn, { kind: "section", key: "base" });
+    expect(same).toMatchObject({ version: 1, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git" });
   });
 });
