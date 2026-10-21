@@ -60,8 +60,9 @@ function ChildWatcher({
   return null;
 }
 
+/** Same box as the model picker and sandbox control (h-8, items-center, text-sm). */
 const TRIGGER =
-  "inline-flex h-8 max-h-8 pointer-coarse:h-10 pointer-coarse:max-h-10 min-w-0 max-w-56 shrink items-center self-center gap-1 rounded-lg border border-transparent px-2 py-0 text-sm leading-none font-normal text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+  "inline-flex h-8 pointer-coarse:h-10 max-w-56 items-center gap-1 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
 const STEP_MARK: Record<StatusState, { icon: typeof Check; className: string }> = {
   done: { icon: Check, className: "text-success" },
@@ -206,14 +207,13 @@ export function ModeChip({
       {childIds.map((id) => (
         <ChildWatcher key={id} id={id} onChange={onStatusChange} />
       ))}
-      <span className="inline-flex min-w-0 shrink items-center self-center">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             aria-label={ariaLabel}
             title={mode ? "This chat's mode" : bound ? `Using the "${bound.skillId}" skill` : "Enter a mode for this chat"}
-            className={cn(TRIGGER, mode && "border-primary/30 bg-primary/10 text-primary", className)}
+            className={cn(TRIGGER, className, mode && "border-primary/30 bg-primary/10 text-primary")}
           >
             <Workflow className="size-3.5 shrink-0" aria-hidden />
             <span className="hidden truncate sm:inline">{fullLabel}</span>
@@ -337,7 +337,6 @@ export function ModeChip({
             )}
         </DropdownMenuContent>
       </DropdownMenu>
-      </span>
     </>
   );
 }
