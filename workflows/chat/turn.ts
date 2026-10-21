@@ -40,15 +40,15 @@ import {
  * slice after the first and injected as user messages.
  */
 
-const MAX_STEPS = 50;
+const MAX_STEPS = 100;
 /** 0037/0039: a thread-skill thread works unattended — harness-stage parity. */
-const THREAD_SKILL_MAX_STEPS = 400;
+const THREAD_SKILL_MAX_STEPS = 800;
 
 /** Pulled out of the workflow body so the budget choice is unit-testable
  *  without driving a turn: a skill or a start_thread child (0040 phase 3)
- *  gets the thread budget (400, or the test override), everyone else
- *  gets the plain 50 — never overridable (skillMaxSteps is test-only and
- *  only meaningful on the thread budget). */
+ *  gets the thread budget (800, or the test override), everyone else
+ *  gets the plain 100 — never overridable (skillMaxSteps is test-only
+ *  and only meaningful on the thread budget). */
 export function resolveMaxSteps(hasSkillOrParent: boolean, skillMaxSteps?: number): number {
   return hasSkillOrParent ? (skillMaxSteps ?? THREAD_SKILL_MAX_STEPS) : MAX_STEPS;
 }

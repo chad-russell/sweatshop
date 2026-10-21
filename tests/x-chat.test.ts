@@ -658,6 +658,155 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "harness-bridge-cleanup: the step cap tears down the live session and persists its resume handle instead of leaving the bridge running",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_HARNESS_MOCK = "loop";
+      try {
+        const { projects } = await import("../db/schema");
+        const { createHarnessCall, getHarnessCall } = await import("../db/harness-calls");
+        const { getHarnessResumeState } = await import("../db/chat");
+        const { harnessCall } = await import("../workflows/chat/harness-call");
+        db().insert(projects).values({ id: "p_xchat_hccap", name: "HC Cap", createdAt: 0 }).onConflictDoNothing().run();
+        const id = `c_test_hccap_${Math.random().toString(36).slice(2, 8)}`;
+        ensureConversation(db(), id, "p_xchat_hccap");
+
+        const call = createHarnessCall(db(), { conversationId: id, kind: "pi", task: "loop forever" });
+        const run = await start(harnessCall, [
+          {
+            callId: call.id,
+            conversationId: id,
+            kind: "pi",
+            task: "loop forever",
+            route: { harness: "pi", provider: "glm", model: "glm-5.3-flash" },
+            maxSteps: 1,
+          },
+        ]);
+
+        const ret = await run.returnValue;
+        expect(ret).toEqual({ status: "failed" });
+        const settled = getHarnessCall(db(), call.id)!;
+        expect(settled.status).toBe("failed");
+        expect(settled.error).toContain("exceeded 1 agent steps");
+        // harnessStopStep's mock resume handle made it into the settle —
+        // the NEXT call in this conversation resumes cleanly instead of
+        // spawning a second bridge on top of the still-live one.
+        expect(getHarnessResumeState(db(), id, "pi")).toMatchObject({ mock: "stopped" });
+      } finally {
+        delete process.env.SWEATSHOP_HARNESS_MOCK;
+      }
+    },
+  );
+
+  it(
+    "harness-bridge-cleanup: a teardown failure at the step cap still settles failed, with no resume handle",
+    { timeout: 30_000 },
+    async () => {
+      // "stop-throws" only changes harnessStopStep's mock branch;
+      // harnessAdvanceStep falls back to its generic (non-"loop") mock
+      // step, which still carries a continueFrom while not yet "done" —
+      // the same shape a real suspended turn would have at the cap.
+      process.env.SWEATSHOP_HARNESS_MOCK = "stop-throws";
+      try {
+        const { projects } = await import("../db/schema");
+        const { createHarnessCall, getHarnessCall } = await import("../db/harness-calls");
+        const { getHarnessResumeState } = await import("../db/chat");
+        const { harnessCall } = await import("../workflows/chat/harness-call");
+        db().insert(projects).values({ id: "p_xchat_hccapfail", name: "HC Cap Fail", createdAt: 0 }).onConflictDoNothing().run();
+        const id = `c_test_hccapfail_${Math.random().toString(36).slice(2, 8)}`;
+        ensureConversation(db(), id, "p_xchat_hccapfail");
+
+        const call = createHarnessCall(db(), { conversationId: id, kind: "pi", task: "loop forever" });
+        const run = await start(harnessCall, [
+          {
+            callId: call.id,
+            conversationId: id,
+            kind: "pi",
+            task: "loop forever",
+            route: { harness: "pi", provider: "glm", model: "glm-5.3-flash" },
+            maxSteps: 1,
+          },
+        ]);
+
+        const ret = await run.returnValue;
+        expect(ret).toEqual({ status: "failed" });
+        const settled = getHarnessCall(db(), call.id)!;
+        expect(settled.status).toBe("failed");
+        expect(settled.error).toContain("exceeded 1 agent steps");
+        // The teardown failure was swallowed (logged, not thrown) — the
+        // settle still landed, just with no resume handle to offer.
+        expect(getHarnessResumeState(db(), id, "pi")).toBeNull();
+      } finally {
+        delete process.env.SWEATSHOP_HARNESS_MOCK;
+      }
+    },
+  );
+
+  it(
+    "harness-bridge-cleanup: cancel_run never cancels the workflow run — the loop notices the settle between steps and tears down with destroy",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_HARNESS_MOCK = "loop";
+      try {
+        const { projects } = await import("../db/schema");
+        const { createHarnessCall, getHarnessCall, setCallWorkflowRun } = await import("../db/harness-calls");
+        const { getHarnessEvents } = await import("../lib/harness-events");
+        const { harnessCall } = await import("../workflows/chat/harness-call");
+        const { cancelRunTool } = await import("../lib/agent/tools/cancel-run");
+        db().insert(projects).values({ id: "p_xchat_hccancel", name: "HC Cancel", createdAt: 0 }).onConflictDoNothing().run();
+        const id = `c_test_hccancel_${Math.random().toString(36).slice(2, 8)}`;
+        ensureConversation(db(), id, "p_xchat_hccancel");
+
+        const call = createHarnessCall(db(), { conversationId: id, kind: "pi", task: "loop forever" });
+        const run = await start(harnessCall, [
+          {
+            callId: call.id,
+            conversationId: id,
+            kind: "pi",
+            task: "loop forever",
+            route: { harness: "pi", provider: "glm", model: "glm-5.3-flash" },
+          },
+        ]);
+        // A real call's workflowRunId is set by the starter before the
+        // workflow is driven — set it here so cancelRunTool can find the
+        // SAME run a production cancel_run call would.
+        setCallWorkflowRun(db(), call.id, run.runId);
+
+        // Let at least one real mock step land (so the suspended turn
+        // actually has a continueFrom to tear down) — the "loop" mock
+        // writes no observable row per step, so a short bounded delay is
+        // the only signal available; several mock round-trips easily fit
+        // in it. Then cancel through the REAL production entry point —
+        // this is the thing the previous version of this test never
+        // exercised.
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const cancelled = await cancelRunTool(call.id);
+        expect(cancelled).toMatchObject({ ok: true, status: "cancelled" });
+
+        // The run was NEVER told to cancel — it finishes on its own,
+        // normally, once the loop notices the settle and tears down.
+        const ret = await run.returnValue;
+        expect(ret).toEqual({ status: "cancelled" });
+        expect(await run.status).toBe("completed");
+
+        // The row stays exactly as cancelRunTool left it — the workflow
+        // never re-settles a cancelled call.
+        expect(getHarnessCall(db(), call.id)?.status).toBe("cancelled");
+        // The teardown step ran, and ran with destroy (not stop) — the
+        // mock branch's only observable trace of that distinction.
+        await waitFor(
+          async () => getHarnessEvents(id, "pi").events.some((e) => e.text === "mock-teardown:destroy"),
+          "the destroy teardown to run",
+        );
+        // Cancelled calls never wake their conversation.
+        expect(listMessageTexts(db(), id).some((r) => r.text.includes("finished"))).toBe(false);
+      } finally {
+        delete process.env.SWEATSHOP_HARNESS_MOCK;
+      }
+    },
+  );
+
+  it(
     "cancel: a hung model call cancels the run and nothing is persisted for it",
     { timeout: 30_000 },
     async () => {
@@ -811,7 +960,7 @@ describe("0010 spike: chat turn workflow", () => {
       const ret = await (await start(chatTurn, [{ conversationId: id, userText: "go", skillMaxSteps: 2 }])).returnValue;
       expect(ret.finishReason).toBe("tool-calls");
       // The continuation is a NEW turn (it records its own chip row; the
-      // loop script would run it to 400 — the bound is unit-tested in
+      // loop script would run it to 800 — the bound is unit-tested in
       // skills.test.ts).
       const budgetChips = () =>
         rows(db(), id).filter((r) => r.role === "user" && r.metadata?.runEvent?.kind === "budget");

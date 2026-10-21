@@ -105,7 +105,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   creation; settle = `updated_at` past it with no live turn;
   `wakeParentStep` runs after the budget decision), carrying the child's
   last REAL assistant report; a child with none is stamped woken
-  silently. Children get the thread step budget (400, `resolveMaxSteps`)
+  silently. Children get the thread step budget (800, `resolveMaxSteps`)
   even un-skilled (`hasParent`); the budget CONTINUATION is skill-only —
   an un-skilled child that runs out reports once, never re-fires itself.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is
@@ -183,8 +183,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `start_thread` for a child, or — for a mode — by `enter_mode`;
   `use_skill` is list-only, marking which are modes — binding mid-thread
   outside `enter_mode` is gone. Its body joins the turn instructions and
-  the step budget rises 50 → 400; a thread-skill turn that EXHAUSTS
-  continues in a new turn (runEvent `budget`, bounded at 3 consecutive
+  the step budget rises 100 → 800; a thread-skill turn that EXHAUSTS
+  continues in a new turn (runEvent `budget`, bounded at 6 consecutive
   continuations with no human message between, `lib/chat/budget.ts`).
   Catalog: `ticket` (see Modes below), `review` (fresh context,
   severity-ranked findings, changes nothing). `ship` is retired (0055: a

@@ -23,6 +23,6 @@ export async function driveHarnessTurn(input: {
       writable: sink as never,
     });
     steps += 1;
-  } while (state.status === "ready_for_next_step" && steps < (input.maxSteps ?? 50));
+  } while (state.status === "ready_for_next_step" && steps < (input.maxSteps ?? 100));
   return { status: state.status, error: (state as { error?: string }).error, steps };
 }
