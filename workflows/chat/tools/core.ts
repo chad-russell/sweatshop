@@ -18,7 +18,7 @@ import {
   sandboxExecStep,
   systemDocsStep,
   updateStatusStep,
-  useSkillStep,
+  skillToolStep,
 } from "../steps";
 
 export function coreTools(
@@ -127,7 +127,7 @@ export function coreTools(
       inputSchema: z.object({
         id: z.string().min(1).optional().describe("Skill id to load; omit to list"),
       }),
-      execute: ({ id }) => useSkillStep(conversationId, id),
+      execute: ({ id }) => skillToolStep(conversationId, id),
     }),
 
     update_status: tool({

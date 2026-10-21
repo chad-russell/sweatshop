@@ -31,8 +31,8 @@ export interface MessageRowMetadata {
    *  transcript chip, never read back as model input; the text IS the
    *  model input). */
   runEvent?: RunEventMeta;
-  /** 0055 v7: on a turn's user row — the turn's RENDERED `[thread
-   *  state]` note text (lib/agent/mode-ids.ts's `threadStateNote`,
+  /** 0055/0059: on a turn's user row — the turn's RENDERED `[thread
+   *  state]` note text (lib/status.ts's `renderThreadStateNote`,
    *  already computed when this row was written). `listTurnMessages`
    *  replays it verbatim right before this row on every later turn, so
    *  history byte-matches what this turn actually saw (the prompt-cache

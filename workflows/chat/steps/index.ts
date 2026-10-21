@@ -9,7 +9,7 @@ export {
   drainSteerStep,
   finishTurnStream,
   loadSkillStep,
-  useSkillStep,
+  skillToolStep,
   loadPromptSectionsStep,
   loadRepoDocsStep,
   continueAfterBudgetStep,

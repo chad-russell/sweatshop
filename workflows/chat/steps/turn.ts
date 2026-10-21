@@ -153,7 +153,7 @@ export async function loadSkillStep(
  *  plain skill. Loading a mode writes `conversations.skill` (a newer
  *  mode simply wins) and returns its phases as `suggestedSteps` for
  *  `update_status`. The body is the tool result, not a sticky prompt. */
-export async function useSkillStep(conversationId: string, id?: string): Promise<unknown> {
+export async function skillToolStep(conversationId: string, id?: string): Promise<unknown> {
   "use step";
   const [{ db, chat }, { listThreadSkills, readSkill }, { parseModeSkill }, store] = await Promise.all([
     chatStore(),
