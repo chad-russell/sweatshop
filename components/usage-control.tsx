@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -378,6 +378,7 @@ export function UsageControl({
 }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<StatsPayload | null>(null);
+  const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [attempt, setAttempt] = useState(0);
   const sawBusy = useRef(false);
 
@@ -390,12 +391,20 @@ export function UsageControl({
     let cancel = false;
     const load = () => {
       fetch(`/api/x/stats/${conversationId}`)
-        .then(async (res) => (res.ok ? ((await res.json()) as StatsPayload) : null))
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()) as StatsPayload;
+        })
         .then((body) => {
-          if (!cancel) setData(body);
+          if (!cancel) {
+            setData(body);
+            setStatus("ready");
+          }
         })
         .catch(() => {
-          /* the control stays hidden/stale on error */
+          // Keep whatever data the trigger already showed; the popover's
+          // own error state (below) is what Retry is for.
+          if (!cancel) setStatus("error");
         });
     };
     load();
@@ -420,9 +429,14 @@ export function UsageControl({
   }, [open]);
 
   const context = data?.context ?? null;
-  if (!context || context.windowTokens <= 0) return null;
-  const pct = Math.round(context.pct * 100);
+  const metered = Boolean(context && context.windowTokens > 0);
+  // Hidden until metered — UNLESS a fetch actually failed, in which case
+  // the trigger stays reachable so Retry (in the popover) is reachable
+  // too; a plain "not metered yet" 200 keeps the original quiet hide.
+  if (!metered && status !== "error") return null;
+  const pct = context ? Math.round(context.pct * 100) : 0;
   const cost = data?.totals.costUsd ?? null;
+  const errored = status === "error" && !metered;
 
   return (
     <>
@@ -430,15 +444,19 @@ export function UsageControl({
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Usage and cost"
-        title={`Context ${pct}%${cost !== null ? ` · ${formatUsd(cost)}` : ""} — click for the full breakdown`}
+        title={
+          errored
+            ? "Couldn't load usage stats — click to retry"
+            : `Context ${pct}%${cost !== null ? ` · ${formatUsd(cost)}` : ""} — click for the full breakdown`
+        }
         className={cn(
           "inline-flex h-8 pointer-coarse:h-10 shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
           className,
         )}
       >
-        <Ring pct={pct} />
-        <span className="hidden font-mono tabular-nums sm:inline">{pct}%</span>
-        {cost !== null && <span className="hidden font-mono tabular-nums text-xs sm:inline">· {formatUsd(cost)}</span>}
+        {errored ? <CircleAlert className="size-4 shrink-0 text-destructive" aria-hidden /> : <Ring pct={pct} />}
+        {!errored && <span className="hidden font-mono tabular-nums sm:inline">{pct}%</span>}
+        {!errored && cost !== null && <span className="hidden font-mono tabular-nums text-xs sm:inline">· {formatUsd(cost)}</span>}
       </button>
       {open && (
         <>
@@ -457,7 +475,7 @@ export function UsageControl({
             )}
           >
             <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-              <Ring pct={pct} />
+              {errored ? <CircleAlert className="size-4 text-destructive" aria-hidden /> : <Ring pct={pct} />}
               <span className="min-w-0 flex-1 truncate text-sm font-medium">Usage and cost</span>
               <Button variant="ghost" size="icon-xs" aria-label="Close" onClick={() => setOpen(false)}>
                 <X />
@@ -466,21 +484,25 @@ export function UsageControl({
             <div className="flex-1 overflow-y-auto p-4">
               {data ? (
                 <StatsBody data={data} />
+              ) : status === "error" ? (
+                <div className="flex flex-col items-start gap-2 text-sm">
+                  <p className="text-muted-foreground">Couldn&apos;t load usage stats.</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setStatus("loading");
+                      setAttempt((n) => n + 1);
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
               ) : (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Spinner className="size-4" />
                   Loading stats…
                 </div>
-              )}
-              {!data && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => setAttempt((n) => n + 1)}
-                >
-                  Retry
-                </Button>
               )}
             </div>
           </aside>
