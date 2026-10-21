@@ -74,13 +74,16 @@ export const conversations = sqliteTable(
      *  null = a plain chat. Its body joins the turn instructions and
      *  raises the turn's step budget. */
     skill: text("skill"),
-    /** 0055: the sticky mode's current phase (ticket: plan/implement/
-     *  review/fixup/ship); null = no mode entered, or a legacy thread
-     *  bound to `skill = "ticket"` before 0055 (keeps today's behavior —
-     *  the skill section stays in the system prompt instead of the
-     *  per-turn [thread state] note). Set by `enter_mode`, advanced by
-     *  `advance_phase`; never cleared once set (sticky by construction,
-     *  same as `skill` itself). */
+    /** 0055 v7: the sticky mode's current phase id, freely declared in
+     *  the mode skill's own markdown (lib/agent/mode-ids.ts). `null` =
+     *  no mode entered, or a LEGACY mode-skill thread bound before this
+     *  column existed (keeps today's behavior — the skill section stays
+     *  in the system prompt instead of the per-turn [thread state]
+     *  note). `""` (empty string) = entered a mode that declares zero
+     *  phases — still "entered" (the skill section is still skipped),
+     *  just nothing to report a phase chip for. Set by `enter_mode`,
+     *  advanced by `advance_phase`; never cleared once set (sticky by
+     *  construction, same as `skill` itself). */
     modePhase: text("mode_phase"),
     /** 0037 phase 3: the chat whose start_thread created this thread —
      *  the wake target when this one settles. Null = not a child. A
@@ -654,6 +657,10 @@ export const skills = sqliteTable("skills", {
   origin: text("origin").notNull(),
   description: text("description").notNull(),
   thread: integer("thread", { mode: "boolean" }).notNull().default(false),
+  /** 0055 v7: this skill is a MODE — a sticky, phased way of working,
+   *  freely defined in its own markdown (see lib/agent/mode-ids.ts's
+   *  parseModeSkill). Implies `thread`. */
+  mode: integer("mode", { mode: "boolean" }).notNull().default(false),
   /** "active" | "disabled" | "deleted". */
   status: text("status").notNull().default("active"),
   body: text("body").notNull(),
@@ -675,6 +682,7 @@ export const skillVersions = sqliteTable(
     version: integer("version").notNull(),
     description: text("description").notNull(),
     thread: integer("thread", { mode: "boolean" }).notNull(),
+    mode: integer("mode", { mode: "boolean" }).notNull().default(false),
     status: text("status").notNull(),
     body: text("body").notNull(),
     editedBy: text("edited_by").notNull(),

@@ -414,6 +414,13 @@
       "when": 1792700060000,
       "tag": "0058_mode_phase",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1792700070000,
+      "tag": "0059_skills_mode",
+      "breakpoints": true
     }
   ]
 }
