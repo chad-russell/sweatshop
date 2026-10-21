@@ -153,7 +153,7 @@ describe("POST /api/x/chat: mode entry (0055 v7)", () => {
     expect(getConversation(db(), id)).toBeNull();
   });
 
-  it("refuses an unknown mode name", async () => {
+  it("refuses an unknown mode name, creating nothing — no orphan conversation row", async () => {
     ensureProject();
     const id = freshId();
     const res = await postChat(
@@ -163,9 +163,10 @@ describe("POST /api/x/chat: mode entry (0055 v7)", () => {
       }),
     );
     expect(res.status).toBe(400);
+    expect(getConversation(db(), id)).toBeNull();
   });
 
-  it("refuses a disabled mode by send", async () => {
+  it("refuses a disabled mode by send, creating nothing — no orphan conversation row", async () => {
     ensureProject();
     await createDisabledMode("disabled-entry-mode-2");
     const id = freshId();
@@ -176,6 +177,20 @@ describe("POST /api/x/chat: mode entry (0055 v7)", () => {
       }),
     );
     expect(res.status).toBe(400);
+    expect(getConversation(db(), id)).toBeNull();
+  });
+
+  it("refuses a non-mode skill id as mode on a fresh send, creating nothing — no orphan conversation row", async () => {
+    ensureProject();
+    const id = freshId();
+    const res = await postChat(
+      new Request("http://x/api/x/chat", {
+        method: "POST",
+        body: JSON.stringify({ conversationId: id, text: "hi", projectId: PROJECT_ID, mode: "review" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(getConversation(db(), id)).toBeNull();
   });
 
   it("works on an EXISTING plain chat too, not just a fresh one (unlike skill, which is creation-only)", async () => {

@@ -19,11 +19,16 @@ import { readSkill } from "@/lib/skills";
 
 export type EnterModeResult = { ok: true } | { ok: false; code: string; message: string };
 
-export async function enterModeOnSend(db: Db, conversationId: string, modeId: string, projectId: string | null): Promise<EnterModeResult> {
-  if (!projectId) return { ok: false, code: "no-project", message: "modes need a project" };
-  const conversation = getConversation(db, conversationId);
-  const check = checkEnterMode({ skill: conversation?.skill ?? null, modePhase: conversation?.modePhase ?? null });
-  if (!check.ok) return { ok: false, code: "already-moded", message: check.message };
+/**
+ * The part of entry validation that needs no conversation row at all —
+ * exists, is a mode, is active. Exported so the send route can run it
+ * BEFORE `ensureConversation` for a fresh send: a refused mode must
+ * leave no orphan conversation row (the already-moded check below
+ * still needs a real row, so it stays inside `enterModeOnSend`,
+ * checked after creation for a fresh send — a no-op check on a chat
+ * that was just created).
+ */
+export function validateModeTarget(db: Db, modeId: string): { ok: true } | { ok: false; code: string; message: string } {
   const target = getTarget(db, { kind: "skill", id: modeId });
   if (!target || target.status === "deleted" || !isModeSkill(target.mode)) {
     return { ok: false, code: "unknown-mode", message: `no mode "${modeId}"` };
@@ -31,6 +36,16 @@ export async function enterModeOnSend(db: Db, conversationId: string, modeId: st
   if (target.status === "disabled") {
     return { ok: false, code: "mode-disabled", message: `the "${modeId}" mode is disabled` };
   }
+  return { ok: true };
+}
+
+export async function enterModeOnSend(db: Db, conversationId: string, modeId: string, projectId: string | null): Promise<EnterModeResult> {
+  if (!projectId) return { ok: false, code: "no-project", message: "modes need a project" };
+  const conversation = getConversation(db, conversationId);
+  const check = checkEnterMode({ skill: conversation?.skill ?? null, modePhase: conversation?.modePhase ?? null });
+  if (!check.ok) return { ok: false, code: "already-moded", message: check.message };
+  const target = validateModeTarget(db, modeId);
+  if (!target.ok) return target;
   const skill = await readSkill(modeId);
   if (!skill) return { ok: false, code: "no-skill", message: `the "${modeId}" mode is unavailable` };
 
