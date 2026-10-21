@@ -214,3 +214,25 @@ export function threadStateNote(modeId: string, phases: readonly ModePhase[], cu
   const next = index >= 0 && index + 1 < phases.length ? phases[index + 1]!.name : "done";
   return `${THREAD_STATE_PREFIX} mode: ${modeId} · phase: ${current?.name ?? currentId} (${position}/${phases.length}) · next: ${next}`;
 }
+
+/**
+ * 0055 v7 part B: the runtime-attached handoff a phase WORKER (a harness
+ * call or start_thread child started in a moded chat) gets — never the
+ * brief (addressed to the orchestrator) and never the other phases, just
+ * this one plus whatever Shared context every phase needs, and the
+ * orchestrator's own task last. `modeName` is the skill's display title
+ * (its H1, or its id — resolved by the caller, e.g. via
+ * lib/skill-files.ts's `deriveSkillTitle`); `shared`/`phase.body` are
+ * inserted verbatim, no heading re-attached (the opening line already
+ * names the phase). Owner placeholders are rendered by the caller.
+ */
+export function renderPhaseHandoff(input: { modeName: string; phase: ModePhase; shared: string | null; task: string }): string {
+  const header =
+    `You are doing the "${input.phase.name}" phase of a "${input.modeName}" run. Do only this phase; ` +
+    "other phases are handled separately. Your result goes back to the orchestrator.";
+  const parts = [header];
+  if (input.shared) parts.push(input.shared);
+  if (input.phase.body) parts.push(input.phase.body);
+  parts.push(`---\nTask from the orchestrator:\n${input.task}`);
+  return parts.join("\n\n");
+}
