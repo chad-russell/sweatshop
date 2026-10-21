@@ -13,8 +13,8 @@ import type { LanguageModel } from "ai";
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
  * "hang" | "create-pr" | "viewing" | "thread-state" | "skill" | "loop" |
- * "accept-plan") is read at call time so a test file can switch scripts
- * between turns.
+ * "accept-plan" | "enter-mode") is read at call time so a test file can
+ * switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
  * (where doStream runs) forbids Node APIs. The TEST enqueues the steer
@@ -190,6 +190,22 @@ export function scriptedChatModel(): LanguageModel {
       // approval-gated accept_plan instead of proceeding on its reading.
       if (script === "accept-plan") {
         if (!sawToolResult) return result(toolCallPart("call_accept_1", "accept_plan", {}));
+        const toolMessage = options.prompt.find((m) => m.role === "tool");
+        return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
+      }
+
+      // 0055: a scripted enter_mode round trip — the call must suspend
+      // on the owner's approval before anything is written.
+      if (script === "enter-mode") {
+        if (!sawToolResult) {
+          return result(
+            toolCallPart("call_enter_mode_1", "enter_mode", {
+              mode: "ticket",
+              ticket: "ENG-1 fix the widget",
+              reason: "needs a plan and a PR",
+            }),
+          );
+        }
         const toolMessage = options.prompt.find((m) => m.role === "tool");
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }
