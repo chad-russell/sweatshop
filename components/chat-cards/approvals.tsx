@@ -612,9 +612,20 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
         </div>
       ) : (
         <p className="mt-1 text-xs text-muted-foreground">
-          {part.state === "output-available" ? String(part.output).slice(0, 300) : "no answer recorded"}
+          {part.state === "output-available" ? answerText(part.output) : "no answer recorded"}
         </p>
       )}
     </div>
   );
+}
+
+/** A gated tool's resolved output for display: its own `message` when
+ *  it has one (enter_mode's denial, a plain string), else a clipped
+ *  JSON dump — never the bare `[object Object]` `String()` gives an
+ *  object. */
+function answerText(output: unknown): string {
+  if (typeof output === "string") return output.slice(0, 300);
+  const message = (output as { message?: unknown } | null)?.message;
+  const text = typeof message === "string" ? message : JSON.stringify(output);
+  return text.slice(0, 300);
 }
