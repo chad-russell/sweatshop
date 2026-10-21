@@ -104,7 +104,7 @@ function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; stat
           : runEvent.kind === "plan"
           ? `plan ${runEvent.status}`
           : runEvent.kind === "mode"
-          ? "Entered ticket mode"
+          ? `Entered ${runEvent.id} mode`
           : `${runEvent.kind === "machine" ? "run" : runEvent.kind === "thread" ? "thread" : runEvent.id.split("_")[0]} ${runEvent.status} · ${runEvent.id}`}
       </span>
     </span>
