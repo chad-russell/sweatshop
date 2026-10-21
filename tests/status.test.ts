@@ -77,6 +77,15 @@ describe("statusChipLabel", () => {
     ]);
     expect(statusChipLabel(snapshot)).toEqual({ label: "Ship · 2/2", tone: "ok" });
   });
+
+  it("with no active and no done step, names the first pending step", () => {
+    const snapshot = snap([
+      { label: "Plan", state: "pending" },
+      { label: "Implement", state: "pending" },
+      { label: "Ship", state: "pending" },
+    ]);
+    expect(statusChipLabel(snapshot)).toEqual({ label: "Plan · 0/3", tone: "ok" });
+  });
 });
 
 describe("deriveStatus", () => {

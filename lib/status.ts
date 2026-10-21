@@ -91,8 +91,9 @@ export function statusChipLabel(snapshot: StatusSnapshot): StatusChip | null {
     return { label: total > 0 ? `${active.label} · ${done}/${total}` : active.label, tone: "running" };
   }
   const { done, total } = progressCount(steps);
-  const last = [...steps].reverse().find((step) => step.state === "done") ?? steps[steps.length - 1]!;
-  return { label: total > 0 ? `${last.label} · ${done}/${total}` : last.label, tone: "ok" };
+  const doneStep = [...steps].reverse().find((step) => step.state === "done");
+  const named = doneStep ?? steps.find((step) => step.state === "pending") ?? steps[0]!;
+  return { label: total > 0 ? `${named.label} · ${done}/${total}` : named.label, tone: "ok" };
 }
 
 /** The active top-level step's label, for wakes and the mode chip. */
