@@ -14,10 +14,10 @@ export async function enterModePreviewStep(
   return enterModePreview(conversationId, input);
 }
 
-export async function applyEnterModeStep(conversationId: string, ticket: string): Promise<unknown> {
+export async function applyEnterModeStep(conversationId: string, mode: string, ticket: string): Promise<unknown> {
   "use step";
   const { applyEnterMode } = await import("../../../lib/agent/tools/modes");
-  return applyEnterMode(conversationId, ticket);
+  return applyEnterMode(conversationId, mode, ticket);
 }
 
 export async function advancePhaseStep(conversationId: string, to: string, note?: string): Promise<unknown> {

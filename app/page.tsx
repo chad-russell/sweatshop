@@ -11,11 +11,12 @@ export const dynamic = "force-dynamic";
  * scope only). The key remounts on scope change so a different composer
  * mode starts clean.
  *
- * 0055: `?mode=ticket` enters ticket mode on the first send — the same
- * server-side path as picking "ticket" from the skill picker or the
- * legacy `?skill=ticket` (the send route treats `skill: "ticket"` as a
- * mode-entry request, not a plain bind), so reusing the skill-id prop
- * is enough; no separate client plumbing needed.
+ * 0055 v7: `?mode=<id>` enters that mode on the first send — the same
+ * server-side path as picking its id from the skill picker, or the
+ * legacy `?skill=<id>` when that skill is actually a mode (the send
+ * route checks live, since modes are owner-defined, not fixed ids), so
+ * reusing the skill-id prop is enough; no separate client plumbing
+ * needed.
  */
 export default async function Home({
   searchParams,
@@ -23,7 +24,7 @@ export default async function Home({
   searchParams: Promise<{ project?: string; skill?: string; mode?: string }>;
 }) {
   const { project, skill, mode } = await searchParams;
-  const skillId = mode === "ticket" ? "ticket" : (skill ?? null);
+  const skillId = mode ?? skill ?? null;
   const projectOptions = db().select({ id: projects.id, name: projects.name }).from(projects).all();
   const scoped = project ? (projectOptions.find((p) => p.id === project) ?? null) : null;
 

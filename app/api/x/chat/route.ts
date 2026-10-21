@@ -24,8 +24,8 @@ import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
 import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
 import { answerPendingWithText } from "@/lib/chat/answer-pending";
-import { enterTicketModeOnSend } from "@/lib/chat/mode-entry";
-import { TICKET_SKILL_ID } from "@/lib/modes";
+import { enterModeOnSend } from "@/lib/chat/mode-entry";
+import { getTarget } from "@/db/prompt-settings";
 import { listThreadSkills } from "@/lib/skills";
 import { checkClaimable } from "@/db/attachments";
 import { MAX_IMAGES_PER_MESSAGE, parseAttachmentRef } from "@/lib/attachments";
@@ -61,8 +61,8 @@ export async function POST(request: Request) {
     context?: unknown;
     /** 0039, creation only: the skill this thread runs. */
     skill?: unknown;
-    /** 0055: enter ticket mode with this send — fresh OR existing chat
-     *  (unlike `skill`, not creation-only). Only "ticket" exists. */
+    /** 0055 v7: enter this mode (any mode skill's id) with this send —
+     *  fresh OR existing chat (unlike `skill`, not creation-only). */
     mode?: unknown;
     messages?: { role: string; parts?: { type: string; text?: string; url?: string }[] }[];
   };
@@ -131,22 +131,23 @@ export async function POST(request: Request) {
     }
   }
   const projectId = existing ? existing.projectId : ((body.projectId as string | undefined) ?? null);
-  // 0055: ticket mode — entered explicitly (the owner's own action,
-  // never self-approved), on a fresh OR an existing chat (unlike
-  // `skill`, which binds only at creation). `?skill=ticket` (the
-  // pre-0055 query param) means the same thing now that ticket is a
-  // mode, not a plain bindable skill — but only at creation, matching
-  // where that field has always applied.
-  const modeRequested = body.mode === TICKET_SKILL_ID || (!existing && body.skill === TICKET_SKILL_ID);
-  if (typeof body.mode === "string" && body.mode !== TICKET_SKILL_ID) {
-    return NextResponse.json({ error: `no mode "${body.mode}"` }, { status: 400 });
+  // 0055 v7: a mode — entered explicitly (the owner's own action, never
+  // self-approved), on a fresh OR an existing chat (unlike `skill`,
+  // which binds only at creation). `mode` is any skill id; the legacy
+  // `?skill=<id>` query param means the same thing ONLY when that skill
+  // actually is a mode (checked live — getTarget is synchronous), and
+  // only at creation, matching where that field has always applied.
+  let modeId: string | null = typeof body.mode === "string" ? body.mode : null;
+  if (modeId === null && !existing && typeof body.skill === "string" && body.skill) {
+    if (getTarget(db(), { kind: "skill", id: body.skill })?.mode) modeId = body.skill;
   }
+  const modeRequested = modeId !== null;
   // A fresh send with no project: refuse before ensureConversation runs
   // below, so a refused mode entry leaves no orphan conversation row
-  // (enterTicketModeOnSend would refuse the same way, but only after
-  // the row already exists).
+  // (enterModeOnSend would refuse the same way, but only after the row
+  // already exists).
   if (modeRequested && !existing && !projectId) {
-    return NextResponse.json({ error: "ticket mode needs a project" }, { status: 400 });
+    return NextResponse.json({ error: "a mode needs a project" }, { status: 400 });
   }
   // 0039: a skill is chosen by the creating send (use_skill covers
   // later); unknown ids reject before anything is created. 0054: a new
@@ -191,7 +192,7 @@ export async function POST(request: Request) {
   if (pickedRoute !== undefined) setConversationRoute(db(), body.conversationId, pickedRoute);
 
   if (modeRequested) {
-    const entered = await enterTicketModeOnSend(db(), body.conversationId, projectId);
+    const entered = await enterModeOnSend(db(), body.conversationId, modeId!, projectId);
     if (!entered.ok) {
       return NextResponse.json({ error: entered.message, code: entered.code }, { status: 400 });
     }

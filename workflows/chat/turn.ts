@@ -3,7 +3,7 @@ import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
-import { isTicketPhase, threadStateNote, TICKET_SKILL_ID } from "../../lib/agent/mode-ids";
+import { isModeSkill, parseModeSkill, threadStateNote } from "../../lib/agent/mode-ids";
 import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
@@ -91,7 +91,15 @@ export async function chatTurn(input: ChatTurnInput) {
   // same way it already rebuilds the viewing note).
   const skill = await loadSkillStep(conversationId);
   const modePhase = skill?.modePhase ?? null;
-  const ticketPhase = isTicketPhase(modePhase) ? modePhase : null;
+  // 0055 v7: a real (non-empty) current phase on a mode skill — render
+  // its [thread state] note NOW, from the live body, so the exact same
+  // string can be stamped onto this turn's user row below AND injected
+  // into this turn's own messages: the row's metadata and what the
+  // model is actually shown are then guaranteed byte-identical.
+  const stateNote =
+    skill && isModeSkill(skill.mode) && modePhase
+      ? threadStateNote(skill.id, parseModeSkill(skill.body).phases, modePhase)
+      : null;
   const userContent = await recordUserMessage(
     conversationId,
     userText,
@@ -99,7 +107,7 @@ export async function chatTurn(input: ChatTurnInput) {
     input.viewing,
     input.runEvent,
     input.attachments,
-    ticketPhase ? { mode: TICKET_SKILL_ID, phase: ticketPhase } : undefined,
+    stateNote ?? undefined,
   );
 
   // 0021: resolved per turn (a picker change or a /settings swap takes
@@ -157,7 +165,7 @@ export async function chatTurn(input: ChatTurnInput) {
   let messages: ModelMessage[] = [
     ...history,
     ...(input.viewing ? [{ role: "user" as const, content: viewingNote(input.viewing) }] : []),
-    ...(ticketPhase ? [{ role: "user" as const, content: threadStateNote(ticketPhase) }] : []),
+    ...(stateNote ? [{ role: "user" as const, content: stateNote }] : []),
     { role: "user", content: userContent },
   ];
   let finishReason: string = "stop";
@@ -174,7 +182,7 @@ export async function chatTurn(input: ChatTurnInput) {
   let lastSliceUsage: UsageCounts | null = null;
   // skip = everything already persisted (loaded history + this turn's
   // user message) plus the injected notes, which sit right before it.
-  const skip = history.length + (input.viewing ? 1 : 0) + (ticketPhase ? 1 : 0) + 1;
+  const skip = history.length + (input.viewing ? 1 : 0) + (stateNote ? 1 : 0) + 1;
   // One durable stream per TURN, not per slice: every slice leaves it
   // open and unfinished; finishTurnStream ends it exactly once — also
   // when a slice throws, so a reconnected browser is never left hanging.
