@@ -3,7 +3,7 @@ import type { Db } from "@/db";
 import { skillVersions } from "@/db/schema";
 import { deriveSkillTitle } from "@/lib/skill-files";
 import { renderOwnerPlaceholders } from "@/lib/agent/owner";
-import { findPhase, parseModeSkill, renderPhaseHandoff } from "@/lib/agent/mode-ids";
+import { findPhase, parseModeSkill, PHASE_HANDOFF_TASK_MARKER, renderPhaseHandoff } from "@/lib/agent/mode-ids";
 
 /**
  * 0059: re-render the phase handoff a harness call was started with,
@@ -23,10 +23,14 @@ export function renderPhaseContext(
   const parsed = parseModeSkill(row.body);
   const phase = findPhase(parsed.phases, input.phaseId);
   if (!phase) return null;
+  const rendered = renderOwnerPlaceholders(
+    renderPhaseHandoff({ modeName: deriveSkillTitle(row.body, input.skillId), phase, shared: parsed.shared, task: input.task }),
+  );
+  const taskAt = rendered.indexOf(PHASE_HANDOFF_TASK_MARKER);
   return {
     phase: phase.name,
-    text: renderOwnerPlaceholders(
-      renderPhaseHandoff({ modeName: deriveSkillTitle(row.body, input.skillId), phase, shared: parsed.shared, task: input.task }),
-    ),
+    // The card already quotes the orchestrator's task. This block is the
+    // phase framing, Shared, and this phase only.
+    text: (taskAt < 0 ? rendered : rendered.slice(0, taskAt)).trim(),
   };
 }
