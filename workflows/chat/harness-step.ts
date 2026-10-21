@@ -242,6 +242,7 @@ export async function harnessAdvanceStep(input: {
   // split) and the harness-reported cost that the UI stream drops. They
   // win over the sink's thin finish-step reading and finalResult.
   let callbackUsage: UsageCounts | null = null;
+  let finishMetadata: Promise<unknown> | null = null;
   try {
     const { sink, text } = harnessEventSink({
       recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event),
@@ -296,6 +297,11 @@ export async function harnessAdvanceStep(input: {
         const cost = readReportedCost({ providerMetadata: step.providerMetadata });
         if (cost !== null) reportedCost = cost;
       },
+      onResult: (result) => {
+        // Resolves only when the turn finishes; a suspended slice never
+        // settles it, so it is raced (not awaited bare) below.
+        finishMetadata = Promise.resolve(result.providerMetadata).catch(() => undefined);
+      },
       onEnd: (event) => {
         const cost = readReportedCost({ providerMetadata: event.providerMetadata });
         if (cost !== null) reportedCost = cost;
@@ -313,7 +319,15 @@ export async function harnessAdvanceStep(input: {
     });
     // The UI-chunk transform drops finish-step usage. A finished step
     // still carries a thin summary (input/output only) on finalResult.
-    if (input.route.harness === "claude" && reportedCost === null) {
+    if (state.status !== "ready_for_next_step" && finishMetadata) {
+      const meta = await Promise.race([
+        finishMetadata,
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1_500)),
+      ]);
+      const cost = readReportedCost({ providerMetadata: meta });
+      if (cost !== null) reportedCost = cost;
+    }
+    if (input.route.harness === "claude" && state.status === "finished" && reportedCost === null) {
       console.warn("[usage] claude step reported no cost (providerMetadata['claude-code'].costUsd missing)");
     }
     if (callbackUsage) stepUsage = callbackUsage;

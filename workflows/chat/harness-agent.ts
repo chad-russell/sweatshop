@@ -33,12 +33,41 @@ export interface BuildArgs {
    *  fire for every stream()/continueStream()). */
   onStepEnd?: (step: { usage?: unknown; providerMetadata?: unknown }) => void;
   onEnd?: (event: { totalUsage?: unknown; providerMetadata?: unknown }) => void;
+  /** 0062: sees each stream()/continueStream() result. The terminal
+   *  `finish` part's harness metadata (Claude's reported cost) is only
+   *  exposed as the result's `providerMetadata` promise — the end
+   *  callback carries the LAST finish-step's metadata instead. */
+  onResult?: (result: { providerMetadata?: PromiseLike<unknown> }) => void;
+}
+
+/** Proxy that lets `onResult` see every stream result; everything else
+ *  passes straight through (methods bound to the real agent). */
+function tapResults<T extends object>(agent: T, onResult: BuildArgs["onResult"]): T {
+  if (!onResult) return agent;
+  return new Proxy(agent, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target) as unknown;
+      if (typeof value !== "function") return value;
+      if (key === "stream" || key === "continueStream") {
+        return async (...args: unknown[]) => {
+          const result = await (value as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+          onResult(result as never);
+          return result;
+        };
+      }
+      return value.bind(target);
+    },
+  });
 }
 
 /** pi provider ids are namespaced so they never collide with pi's built-ins. */
 const PI_PROVIDER_PREFIX = "ss-";
 
-export function buildHarnessAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: BuildArgs) {
+export function buildHarnessAgent(args: BuildArgs) {
+  return tapResults(buildAgent(args), args.onResult);
+}
+
+function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: BuildArgs) {
   const lifecycle = {
     ...(onStepEnd ? { onStepEnd: onStepEnd as never } : {}),
     ...(onEnd ? { onEnd: onEnd as never } : {}),
