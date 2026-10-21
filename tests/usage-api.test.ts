@@ -123,7 +123,8 @@ describe("0047 GET /api/x/stats", () => {
       outputTokens: 80,
       steps: 3,
       toolCalls: 4,
-      costUsd: null,
+      costUsd: 0.75,
+      costBasis: "reported",
       startedAt: 6_000,
       endedAt: 6_500,
     });
@@ -158,7 +159,8 @@ describe("0047 GET /api/x/stats", () => {
     expect(body.rootId).toBe("c_stats_root");
     expect(body.conversationIds).toEqual(expect.arrayContaining(["c_stats_root", "c_stats_child"]));
     expect(body.totals).toMatchObject({
-      costUsd: 1.5,
+      costUsd: 2.25, // 1.5 computed + 0.75 reported by claude
+      reportedCostUsd: 0.75,
       inputTokens: 1_610,
       cachedTokens: 250,
       cacheWriteTokens: 100,
@@ -189,7 +191,7 @@ describe("0047 GET /api/x/stats", () => {
     const glm = body.byModel.find((row: { key: string }) => row.key === "glm/glm-5.3-flash");
     expect(glm).toMatchObject({ label: "GLM (Z.AI) GLM 5.3 Flash", isHarness: false, costUsd: null });
     const claude = body.byModel.find((row: { key: string }) => row.key === "claude");
-    expect(claude).toMatchObject({ label: "Claude", isHarness: true, costUsd: null, steps: 3, toolCalls: 4 });
+    expect(claude).toMatchObject({ label: "Claude", isHarness: true, costUsd: 0.75, costBasis: "reported", steps: 3, toolCalls: 4 });
     const codex = body.byModel.find((row: { key: string }) => row.key === "codex");
     expect(codex).toMatchObject({ label: "Codex", isHarness: true, costUsd: null, steps: 1, toolCalls: 1 });
 
@@ -209,7 +211,7 @@ describe("0047 GET /api/x/stats", () => {
     expect(harness).toMatchObject({
       title: "Review the diff",
       conversationId: "c_stats_child",
-      costUsd: null,
+      costUsd: 0.75,
       inputTokens: 200,
       outputTokens: 80,
       workMs: 5_000,

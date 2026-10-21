@@ -25,6 +25,7 @@ interface ModelUsage {
   model: string;
   isHarness: boolean;
   costUsd: number | null;
+  costBasis: "computed" | "reported" | "mixed" | null;
   inputTokens: number;
   cachedTokens: number;
   cacheWriteTokens: number;
@@ -56,6 +57,7 @@ interface StatsPayload {
   rootId: string;
   totals: {
     costUsd: number | null;
+    reportedCostUsd: number;
     inputTokens: number;
     cachedTokens: number;
     cacheWriteTokens: number;
@@ -107,6 +109,19 @@ function Money({ cost, active }: { cost: number | null; active: boolean }) {
     return active ? <Badge variant="outline">plan</Badge> : <span className="text-muted-foreground">—</span>;
   }
   return <span className="font-mono">{formatUsd(cost)}</span>;
+}
+
+/** 0062: a cost the harness reported itself isn't a price-table figure. */
+function BasisTag({ basis }: { basis: ModelUsage["costBasis"] }) {
+  if (basis !== "reported" && basis !== "mixed") return null;
+  return (
+    <span
+      className="text-[10px] uppercase tracking-wide text-muted-foreground"
+      title="Reported by the harness itself (e.g. Claude Code), not computed from a price table"
+    >
+      {basis === "mixed" ? "part reported" : "reported"}
+    </span>
+  );
 }
 
 function donutSegments(slices: { fraction: number; color: string }[], circ: number) {
@@ -208,6 +223,11 @@ function StatsBody({ data }: { data: StatsPayload }) {
           <div className="mt-0.5 text-2xl">
             <Money cost={data.totals.costUsd} active={active} />
           </div>
+          {data.totals.reportedCostUsd > 0 && (
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              incl. {formatUsd(data.totals.reportedCostUsd)} reported by harnesses
+            </div>
+          )}
           {plans.length > 0 && (
             <div className="mt-0.5 text-xs text-muted-foreground">{plans.length} unmetered</div>
           )}
@@ -241,6 +261,7 @@ function StatsBody({ data }: { data: StatsPayload }) {
                 <div className="flex items-baseline gap-2">
                   <span className="size-2 shrink-0 rounded-full" style={{ background: CHART[i % CHART.length] }} />
                   <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                  <BasisTag basis={row.costBasis} />
                   <span className="font-mono">{formatUsd(row.costUsd ?? 0)}</span>
                   <span className="font-mono text-muted-foreground">{percent(row.costUsd ?? 0, meteredTotal)}</span>
                 </div>
@@ -262,7 +283,7 @@ function StatsBody({ data }: { data: StatsPayload }) {
 
       {plans.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium">Plan</h3>
+          <h3 className="text-sm font-medium">No cost reported</h3>
           <ul className="flex flex-col gap-2">
             {plans.map((row) => (
               <li key={row.key} className="flex items-center gap-2 text-sm">
@@ -304,6 +325,7 @@ function StatsBody({ data }: { data: StatsPayload }) {
             <div key={row.key} className="flex flex-col gap-1">
               <div className="flex items-baseline gap-2 text-sm">
                 <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                <BasisTag basis={row.costBasis} />
                 <Money cost={row.costUsd} active={used} />
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-muted">

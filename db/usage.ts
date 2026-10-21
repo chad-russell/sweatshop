@@ -44,6 +44,7 @@ export function upsertUsageEvent(db: Db, row: typeof usageEvents.$inferInsert): 
         steps: row.steps,
         toolCalls: row.toolCalls,
         costUsd: row.costUsd,
+        costBasis: row.costBasis,
         endedAt: row.endedAt,
       },
     })
@@ -197,6 +198,8 @@ export function pricesFetchedAt(db: Db, provider: string): number | null {
 export interface GroupUsage {
   /** Metered events only (null-cost rows excluded from dollars). */
   totalCostUsd: number | null;
+  /** 0062: the part of totalCostUsd the harness reported itself. */
+  reportedCostUsd: number;
   inputTokens: number;
   cachedTokens: number;
   cacheWriteTokens: number;
@@ -212,6 +215,7 @@ export interface GroupUsage {
 export function sumGroupUsage(db: Db, conversationIds: string[]): GroupUsage {
   const empty: GroupUsage = {
     totalCostUsd: null,
+    reportedCostUsd: 0,
     inputTokens: 0,
     cachedTokens: 0,
     cacheWriteTokens: 0,
@@ -239,7 +243,10 @@ export function sumGroupUsage(db: Db, conversationIds: string[]): GroupUsage {
     empty.steps += e.steps;
     empty.toolCalls += e.toolCalls;
     empty.workMs += Math.max(0, e.endedAt - e.startedAt);
-    if (e.costUsd !== null) cost = (cost ?? 0) + e.costUsd;
+    if (e.costUsd !== null) {
+      cost = (cost ?? 0) + e.costUsd;
+      if (e.costBasis === "reported") empty.reportedCostUsd += e.costUsd;
+    }
   }
   empty.events = events;
   empty.totalCostUsd = cost;

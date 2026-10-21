@@ -19,6 +19,9 @@ export interface ModelUsage {
   model: string;
   isHarness: boolean;
   costUsd: number | null;
+  /** 0062: "reported" = the harness's own figure (not a price-table
+   *  computation); "mixed" when both fed this row; null = no cost. */
+  costBasis: "computed" | "reported" | "mixed" | null;
   inputTokens: number;
   cachedTokens: number;
   cacheWriteTokens: number;
@@ -45,6 +48,8 @@ export interface ConversationStats {
   conversationIds: string[];
   totals: {
     costUsd: number | null;
+    /** 0062: the part of costUsd that harnesses reported themselves. */
+    reportedCostUsd: number;
     inputTokens: number;
     cachedTokens: number;
     cacheWriteTokens: number;
@@ -134,6 +139,7 @@ function modelsOf(db: Db, events: UsageEvent[]): ModelUsage[] {
         model: bits.model,
         isHarness: bits.isHarness,
         costUsd: null,
+        costBasis: null,
         inputTokens: 0,
         cachedTokens: 0,
         cacheWriteTokens: 0,
@@ -152,7 +158,11 @@ function modelsOf(db: Db, events: UsageEvent[]): ModelUsage[] {
     row.steps += event.steps;
     row.toolCalls += event.toolCalls;
     row.events += 1;
-    if (event.costUsd !== null) row.costUsd = (row.costUsd ?? 0) + event.costUsd;
+    if (event.costUsd !== null) {
+      row.costUsd = (row.costUsd ?? 0) + event.costUsd;
+      const basis = event.costBasis === "reported" ? "reported" : "computed";
+      row.costBasis = row.costBasis === null || row.costBasis === basis ? basis : "mixed";
+    }
   }
   return order.map((key) => buckets.get(key)!);
 }
@@ -294,6 +304,7 @@ export function readConversationStats(db: Db, conversationId: string, now = Date
     conversationIds: ids,
     totals: {
       costUsd: group.totalCostUsd,
+      reportedCostUsd: group.reportedCostUsd,
       inputTokens: group.inputTokens,
       cachedTokens: group.cachedTokens,
       cacheWriteTokens: group.cacheWriteTokens,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  readReportedCost,
   computeCost,
   addUsage,
   normalizeUsage,
@@ -227,5 +228,20 @@ describe("0047 usage normalization", () => {
     expect(counts.cachedTokens).toBe(25);
     expect(counts.cacheWriteTokens).toBe(10);
     expect(counts.reasoningTokens).toBe(10);
+  });
+});
+
+describe("0062 readReportedCost", () => {
+  it("finds claude-code costUsd under the finish chunk's metadata wrappers", () => {
+    expect(readReportedCost({ harnessMetadata: { "claude-code": { costUsd: 0.42 } } })).toBe(0.42);
+    expect(readReportedCost({ messageMetadata: { harnessMetadata: { "claude-code": { costUsd: 2 } } } })).toBe(2);
+    expect(readReportedCost({ finalResult: { providerMetadata: { "claude-code": { costUsd: 0 } } } })).toBe(0);
+  });
+
+  it("ignores missing, negative and non-finite values", () => {
+    expect(readReportedCost(null)).toBeNull();
+    expect(readReportedCost({ harnessMetadata: { "claude-code": { sessionId: "s" } } })).toBeNull();
+    expect(readReportedCost({ harnessMetadata: { "claude-code": { costUsd: -1 } } })).toBeNull();
+    expect(readReportedCost({ harnessMetadata: { "claude-code": { costUsd: Number.NaN } } })).toBeNull();
   });
 });

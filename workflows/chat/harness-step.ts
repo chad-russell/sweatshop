@@ -1,7 +1,7 @@
 import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "../../lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { BoundSandbox } from "../../db/sandboxes";
-import { addUsage, normalizeUsage, type UsageCounts } from "../../lib/usage/pricing";
+import { addUsage, normalizeUsage, readReportedCost, type UsageCounts } from "../../lib/usage/pricing";
 import { harnessEventSink } from "../shared/harness-sink";
 
 /** The resume handle a terminal state carries for the next user turn. */
@@ -137,6 +137,15 @@ export async function startHarnessCallStep(input: {
 }
 
 /** One semantic harness step (the 0009 grain) — the worker's loop body. */
+/** Running totals a call carries between advance steps. */
+export interface HarnessTotals {
+  usage: UsageCounts | null;
+  steps: number;
+  toolCalls: number;
+  /** 0062: the harness's own cumulative cost (Claude Code); latest wins. */
+  reportedCostUsd?: number | null;
+}
+
 export async function harnessAdvanceStep(input: {
   callId: string;
   conversationId: string;
@@ -146,13 +155,13 @@ export async function harnessAdvanceStep(input: {
   /** 0047 review fix: running totals so far (tokens + steps) — the
    *  step re-upserts the usage row so a CANCELLED call keeps every
    *  completed step's metering (cancel never reaches the settle write). */
-  totals?: { usage: UsageCounts | null; steps: number; toolCalls: number };
+  totals?: HarnessTotals;
 }): Promise<{
   state: HarnessWorkflowState;
   text: string;
   toolCalls: number;
   usage: UsageCounts | null;
-  totals: { usage: UsageCounts | null; steps: number; toolCalls: number };
+  totals: HarnessTotals;
 }> {
   "use step";
   // Tests: a scripted harness (no sandbox, no model) — two semantic
@@ -227,6 +236,8 @@ export async function harnessAdvanceStep(input: {
   // Last finish-step in this semantic step wins (steps are sequential;
   // the worker sums the returned counts).
   let stepUsage: UsageCounts | null = null;
+  // 0062: cumulative, so the latest report wins (never summed).
+  let reportedCost: number | null = null;
   try {
     const { sink, text } = harnessEventSink({
       recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event),
@@ -242,6 +253,10 @@ export async function harnessAdvanceStep(input: {
       onUsage: (raw) => {
         const next = normalizeUsage(raw);
         if (next) stepUsage = next;
+      },
+      onFinishMetadata: (chunk) => {
+        const cost = readReportedCost(chunk);
+        if (cost !== null) reportedCost = cost;
       },
     });
 
@@ -288,6 +303,9 @@ export async function harnessAdvanceStep(input: {
       const summary = (state as { finalResult?: { usage?: unknown } }).finalResult?.usage;
       stepUsage = normalizeUsage(summary);
     }
+    if (reportedCost === null) {
+      reportedCost = readReportedCost((state as { finalResult?: unknown }).finalResult);
+    }
     // 0047 review fix: running totals + an incremental upsert. Cancel
     // never reaches the settle step's usage write, so the row must be
     // current the moment each step lands; the settle write then makes
@@ -298,6 +316,7 @@ export async function harnessAdvanceStep(input: {
         : (input.totals?.usage ?? stepUsage),
       steps: (input.totals?.steps ?? 0) + 1,
       toolCalls: (input.totals?.toolCalls ?? 0) + toolCalls,
+      reportedCostUsd: reportedCost ?? input.totals?.reportedCostUsd ?? null,
     };
     try {
       await writeHarnessUsageRow(input.callId, input.conversationId, input.route, totals);
@@ -321,9 +340,9 @@ export async function writeHarnessUsageRow(
   callId: string,
   conversationId: string,
   route: import("../../lib/providers/route").HarnessRoute | undefined,
-  totals: { usage: UsageCounts | null; steps: number; toolCalls: number },
+  totals: HarnessTotals,
 ): Promise<void> {
-  const [{ db }, { getPrice, upsertUsageEvent }, { computeCost }, { getHarnessCall }] = await Promise.all([
+  const [{ db }, { getPrice, upsertUsageEvent }, { computeCost, roundUsd }, { getHarnessCall }] = await Promise.all([
     import("../../db"),
     import("../../db/usage"),
     import("../../lib/usage/pricing"),
@@ -331,9 +350,18 @@ export async function writeHarnessUsageRow(
   ]);
   const counts = totals.usage ?? { inputTokens: 0, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0 };
   let costUsd: number | null = null;
+  let costBasis: "computed" | "reported" | null = null;
   if (route?.harness === "pi") {
     const price = getPrice(db(), route.provider, route.model);
-    if (price) costUsd = computeCost(price, counts);
+    if (price) {
+      costUsd = computeCost(price, counts);
+      costBasis = "computed";
+    }
+  } else if (totals.reportedCostUsd != null) {
+    // 0062: claude (and any harness that reports one) — the harness's
+    // own figure, rounded at the storage boundary like computed costs.
+    costUsd = roundUsd(totals.reportedCostUsd);
+    costBasis = "reported";
   }
   const call = getHarnessCall(db(), callId);
   const now = Date.now();
@@ -351,6 +379,7 @@ export async function writeHarnessUsageRow(
     steps: totals.steps,
     toolCalls: totals.toolCalls,
     costUsd,
+    costBasis,
     startedAt: call?.createdAt ?? now,
     endedAt: now,
     createdAt: now,
@@ -382,6 +411,8 @@ export async function harnessSettleStep(input: {
   route?: import("../../lib/providers/route").HarnessRoute;
   /** Summed model usage; null when no finish-step reported any. */
   usage?: UsageCounts | null;
+  /** 0062: the harness's own cumulative cost, when it reports one. */
+  reportedCostUsd?: number | null;
   error?: string;
   resumeFrom?: unknown;
 }): Promise<void> {
@@ -453,6 +484,7 @@ export async function harnessSettleStep(input: {
         usage: input.usage ?? null,
         steps: input.steps ?? 0,
         toolCalls: input.toolCalls,
+        reportedCostUsd: input.reportedCostUsd ?? null,
       });
     } catch (err) {
       console.error("[usage] harness capture failed", err);
