@@ -48,9 +48,19 @@ function slugify(name: string): string {
 
 /** Matches a `## ` heading line, excluding `###` and deeper. */
 const HEADING_RE = /^##(?!#)[ \t]+(.*\S)\s*$/;
-const PHASE_LABEL_RE = /^phase:\s*(.+)$/i;
+/** "Phase: Name" or "Phase : Name" — whitespace before the colon is tolerated. */
+const PHASE_LABEL_RE = /^phase\s*:\s*(.+)$/i;
 
 type Section = { kind: "brief" } | { kind: "shared" } | { kind: "phase"; id: string; name: string };
+
+/** The fence character a ``` or ~~~ line opens/closes (3+ of the same
+ *  character; CommonMark doesn't cross-close a ``` fence with ~~~). */
+function fenceChar(line: string): "`" | "~" | null {
+  const trimmed = line.trimStart();
+  if (/^`{3,}/.test(trimmed)) return "`";
+  if (/^~{3,}/.test(trimmed)) return "~";
+  return null;
+}
 
 /**
  * Parse a mode skill's body (front matter already stripped) into its
@@ -69,6 +79,7 @@ export function parseModeSkill(body: string): ParsedModeSkill {
 
   let current: Section = { kind: "brief" };
   let buffer: string[] = [];
+  let fence: "`" | "~" | null = null;
 
   const flush = () => {
     const text = buffer.join("\n").trim();
@@ -84,6 +95,20 @@ export function parseModeSkill(body: string): ParsedModeSkill {
   };
 
   for (const line of lines) {
+    const ch = fenceChar(line);
+    if (fence) {
+      // Inside a fenced code block: every line is content, including
+      // anything that would otherwise look like a `##` heading — only
+      // the SAME fence character (3+) closes it, same as CommonMark.
+      buffer.push(line);
+      if (ch === fence) fence = null;
+      continue;
+    }
+    if (ch) {
+      fence = ch;
+      buffer.push(line);
+      continue;
+    }
     const heading = HEADING_RE.exec(line);
     if (!heading) {
       buffer.push(line);

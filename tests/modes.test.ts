@@ -88,6 +88,50 @@ describe("parseModeSkill", () => {
     expect(parsed.phases[0]).toMatchObject({ id: "qa", name: "QA" });
   });
 
+  it("tolerates whitespace before the colon: `## Phase : Name`", () => {
+    const body = "## Phase : QA\n\nQA body.";
+    const parsed = parseModeSkill(body);
+    expect(parsed.phases[0]).toMatchObject({ id: "qa", name: "QA" });
+  });
+
+  it("ignores ## headings inside a fenced code block (``` or ~~~), for every section kind", () => {
+    const body = [
+      "## Phase: Plan",
+      "",
+      "Run this:",
+      "",
+      "```",
+      "## Phase: Not Real",
+      "## Shared",
+      "```",
+      "",
+      "Still Plan body.",
+      "",
+      "## Phase: Ship",
+      "",
+      "~~~",
+      "## Phase: Also Not Real",
+      "~~~",
+      "",
+      "Ship body.",
+    ].join("\n");
+    const parsed = parseModeSkill(body);
+    expect(parsed.phases.map((p) => p.id)).toEqual(["plan", "ship"]);
+    expect(parsed.phases[0]!.body).toContain("## Phase: Not Real");
+    expect(parsed.phases[0]!.body).toContain("## Shared");
+    expect(parsed.phases[0]!.body).toContain("Still Plan body.");
+    expect(parsed.phases[1]!.body).toContain("## Phase: Also Not Real");
+    expect(parsed.phases[1]!.body).toContain("Ship body.");
+  });
+
+  it("a ``` fence is not closed by a ~~~ line (different fence characters)", () => {
+    const body = ["## Phase: Plan", "", "```", "~~~", "## Phase: Fake", "```", "", "Plan body."].join("\n");
+    const parsed = parseModeSkill(body);
+    expect(parsed.phases).toHaveLength(1);
+    expect(parsed.phases[0]!.body).toContain("## Phase: Fake");
+    expect(parsed.phases[0]!.body).toContain("Plan body.");
+  });
+
   it("`## Shared` is case-insensitive and excluded from the brief", () => {
     const body = "Brief text.\n\n## shared\n\nShared text.\n\n## Phase: Plan\n\nPlan body.";
     const parsed = parseModeSkill(body);
