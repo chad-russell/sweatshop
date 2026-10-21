@@ -53,7 +53,7 @@ describe("buildInstructions", () => {
     expect(plain).not.toContain("ask_chad");
   });
 
-  it("0058: renders {{owner}}/{{owner's}} placeholders for the current SWEATSHOP_OWNER_NAME, in every section and the skill body", () => {
+  it("renders {{owner}}/{{owner's}} placeholders for the current SWEATSHOP_OWNER_NAME, in every section and the skill body", () => {
     const saved = process.env.SWEATSHOP_OWNER_NAME;
     try {
       process.env.SWEATSHOP_OWNER_NAME = "Riley";
@@ -108,7 +108,7 @@ describe("GIT_DEFAULT_SECTIONS", () => {
     expect(GIT_DEFAULT_SECTIONS.host_routing).toContain("exec is only for live state on a host");
   });
 
-  it("0058: base is plain {{owner}}/{{owner's}} placeholder text — never interpolated at the module level", () => {
+  it("base is plain {{owner}}/{{owner's}} placeholder text — never interpolated at the module level", () => {
     expect(GIT_DEFAULT_SECTIONS.base).toContain("{{owner}}");
     expect(GIT_DEFAULT_SECTIONS.base).toContain("{{owner's}}");
     expect(GIT_DEFAULT_SECTIONS.base).not.toContain("Chad");

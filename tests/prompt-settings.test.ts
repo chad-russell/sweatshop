@@ -44,7 +44,7 @@ describe("getTarget / listTargets: seeding", () => {
     expect(second?.body).toBe(first?.body);
   });
 
-  it("0058: seeds base as {{owner}}/{{owner's}} placeholder text, never an owner's literal name", () => {
+  it("seeds base as {{owner}}/{{owner's}} placeholder text, never an owner's literal name", () => {
     const first = getTarget(db(), { kind: "section", key: "base" });
     expect(first?.body).toContain("{{owner}}");
     expect(first?.body).toContain("{{owner's}}");
@@ -376,13 +376,13 @@ describe("seeding is transactional (2): row + history never drift, even seeded m
 });
 
 /**
- * 0058 repair: a `base` row already seeded (pre-fix) with the literal
+ * Owner-placeholder repair: a `base` row already seeded (pre-fix) with the literal
  * "Chad" default gets upgraded to the placeholder default on next read.
  * This mutates the singleton `base` row directly, so it runs against
  * its own freshly migrated scratch db — never the shared `db()` every
  * other test in this file reads/writes.
  */
-describe("0058: repairing a stale pre-placeholder base row", () => {
+describe("repairing a stale pre-placeholder base row", () => {
   function freshDb(): Db {
     const dir = mkdtempSync(path.join(tmpdir(), "sweatshop-prompt-repair-"));
     const dbPath = path.join(dir, "t.db");
