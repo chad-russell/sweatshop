@@ -3,7 +3,7 @@ import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
-import { isTicketPhase, threadStateNote } from "../../lib/agent/mode-ids";
+import { isTicketPhase, threadStateNote, TICKET_SKILL_ID } from "../../lib/agent/mode-ids";
 import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
@@ -83,6 +83,15 @@ export async function chatTurn(input: ChatTurnInput) {
   const { conversationId, userText } = input;
 
   const history = await loadTurnHistory(conversationId);
+  // 0039: a thread running a skill gets its runbook in the instructions
+  // and the background budget. 0055: modePhase rides along, and is
+  // loaded BEFORE recordUserMessage below so the turn's phase can be
+  // stamped onto its own user row (db/chat.ts's listTurnMessages
+  // rebuilds the [thread state] note from that metadata next turn, the
+  // same way it already rebuilds the viewing note).
+  const skill = await loadSkillStep(conversationId);
+  const modePhase = skill?.modePhase ?? null;
+  const ticketPhase = isTicketPhase(modePhase) ? modePhase : null;
   const userContent = await recordUserMessage(
     conversationId,
     userText,
@@ -90,6 +99,7 @@ export async function chatTurn(input: ChatTurnInput) {
     input.viewing,
     input.runEvent,
     input.attachments,
+    ticketPhase ? { mode: TICKET_SKILL_ID, phase: ticketPhase } : undefined,
   );
 
   // 0021: resolved per turn (a picker change or a /settings swap takes
@@ -97,9 +107,6 @@ export async function chatTurn(input: ChatTurnInput) {
   const resolved = await resolveTurnRouteStep(conversationId);
   const model = await buildTurnModel(resolved.route);
   const writable = getWritable<ModelCallStreamPart>();
-  // 0039: a thread running a skill gets its runbook in the
-  // instructions and the background budget.
-  const skill = await loadSkillStep(conversationId);
   // 0054: the three editable instruction sections (Settings-edited or
   // still the git default) — resolved once per turn, same as skill.
   const sections = await loadPromptSectionsStep();
@@ -115,10 +122,6 @@ export async function chatTurn(input: ChatTurnInput) {
   // so plain chats skip the step call entirely (no extra round trip on
   // every turn for something that can never apply).
   const repoDocs = input.hasProject === true ? await loadRepoDocsStep(conversationId) : [];
-  // 0055: a mode's phase, when set — drives both the instructions'
-  // skill-section skip and the per-turn [thread state] note below.
-  const modePhase = skill?.modePhase ?? null;
-  const ticketPhase = isTicketPhase(modePhase) ? modePhase : null;
   const agent = new WorkflowAgent({
     model,
     instructions: buildInstructions({
@@ -145,10 +148,12 @@ export async function chatTurn(input: ChatTurnInput) {
   // the send (the agent forbids system messages in `messages`), model
   // input only — it is persisted as metadata on the user row above and
   // rebuilt by listTurnMessages; persistTurn's skip keeps it out.
-  // 0055: the [thread state] note is built the same way but from LIVE
-  // state, not a per-send payload — rebuilt fresh every turn (never
-  // persisted; a mid-turn advance_phase reaches the model through its
-  // own tool result, so no per-slice re-injection is needed).
+  // 0055: the [thread state] note is built the exact same way, from the
+  // SAME row's metadata (recorded just above) — so what this turn sends
+  // the model and what listTurnMessages rebuilds next turn are
+  // byte-identical, and the prompt-cache prefix holds. (Mid-turn
+  // advance_phase still reaches the model through its own tool result —
+  // no per-slice re-injection needed.)
   let messages: ModelMessage[] = [
     ...history,
     ...(input.viewing ? [{ role: "user" as const, content: viewingNote(input.viewing) }] : []),

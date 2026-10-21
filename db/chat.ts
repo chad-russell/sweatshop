@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { ModelMessage } from "ai";
+import { isTicketPhase, threadStateNote } from "../lib/agent/mode-ids";
 import { viewingNote, type ViewingContext } from "../lib/page-context";
 import type { ChatRoute, RouteLayer } from "../lib/providers/route";
 import type { Db } from "./index";
@@ -31,6 +32,13 @@ export interface MessageRowMetadata {
    *  transcript chip, never read back as model input; the text IS the
    *  model input). */
   runEvent?: RunEventMeta;
+  /** 0055: on a turn's user row — the mode and phase the turn ran in.
+   *  Same treatment as `viewing`: never the note's text itself,
+   *  re-inserted as `threadStateNote(phase)` by `listTurnMessages` right
+   *  before this row, so a later turn's history byte-matches what this
+   *  turn actually saw (the prompt-cache prefix holds instead of
+   *  invalidating every turn). */
+  threadState?: { mode: string; phase: string };
   /** 0040 phase 3: on the turn's LAST assistant row — the turn ended by
    *  hitting its step budget, not by the model choosing to stop (so that
    *  row's text is often just a dangling `[tool …]` placeholder). Durable
@@ -361,11 +369,14 @@ export function listModelMessages(db: Db, conversationId: string): ModelMessage[
 
 /**
  * The turn's model input (0015): the persisted history with each user
- * message's viewing note injected as a user-role message before it —
- * so a later turn still knows what "this" was. (The agent forbids
- * system messages in `messages`.) Notes live as row metadata; this is
- * the only place they become model-visible text, and persistTurn's
- * skip keeps the current turn's note out of the store.
+ * message's viewing note, then its thread-state note (0055), injected
+ * as user-role messages right before it — so a later turn still knows
+ * what "this" was and what mode/phase that turn ran in. (The agent
+ * forbids system messages in `messages`.) Both notes live as row
+ * metadata, never as text; this is the only place they become
+ * model-visible, and persistTurn's skip keeps the current turn's own
+ * copies out of the store (they are rebuilt here instead — the same
+ * messages byte-for-byte, so the prompt-cache prefix holds).
  */
 export function listTurnMessages(db: Db, conversationId: string): ModelMessage[] {
   const rows = db
@@ -376,10 +387,11 @@ export function listTurnMessages(db: Db, conversationId: string): ModelMessage[]
     .all();
   const out: ModelMessage[] = [];
   for (const row of rows) {
-    const viewing = row.metadata
-      ? (JSON.parse(row.metadata) as MessageRowMetadata).viewing
-      : undefined;
-    if (viewing) out.push({ role: "user", content: viewingNote(viewing) });
+    const metadata = row.metadata ? (JSON.parse(row.metadata) as MessageRowMetadata) : undefined;
+    if (metadata?.viewing) out.push({ role: "user", content: viewingNote(metadata.viewing) });
+    if (metadata?.threadState && isTicketPhase(metadata.threadState.phase)) {
+      out.push({ role: "user", content: threadStateNote(metadata.threadState.phase) });
+    }
     out.push(JSON.parse(row.modelMessage!) as ModelMessage);
   }
   return out;

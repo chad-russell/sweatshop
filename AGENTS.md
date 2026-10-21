@@ -208,11 +208,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   is set (the per-turn note below covers it instead); legacy and
   non-mode skills are unaffected. The per-turn `[thread state]` note
   (`workflows/chat/turn.ts`, same injection point as the `[viewing]`
-  note — rebuilt fresh every turn, never persisted) reads `[thread
-  state] mode: ticket · phase: implement (2/5) · next: review`; the
-  base prompt's fixed line: "If a `[thread state]` note is present,
-  honor its mode and phase." Deferred to a later PR (docs/0055): the
-  mode chip, phase menu, and the rest of the chrome changes.
+  note — and, like it, rebuilt from row metadata rather than stored as
+  text: the turn's phase rides as `metadata.threadState` on its user
+  row, and `db/chat.ts`'s `listTurnMessages` reinserts
+  `threadStateNote(phase)` before that row on every later turn, so the
+  model sees byte-identical history turn over turn and the prompt-cache
+  prefix holds) reads `[thread state] mode: ticket · phase: implement
+  (2/5) · next: review`; the base prompt's fixed line: "If a `[thread
+  state]` note is present, honor its mode and phase." Deferred to a
+  later PR (docs/0055): the mode chip, phase menu, and the rest of the
+  chrome changes.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy

@@ -459,13 +459,63 @@ describe("0010 spike: chat turn workflow", () => {
       setConversationMode(db(), moded, "ticket", "implement");
       const modedRun = await start(chatTurn, [{ conversationId: moded, userText: "hi" }]);
       await modedRun.returnValue;
-      // The model saw exactly one note (proven by the mock's own count,
-      // since the note itself is never persisted — rebuilt fresh every
-      // turn from the live column, same as it was never in the prompt
-      // in the first place as far as sqlite is concerned).
+      // The model saw exactly one note (proven by the mock's own count).
+      // The note's TEXT is never persisted — only its phase, as row
+      // metadata (threadState) on the user row — and listTurnMessages
+      // rebuilds the exact same text from that metadata on the next
+      // turn (see the cache-stability test below); it is never a bare
+      // row of its own.
       expect(serialized(moded)).toContain("mock-thread-state:1");
       const rows = (await import("../db/chat")).listMessageTexts(db(), moded);
       expect(rows.some((r) => r.text.startsWith("[thread state]"))).toBe(false);
+    },
+  );
+
+  it(
+    "thread state (cache stability): turn N's model input is a byte-identical prefix of turn N+1's rebuilt history, and viewing + runEvent + threadState metadata all survive together on one row (0055 bugfix)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      const { setConversationMode, listTurnMessages, listMessageTexts } = await import("../db/chat");
+      const id = conv("thread-state-cache");
+      setConversationMode(db(), id, "ticket", "plan");
+
+      const viewing: import("../lib/page-context").ViewingContext = { kind: "chat", id };
+      const runEvent: import("../db/chat").RunEventMeta = { kind: "budget", id: "x", status: "continuing" };
+
+      // Turn 1 carries a viewing note AND a runEvent AND runs in a moded
+      // chat — all three metadata fields on the same user row at once.
+      const first = await start(chatTurn, [{ conversationId: id, userText: "first", viewing, runEvent }]);
+      await first.returnValue;
+
+      // History was empty going in, so this IS turn 1's exact model
+      // input: the viewing note, the thread-state note, then the send.
+      const afterFirst = listTurnMessages(db(), id);
+      const turn1Input = afterFirst.slice(0, 3);
+      expect((turn1Input[0] as { content: string }).content).toContain("[viewing]");
+      const threadStateContent = (turn1Input[1] as { content: string }).content;
+      expect(threadStateContent).toContain("[thread state]");
+      expect(threadStateContent).toContain("phase: plan");
+      expect(turn1Input[2]).toMatchObject({ role: "user", content: "first" });
+
+      // None of the three metadata fields clobbered another on the row.
+      const rows = listMessageTexts(db(), id);
+      const userRow = rows.find((r) => r.text === "first");
+      expect(userRow?.metadata).toMatchObject({
+        viewing: { kind: "chat", id },
+        runEvent: { kind: "budget", id: "x", status: "continuing" },
+        threadState: { mode: "ticket", phase: "plan" },
+      });
+
+      // Turn 2: a plain send, no viewing/runEvent this time.
+      const second = await start(chatTurn, [{ conversationId: id, userText: "second" }]);
+      await second.returnValue;
+      const afterSecond = listTurnMessages(db(), id);
+
+      // Turn 1's own messages (history[] + its notes + its send) are an
+      // exact prefix of what turn 2's history rebuilds — the previous
+      // turn never shifts, so the prompt-cache prefix holds.
+      expect(afterSecond.slice(0, turn1Input.length)).toEqual(turn1Input);
     },
   );
 
