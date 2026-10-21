@@ -141,6 +141,13 @@ export async function POST(request: Request) {
   if (typeof body.mode === "string" && body.mode !== TICKET_SKILL_ID) {
     return NextResponse.json({ error: `no mode "${body.mode}"` }, { status: 400 });
   }
+  // A fresh send with no project: refuse before ensureConversation runs
+  // below, so a refused mode entry leaves no orphan conversation row
+  // (enterTicketModeOnSend would refuse the same way, but only after
+  // the row already exists).
+  if (modeRequested && !existing && !projectId) {
+    return NextResponse.json({ error: "ticket mode needs a project" }, { status: 400 });
+  }
   // 0039: a skill is chosen by the creating send (use_skill covers
   // later); unknown ids reject before anything is created. 0054: a new
   // binding can only pick an ACTIVE thread skill — readSkill would also

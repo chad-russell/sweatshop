@@ -98,7 +98,7 @@ describe("POST /api/x/chat: mode entry (0055)", () => {
     expect(getConversation(db(), id)).toMatchObject({ skill: "ticket", modePhase: "plan" });
   });
 
-  it("refuses without a project, creating nothing", async () => {
+  it("refuses without a project, creating nothing — no orphan conversation row", async () => {
     const id = freshId();
     const res = await postChat(
       new Request("http://x/api/x/chat", {
@@ -107,6 +107,7 @@ describe("POST /api/x/chat: mode entry (0055)", () => {
       }),
     );
     expect(res.status).toBe(400);
+    expect(getConversation(db(), id)).toBeNull();
   });
 
   it("refuses an unknown mode name", async () => {
