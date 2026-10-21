@@ -107,7 +107,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   creation; settle = `updated_at` past it with no live turn;
   `wakeParentStep` runs after the budget decision), carrying the child's
   last REAL assistant report; a child with none is stamped woken
-  silently. Children get the thread step budget (400, `resolveMaxSteps`)
+  silently. Children get the thread step budget (800, `resolveMaxSteps`)
   even un-skilled (`hasParent`); the budget CONTINUATION is skill-only —
   an un-skilled child that runs out reports once, never re-fires itself.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is
@@ -188,8 +188,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   times. Loading a mode also writes `conversations.skill` (a newer mode
   wins) so the step budget and handoff fallback apply; a non-mode load
   does not bind. Its body joins the turn instructions and
-  the step budget rises 50 → 400; a thread-skill turn that EXHAUSTS
-  continues in a new turn (runEvent `budget`, bounded at 3 consecutive
+  the step budget rises 100 → 800; a thread-skill turn that EXHAUSTS
+  continues in a new turn (runEvent `budget`, bounded at 6 consecutive
   continuations with no human message between, `lib/chat/budget.ts`).
   Catalog: `ticket` (see Modes below), `review` (fresh context,
   severity-ranked findings, changes nothing). `ship` is retired (0055: a
@@ -266,7 +266,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   stays the orchestrator's readable original. The handoff is re-rendered
   for the card from the skill version stored on the call
   (`phase_skill_id`, `phase_skill_version`, `phase_id` — migration
-  0062): a collapsible "Phase context: <Phase>" block
+  0063): a collapsible "Phase context: <Phase>" block
   (`renderPhaseContext`). A `start_thread` child's first message IS the
   handoff plus the task, so the same collapsible splits that message
   (`splitPhaseHandoff`); the parent's card shows the tool-call's own
@@ -331,8 +331,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   marked on the chip. While the chip shows an open PR, the client
   polls `GET /api/x/prs` (`GitHost.getPRState`, 0052) and
   `applyPRState` relabels it merged/closed — derived purity holds,
-  the override is render-time. The review skill treats `PLAN.md` as
-  the agreed spec. No plan table, no hard gate on `create_pr`.
+  the override is render-time. Beside it,
+  once a PR is open, a diff breakdown chip (0059, `lib/diff-breakdown.ts`'s
+  `latestDiffBreakdown`, read the same way off the transcript) opens a
+  popover with the branch's change sorted into fixed categories
+  (Generated/Tests/Docs/Migrations/Config/Code). The review skill treats
+  `PLAN.md` as the agreed spec. No plan table, no hard gate on `create_pr`.
 - PR dashboard (0053): a top-level `/prs` page lists every PR by the
   repo's own credential account across ALL project repos (hand-opened
   and agent-opened alike) — asked LIVE through `GitHost.listPRs` on

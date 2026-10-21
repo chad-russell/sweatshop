@@ -21,6 +21,7 @@ import { cancelRunTool } from "../lib/agent/tools/cancel-run";
 import { startHarnessCall, withResultInstruction } from "../lib/chat/harness-call-start";
 import { getTarget } from "../db/prompt-settings";
 import { applyApprovedPromptChangeStep } from "../workflows/chat/steps/prompt-change";
+import { explainBridgeStartupFailure } from "../workflows/chat/harness-step";
 
 /**
  * 0022 cut 2 — background harness calls: the store's settle-once
@@ -431,5 +432,26 @@ describe("sweepWakes with calls", () => {
     expect(getHarnessCall(tdb, call.id)!.wokenSettledAt).toBe(getHarnessCall(tdb, call.id)!.settledAt);
     // harness_runs slot bookkeeping is untouched by trashed parents
     expect(tdb.select().from(harnessRuns).where(eq(harnessRuns.sessionId, trashedConv)).all()).toHaveLength(0);
+  });
+});
+
+describe("explainBridgeStartupFailure (harness-bridge-cleanup)", () => {
+  it("names the fix for an EADDRINUSE-shaped message when a stale resume handle exists", () => {
+    expect(explainBridgeStartupFailure("listen EADDRINUSE: address already in use 0.0.0.0:4000", true, "claude")).toBe(
+      "a previous claude session in this sandbox is still running and holding its port — " +
+        "cancel_run it, or wait a moment and try again",
+    );
+  });
+
+  it("also matches the adapter's 'exited before becoming ready' wrapper", () => {
+    expect(explainBridgeStartupFailure("claude-code bridge exited before becoming ready", true, "claude")).not.toBeNull();
+  });
+
+  it("leaves the message alone with no stale resume handle — a coincidental EADDRINUSE is a different problem", () => {
+    expect(explainBridgeStartupFailure("listen EADDRINUSE: address already in use 0.0.0.0:4000", false, "claude")).toBeNull();
+  });
+
+  it("leaves unrelated errors alone even with a stale resume handle", () => {
+    expect(explainBridgeStartupFailure("ECONNRESET", true, "claude")).toBeNull();
   });
 });

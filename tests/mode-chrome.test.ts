@@ -60,6 +60,22 @@ describe("loadModeChrome", () => {
     });
   });
 
+  it("renders {{owner}} placeholders in the title and phase names, never raw", async () => {
+    const prev = process.env.SWEATSHOP_OWNER_NAME;
+    process.env.SWEATSHOP_OWNER_NAME = "Riley";
+    try {
+      await createMode("chrome-mode-owner", "# Demo {{owner}} tour\n\n## Phase: {{owner}} review\n\nBody.");
+      const id = conv();
+      setConversationMode(db(), id, "chrome-mode-owner", "owner-review");
+      const chrome = await loadModeChrome(id);
+      expect(chrome).toMatchObject({ kind: "mode", title: "Demo Riley tour", phases: [{ name: "Riley review" }], current: { name: "Riley review" } });
+      expect(JSON.stringify(chrome)).not.toContain("{{");
+    } finally {
+      if (prev === undefined) delete process.env.SWEATSHOP_OWNER_NAME;
+      else process.env.SWEATSHOP_OWNER_NAME = prev;
+    }
+  });
+
   it("current is null for a phaseless mode", async () => {
     await createMode("chrome-mode-2", "# Phaseless\n\nJust a brief.");
     const id = conv();

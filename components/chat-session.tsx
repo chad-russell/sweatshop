@@ -33,6 +33,7 @@ import { ComposerAddButton, ComposerAttachments, attachmentErrorMessage } from "
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from "@/lib/attachment-ref";
 import { PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-card";
 import { applyPRState, phaseFromMessages, planHistory, type Phase } from "@/lib/plan";
+import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
 import { usePRStates } from "@/lib/use-pr-states";
 import { Spinner } from "@/components/ui/spinner";
 import { SweatshopLogo } from "@/components/sweatshop-logo";
@@ -114,6 +115,8 @@ export interface ChatSessionState {
   clearDraft: () => void;
   /** 0041: the work phase derived from the transcript (plan → build → PR). */
   phase: Phase | null;
+  /** 0059: the newest create_pr call's diff breakdown, for the header chip. */
+  diffBreakdown: DiffBreakdown | null;
   /** The live transcript — the Mode chip derives its "working now" set
    *  from it (lib/chat-ui.ts's backgroundChildIds). */
   messages: UIMessage[];
@@ -349,6 +352,7 @@ export function ChatSession({
   // page watches for it the same way.
   const plans = useMemo(() => planHistory(messages), [messages]);
   const phase = useMemo(() => phaseFromMessages(messages), [messages]);
+  const diffBreakdown = useMemo(() => latestDiffBreakdown(messages), [messages]);
   // 0052: while the derived phase is an open PR, ask the host what it
   // says now (visible-tab poll; stops once merged/closed) — merged/
   // closed relabels the chip, unknown keeps the derived label. The
@@ -532,6 +536,7 @@ export function ChatSession({
     status,
     clearDraft: () => window.localStorage.removeItem(draftKey),
     phase: shownPhase,
+    diffBreakdown,
     messages,
     pendingModeId,
     setPendingModeId,

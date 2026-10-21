@@ -1,7 +1,7 @@
 import { HARNESS_INPUT_CLIP, HARNESS_OUTPUT_CLIP } from "../../lib/harness-limits";
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { BoundSandbox } from "../../db/sandboxes";
-import { addUsage, normalizeUsage, type UsageCounts } from "../../lib/usage/pricing";
+import { addUsage, normalizeUsage, readReportedCost, type UsageCounts } from "../../lib/usage/pricing";
 import { harnessEventSink } from "../shared/harness-sink";
 
 /** The resume handle a terminal state carries for the next user turn. */
@@ -95,6 +95,26 @@ function uiChunkToModelPart(chunk: Record<string, unknown>): Record<string, unkn
   }
 }
 
+/**
+ * harness-bridge-cleanup: a bridge that cannot bind its port (EADDRINUSE,
+ * or the adapter's own "exited before becoming ready" wrapper around it)
+ * almost always means a PRIOR call's session is still parked or running
+ * in this sandbox — before teardown existed, every stuck call surfaced
+ * as this raw stack. Name the actual fix instead, but only when there is
+ * in fact a saved resume handle for this conversation × kind to point
+ * at — a coincidental EADDRINUSE with no prior session is a different
+ * problem and should keep its real message. Pure so it's unit-testable
+ * without a sandbox or bridge; returns null to mean "rethrow as-is".
+ */
+export function explainBridgeStartupFailure(message: string, hasStaleResume: boolean, kind: string): string | null {
+  if (!hasStaleResume) return null;
+  if (!/EADDRINUSE|bridge exited before becoming ready/i.test(message)) return null;
+  return (
+    `a previous ${kind} session in this sandbox is still running and holding its port — ` +
+    "cancel_run it, or wait a moment and try again"
+  );
+}
+
 export interface HarnessToolStepInput {
   /** The harness session: an agent stage's visit conversation
    *  (`<runId>_<seq>`) — 0022: chat calls go through
@@ -137,6 +157,18 @@ export async function startHarnessCallStep(input: {
 }
 
 /** One semantic harness step (the 0009 grain) — the worker's loop body. */
+/** Running totals a call carries between advance steps. */
+export interface HarnessTotals {
+  usage: UsageCounts | null;
+  steps: number;
+  toolCalls: number;
+  /** 0062: the harness's own cumulative cost (Claude Code); latest wins. */
+  reportedCostUsd?: number | null;
+  /** 0062: the model the harness actually resolved to (a bare claude
+   *  route leaves it to the CLI's default); latest wins. */
+  model?: string | null;
+}
+
 export async function harnessAdvanceStep(input: {
   callId: string;
   conversationId: string;
@@ -146,13 +178,13 @@ export async function harnessAdvanceStep(input: {
   /** 0047 review fix: running totals so far (tokens + steps) — the
    *  step re-upserts the usage row so a CANCELLED call keeps every
    *  completed step's metering (cancel never reaches the settle write). */
-  totals?: { usage: UsageCounts | null; steps: number; toolCalls: number };
+  totals?: HarnessTotals;
 }): Promise<{
   state: HarnessWorkflowState;
   text: string;
   toolCalls: number;
   usage: UsageCounts | null;
-  totals: { usage: UsageCounts | null; steps: number; toolCalls: number };
+  totals: HarnessTotals;
 }> {
   "use step";
   // Tests: a scripted harness (no sandbox, no model) — two semantic
@@ -181,10 +213,37 @@ export async function harnessAdvanceStep(input: {
         totals: { usage: null, steps: 0, toolCalls: 0 },
       };
     }
+    if (process.env.SWEATSHOP_HARNESS_MOCK === "loop") {
+      // A turn that never finishes on its own (tests exercise the
+      // step-cap/cancel teardown paths) — always ready_for_next_step,
+      // carrying a fake continueFrom so harnessStopStep has something
+      // to reattach to, same as a real suspended turn would.
+      const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
+      return {
+        state: {
+          ...input.state,
+          mockStep: n,
+          status: "ready_for_next_step",
+          continueFrom: { mock: "continue", step: n },
+        } as unknown as HarnessWorkflowState,
+        text: `mock-harness-step:${n}`,
+        toolCalls: 1,
+        usage: null,
+        totals: { usage: null, steps: n, toolCalls: n },
+      };
+    }
     const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
     const done = n >= 2;
     return {
-      state: { ...input.state, mockStep: n, status: done ? "finished" : "ready_for_next_step" } as HarnessWorkflowState,
+      state: {
+        ...input.state,
+        mockStep: n,
+        status: done ? "finished" : "ready_for_next_step",
+        // A real suspended turn carries continueFrom — the mock needs
+        // one too once a step cap under 2 is in play (tests), so the
+        // teardown step has something to reattach to.
+        ...(done ? {} : { continueFrom: { mock: "continue", step: n } }),
+      } as unknown as HarnessWorkflowState,
       text: `mock-harness-step:${n}`,
       toolCalls: 1,
       usage: null,
@@ -193,30 +252,62 @@ export async function harnessAdvanceStep(input: {
   }
   const [
     { runHarnessAgentStep },
-    { toNetworkSandboxSession },
-    { buildHarnessAgent },
     { recordHarnessEvent, clipHarnessText },
     { db },
-    { getConversation },
+    { getHarnessResumeState },
     { getWritable },
-    { getModelInfo },
-    { openConversationSandbox },
   ] = await Promise.all([
     import("@ai-sdk/workflow-harness"),
-    import("../../lib/sandboxes/ai-sdk-adapter"),
-    import("./harness-agent"),
     import("../../lib/harness-events"),
     import("../../db"),
     import("../../db/chat"),
     import("workflow"),
-    import("../../db/providers"),
-    import("../../lib/sandboxes/binding"),
   ]);
 
-  // The conversation's binding — bound on the call's first step if this
-  // is the conversation's first sandboxed use (0013).
-  const { sandboxId, workDir, handle } = await openConversationSandbox(input.conversationId);
-  const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
+  // 0062: cumulative, so the latest report wins (never summed).
+  let reportedCost: number | null = null;
+  // 0062: the agent's own step/end callbacks see the full usage (cache
+  // split) and the harness-reported cost that the UI stream drops. They
+  // win over the sink's thin finish-step reading and finalResult. Declared
+  // before resolveHarnessRunContext so the callbacks below can close over
+  // them — the agent built inside it is the one runHarnessAgentStep drives.
+  let callbackUsage: UsageCounts | null = null;
+  let finishMetadata: Promise<unknown> | null = null;
+  let resolvedModel: string | null = null;
+  const { sandboxSession, agent, handle } = await resolveHarnessRunContext(input.conversationId, input.route, {
+    onStepEnd: (step) => {
+      const id = (step as { model?: { modelId?: unknown } }).model?.modelId;
+      if (typeof id === "string" && id) resolvedModel = id;
+      const next = normalizeUsage(step.usage);
+      if (next) callbackUsage = callbackUsage ? addUsage(callbackUsage, next) : next;
+      const cost = readReportedCost({ providerMetadata: step.providerMetadata });
+      if (cost !== null) reportedCost = cost;
+    },
+    onResult: (result) => {
+      // Resolves only when the turn finishes; a suspended slice never
+      // settles it, so it is raced (not awaited bare) below.
+      finishMetadata = Promise.resolve(result.providerMetadata).catch(() => undefined);
+    },
+    onEnd: (event) => {
+      const cost = readReportedCost({ providerMetadata: event.providerMetadata });
+      if (cost !== null) reportedCost = cost;
+    },
+  });
+  // 0038: the CLI authenticates from a planted auth.json. The host copy
+  // is the source of truth, re-planted every step (a refresh the CLI
+  // does in the sandbox must never strand it); a missing/expired login
+  // fails the call value-shaped instead of as an opaque bridge error.
+  // The step is idempotent and the credential never logs.
+  if (input.route.harness === "cursor") {
+    const [{ cursorCredential, plantCursorCredential }, { FatalError }] = await Promise.all([
+      import("../../lib/harness-auth/cursor"),
+      import("workflow"),
+    ]);
+    const credential = cursorCredential();
+    if (!credential.ok) throw new FatalError(credential.message);
+    const planted = await plantCursorCredential(handle, credential.json);
+    if (!planted.ok) throw new FatalError(planted.message);
+  }
 
   // Tee UI chunks through the shared sink (0031): events into
   // harness_events (the /h page is the live view), the model-part form
@@ -243,50 +334,50 @@ export async function harnessAdvanceStep(input: {
         const next = normalizeUsage(raw);
         if (next) stepUsage = next;
       },
+      onFinishMetadata: (chunk) => {
+        const cost = readReportedCost(chunk);
+        if (cost !== null) reportedCost = cost;
+      },
     });
 
-    const projectId = getConversation(db(), input.conversationId)?.projectId;
-    if (!projectId) throw new Error(`conversation ${input.conversationId} lost its project mid-call`);
-    // 0038: the CLI authenticates from a planted auth.json. The host
-    // copy is the source of truth, re-planted every step (a refresh the
-    // CLI does in the sandbox must never strand it); a missing/expired
-    // login fails the call value-shaped instead of as an opaque bridge
-    // error. The step is idempotent and the credential never logs.
-    if (input.route.harness === "cursor") {
-      const [{ cursorCredential, plantCursorCredential }, { FatalError }] = await Promise.all([
-        import("../../lib/harness-auth/cursor"),
-        import("workflow"),
-      ]);
-      const credential = cursorCredential();
-      if (!credential.ok) throw new FatalError(credential.message);
-      const planted = await plantCursorCredential(handle, credential.json);
-      if (!planted.ok) throw new FatalError(planted.message);
+    let state: Awaited<ReturnType<typeof runHarnessAgentStep>>;
+    try {
+      state = await runHarnessAgentStep({
+        agent: agent as never,
+        state: input.state,
+        sandboxSession: sandboxSession as never,
+        writable: sink as never,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const stale = getHarnessResumeState(db(), input.conversationId, input.kind);
+      const friendly = explainBridgeStartupFailure(message, Boolean(stale), input.kind);
+      throw friendly ? new Error(friendly) : err;
     }
-    // 0034 A: a CHAT harness call has no git tool at all — publishing
-    // is the chat agent's act (its gated create_pr) after the wake.
-    const agent = buildHarnessAgent({
-      route: input.route,
-      sessionId: input.conversationId,
-      tools: {},
-      ...(input.route.harness === "pi"
-        ? { modelInfo: getModelInfo(db(), input.route.provider, input.route.model) }
-        : {}),
-    });
-    const state = await runHarnessAgentStep({
-      agent: agent as never,
-      state: input.state,
-      sandboxSession: sandboxSession as never,
-      writable: sink as never,
-    });
     recordHarnessEvent(input.conversationId, input.kind, {
       kind: "step-end",
       text: clipHarnessText(text(), 500),
     });
     // The UI-chunk transform drops finish-step usage. A finished step
     // still carries a thin summary (input/output only) on finalResult.
+    if (state.status !== "ready_for_next_step" && finishMetadata) {
+      const meta = await Promise.race([
+        finishMetadata,
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1_500)),
+      ]);
+      const cost = readReportedCost({ providerMetadata: meta });
+      if (cost !== null) reportedCost = cost;
+    }
+    if (input.route.harness === "claude" && state.status === "finished" && reportedCost === null) {
+      console.warn("[usage] claude step reported no cost (providerMetadata['claude-code'].costUsd missing)");
+    }
+    if (callbackUsage) stepUsage = callbackUsage;
     if (!stepUsage) {
       const summary = (state as { finalResult?: { usage?: unknown } }).finalResult?.usage;
       stepUsage = normalizeUsage(summary);
+    }
+    if (reportedCost === null) {
+      reportedCost = readReportedCost((state as { finalResult?: unknown }).finalResult);
     }
     // 0047 review fix: running totals + an incremental upsert. Cancel
     // never reaches the settle step's usage write, so the row must be
@@ -298,6 +389,8 @@ export async function harnessAdvanceStep(input: {
         : (input.totals?.usage ?? stepUsage),
       steps: (input.totals?.steps ?? 0) + 1,
       toolCalls: (input.totals?.toolCalls ?? 0) + toolCalls,
+      reportedCostUsd: reportedCost ?? input.totals?.reportedCostUsd ?? null,
+      model: resolvedModel ?? input.totals?.model ?? null,
     };
     try {
       await writeHarnessUsageRow(input.callId, input.conversationId, input.route, totals);
@@ -307,6 +400,128 @@ export async function harnessAdvanceStep(input: {
     return { state, text: text(), toolCalls, usage: stepUsage, totals };
   } finally {
     writer.releaseLock();
+  }
+}
+
+/**
+ * Shared sandbox/agent construction for every step that drives or tears
+ * down a harness session (`harnessAdvanceStep`, `harnessStopStep`) — one
+ * place that opens the conversation's sandbox, wraps it for the harness
+ * SDK, and builds the route's `HarnessAgent`.
+ */
+async function resolveHarnessRunContext(
+  conversationId: string,
+  route: import("../../lib/providers/route").HarnessRoute,
+  /** 0062: lifecycle taps forwarded straight to `buildHarnessAgent` —
+   *  `harnessAdvanceStep` passes them (it drives the agent and wants its
+   *  usage/cost callbacks); `harnessStopStep` passes none (it only
+   *  reattaches to park or discard the session, never drives a turn). */
+  callbacks?: Pick<import("./harness-agent").BuildArgs, "onStepEnd" | "onResult" | "onEnd">,
+) {
+  const [
+    { toNetworkSandboxSession },
+    { buildHarnessAgent },
+    { db },
+    { getConversation },
+    { getModelInfo },
+    { openConversationSandbox },
+  ] = await Promise.all([
+    import("../../lib/sandboxes/ai-sdk-adapter"),
+    import("./harness-agent"),
+    import("../../db"),
+    import("../../db/chat"),
+    import("../../db/providers"),
+    import("../../lib/sandboxes/binding"),
+  ]);
+  // The conversation's binding — bound on the call's first step if this
+  // is the conversation's first sandboxed use (0013).
+  const { sandboxId, workDir, handle } = await openConversationSandbox(conversationId);
+  const sandboxSession = toNetworkSandboxSession({ id: sandboxId, handle, workDir });
+  const projectId = getConversation(db(), conversationId)?.projectId;
+  if (!projectId) throw new Error(`conversation ${conversationId} lost its project mid-call`);
+  const agent = buildHarnessAgent({
+    route,
+    sessionId: conversationId,
+    tools: {},
+    ...(route.harness === "pi" ? { modelInfo: getModelInfo(db(), route.provider, route.model) } : {}),
+    ...callbacks,
+  });
+  return { sandboxSession, agent, handle };
+}
+
+/**
+ * harness-bridge-cleanup: a cheap "is this call still running?" read,
+ * checked between semantic steps (same boundary the step cap uses) so
+ * the workflow notices an external `cancel_run` settle and tears down
+ * its own live session instead of looping toward the cap with a bridge
+ * nobody is driving anymore.
+ */
+export async function harnessCallIsLiveStep(callId: string): Promise<boolean> {
+  "use step";
+  const [{ db }, { getHarnessCall }] = await Promise.all([import("../../db"), import("../../db/harness-calls")]);
+  return getHarnessCall(db(), callId)?.status === "running";
+}
+
+/**
+ * harness-bridge-cleanup: tear down the live session a call leaves
+ * behind when the workflow stops driving it without the turn itself
+ * having finished or failed — the step cap, or an externally cancelled
+ * call noticed between steps. Reattaches via the state's `continueFrom`
+ * (the live, suspended turn) or, failing that, `resumeFrom` (a session
+ * parked by an earlier turn), then either parks it again (`stop()` —
+ * the step-cap path, which wants the NEXT call to resume cleanly) or
+ * discards it outright (`destroy()` — cancel, which already means "stop,
+ * don't continue"). Best-effort: a teardown failure is logged and
+ * swallowed, never thrown — the caller's settle must never be masked or
+ * skipped, and the worst case of a failed teardown is the exact bug this
+ * step exists to fix, not a new one.
+ */
+export async function harnessStopStep(input: {
+  callId: string;
+  conversationId: string;
+  kind: "pi" | "claude" | "cursor" | "codex";
+  route: import("../../lib/providers/route").HarnessRoute;
+  state: HarnessWorkflowState;
+  /** false (default) = stop() — park for the next call to resume.
+   *  true = destroy() — discard resumability (cancel). */
+  destroy?: boolean;
+}): Promise<{ resumeFrom?: unknown }> {
+  "use step";
+  const reattachFrom = input.state.continueFrom ?? input.state.resumeFrom;
+  if (!reattachFrom) return {}; // nothing live was ever started — nothing to tear down
+
+  try {
+    if (process.env.SWEATSHOP_HARNESS_MOCK && process.env.NODE_ENV === "test") {
+      if (process.env.SWEATSHOP_HARNESS_MOCK === "stop-throws") {
+        throw new Error("mock teardown failed");
+      }
+      if (input.destroy) {
+        // Test observability only: destroy() itself returns nothing to
+        // persist (by design — cancel discards resumability), so tests
+        // asserting teardown actually ran need SOME durable trace of it.
+        const { recordHarnessEvent } = await import("../../lib/harness-events");
+        recordHarnessEvent(input.conversationId, input.kind, { kind: "step-end", text: "mock-teardown:destroy" });
+        return {};
+      }
+      return { resumeFrom: { mock: "stopped", from: reattachFrom } };
+    }
+    const { sandboxSession, agent } = await resolveHarnessRunContext(input.conversationId, input.route);
+    const session = await agent.createSession({
+      sessionId: input.conversationId,
+      ...(input.state.continueFrom
+        ? { continueFrom: input.state.continueFrom }
+        : { resumeFrom: input.state.resumeFrom }),
+      sandboxSession: sandboxSession as never,
+    });
+    if (input.destroy) {
+      await session.destroy();
+      return {};
+    }
+    const resumeFrom = await session.stop();
+    return { resumeFrom };
+  } catch (err) {
+    console.error(`[harness] teardown failed for ${input.callId} (${input.kind})`, err);
+    return {};
   }
 }
 
@@ -321,9 +536,9 @@ export async function writeHarnessUsageRow(
   callId: string,
   conversationId: string,
   route: import("../../lib/providers/route").HarnessRoute | undefined,
-  totals: { usage: UsageCounts | null; steps: number; toolCalls: number },
+  totals: HarnessTotals,
 ): Promise<void> {
-  const [{ db }, { getPrice, upsertUsageEvent }, { computeCost }, { getHarnessCall }] = await Promise.all([
+  const [{ db }, { getPrice, upsertUsageEvent }, { computeCost, roundUsd }, { getHarnessCall }] = await Promise.all([
     import("../../db"),
     import("../../db/usage"),
     import("../../lib/usage/pricing"),
@@ -331,9 +546,18 @@ export async function writeHarnessUsageRow(
   ]);
   const counts = totals.usage ?? { inputTokens: 0, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0 };
   let costUsd: number | null = null;
+  let costBasis: "computed" | "reported" | null = null;
   if (route?.harness === "pi") {
     const price = getPrice(db(), route.provider, route.model);
-    if (price) costUsd = computeCost(price, counts);
+    if (price) {
+      costUsd = computeCost(price, counts);
+      costBasis = "computed";
+    }
+  } else if (totals.reportedCostUsd != null) {
+    // 0062: claude (and any harness that reports one) — the harness's
+    // own figure, rounded at the storage boundary like computed costs.
+    costUsd = roundUsd(totals.reportedCostUsd);
+    costBasis = "reported";
   }
   const call = getHarnessCall(db(), callId);
   const now = Date.now();
@@ -342,7 +566,12 @@ export async function writeHarnessUsageRow(
     conversationId,
     source: "harness",
     harnessCallId: callId,
-    route: JSON.stringify(route ?? {}),
+    // 0062: a bare subscription route (claude/cursor/codex without a
+    // pinned model) gets the model the harness resolved, so the panel
+    // can say which one ran. Pi's route already carries its model.
+    route: JSON.stringify(
+      route && !("model" in route && route.model) && totals.model ? { ...route, model: totals.model } : (route ?? {}),
+    ),
     inputTokens: counts.inputTokens,
     cachedTokens: counts.cachedTokens,
     cacheWriteTokens: counts.cacheWriteTokens ?? 0,
@@ -351,6 +580,7 @@ export async function writeHarnessUsageRow(
     steps: totals.steps,
     toolCalls: totals.toolCalls,
     costUsd,
+    costBasis,
     startedAt: call?.createdAt ?? now,
     endedAt: now,
     createdAt: now,
@@ -382,6 +612,10 @@ export async function harnessSettleStep(input: {
   route?: import("../../lib/providers/route").HarnessRoute;
   /** Summed model usage; null when no finish-step reported any. */
   usage?: UsageCounts | null;
+  /** 0062: the harness's own cumulative cost, when it reports one. */
+  reportedCostUsd?: number | null;
+  /** 0062: the model the harness resolved to, when it said. */
+  model?: string | null;
   error?: string;
   resumeFrom?: unknown;
 }): Promise<void> {
@@ -453,6 +687,8 @@ export async function harnessSettleStep(input: {
         usage: input.usage ?? null,
         steps: input.steps ?? 0,
         toolCalls: input.toolCalls,
+        reportedCostUsd: input.reportedCostUsd ?? null,
+        model: input.model ?? null,
       });
     } catch (err) {
       console.error("[usage] harness capture failed", err);

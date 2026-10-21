@@ -8,6 +8,7 @@ import { z } from "zod";
 import { chatApprovalHook } from "../hooks";
 import { ownerName } from "../../../lib/agent/owner";
 import { commandDescription } from "./shared";
+import type { DiffBreakdown } from "../../../lib/diff-breakdown";
 import {
   applyApprovedPromptChangeStep,
   createPrPreviewStep,
@@ -73,7 +74,7 @@ export function coreTools(
         // persists only at its end — run 5's card missed three).
         const live = messages.filter((m) => m.role === "tool" || m.role === "assistant");
         const preview = (await createPrPreviewStep(conversationId, input, live)) as
-          | { ok: true; summary: string; evidence: unknown }
+          | { ok: true; summary: string; evidence: { breakdown?: DiffBreakdown } }
           | { ok: false; code: string; message: string };
         if (!preview.ok) return preview;
         // 0037: the card carries the runtime's evidence (test run +
@@ -91,7 +92,12 @@ export function coreTools(
               : `${ownerName()} declined the PR — nothing was opened`,
           };
         }
-        return createPrStep(conversationId, input);
+        const result = await createPrStep(conversationId, input);
+        // 0059: the breakdown computed for the approval card rides on
+        // the tool result too, so the transcript's card needs no fetch.
+        return result && typeof result === "object"
+          ? { ...result, breakdown: preview.evidence.breakdown }
+          : result;
       },
     }),
 

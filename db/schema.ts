@@ -888,8 +888,14 @@ export const usageEvents = sqliteTable(
     lastReasoningTokens: integer("last_reasoning_tokens"),
     steps: integer("steps").notNull().default(0),
     toolCalls: integer("tool_calls").notNull().default(0),
-    /** Computed at capture time; null = unmetered (plan). */
+    /** Dollars: computed at capture time from a price row, or reported
+     *  by the harness itself (0062); null = no cost known. */
     costUsd: real("cost_usd"),
+    /** 0062: where costUsd came from — "computed" (price table) |
+     *  "reported" (the harness's own figure, e.g. Claude Code's
+     *  total_cost_usd). Null when costUsd is null or on older rows
+     *  (read as computed). */
+    costBasis: text("cost_basis"),
     startedAt: integer("started_at").notNull(),
     endedAt: integer("ended_at").notNull(),
     createdAt: integer("created_at").notNull(),

@@ -321,7 +321,7 @@ export function ConversationSidebar({
           className="fixed inset-0 z-40 animate-in fade-in duration-200 bg-foreground/25 backdrop-blur-[2px] md:hidden"
         />
       )}
-      <CommandPalette />
+      <CommandPalette data={data} />
     </SidebarContext.Provider>
   );
 }

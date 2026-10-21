@@ -11,7 +11,7 @@ import { messages } from "@/db/schema";
  * message between them, the thread stops and waits (its last output is
  * unread; Chad's next message resumes it).
  */
-export const MAX_CONTINUATIONS = 3;
+export const MAX_CONTINUATIONS = 6;
 
 /** Budget continuations since the last message Chad typed. */
 export function continuationsSinceHuman(conversationId: string): number {

@@ -1,4 +1,5 @@
 import type { TargetListItem } from "../db/prompt-settings";
+import { renderOwnerPlaceholders } from "./agent/owner";
 import { deriveSkillTitle } from "./skill-files";
 
 /**
@@ -19,7 +20,9 @@ import { deriveSkillTitle } from "./skill-files";
 
 export interface Skill {
   id: string;
+  /** Display text: owner placeholders (`{{owner}}`) are rendered at read time. */
   title: string;
+  /** Display text: owner placeholders (`{{owner}}`) are rendered at read time. */
   description: string;
   /** A thread skill (front matter `thread: true`) can bind to a conversation. */
   thread: boolean;
@@ -43,8 +46,8 @@ export async function readSkill(id: string): Promise<Skill | null> {
   if (!row) return null;
   return {
     id,
-    title: deriveSkillTitle(row.body, id),
-    description: row.description ?? "",
+    title: renderOwnerPlaceholders(deriveSkillTitle(row.body, id)),
+    description: renderOwnerPlaceholders(row.description ?? ""),
     thread: row.thread ?? false,
     mode: row.mode ?? false,
     body: row.body,
@@ -61,8 +64,8 @@ function isSkillTarget(t: TargetListItem): t is SkillTarget {
 function toSkill(row: SkillTarget): Skill {
   return {
     id: row.id,
-    title: deriveSkillTitle(row.body, row.id),
-    description: row.description ?? "",
+    title: renderOwnerPlaceholders(deriveSkillTitle(row.body, row.id)),
+    description: renderOwnerPlaceholders(row.description ?? ""),
     thread: row.thread ?? false,
     mode: row.mode ?? false,
     body: row.body,

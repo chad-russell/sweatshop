@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { getConversation } from "@/db/chat";
-import { deriveSkillTitle } from "@/lib/skill-files";
+import { renderOwnerPlaceholders } from "@/lib/agent/owner";
 import { readSkill } from "@/lib/skills";
 import { findPhase, isModeSkill, parseModeSkill } from "@/lib/agent/mode-ids";
 import type { ModeChromeData } from "@/lib/read-models/mode-chrome";
@@ -22,8 +22,8 @@ export async function loadModeChrome(conversationId: string): Promise<ModeChrome
   return {
     kind: "mode",
     skillId: conv.skill,
-    title: deriveSkillTitle(skill.body, skill.id),
-    phases: parsed.phases.map((p) => ({ id: p.id, name: p.name })),
-    current: current ? { id: current.id, name: current.name } : null,
+    title: skill.title,
+    phases: parsed.phases.map((p) => ({ id: p.id, name: renderOwnerPlaceholders(p.name) })),
+    current: current ? { id: current.id, name: renderOwnerPlaceholders(current.name) } : null,
   };
 }

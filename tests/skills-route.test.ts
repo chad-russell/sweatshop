@@ -13,4 +13,9 @@ describe("GET /api/skills", () => {
     expect(body.skills.find((s) => s.id === "ticket")?.mode).toBe(true);
     expect(body.skills.find((s) => s.id === "review")?.mode).toBe(false);
   });
+
+  it("descriptions contain no unrendered placeholders", async () => {
+    const body = (await (await GET()).json()) as { skills: { description: string }[] };
+    for (const skill of body.skills) expect(skill.description).not.toContain("{{");
+  });
 });
