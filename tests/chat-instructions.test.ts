@@ -47,6 +47,32 @@ describe("buildInstructions", () => {
     expect(plain).not.toContain("# Repo instructions");
   });
 
+  it("ships ask_owner, never the old ask_chad name", () => {
+    const plain = buildInstructions({ hasSandbox: false, hosts: [], repoDocs: [] });
+    expect(plain).toContain("ask_owner");
+    expect(plain).not.toContain("ask_chad");
+  });
+
+  it("0058: renders {{owner}}/{{owner's}} placeholders for the current SWEATSHOP_OWNER_NAME, in every section and the skill body", () => {
+    const saved = process.env.SWEATSHOP_OWNER_NAME;
+    try {
+      process.env.SWEATSHOP_OWNER_NAME = "Riley";
+      const out = buildInstructions({
+        hasSandbox: true,
+        hosts: [{ name: "bee", address: "10.0.0.1", user: "chad", apiBase: null }],
+        repoDocs: [],
+        skill: { id: "ship", title: "Ship", body: "Check with {{owner}} before {{owner's}} release." },
+      });
+      expect(out).toContain("Riley");
+      expect(out).toContain("Check with Riley before Riley's release.");
+      expect(out).not.toContain("Chad");
+      expect(out).not.toContain("{{owner");
+    } finally {
+      if (saved === undefined) delete process.env.SWEATSHOP_OWNER_NAME;
+      else process.env.SWEATSHOP_OWNER_NAME = saved;
+    }
+  });
+
   it("0054: omitting `sections` reproduces today's exact output (regression guard)", () => {
     const withoutSections = buildInstructions(base);
     const explicitDefaults = buildInstructions({
@@ -80,6 +106,12 @@ describe("GIT_DEFAULT_SECTIONS", () => {
     expect(GIT_DEFAULT_SECTIONS.base).toContain("You are sweatshop's agent");
     expect(GIT_DEFAULT_SECTIONS.harness_steering).toContain("Use bash to look around");
     expect(GIT_DEFAULT_SECTIONS.host_routing).toContain("exec is only for live state on a host");
+  });
+
+  it("0058: base is plain {{owner}}/{{owner's}} placeholder text — never interpolated at the module level", () => {
+    expect(GIT_DEFAULT_SECTIONS.base).toContain("{{owner}}");
+    expect(GIT_DEFAULT_SECTIONS.base).toContain("{{owner's}}");
+    expect(GIT_DEFAULT_SECTIONS.base).not.toContain("Chad");
   });
 });
 

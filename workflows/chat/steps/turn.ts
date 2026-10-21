@@ -6,6 +6,7 @@
  */
 
 import { chatStore } from "../deps";
+import { renderOwnerPlaceholders } from "../../../lib/agent/owner";
 import type { ModelMessage, UserContent } from "ai";
 
 /**
@@ -144,7 +145,7 @@ export async function bindSkillStep(conversationId: string, id?: string): Promis
   if (!skill)
     return { ok: false, code: "unknown-skill", message: `No thread skill "${id}".`, skills: catalog };
   chat.setConversationSkill(db, conversationId, skill.id);
-  return { ok: true, id: skill.id, note: "Bound to this thread — follow it from now on.", skill: skill.body };
+  return { ok: true, id: skill.id, note: "Bound to this thread — follow it from now on.", skill: renderOwnerPlaceholders(skill.body) };
 }
 
 /** 0054: the three editable instruction sections, resolved to their
