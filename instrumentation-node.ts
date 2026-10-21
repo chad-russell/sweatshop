@@ -83,7 +83,7 @@ function startReaper(g: Globals) {
 }
 
 async function startPreviews(g: Globals) {
-  const proxyPort = process.env.PREVIEW_PROXY_PORT ?? "3001";
+  const proxyPort = process.env.PREVIEW_PROXY_PORT?.trim() || "3001";
   const proxyKey = Symbol.for("sweatshop.previewProxy");
   if (proxyPort !== "off" && !g[proxyKey]) {
     const { startPreviewProxy } = await import("./lib/previews/runtime");

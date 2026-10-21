@@ -75,7 +75,9 @@ derived from what's available (glm > openrouter > gloo):
 
 | Env | What it unlocks |
 | --- | --- |
-| `ZAI_API_KEY` | GLM provider (Z.AI coding plan) + `web_search` |
+| `ZAI_API_KEY` | GLM provider (Z.AI coding plan) + `web_search` (first backend) |
+| `ANTHROPIC_SEARCH_API_KEY` | `web_search` backend via Claude's server-side search (not `ANTHROPIC_API_KEY`) |
+| `TAVILY_API_KEY` | `web_search` backend (last in line) |
 | `GLOO_API_KEY` | Gloo provider |
 | `OPENROUTER_API_KEY` | OpenRouter provider |
 

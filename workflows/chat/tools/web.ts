@@ -11,8 +11,8 @@ export function queryTools() {
   return {
     // 1.5 (roadmap): web tools — every chat, no sandbox or project
     // needed. Results carry the untrusted-content framing; failures are
-    // values so the model reads them (web_search reports not-configured
-    // when the server has no Z.AI key).
+    // values so the model reads them (web_search tries zai → codex → claude
+    // → tavily and reports not-configured only when none is set up).
     web_search: tool({
       description:
         "Search the web. Returns up to 8 results with title, url and snippet — follow up with " +

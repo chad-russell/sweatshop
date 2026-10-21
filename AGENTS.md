@@ -353,10 +353,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 - Web tools (1.5): every chat has `web_search` and `web_fetch`.
   `web_fetch` is plain HTTP (redirects followed, 2 MiB download cap,
   60 k context clip, HTML stripped, textual content types only);
-  `web_search` is Z.AI's coding-plan MCP tool over hand-rolled
-  streamable-HTTP JSON-RPC, env-gated on `ZAI_API_KEY`. Results are
-  value-shaped and framed as untrusted content. Cores
-  `lib/agent/tools/web.ts` / `web-search.ts`.
+  `web_search` tries backends in order — Z.AI's coding-plan MCP tool
+  (`ZAI_API_KEY`), codex (the stored ChatGPT login, hosted web_search over
+  the codex Responses endpoint), claude (`ANTHROPIC_SEARCH_API_KEY`,
+  Messages API server tool), tavily (`TAVILY_API_KEY`) — skipping any that
+  is unconfigured and falling through on failure; `WEB_SEARCH_PROVIDERS`
+  reorders. Cursor has no standalone search, so no slot. Results are
+  value-shaped, carry `provider`, and are framed as untrusted content.
+  Orchestrator `lib/agent/tools/web-search.ts`, backends in
+  `lib/agent/tools/search-providers/`, fetch core `lib/agent/tools/web.ts`.
 - Browser & screenshot evidence (0035): `Containerfile.sandbox` bakes
   agent-browser + Chrome-for-Testing at build — nothing downloads at
   runtime; a custom `image_ref` without it degrades to agent-checkable,
