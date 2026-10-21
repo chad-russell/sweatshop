@@ -277,7 +277,7 @@ export function PhaseChip({
 }) {
   if (!phase) return null;
   if (variant === "compact") {
-    const pill = <Pill tone={phase.tone} label={phase.label} />;
+    const pill = <Pill tone={phase.tone} label={phase.stale ? `${phase.label} · stale` : phase.label} />;
     return phase.url ? (
       <a href={phase.url} target="_blank" rel="noreferrer" className={cn("shrink-0", className)} title="Open the PR">
         {pill}
@@ -297,6 +297,11 @@ export function PhaseChip({
     <>
       <span aria-hidden className={cn("size-1.5 rounded-full bg-current", phase.tone === "running" && "animate-pulse")} />
       {phase.label}
+      {phase.stale && (
+        <span className="font-normal text-muted-foreground" title="The last wake was not followed by update_status">
+          stale
+        </span>
+      )}
     </>
   );
   return phase.url ? (

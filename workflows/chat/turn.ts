@@ -3,7 +3,8 @@ import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
-import { isModeSkill, parseModeSkill, threadStateNote } from "../../lib/agent/mode-ids";
+import { isModeSkill, parseModeSkill } from "../../lib/agent/mode-ids";
+import { deriveStatus, renderThreadStateNote } from "../../lib/status";
 import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
@@ -91,15 +92,17 @@ export async function chatTurn(input: ChatTurnInput) {
   // same way it already rebuilds the viewing note).
   const skill = await loadSkillStep(conversationId);
   const modePhase = skill?.modePhase ?? null;
-  // 0055 v7: a real (non-empty) current phase on a mode skill — render
-  // its [thread state] note NOW, from the live body, so the exact same
-  // string can be stamped onto this turn's user row below AND injected
-  // into this turn's own messages: the row's metadata and what the
-  // model is actually shown are then guaranteed byte-identical.
-  const stateNote =
-    skill && isModeSkill(skill.mode) && modePhase
-      ? threadStateNote(skill.id, parseModeSkill(skill.body).phases, modePhase)
+  // 0059: the [thread state] note is the derived status (or, for a mode
+  // that has not called update_status yet, a seed line). Rendered NOW
+  // so the same string is stamped onto this turn's user row AND injected
+  // into this turn's messages — metadata and what the model sees stay
+  // byte-identical, and listTurnMessages replays the stored text.
+  const derived = deriveStatus(history);
+  const seed =
+    !derived.current && skill && isModeSkill(skill.mode) && modePhase != null
+      ? parseModeSkill(skill.body).phases
       : null;
+  const stateNote = renderThreadStateNote(derived, seed);
   const userContent = await recordUserMessage(
     conversationId,
     userText,
@@ -159,9 +162,9 @@ export async function chatTurn(input: ChatTurnInput) {
   // 0055: the [thread state] note is built the exact same way, from the
   // SAME row's metadata (recorded just above) — so what this turn sends
   // the model and what listTurnMessages rebuilds next turn are
-  // byte-identical, and the prompt-cache prefix holds. (Mid-turn
-  // advance_phase still reaches the model through its own tool result —
-  // no per-slice re-injection needed.)
+  // byte-identical, and the prompt-cache prefix holds. A mid-turn
+  // update_status reaches the model through its own tool result — no
+  // per-slice re-injection.
   let messages: ModelMessage[] = [
     ...history,
     ...(input.viewing ? [{ role: "user" as const, content: viewingNote(input.viewing) }] : []),

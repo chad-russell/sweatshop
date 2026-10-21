@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  checkEnterMode,
-  checkLegacyAdopt,
   findPhase,
   isModeSkill,
   parseModeSkill,
@@ -11,8 +9,8 @@ import {
   renderPhaseHandoff,
   renderPhaseList,
   renderPhaseSection,
-  threadStateNote,
-  validateTransition,
+  renderStatusSeed,
+  splitPhaseHandoff,
 } from "../lib/agent/mode-ids";
 
 describe("isModeSkill", () => {
@@ -181,144 +179,6 @@ describe("findPhase", () => {
   });
 });
 
-describe("validateTransition", () => {
-  const phases = [
-    { id: "plan", name: "Plan", body: "" },
-    { id: "implement", name: "Implement", body: "" },
-    { id: "review", name: "Review", body: "" },
-    { id: "fixup", name: "Fixup", body: "" },
-    { id: "ship", name: "Ship", body: "" },
-  ];
-
-  it("the next phase in document order needs no note", () => {
-    expect(validateTransition(phases, "plan", "implement")).toMatchObject({ ok: true });
-    expect(validateTransition(phases, "implement", "review")).toMatchObject({ ok: true });
-  });
-
-  it("an unknown phase refuses, listing the declared names", () => {
-    const result = validateTransition(phases, "plan", "sprint");
-    expect(result).toMatchObject({ ok: false, code: "unknown-phase" });
-    expect(result.message).toContain("Plan");
-    expect(result.message).toContain("Ship");
-  });
-
-  it("matches the target by id or case-insensitive name", () => {
-    expect(validateTransition(phases, "plan", "IMPLEMENT")).toMatchObject({ ok: true });
-  });
-
-  it("same phase is a no-op refusal", () => {
-    expect(validateTransition(phases, "plan", "plan")).toMatchObject({ ok: false, code: "same-phase" });
-  });
-
-  it("a backward move needs a non-empty note", () => {
-    expect(validateTransition(phases, "ship", "plan")).toMatchObject({ ok: false, code: "needs-note" });
-    expect(validateTransition(phases, "ship", "plan", "   ")).toMatchObject({ ok: false, code: "needs-note" });
-    expect(validateTransition(phases, "ship", "plan", "found a design flaw")).toMatchObject({ ok: true });
-  });
-
-  it("a forward skip needs a non-empty note (no more fixed review->ship exception)", () => {
-    expect(validateTransition(phases, "plan", "review")).toMatchObject({ ok: false, code: "needs-note" });
-    expect(validateTransition(phases, "plan", "review", "skip ahead")).toMatchObject({ ok: true });
-    expect(validateTransition(phases, "review", "ship", "clean, nothing to fix")).toMatchObject({ ok: true });
-  });
-
-  it("a loop (fixup back to review) needs a note too — no hardcoded exception", () => {
-    expect(validateTransition(phases, "fixup", "review")).toMatchObject({ ok: false, code: "needs-note" });
-    expect(validateTransition(phases, "fixup", "review", "more findings")).toMatchObject({ ok: true });
-  });
-});
-
-describe("validateTransition: zero or one phase", () => {
-  it("is never reachable on a zero-phase mode (findPhase has nothing to match)", () => {
-    expect(validateTransition([], "", "anything")).toMatchObject({ ok: false, code: "unknown-phase" });
-  });
-});
-
-describe("checkLegacyAdopt", () => {
-  const phases = [
-    { id: "plan", name: "Plan", body: "" },
-    { id: "implement", name: "Implement", body: "" },
-  ];
-
-  it("a zero-phase mode refuses outright", () => {
-    expect(checkLegacyAdopt([], "plan", "starting here")).toMatchObject({ ok: false, code: "no-phases" });
-  });
-
-  it("an unknown phase refuses, listing declared names", () => {
-    expect(checkLegacyAdopt(phases, "sprint", "wherever")).toMatchObject({ ok: false, code: "unknown-phase" });
-  });
-
-  it("any declared phase is reachable, but only with a non-empty note", () => {
-    expect(checkLegacyAdopt(phases, "implement")).toMatchObject({ ok: false, code: "needs-note" });
-    expect(checkLegacyAdopt(phases, "implement", "   ")).toMatchObject({ ok: false, code: "needs-note" });
-    expect(checkLegacyAdopt(phases, "implement", "already mid-build")).toMatchObject({ ok: true });
-    expect(checkLegacyAdopt(phases, "plan", "starting fresh")).toMatchObject({ ok: true });
-  });
-});
-
-describe("checkEnterMode", () => {
-  it("allows entering from a plain, unbound chat", () => {
-    expect(checkEnterMode({ skill: null, modePhase: null })).toMatchObject({ ok: true });
-  });
-
-  it("refuses when already in a mode (a real phase)", () => {
-    expect(checkEnterMode({ skill: "ticket", modePhase: "implement" })).toMatchObject({ ok: false, message: "already in a mode" });
-  });
-
-  it("refuses when already in a phaseless mode (modePhase \"\")", () => {
-    expect(checkEnterMode({ skill: "onboarding", modePhase: "" })).toMatchObject({ ok: false, message: "already in a mode" });
-  });
-
-  it("refuses when any skill is already bound, even with no phase yet (legacy bind)", () => {
-    const result = checkEnterMode({ skill: "ticket", modePhase: null });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain("ticket");
-  });
-
-  it("refuses when a different (non-mode) skill is already bound", () => {
-    const result = checkEnterMode({ skill: "review", modePhase: null });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain("review");
-  });
-});
-
-describe("threadStateNote", () => {
-  const phases = [
-    { id: "plan", name: "Plan", body: "" },
-    { id: "implement", name: "Implement", body: "" },
-    { id: "review", name: "Review", body: "" },
-    { id: "fixup", name: "Fixup", body: "" },
-    { id: "ship", name: "Ship", body: "" },
-  ];
-
-  it("formats the exact [thread state] line from the design doc", () => {
-    expect(threadStateNote("ticket", phases, "implement")).toBe(
-      "[thread state] mode: ticket · phase: Implement (2/5) · next: Review",
-    );
-  });
-
-  it("says next: done on the last phase", () => {
-    const note = threadStateNote("ticket", phases, "ship");
-    expect(note).toContain("next: done");
-    expect(note).toContain("(5/5)");
-  });
-
-  it("a stored phase no longer declared (heading renamed mid-run) says so plainly, listing the current phases", () => {
-    const note = threadStateNote("ticket", phases, "gone");
-    expect(note).toBe(
-      "[thread state] mode: ticket · phase: gone (not declared — advance_phase to one of: Plan, Implement, Review, Fixup, Ship)",
-    );
-    expect(note).not.toContain("(0/5)");
-    expect(note).not.toContain("next: done");
-  });
-
-  it("a stale phase on a now-zero-phase mode lists \"none\"", () => {
-    expect(threadStateNote("ticket", [], "gone")).toBe(
-      "[thread state] mode: ticket · phase: gone (not declared — advance_phase to one of: none)",
-    );
-  });
-});
-
 describe("renderPhaseSection / renderPhaseList / renderModeEntry", () => {
   const parsed = parseModeSkill(
     [
@@ -348,13 +208,16 @@ describe("renderPhaseSection / renderPhaseList / renderModeEntry", () => {
 
   it("renderModeEntry assembles brief + phase list + Shared + first phase", () => {
     expect(renderModeEntry(parsed)).toBe(
-      "Brief paragraph.\n\nPhases: Plan → Ship\n\n## Shared\n\nShared context.\n\n## Plan\n\nPlan body.",
+      "Brief paragraph.\n\nPhases: Plan → Ship\n\n## Shared\n\nShared context.\n\n## Plan\n\nPlan body.\n\n" +
+        renderStatusSeed(parsed.phases),
     );
   });
 
   it("renderModeEntry drops a missing Shared or empty phase list gracefully", () => {
     const noShared = parseModeSkill("Brief only.\n\n## Phase: Plan\n\nPlan body.");
-    expect(renderModeEntry(noShared)).toBe("Brief only.\n\nPhases: Plan\n\n## Plan\n\nPlan body.");
+    expect(renderModeEntry(noShared)).toBe(
+      "Brief only.\n\nPhases: Plan\n\n## Plan\n\nPlan body.\n\n" + renderStatusSeed(noShared.phases),
+    );
 
     const noPhases = parseModeSkill("Just a brief, no phases.");
     expect(renderModeEntry(noPhases)).toBe("Just a brief, no phases.");
@@ -399,29 +262,35 @@ describe("renderPhaseHandoff (0055 v7 part B)", () => {
   });
 });
 
-describe("runbook <-> rule agreement: every advance_phase({to}) in skills/ticket/SKILL.md names a declared phase", () => {
+describe("ticket skill progress is update_status", () => {
   const raw = readFileSync(path.join(process.cwd(), "skills", "ticket", "SKILL.md"), "utf8").replace(
     /^---\n[\s\S]*?\n---\n/,
     "",
-  ); // strip front matter, same as lib/skill-files.ts
+  );
   const parsed = parseModeSkill(raw);
 
-  it("has at least one phase and at least one advance_phase call per non-terminal phase", () => {
-    expect(parsed.phases.length).toBeGreaterThan(0);
-    const checked: string[] = [];
+  it("every phase tells the agent to call update_status and never advance_phase", () => {
+    expect(parsed.phases.map((phase) => phase.name)).toEqual(["Plan", "Implement", "Review", "Fixup", "Ship"]);
+    expect(raw).not.toContain("advance_phase");
+    expect(parsed.brief).toContain("update_status");
     for (const phase of parsed.phases) {
-      const calls = [...phase.body.matchAll(/advance_phase\(\{\s*to:\s*"([^"]+)"/g)].map((m) => m[1]!);
-      // "Ship" is terminal — it reports and stops, no further advance_phase.
-      if (phase.id !== "ship") {
-        expect(calls.length, `## Phase: ${phase.name} mentions at least one advance_phase`).toBeGreaterThan(0);
-      }
-      for (const to of calls) {
-        expect(findPhase(parsed.phases, to), `"${to}" named in ## Phase: ${phase.name} is a declared phase`).not.toBeNull();
-        checked.push(`${phase.id}->${to}`);
-      }
+      expect(phase.body, phase.name).toContain("update_status");
     }
-    // Sanity: this actually exercised something (a future edit that
-    // removes every advance_phase call would otherwise pass vacuously).
-    expect(checked.length).toBeGreaterThan(0);
+  });
+});
+
+describe("splitPhaseHandoff", () => {
+  it("splits the prepended context from the task", () => {
+    const text = renderPhaseHandoff({
+      modeName: "Ticket",
+      phase: { id: "qa", name: "QA", body: "Run the suite." },
+      shared: null,
+      task: "check PR #4",
+    });
+    const split = splitPhaseHandoff(text);
+    expect(split?.phase).toBe("QA");
+    expect(split?.context).toContain("Run the suite.");
+    expect(split?.task).toBe("check PR #4");
+    expect(splitPhaseHandoff("just a message")).toBeNull();
   });
 });

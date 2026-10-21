@@ -1,18 +1,16 @@
 /**
  * 0055 v7: modes are owner-defined, freely, in a skill's own markdown —
  * no hardcoded mode or phase ids. This module is the pure core: parsing
- * a mode skill's body into `{brief, shared, phases}`, the generic
- * transition rule over whatever phases THIS skill declares, and the
- * per-turn note text. Deliberately dependency-free (no db import) so
+ * a mode skill's body into `{brief, shared, phases}`, the phase
+ * handoff a worker receives, and the entry text. Deliberately
+ * dependency-free (no db import) so
  * workflow-body files (`workflows/chat/instructions.ts`,
  * `workflows/chat/turn.ts` — both must stay free of db imports, even
  * transitively, same as `lib/usage/pricing.ts`) can import it directly.
  */
 
-/** Is this skill a MODE (sticky, phased) rather than an ordinary thread
- *  skill? Driven entirely by the skill's own `mode` flag now — no id
- *  hardcoding (0055 v5 compared against a fixed "ticket" id; v7 lets
- *  the owner define any number of modes in Settings). */
+/** Is this skill a MODE (phased) rather than an ordinary thread skill?
+ *  Driven entirely by the skill's own `mode` flag — no id hardcoding. */
 export function isModeSkill(mode: boolean | null | undefined): boolean {
   return mode === true;
 }
@@ -143,74 +141,7 @@ export function findPhase(phases: readonly ModePhase[], to: string): ModePhase |
   return phases.find((p) => p.id === lower || p.name.toLowerCase() === lower) ?? null;
 }
 
-export interface TransitionResult {
-  ok: boolean;
-  code?: "unknown-phase" | "same-phase" | "needs-note" | "no-phases";
-  message?: string;
-}
-
-const ok: TransitionResult = { ok: true };
-
-function refuse(code: NonNullable<TransitionResult["code"]>, message: string): TransitionResult {
-  return { ok: false, code, message };
-}
-
-function phaseNames(phases: readonly ModePhase[]): string {
-  return phases.map((p) => p.name).join(", ") || "none";
-}
-
-/**
- * Pure transition validity over THIS skill's declared phases (no more
- * hardcoded rules — v5's fixed review→ship / fixup⇄review exceptions
- * and the plan gate are both gone; a mode's own phase order is all
- * there is). `to` matches a declared phase by id or name,
- * case-insensitively; unknown names the declared ones so a renamed
- * heading degrades to a clear message. The very next phase in document
- * order needs no note; anything else (back, skip, a loop) does.
- */
-export function validateTransition(phases: readonly ModePhase[], fromId: string, to: string, note?: string): TransitionResult {
-  const target = findPhase(phases, to);
-  if (!target) return refuse("unknown-phase", `no such phase "${to}" — declared phases: ${phaseNames(phases)}`);
-  if (target.id === fromId) return refuse("same-phase", `already in ${target.name}`);
-  const fromIndex = phases.findIndex((p) => p.id === fromId);
-  const toIndex = phases.findIndex((p) => p.id === target.id);
-  if (fromIndex >= 0 && toIndex === fromIndex + 1) return ok;
-  return note?.trim() ? ok : refuse("needs-note", `moving to ${target.name} needs a note explaining why`);
-}
-
-/**
- * Adopting a thread with no current phase to validate a transition from
- * — either a legacy thread (mode skill bound before `mode_phase`
- * existed) or one that entered a then-phaseless mode. Any declared
- * phase is reachable, but a note is required (there's no prior phase
- * for the agent to be reasoning from, so it must state where it is).
- */
-export function checkLegacyAdopt(phases: readonly ModePhase[], to: string, note?: string): TransitionResult {
-  if (phases.length === 0) return refuse("no-phases", "this mode has no phases");
-  const target = findPhase(phases, to);
-  if (!target) return refuse("unknown-phase", `no such phase "${to}" — declared phases: ${phaseNames(phases)}`);
-  if (!note?.trim()) {
-    return refuse("needs-note", "adopting this thread into a phase needs a note saying where it actually is");
-  }
-  return ok;
-}
-
-/**
- * Refusals for entering a mode (shared by the `enter_mode` tool and the
- * owner-entry send path): already in a mode (a real phase or the
- * phaseless-entry "" sentinel, see `conversations.mode_phase`'s schema
- * comment), or any other skill already bound — mode entry and skill
- * binding don't mix.
- */
-export function checkEnterMode(current: { skill: string | null; modePhase: string | null }): { ok: true } | { ok: false; message: string } {
-  if (current.modePhase != null) return { ok: false, message: "already in a mode" };
-  if (current.skill) return { ok: false, message: `already running the "${current.skill}" skill — binding is the owner's` };
-  return { ok: true };
-}
-
-/** `## <Name>\n\n<body>` — a phase's section, heading reattached. What
- *  `advance_phase` hands back (Shared is NOT resent; the orchestrator
- *  already has it from entry). */
+/** `## <Name>\n\n<body>` — a phase's section, heading reattached. */
 export function renderPhaseSection(phase: ModePhase): string {
   return `## ${phase.name}\n\n${phase.body}`.trim();
 }
@@ -220,36 +151,45 @@ export function renderPhaseList(phases: readonly ModePhase[]): string {
   return `Phases: ${phases.map((p) => p.name).join(" → ")}`;
 }
 
-/** What the orchestrator sees on entry (appended row / `enter_mode`
- *  result): brief + phase list + Shared + the first phase's section.
- *  Gracefully drops whatever a phaseless or Shared-less mode doesn't have. */
+/** Suggested `update_status` steps for a mode's declared phases. Empty
+ *  when the mode declares none. */
+export function renderStatusSeed(phases: readonly ModePhase[]): string {
+  if (phases.length === 0) return "";
+  const steps = phases.map((phase, index) => `${phase.name} (${index === 0 ? "active" : "pending"})`).join(", ");
+  return (
+    `Seed update_status with these steps — the active one is the current phase: ${steps}. ` +
+    "Call update_status again whenever the step changes."
+  );
+}
+
+/** What the orchestrator sees on owner entry: brief + phase list +
+ *  Shared + the first phase's section, then the status seed. Gracefully
+ *  drops whatever a phaseless or Shared-less mode doesn't have. */
 export function renderModeEntry(parsed: ParsedModeSkill): string {
   const parts = [parsed.brief];
   if (parsed.phases.length > 0) parts.push(renderPhaseList(parsed.phases));
   if (parsed.shared) parts.push(`## Shared\n\n${parsed.shared}`);
   if (parsed.phases.length > 0) parts.push(renderPhaseSection(parsed.phases[0]!));
+  const seed = renderStatusSeed(parsed.phases);
+  if (seed) parts.push(seed);
   return parts.filter((p) => p.trim()).join("\n\n").trim();
 }
 
-/** `[thread state] mode: ticket · phase: qa (3/5) · next: ship` — the
- *  per-turn reminder. The rendered STRING is what gets stored as row
- *  metadata (`db/chat.ts`'s `listTurnMessages` just replays it verbatim
- *  — no parsing on rebuild, so it stays byte-stable turn over turn). */
-export const THREAD_STATE_PREFIX = "[thread state]";
+/** The line `renderPhaseHandoff` puts before the orchestrator's task. */
+export const PHASE_HANDOFF_TASK_MARKER = "\n---\nTask from the orchestrator:\n";
 
-export function threadStateNote(modeId: string, phases: readonly ModePhase[], currentId: string): string {
-  const index = phases.findIndex((p) => p.id === currentId);
-  if (index < 0) {
-    // The stored phase isn't declared by the CURRENT skill body — a
-    // heading got renamed/removed mid-run. Say so plainly instead of
-    // claiming a bogus "(0/n) · next: done": the agent needs to know
-    // this is stale, not that it finished.
-    const names = phases.map((p) => p.name).join(", ") || "none";
-    return `${THREAD_STATE_PREFIX} mode: ${modeId} · phase: ${currentId} (not declared — advance_phase to one of: ${names})`;
-  }
-  const current = phases[index]!;
-  const next = index + 1 < phases.length ? phases[index + 1]!.name : "done";
-  return `${THREAD_STATE_PREFIX} mode: ${modeId} · phase: ${current.name} (${index + 1}/${phases.length}) · next: ${next}`;
+/** Split a worker's first message into the prepended phase handoff and
+ *  the orchestrator's task. Null when the text is not a handoff. */
+export function splitPhaseHandoff(text: string): { phase: string; context: string; task: string } | null {
+  const match = /^You are doing the "([^"]+)" phase of a "[^"]+" run\./.exec(text);
+  if (!match) return null;
+  const index = text.indexOf(PHASE_HANDOFF_TASK_MARKER);
+  if (index < 0) return null;
+  return {
+    phase: match[1]!,
+    context: text.slice(0, index).trim(),
+    task: text.slice(index + PHASE_HANDOFF_TASK_MARKER.length),
+  };
 }
 
 /**

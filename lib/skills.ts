@@ -26,17 +26,19 @@ export interface Skill {
   description: string;
   /** A thread skill (front matter `thread: true`) can bind to a conversation. */
   thread: boolean;
-  /** 0055 v7: this skill is a MODE — a sticky, phased way of working
+  /** 0055 v7: this skill is a MODE — a phased way of working
    *  (lib/agent/mode-ids.ts). Implies `thread`. */
   mode: boolean;
   body: string;
+  /** Catalog version the body was read from (0059 phase context). */
+  version: number;
 }
 
 /** A thread's already-bound skill is looked up by id regardless of
  *  status — "disabled"/"deleted" only hide a skill from the catalog and
- *  from a NEW bind (listSkills/listThreadSkills below, 0055: via
- *  enter_mode, the creating send, or start_thread — use_skill itself
- *  only lists), never from a thread already running it. Unknown or
+ *  from a NEW load (listSkills/listThreadSkills, use_skill, the creating
+ *  send, or start_thread), never from a thread already running it.
+ *  Unknown or
  *  malformed ids return null, same as a missing file did before 0054. */
 export async function readSkill(id: string): Promise<Skill | null> {
   const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
@@ -49,6 +51,7 @@ export async function readSkill(id: string): Promise<Skill | null> {
     thread: row.thread ?? false,
     mode: row.mode ?? false,
     body: row.body,
+    version: row.version,
   };
 }
 
@@ -66,6 +69,7 @@ function toSkill(row: SkillTarget): Skill {
     thread: row.thread ?? false,
     mode: row.mode ?? false,
     body: row.body,
+    version: row.version,
   };
 }
 
@@ -76,8 +80,18 @@ export async function listSkills(): Promise<Skill[]> {
   return store.listTargets(db(), { includeDeleted: false }).filter(isSkillTarget).map(toSkill);
 }
 
-/** The bindable catalog: active thread skills only (pickers, use_skill,
- *  start_thread). */
+/** Active skills of every kind — `use_skill` with no id. `thread` and
+ *  `mode` say which can be bound and which are modes. */
+export async function listActiveSkills(): Promise<Skill[]> {
+  const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
+  return store
+    .listTargets(db(), { includeDeleted: false })
+    .filter(isSkillTarget)
+    .filter((row) => row.status === "active")
+    .map(toSkill);
+}
+
+/** The bindable catalog: active thread skills only (pickers, start_thread). */
 export async function listThreadSkills(): Promise<Skill[]> {
   const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
   return store

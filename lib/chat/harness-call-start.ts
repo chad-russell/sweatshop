@@ -155,6 +155,9 @@ export async function startHarnessCall(
     kind: input.kind,
     task: input.task,
     phase: phaseResolution.phaseName,
+    phaseSkillId: phaseResolution.skillId,
+    phaseSkillVersion: phaseResolution.skillVersion,
+    phaseId: phaseResolution.phaseId,
   });
   const resumeFrom = getHarnessResumeState(db(), input.conversationId, input.kind) ?? undefined;
 

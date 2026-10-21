@@ -32,7 +32,7 @@ import {
 import { ComposerAddButton, ComposerAttachments, attachmentErrorMessage } from "@/components/composer-attachments";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from "@/lib/attachment-ref";
 import { PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-card";
-import { applyPRState, derivePhase, phaseEvents, planHistory, type Phase } from "@/lib/plan";
+import { applyPRState, phaseFromMessages, planHistory, type Phase } from "@/lib/plan";
 import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
 import { usePRStates } from "@/lib/use-pr-states";
 import { Spinner } from "@/components/ui/spinner";
@@ -351,7 +351,7 @@ export function ChatSession({
   // 0041: an open plan review also wakes this chat (on Approve), so the
   // page watches for it the same way.
   const plans = useMemo(() => planHistory(messages), [messages]);
-  const phase = useMemo(() => derivePhase(phaseEvents(messages)), [messages]);
+  const phase = useMemo(() => phaseFromMessages(messages), [messages]);
   const diffBreakdown = useMemo(() => latestDiffBreakdown(messages), [messages]);
   // 0052: while the derived phase is an open PR, ask the host what it
   // says now (visible-tab poll; stops once merged/closed) — merged/

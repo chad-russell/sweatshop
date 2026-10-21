@@ -147,10 +147,9 @@ export function scriptedChatModel(): LanguageModel {
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }
 
-      // 0055: use_skill is list-only now — calling it can never bind the
-      // thread (binding is enter_mode / the creating send / start_thread
-      // only). The tool's own result (the catalog) lands in the
-      // persisted history regardless of what this script echoes back.
+      // 0059: use_skill with no id lists the catalog. The tool's own
+      // result lands in the persisted history regardless of what this
+      // script echoes back.
       if (script === "skill") {
         if (!sawToolResult) {
           return result(toolCallPart("call_skill_1", "use_skill", {}));
@@ -197,22 +196,6 @@ export function scriptedChatModel(): LanguageModel {
       // approval-gated accept_plan instead of proceeding on its reading.
       if (script === "accept-plan") {
         if (!sawToolResult) return result(toolCallPart("call_accept_1", "accept_plan", {}));
-        const toolMessage = options.prompt.find((m) => m.role === "tool");
-        return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
-      }
-
-      // 0055: a scripted enter_mode round trip — the call must suspend
-      // on the owner's approval before anything is written.
-      if (script === "enter-mode") {
-        if (!sawToolResult) {
-          return result(
-            toolCallPart("call_enter_mode_1", "enter_mode", {
-              mode: "ticket",
-              ticket: "ENG-1 fix the widget",
-              reason: "needs a plan and a PR",
-            }),
-          );
-        }
         const toolMessage = options.prompt.find((m) => m.role === "tool");
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }

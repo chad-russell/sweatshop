@@ -56,11 +56,11 @@ the project chat. Sandboxes bind once per conversation (see
 3. One `create_project` call with all of it — the owner approves once.
 4. If the toolchain isn't node: `edit_project` with the sandbox image.
 5. Hand off the `/?project=<id>` link and say what to try first
-   (a `review` on a small diff, then real work in ticket mode —
-   `enter_mode`).
+   (a `review` on a small diff, then real work in ticket mode — the
+   owner enters it from the composer).
 
 Once a mode is entered, the owner sees it: the composer's mode chip
-reads `<mode> · <phase> · N working` (its menu lists every declared
-phase and live work), and harness/thread cards carry a `<phase> ·
-<harness or skill>` work chip — `advance_phase` moves what's shown,
-not just what the model sees.
+reads `<mode> · <active step> · N working`. Its menu is a stepper from
+`update_status` (declared phases until the first status), plus history,
+skills used, and live work. Harness cards can expand the phase context
+they were started with. `update_status` is what moves the chip.

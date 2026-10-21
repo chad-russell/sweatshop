@@ -9,7 +9,7 @@ import { listSkills, listThreadSkills, readSkill } from "../lib/skills";
 import { getTarget, publishEdit, restoreVersion } from "../db/prompt-settings";
 import { CONTINUE_TEXT, MAX_CONTINUATIONS, continueAfterBudget, continuationsSinceHuman } from "../lib/chat/budget";
 import { POST as postChat } from "../app/api/x/chat/route";
-import { bindSkillStep, loadSkillStep } from "../workflows/chat/steps/turn";
+import { loadSkillStep, skillToolStep } from "../workflows/chat/steps/turn";
 
 /**
  * 0039: skills (markdown runbooks under skills/<id>/SKILL.md; thread
@@ -132,11 +132,13 @@ describe("chat route skill binding", () => {
   });
 });
 
-describe("0054: use_skill binding checks the active thread catalog", () => {
-  it("binds an active thread skill", async () => {
+describe("0059: use_skill loads an active skill without binding a non-mode", () => {
+  it("loads an active thread skill's body and leaves the conversation unbound", async () => {
     const id = conv("bind_active");
-    expect(await bindSkillStep(id, "review")).toMatchObject({ ok: true, id: "review" });
-    expect(getConversation(db(), id)?.skill).toBe("review");
+    const result = await skillToolStep(id, "review");
+    expect(result).toMatchObject({ ok: true, id: "review", mode: false });
+    expect((result as { skill?: string }).skill).toContain("review");
+    expect(getConversation(db(), id)?.skill).toBeNull();
   });
 
   for (const status of ["disabled", "deleted"] as const) {
@@ -150,7 +152,7 @@ describe("0054: use_skill binding checks the active thread catalog", () => {
         // Existing bindings still resolve through readSkill, independently
         // of whether the skill is offered for new use_skill calls.
         expect((await readSkill("ship"))?.id).toBe("ship");
-        const result = await bindSkillStep(id, "ship") as { ok: boolean; code: string; skills: { id: string }[] };
+        const result = await skillToolStep(id, "ship") as { ok: boolean; code: string; skills: { id: string }[] };
         expect(result).toMatchObject({ ok: false, code: "unknown-skill" });
         expect(result.skills.map((s) => s.id)).not.toContain("ship");
         expect(getConversation(db(), id)?.skill).toBe("review");

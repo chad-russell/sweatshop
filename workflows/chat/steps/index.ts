@@ -9,7 +9,7 @@ export {
   drainSteerStep,
   finishTurnStream,
   loadSkillStep,
-  bindSkillStep,
+  skillToolStep,
   loadPromptSectionsStep,
   loadRepoDocsStep,
   continueAfterBudgetStep,
@@ -54,6 +54,7 @@ export {
   acceptPlanPreviewStep,
   acceptPlanApprovedStep,
 } from "./plan";
+export { updateStatusStep } from "./status";
 export {
   hostExecPreviewStep,
   hostExecStep,
@@ -63,12 +64,6 @@ export {
   promptChangePreviewStep,
   applyApprovedPromptChangeStep,
 } from "./prompt-change";
-export {
-  enterModePreviewStep,
-  applyEnterModeStep,
-  advancePhaseStep,
-} from "./modes";
-
 export type { PromptChangeCard } from "./prompt-change";
 
 export type { CreateProjectToolInput } from "./projects";

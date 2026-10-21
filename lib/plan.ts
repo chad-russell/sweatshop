@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { deriveStatus, statusChipLabel, type DerivedStatus } from "./status";
 
 /**
  * 0041: plan files — the pure half. The plan is a scratch PLAN.md in the
@@ -131,6 +132,8 @@ export interface Phase {
   url?: string;
   /** 0052: "pr-open" marks the one phase a live host check may relabel. */
   kind?: "pr-open";
+  /** 0059: a wake landed and the following turn did not call update_status. */
+  stale?: boolean;
 }
 
 /** A PR's live state on its host (0052) — the /api/x/prs answer, shaped
@@ -152,9 +155,14 @@ export function applyPRState(phase: Phase | null, live: PRState | null): Phase |
   return phase;
 }
 
-/** The phase chip, derived — never stored (0041). */
-export function derivePhase(events: readonly PhaseEvent[]): Phase | null {
-  let plan: { version: number; checklist: Checklist; open: boolean } | null = null;
+/**
+ * The phase chip, derived — never stored (0041). PR states win, then a
+ * plan still in review. Otherwise the label is the thread status
+ * (0059). A chat that never called `update_status` has no chip — the
+ * checklist count ("Building N/M") is gone.
+ */
+export function derivePhase(events: readonly PhaseEvent[], status?: DerivedStatus | null): Phase | null {
+  let plan: { version: number; open: boolean } | null = null;
   let approved = false;
   let pr: { state: "pending" | "open"; url?: string } | null = null;
   for (const e of events) {
@@ -162,7 +170,7 @@ export function derivePhase(events: readonly PhaseEvent[]): Phase | null {
       case "plan":
         // A review snapshot (first plan, or reapprove) reopens approval.
         if (e.status === "review") approved = false;
-        plan = { version: e.version, checklist: e.checklist, open: e.status === "review" };
+        plan = { version: e.version, open: e.status === "review" };
         break;
       case "plan-approved":
         approved = true;
@@ -181,10 +189,17 @@ export function derivePhase(events: readonly PhaseEvent[]): Phase | null {
   }
   if (pr?.state === "pending") return { label: "PR · needs you", tone: "warn" };
   if (pr?.state === "open") return { label: "PR open", tone: "ok", kind: "pr-open", ...(pr.url ? { url: pr.url } : {}) };
-  if (!plan) return null;
-  if (plan.open && !approved) return { label: `Plan v${plan.version} · needs you`, tone: "warn" };
-  const { done, total } = plan.checklist;
-  return { label: total > 0 ? `Building ${done}/${total}` : "Building", tone: "running" };
+  if (plan?.open && !approved) return { label: `Plan v${plan.version} · needs you`, tone: "warn" };
+  if (status?.current) {
+    const chip = statusChipLabel(status.current);
+    if (chip) return { ...chip, ...(status.stale ? { stale: true } : {}) };
+  }
+  return null;
+}
+
+/** Header chip from one transcript: plan/PR events plus the derived status. */
+export function phaseFromMessages(messages: readonly UIMessage[]): Phase | null {
+  return derivePhase(phaseEvents(messages), deriveStatus(messages));
 }
 
 type LoosePart = { type: string; state?: string; output?: unknown; toolCallId?: string; text?: string };

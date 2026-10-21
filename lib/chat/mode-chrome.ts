@@ -8,12 +8,9 @@ import type { ModeChromeData } from "@/lib/read-models/mode-chrome";
 /**
  * 0055 PR2: the Mode chip's data — null for a plain chat with no skill
  * bound at all. A skill bound but not (or no longer) a mode reports
- * `{kind: "bound"}` — `checkEnterMode` refuses a new mode on ANY thread
- * with a skill already bound, so the chip must say entering is blocked
- * instead of offering modes the server will always refuse. Otherwise
- * parses the mode skill's CURRENT body live (same source
- * `enter_mode`/`advance_phase` read) so the chip never drifts from what
- * the agent actually sees.
+ * `{kind: "bound"}`. Otherwise parses the mode skill's CURRENT body
+ * live so the declared-phase fallback never drifts from the skill the
+ * agent loaded. The stepper itself comes from the derived status.
  */
 export async function loadModeChrome(conversationId: string): Promise<ModeChromeData | null> {
   const conv = getConversation(db(), conversationId);

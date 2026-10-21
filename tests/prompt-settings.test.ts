@@ -17,7 +17,9 @@ import {
   PROMPT_SECTION_MAX_BYTES,
   PRE_0055_BASE_PLACEHOLDER,
   PRE_GIT_LINKS_BASE,
+  PRE_0059_BASE,
   PRE_0055_TICKET_BODY,
+  PRE_0059_TICKET_BODY,
   PRE_PLACEHOLDER_CHAD_BASE,
   resetToGitDefault,
   restoreVersion,
@@ -449,6 +451,15 @@ describe("repairing a stale pre-placeholder base row", () => {
     expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "git-host links" });
     expect(GIT_DEFAULT_SECTIONS.base).toContain("github.com/<owner>/<repo>/commit/<sha>");
   });
+
+  it("0059: a git row still at the pre-thread-status base upgrades to the current default", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0059_BASE, "git");
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0059 thread status" });
+    expect(repaired?.body).toContain("update_status");
+    expect(repaired?.body).not.toContain("enter_mode");
+  });
 });
 
 /**
@@ -532,6 +543,21 @@ describe("0055: skill catalog repairs — ship retired, ticket upgraded, only wh
     expect(repaired?.body).not.toBe(PRE_0055_TICKET_BODY);
     // 0055 v7: the upgrade also flags the skill as a mode.
     expect(repaired?.mode).toBe(true);
+  });
+
+  it("0059: an unedited pre-status ticket seed upgrades to the current body", () => {
+    const conn = freshDb();
+    conn.delete(skillVersions).run();
+    conn.delete(skills).run();
+    seedSkillDirectly(conn, "ticket", { body: PRE_0059_TICKET_BODY, status: "active", editedBy: "git" });
+
+    const repaired = getTarget(conn, { kind: "skill", id: "ticket" });
+    expect(repaired?.version).toBe(2);
+    expect(repaired?.editedBy).toBe("git");
+    expect(repaired?.note).toBe("0059 thread status");
+    expect(repaired?.body).toContain("update_status");
+    expect(repaired?.body).not.toContain("advance_phase");
+    expect(repaired?.body).not.toBe(PRE_0059_TICKET_BODY);
   });
 
   it("never rewrites an edited ticket row, even one byte-for-byte equal to the old body", () => {

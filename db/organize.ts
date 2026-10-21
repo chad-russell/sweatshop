@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
+import { childThreadStatusLabels } from "../lib/child-status";
 import { removeAttachmentFilesSync } from "../lib/attachments";
 import { deleteConversationAttachments } from "./attachments";
 import { hostCommands } from "./schema";
@@ -583,6 +584,10 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
   );
 
   const projectName = new Map(projectRows.map((p) => [p.id, p.name]));
+  const childStatusLabels = childThreadStatusLabels(
+    db,
+    conversationRows.filter((row) => row.parentConversationId).map((row) => row.id),
+  );
   const shelved = (
     rows: typeof conversationRows,
     pick: (r: (typeof conversationRows)[number]) => number | null,
@@ -623,7 +628,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     unread: flags.unread.has(r.id),
     needsYou: flags.needsYou.has(r.id),
     threadStatus: exhaustedChildren.has(r.id) ? "exhausted" : null,
-    phase: r.workPhase,
+    phase: childStatusLabels.get(r.id) ?? r.workPhase,
   });
 
   // 0046: append a conversation's synthetic harness rows to its own

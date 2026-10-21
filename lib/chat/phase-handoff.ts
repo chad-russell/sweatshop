@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { getConversation } from "@/db/chat";
+import { getConversation, listModelMessages } from "@/db/chat";
 import { deriveSkillTitle } from "@/lib/skill-files";
 import { readSkill } from "@/lib/skills";
 import { renderOwnerPlaceholders } from "@/lib/agent/owner";
@@ -11,6 +11,7 @@ import {
   type ModePhase,
   type ParsedModeSkill,
 } from "@/lib/agent/mode-ids";
+import { deriveStatus, lastLoadedModeId } from "@/lib/status";
 
 /**
  * 0055 v7 part B: resolve the phase handoff for a harness call or
@@ -22,14 +23,24 @@ import {
  * `explicitPhase` is the tool's optional `phase` arg: given, it OVERRIDES
  * the chat's current phase and must resolve or the call refuses
  * (not-moded / unknown-phase, value-shaped for the model). Absent, the
- * chat's own `mode_phase` is used only if it is still a phase the
- * skill's CURRENT body declares — a stale id, "" (phaseless), a
- * legacy/no-phase thread, or a non-mode/no skill all mean "no handoff"
- * silently (`wrap` is the identity, `phaseName` is null), same as a
- * plain chat.
+ * current phase is the active top-level status step when that label
+ * matches a declared phase of the loaded mode skill. `mode_phase` is
+ * only the fallback for a legacy thread whose status does not name a
+ * phase. A phaseless, stale, or non-mode chat means "no handoff"
+ * (`wrap` is the identity, `phaseName` is null).
+ *
+ * `skillId` / `skillVersion` / `phaseId` are what a harness call stores
+ * so its card can re-render this exact handoff later.
  */
 export type PhaseHandoffResolution =
-  | { ok: true; phaseName: string | null; wrap: (task: string) => string }
+  | {
+      ok: true;
+      phaseName: string | null;
+      phaseId: string | null;
+      skillId: string | null;
+      skillVersion: number | null;
+      wrap: (task: string) => string;
+    }
   | { ok: false; code: "not-moded" | "unknown-phase"; message: string };
 
 export async function resolvePhaseHandoff(
@@ -37,8 +48,18 @@ export async function resolvePhaseHandoff(
   explicitPhase?: string,
 ): Promise<PhaseHandoffResolution> {
   const conv = getConversation(db(), conversationId);
-  const skill = conv?.skill ? await readSkill(conv.skill) : null;
-  const isMode = isModeSkill(skill?.mode);
+  const messages = listModelMessages(db(), conversationId);
+  // The column is what owner entry and use_skill of a mode write (a
+  // newer mode wins). The transcript is the fallback when a mode was
+  // loaded without that write.
+  const columnSkill = conv?.skill ? await readSkill(conv.skill) : null;
+  let skill = isModeSkill(columnSkill?.mode) ? columnSkill : null;
+  if (!skill) {
+    const loadedId = lastLoadedModeId(messages);
+    const loaded = loadedId ? await readSkill(loadedId) : null;
+    if (isModeSkill(loaded?.mode)) skill = loaded;
+  }
+  const isMode = skill != null;
 
   if (explicitPhase !== undefined) {
     if (!isMode || !skill) {
@@ -53,18 +74,38 @@ export async function resolvePhaseHandoff(
         message: `no such phase "${explicitPhase}" — declared phases: ${parsed.phases.map((p) => p.name).join(", ") || "none"}`,
       };
     }
-    return { ok: true, phaseName: target.name, wrap: (task) => handoffText(skill, parsed, target, task) };
+    return resolved(skill, parsed, target);
   }
 
-  if (!isMode || !skill || !conv?.modePhase) return identity();
+  if (!isMode || !skill) return identity();
   const parsed = parseModeSkill(skill.body);
-  const current = findPhase(parsed.phases, conv.modePhase);
-  if (!current) return identity();
-  return { ok: true, phaseName: current.name, wrap: (task) => handoffText(skill, parsed, current, task) };
+  const active = deriveStatus(messages).current?.steps.find((step) => step.state === "active");
+  const fromStatus = active ? findPhase(parsed.phases, active.label) : null;
+  if (fromStatus) return resolved(skill, parsed, fromStatus);
+  if (conv?.modePhase) {
+    const legacy = findPhase(parsed.phases, conv.modePhase);
+    if (legacy) return resolved(skill, parsed, legacy);
+  }
+  return identity();
 }
 
 function identity(): PhaseHandoffResolution {
-  return { ok: true, phaseName: null, wrap: (task) => task };
+  return { ok: true, phaseName: null, phaseId: null, skillId: null, skillVersion: null, wrap: (task) => task };
+}
+
+function resolved(
+  skill: { id: string; body: string; version: number },
+  parsed: ParsedModeSkill,
+  phase: ModePhase,
+): PhaseHandoffResolution {
+  return {
+    ok: true,
+    phaseName: phase.name,
+    phaseId: phase.id,
+    skillId: skill.id,
+    skillVersion: skill.version,
+    wrap: (task) => handoffText(skill, parsed, phase, task),
+  };
 }
 
 function handoffText(

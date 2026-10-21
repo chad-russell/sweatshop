@@ -19,7 +19,10 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { HarnessCard } from "@/components/harness-card";
+import { PhaseContextBlock } from "@/components/phase-context";
 import { PlanToolCard } from "@/components/plan-card";
+import { StatusToolCard } from "@/components/status-card";
+import { splitPhaseHandoff } from "@/lib/agent/mode-ids";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import {
@@ -142,6 +145,17 @@ export const ChatMessageView = memo(function ChatMessageView({
 
   const renderPart = (part: (typeof message.parts)[number], i: number): ReactNode => {
           if (part.type === "text") {
+            if (message.role === "user") {
+              const handoff = splitPhaseHandoff(part.text);
+              if (handoff) {
+                return (
+                  <div key={i}>
+                    <PhaseContextBlock phase={handoff.phase} text={handoff.context} className="mb-2 rounded-lg border border-border" />
+                    {handoff.task.trim() && <MessageResponse>{handoff.task}</MessageResponse>}
+                  </div>
+                );
+              }
+            }
             return <MessageResponse key={i}>{part.text}</MessageResponse>;
           }
           if (part.type.startsWith("tool-")) {
@@ -174,6 +188,9 @@ export const ChatMessageView = memo(function ChatMessageView({
               return <PromptChangeApprovalCard key={i} part={toolPart} />;
             }
             // 0041: the plan document and its chat-approval gate.
+            if (toolPart.type === "tool-update_status" && toolPart.state === "output-available") {
+              return <StatusToolCard key={i} output={toolPart.output} />;
+            }
             if (toolPart.type === "tool-present_plan") {
               return (
                 <PlanToolCard

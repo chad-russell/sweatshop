@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { openDb } from "../db";
-import { ensureConversation, setActiveRun, setConversationParent, setConversationWorkPhase } from "../db/chat";
+import { appendMessages, ensureConversation, setActiveRun, setConversationParent, setConversationWorkPhase } from "../db/chat";
 import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
-import { projects } from "../db/schema";
-import { childStatus } from "../lib/child-status";
+import { conversations, projects } from "../db/schema";
+import { childStatus, childThreadStatusLabels } from "../lib/child-status";
 
 /** The transcript cards' live status read model (hc_… and c_…; mr_… is
  *  permanently not-found since 0048 purged machine runs). */
@@ -61,5 +62,55 @@ describe("childStatus", () => {
     setConversationParent(tdb, "c_cs_child2", "c_cs_parent2");
     setConversationWorkPhase(tdb, "c_cs_child2", "Implement");
     expect(childStatus(tdb, "c_cs_child2")).toMatchObject({ phase: "Implement" });
+  });
+});
+
+function statusMessage(id: string, steps: { label: string; state: "pending" | "active" | "done" }[]) {
+  return {
+    id,
+    role: "tool" as const,
+    text: "",
+    modelMessage: {
+      role: "tool" as const,
+      content: [
+        {
+          type: "tool-result" as const,
+          toolCallId: id,
+          toolName: "update_status",
+          output: { type: "json" as const, value: { ok: true as const, steps } },
+        },
+      ],
+    },
+  };
+}
+
+describe("childThreadStatusLabels", () => {
+  it("uses the newest update_status row and skips trashed and archived children", () => {
+    ensureConversation(tdb, "c_cs_lbl_parent", "p_cs");
+    ensureConversation(tdb, "c_cs_lbl_live", "p_cs");
+    ensureConversation(tdb, "c_cs_lbl_trash", "p_cs");
+    ensureConversation(tdb, "c_cs_lbl_arch", "p_cs");
+    setConversationParent(tdb, "c_cs_lbl_live", "c_cs_lbl_parent");
+    setConversationParent(tdb, "c_cs_lbl_trash", "c_cs_lbl_parent");
+    setConversationParent(tdb, "c_cs_lbl_arch", "c_cs_lbl_parent");
+    appendMessages(tdb, "c_cs_lbl_live", [
+      statusMessage("m_lbl_old", [{ label: "Plan", state: "active" }]),
+      statusMessage("m_lbl_new", [
+        { label: "Plan", state: "done" },
+        { label: "Implement", state: "active" },
+      ]),
+      { id: "m_lbl_chat", role: "assistant", text: "noted", modelMessage: { role: "assistant", content: "noted" } },
+    ]);
+    appendMessages(tdb, "c_cs_lbl_trash", [statusMessage("m_lbl_trash", [{ label: "Ship", state: "active" }])]);
+    appendMessages(tdb, "c_cs_lbl_arch", [statusMessage("m_lbl_arch", [{ label: "Review", state: "active" }])]);
+    tdb.update(conversations).set({ trashedAt: 1 }).where(eq(conversations.id, "c_cs_lbl_trash")).run();
+    tdb.update(conversations).set({ archivedAt: 1 }).where(eq(conversations.id, "c_cs_lbl_arch")).run();
+
+    const labels = childThreadStatusLabels(tdb, ["c_cs_lbl_live", "c_cs_lbl_trash", "c_cs_lbl_arch"]);
+    expect(labels.get("c_cs_lbl_live")).toBe("Implement · 1/2");
+    expect(labels.has("c_cs_lbl_trash")).toBe(false);
+    expect(labels.has("c_cs_lbl_arch")).toBe(false);
+    expect(childStatus(tdb, "c_cs_lbl_live")?.statusLabel).toBe("Implement · 1/2");
+    expect(childStatus(tdb, "c_cs_lbl_trash")?.statusLabel).toBe("Ship · 0/1");
   });
 });
