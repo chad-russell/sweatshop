@@ -58,3 +58,30 @@ export function checkAdvance(db: Db, conversationId: string, from: TicketPhase, 
   if (!transition.ok) return transition;
   return checkPhaseGate(db, conversationId, to);
 }
+
+/**
+ * 0055 bugfix: a LEGACY ticket-skill thread (bound before `mode_phase`
+ * existed — `skill = "ticket"`, phase null) has no "from" to validate a
+ * transition against, so the normal rule can never apply to it — it was
+ * a dead end (`advance_phase` refused "not-moded", and `enter_mode`
+ * refuses "already in ticket mode" since the skill is already bound).
+ * This adopts it instead: the agent states where it actually is (a note
+ * is required, since there is no prior phase to reason from), and the
+ * one gate that protects against premature code changes still applies
+ * regardless of how the thread arrived here — anything past `plan`
+ * needs the conversation's latest plan already approved.
+ *
+ * One-time side effect: once adopted, `buildInstructions` starts
+ * skipping the skill section for this thread (a phase is now set) in
+ * favor of the per-turn `[thread state]` note — a one-shot system
+ * prompt change, same as entering the mode fresh ever was.
+ */
+export function checkLegacyAdopt(db: Db, conversationId: string, to: string, note?: string): TransitionResult {
+  if (!isTicketPhase(to)) return { ok: false, code: "invalid-phase", message: `unknown phase "${to}"` };
+  if (!note?.trim()) {
+    return { ok: false, code: "needs-note", message: "adopting this thread into a phase needs a note saying where it actually is" };
+  }
+  if (to === "plan") return { ok: true };
+  if (planState(db, conversationId).kind === "approved") return { ok: true };
+  return { ok: false, code: "unapproved-plan", message: "implement needs an approved plan — present_plan first" };
+}

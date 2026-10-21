@@ -163,6 +163,40 @@ describe("advancePhase", () => {
   });
 });
 
+describe("advancePhase: adopting a legacy ticket-skill thread (skill bound before mode_phase existed)", () => {
+  it("adopts with a note, from: null, returning that phase's instructions", async () => {
+    const id = convInProject();
+    setConversationSkill(db(), id, "ticket"); // bound directly — no mode_phase, the pre-0055 shape
+    const result = await advancePhase(id, "plan", "starting the plan now");
+    expect(result).toMatchObject({ ok: true, from: null, to: "plan" });
+    expect(getConversation(db(), id)?.modePhase).toBe("plan");
+    if (result.ok) expect(result.instructions).toContain("## plan");
+  });
+
+  it("refuses without a note — there is no prior phase to reason from", async () => {
+    const id = convInProject();
+    setConversationSkill(db(), id, "ticket");
+    expect(await advancePhase(id, "implement")).toMatchObject({ ok: false, code: "needs-note" });
+    expect(getConversation(db(), id)?.modePhase).toBeNull();
+  });
+
+  it("refuses adopting straight into implement-or-later without an approved plan", async () => {
+    const id = convInProject();
+    setConversationSkill(db(), id, "ticket");
+    expect(await advancePhase(id, "implement", "already coded it")).toMatchObject({ ok: false, code: "unapproved-plan" });
+    expect(getConversation(db(), id)?.modePhase).toBeNull();
+  });
+
+  it("adopts straight into implement once the plan is approved", async () => {
+    const id = convInProject();
+    setConversationSkill(db(), id, "ticket");
+    approvedPlan(id);
+    const result = await advancePhase(id, "implement", "plan was approved before this upgrade");
+    expect(result).toMatchObject({ ok: true, from: null, to: "implement" });
+    expect(getConversation(db(), id)?.modePhase).toBe("implement");
+  });
+});
+
 describe("stickiness: the mode is never cleared once entered", () => {
   it("skill stays \"ticket\" through every phase move, forward and backward", async () => {
     const id = convInProject();

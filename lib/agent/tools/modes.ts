@@ -5,6 +5,7 @@ import { renderOwnerPlaceholders } from "@/lib/agent/owner";
 import {
   checkAdvance,
   checkEnterMode,
+  checkLegacyAdopt,
   formatPhaseInstructions,
   isModeSkill,
   isTicketPhase,
@@ -57,26 +58,33 @@ export async function applyEnterMode(
 
 export interface AdvancePhaseResult {
   ok: true;
-  from: TicketPhase;
+  /** Null when this call ADOPTED a legacy ticket-skill thread (no prior
+   *  phase to move from). */
+  from: TicketPhase | null;
   to: TicketPhase;
   instructions: string;
 }
 
 /** advance_phase: not approval-gated — the owner already approved the
  *  plan, not each phase move; lib/modes.ts's pure rules plus the one
- *  (implement) gate are the whole check. */
+ *  (implement) gate are the whole check. A legacy thread (skill=ticket,
+ *  no phase yet) has no "from" to validate a transition against —
+ *  `checkLegacyAdopt` adopts it into `to` directly instead (note
+ *  required, same plan gate for anything past "plan"). */
 export async function advancePhase(conversationId: string, to: string, note?: string): Promise<AdvancePhaseResult | Fail> {
   const conv = getConversation(db(), conversationId);
   if (!conv) return fail("not-found", "conversation not found");
-  if (!isModeSkill(conv.skill) || !isTicketPhase(conv.modePhase)) {
+  if (!isModeSkill(conv.skill)) {
     return fail("not-moded", "this chat is not in ticket mode — enter_mode first");
   }
-  const from = conv.modePhase;
-  const check = checkAdvance(db(), conversationId, from, to, note);
+  const from = isTicketPhase(conv.modePhase) ? conv.modePhase : null;
+  const check = from
+    ? checkAdvance(db(), conversationId, from, to, note)
+    : checkLegacyAdopt(db(), conversationId, to, note);
   if (!check.ok) return fail(check.code ?? "invalid", check.message ?? "cannot advance");
   const skill = await readSkill(TICKET_SKILL_ID);
   if (!skill) return fail("no-skill", "the ticket skill is unavailable");
-  const toPhase = to as TicketPhase;
+  const toPhase = to as TicketPhase; // checkAdvance/checkLegacyAdopt both validated this above
   const instructions = formatPhaseInstructions(skill.body, toPhase);
   if (instructions == null) return fail("bad-runbook", `the ticket skill has no "${to}" section`);
   setConversationPhase(db(), conversationId, toPhase);

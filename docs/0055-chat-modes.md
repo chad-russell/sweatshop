@@ -50,9 +50,10 @@ Ticket mode needs a project; elsewhere the chip is absent and
   `advance_phase` and entry is already a row in `messages`.
 
 **`lib/modes.ts` (~60 lines)** — the mode as code: ticket's skill id,
-phase order, transition rule (forward one step, `fixup ⇄ review` loop,
-backward any step with a note), and `##`-section extraction from the
-runbook. **One gate:** `implement` requires the latest plan row to be
+phase order, transition rule (forward one step, `review → ship` when
+the review is clean, the `fixup ⇄ review` loop, backward any step with
+a note), and `##`-section extraction from the runbook. **One gate:**
+`implement` requires the latest plan row to be
 approved — a single sqlite read of `pending_inputs`, and the one human
 gate the owner named. No sandbox/git gates; "is there anything to
 review" stays runbook prose (a review child on an empty diff says so).

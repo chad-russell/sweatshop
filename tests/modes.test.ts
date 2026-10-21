@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import { ensureConversation } from "../db/chat";
@@ -5,6 +7,7 @@ import { approvePlanRow, openPlanReview } from "../db/plans";
 import {
   checkAdvance,
   checkEnterMode,
+  checkLegacyAdopt,
   checkPhaseGate,
   extractIntro,
   extractPhaseSection,
@@ -16,6 +19,7 @@ import {
   TICKET_PHASES,
   TICKET_SKILL_ID,
   validateTransition,
+  type TicketPhase,
 } from "../lib/modes";
 
 let seq = 0;
@@ -54,6 +58,15 @@ describe("validateTransition", () => {
   it("the fixup <-> review loop needs no note, either direction", () => {
     expect(validateTransition("review", "fixup")).toMatchObject({ ok: true });
     expect(validateTransition("fixup", "review")).toMatchObject({ ok: true });
+  });
+
+  it("review -> ship needs no note (a clean review skips fixup)", () => {
+    expect(validateTransition("review", "ship")).toMatchObject({ ok: true });
+  });
+
+  it("still refuses other skips, even the same distance as review -> ship", () => {
+    expect(validateTransition("plan", "review")).toMatchObject({ ok: false, code: "skip" });
+    expect(validateTransition("implement", "ship")).toMatchObject({ ok: false, code: "skip" });
   });
 
   it("same-phase is a no-op refusal", () => {
@@ -213,5 +226,68 @@ describe("extractIntro / extractPhaseSection / formatPhaseInstructions", () => {
 
   it("formatPhaseInstructions is null when the runbook has no section for that phase", () => {
     expect(formatPhaseInstructions(sample, "ship")).toBeNull();
+  });
+});
+
+describe("checkLegacyAdopt: adopting a pre-0055 ticket-skill thread (no prior phase)", () => {
+  it("refuses without a note — there is no prior phase to reason from", () => {
+    const id = conv();
+    expect(checkLegacyAdopt(db(), id, "implement")).toMatchObject({ ok: false, code: "needs-note" });
+    expect(checkLegacyAdopt(db(), id, "implement", "   ")).toMatchObject({ ok: false, code: "needs-note" });
+  });
+
+  it("adopts into plan with a note and no plan approval needed", () => {
+    const id = conv();
+    expect(checkLegacyAdopt(db(), id, "plan", "starting fresh")).toMatchObject({ ok: true });
+  });
+
+  it("refuses implement-or-later without an approved plan, even with a note", () => {
+    const id = conv();
+    for (const to of ["implement", "review", "fixup", "ship"] as const) {
+      expect(checkLegacyAdopt(db(), id, to, "we are already past planning")).toMatchObject({
+        ok: false,
+        code: "unapproved-plan",
+      });
+    }
+  });
+
+  it("adopts into implement-or-later once the plan is approved", () => {
+    const id = conv();
+    const rowId = `p_${id}`;
+    openPlanReview(db(), { id: rowId, conversationId: id, card: { kind: "plan", version: 1, markdown: "# Plan", checklist: { done: 1, total: 1 } } });
+    approvePlanRow(db(), rowId);
+    expect(checkLegacyAdopt(db(), id, "review", "already shipped the plan and implementation")).toMatchObject({ ok: true });
+  });
+
+  it("rejects an unknown phase name", () => {
+    const id = conv();
+    expect(checkLegacyAdopt(db(), id, "sprint", "wherever")).toMatchObject({ ok: false, code: "invalid-phase" });
+  });
+});
+
+describe("runbook <-> rule agreement: every advance_phase({to}) in skills/ticket/SKILL.md is a valid transition", () => {
+  const body = readFileSync(path.join(process.cwd(), "skills", "ticket", "SKILL.md"), "utf8")
+    .replace(/^---\n[\s\S]*?\n---\n/, ""); // strip front matter, same as lib/skill-files.ts
+
+  it("every phase section's own advance_phase calls are allowed by validateTransition (plan gate ignored)", () => {
+    const checked: string[] = [];
+    for (const from of TICKET_PHASES) {
+      const section = extractPhaseSection(body, from);
+      expect(section, `## ${from} section exists`).not.toBeNull();
+      const calls = [...section!.matchAll(/advance_phase\(\{\s*to:\s*"(\w+)"/g)].map((m) => m[1]!);
+      // "ship" is terminal — it reports and stops, no further advance_phase.
+      if (from !== "ship") {
+        expect(calls.length, `## ${from} mentions at least one advance_phase`).toBeGreaterThan(0);
+      }
+      for (const to of calls) {
+        expect(isTicketPhase(to), `"${to}" in ## ${from} is a real phase`).toBe(true);
+        const result = validateTransition(from, to as TicketPhase, "runbook-stated note");
+        expect(result, `${from} -> ${to} (as the runbook tells the agent to call it)`).toMatchObject({ ok: true });
+        checked.push(`${from}->${to}`);
+      }
+    }
+    // Sanity: this actually exercised something (a future edit that
+    // removes every advance_phase call would otherwise pass vacuously).
+    expect(checked.length).toBeGreaterThan(0);
   });
 });

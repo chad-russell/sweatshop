@@ -176,10 +176,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   cleared), paired with `conversations.mode_phase`
   (`plan → implement → review → fixup → ship`; null = no mode, or a
   LEGACY ticket-skill thread bound before 0055, which keeps the old
-  system-prompt behavior untouched). `lib/modes.ts` is the mode as
-  code — ids, phase order, the transition rule (forward one step or the
-  `fixup`⇄`review` loop need no note, backward any step needs one,
-  same-phase refuses), the one gate (`implement` needs the
+  system-prompt behavior untouched until `advance_phase` adopts it —
+  `checkLegacyAdopt` sets its first phase directly, note required since
+  there is no prior phase to validate a transition from, same plan gate
+  on anything past `plan`). `lib/modes.ts` is the mode as
+  code — ids, phase order, the transition rule (forward one step,
+  `review → ship` when the review is clean, or the `fixup`⇄`review`
+  loop need no note, backward any step needs one, same-phase refuses),
+  the one gate (`implement` needs the
   conversation's latest plan approved — `db/plans.ts`'s `planState`, a
   durable sqlite fact, never a transcript read), and `##`-section
   extraction from the runbook (the phase id matched against a

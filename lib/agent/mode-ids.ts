@@ -59,15 +59,17 @@ function refuse(code: NonNullable<TransitionResult["code"]>, message: string): T
 }
 
 /**
- * Pure transition validity: forward exactly one step, the fixup⇄review
- * loop (either direction, no note needed), or backward to any earlier
- * phase with a non-empty note explaining why. Same-phase is a no-op
- * refusal. Does not check the plan gate — that needs a db read, see
- * `lib/modes.ts`'s `checkPhaseGate`.
+ * Pure transition validity: forward exactly one step, review→ship (a
+ * clean review skips fixup entirely), the fixup⇄review loop (either
+ * direction, no note needed), or backward to any earlier phase with a
+ * non-empty note explaining why. Same-phase is a no-op refusal. Does
+ * not check the plan gate — that needs a db read, see `lib/modes.ts`'s
+ * `checkPhaseGate`.
  */
 export function validateTransition(from: TicketPhase, to: TicketPhase, note?: string): TransitionResult {
   if (to === from) return refuse("same-phase", `already in ${to}`);
   if ((from === "review" && to === "fixup") || (from === "fixup" && to === "review")) return ok;
+  if (from === "review" && to === "ship") return ok;
   const diff = phaseIndex(to) - phaseIndex(from);
   if (diff === 1) return ok;
   if (diff < 0) {
