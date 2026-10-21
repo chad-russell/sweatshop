@@ -871,6 +871,8 @@ export const usageEvents = sqliteTable(
     inputTokens: integer("input_tokens").notNull().default(0),
     /** Cached input tokens (subset of input_tokens; 0 when unreported). */
     cachedTokens: integer("cached_tokens").notNull().default(0),
+    /** 0055: cache writes, a separate subset of input_tokens. */
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     /** Display-only slice of output (billed as output). */
     reasoningTokens: integer("reasoning_tokens"),

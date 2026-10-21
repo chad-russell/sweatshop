@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { RoutePicker } from "@/components/route-picker";
 import { Button } from "@/components/ui/button";
+import { CursorLoginHelp } from "@/components/settings/cursor-login-help";
 import { CodexLoginRow } from "@/components/settings/codex-login-row";
 import { LABEL, MONO } from "@/components/form-styles";
 import type { ModelsView } from "@/lib/providers/catalog-view";
@@ -120,6 +121,7 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
             <span className={`${MONO} text-muted-foreground`}>
               {view.cursor.configured ? loginExpiry(view.cursor.expiresAt) : "not logged in"}
             </span>
+            <CursorLoginHelp />
             {!view.cursor.configured && view.cursor.status && (
               <span className={`${LABEL} w-full`}>{view.cursor.status}</span>
             )}

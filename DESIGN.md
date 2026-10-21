@@ -29,6 +29,12 @@ chart-1..5, sidebar-*, radius) plus sweatshop's status trio: `success`,
 
 ## Rules
 
+The app's logo is **Night shift**, the factory mark in `public/logo.svg`
+(0058). Use `SweatshopLogo` with semantic text colors in the UI; keep the
+monospace name in the sidebar. `app/icon.svg`, `app/favicon.ico`, and
+`app/apple-icon.png` are browser/home-screen exports of that same mark.
+The three square windows and their four horizontal gutters stay equal.
+
 1. Components use semantic tokens only (`bg-background`, `text-primary`,
    `border-border`, `text-success`...). **Never raw hex/oklch in TSX.** Any
    rule bend is a token missing from the contract — add the token, not the

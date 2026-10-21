@@ -360,6 +360,7 @@ export async function recordUsageStep(
     route: JSON.stringify(route),
     inputTokens: usage.inputTokens,
     cachedTokens: usage.cachedTokens,
+    cacheWriteTokens: usage.cacheWriteTokens ?? 0,
     outputTokens: usage.outputTokens,
     reasoningTokens: usage.reasoningTokens ?? 0,
     lastInputTokens: lastSlice?.inputTokens ?? null,

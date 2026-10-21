@@ -10,6 +10,7 @@ import {
   type ProviderId,
 } from "./catalog";
 import type { ChatRoute, Thinking } from "./route";
+import { convertGlooUsage, glooCacheHeaders } from "./gloo";
 
 /**
  * 0021: providers are code, keys are env. One entry per provider: how
@@ -56,7 +57,7 @@ export function fillToolDescriptions<T>(body: T): T {
 }
 
 let glm: ReturnType<typeof createZhipu> | null = null;
-let gloo: ReturnType<typeof createOpenAICompatible> | null = null;
+const glooProviders = new Map<string, ReturnType<typeof createOpenAICompatible>>();
 let openrouter: ReturnType<typeof createOpenAICompatible> | null = null;
 /** Effort-injected twins, one per (provider, level) — see chatLanguageModel. */
 const effortProviders = new Map<string, ReturnType<typeof createOpenAICompatible>>();
@@ -106,15 +107,7 @@ export function chatLanguageModel(route: ChatRoute): LanguageModel {
       glm ??= createZhipu({ apiKey: providerKey("glm") ?? "", baseURL: GLM_OPENAI_BASE });
       return glm(route.model, zhipuThinkingSettings(route.thinking));
     case "gloo":
-      if (effort) return effortCompatible("gloo", effort).chatModel(route.model);
-      gloo ??= createOpenAICompatible({
-        name: "gloo",
-        baseURL: GLOO_BASE,
-        apiKey: providerKey("gloo") ?? "",
-        includeUsage: true,
-        transformRequestBody: fillToolDescriptions,
-      });
-      return gloo.chatModel(route.model);
+      return glooProvider(route.model, effort).chatModel(route.model);
     case "openrouter":
       if (effort) return effortCompatible("openrouter", effort).chatModel(route.model);
       openrouter ??= createOpenAICompatible({
@@ -128,27 +121,40 @@ export function chatLanguageModel(route: ChatRoute): LanguageModel {
   }
 }
 
+/** TTL is model-family specific, and must survive effort configuration. */
+function glooProvider(model: string, effort: ReturnType<typeof effortLevel>) {
+  const headers = glooCacheHeaders(model);
+  const key = `${headers["X-Cache-TTL"] ?? "implicit"}:${effort ?? "default"}`;
+  let provider = glooProviders.get(key);
+  if (!provider) {
+    provider = createOpenAICompatible({
+      name: "gloo",
+      baseURL: GLOO_BASE,
+      apiKey: providerKey("gloo") ?? "",
+      includeUsage: true,
+      headers,
+      convertUsage: convertGlooUsage,
+      transformRequestBody: (body) => fillToolDescriptions(
+        effort ? { ...body, reasoning_effort: effort } : body,
+      ),
+    });
+    glooProviders.set(key, provider);
+  }
+  return provider;
+}
+
 /** An openai-compatible twin whose bodies carry the effort level. */
-function effortCompatible(provider: "gloo" | "openrouter", effort: "low" | "medium" | "high") {
+function effortCompatible(provider: "openrouter", effort: "low" | "medium" | "high") {
   const key = `${provider}:${effort}`;
   const cached = effortProviders.get(key);
   if (cached) return cached;
-  const base = provider === "gloo" ? fillToolDescriptions : undefined;
   const made = createOpenAICompatible({
     name: provider,
-    baseURL: provider === "gloo" ? GLOO_BASE : OPENROUTER_BASE,
+    baseURL: OPENROUTER_BASE,
     apiKey: providerKey(provider) ?? "",
     includeUsage: true,
-    ...(provider === "openrouter"
-      ? { headers: openRouterHeaders() }
-      : {}),
-    // Body transform: compose the base (gloo's tool-description fill)
-    // with the effort injection. The injection happens first so the
-    // base transform still sees a plain body object.
-    transformRequestBody: ((body: unknown) => {
-      const injected = { ...(body as object), reasoning_effort: effort };
-      return (base ? base(injected) : injected) as typeof body;
-    }) as typeof base,
+    headers: openRouterHeaders(),
+    transformRequestBody: (body) => ({ ...body, reasoning_effort: effort }),
   });
   effortProviders.set(key, made);
   return made;
@@ -160,6 +166,7 @@ export interface PiProviderConfig {
   baseUrl: string;
   apiKey: string;
   api: "anthropic-messages" | "openai-completions";
+  headers?: Record<string, string>;
   models?: {
     id: string;
     name: string;
@@ -204,6 +211,7 @@ export function piProviderConfig(provider: ProviderId, model: string, info?: Mod
         baseUrl: GLOO_BASE,
         apiKey: providerKey("gloo") ?? "",
         api: "openai-completions",
+        headers: glooCacheHeaders(model),
         models: [entry],
       };
     case "openrouter":

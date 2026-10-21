@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callLabel, callState, groupParts, MIN_GROUP, type PartLike } from "../lib/tool-views/groups";
+import { callLabel, callState, groupParts, groupStatus, MIN_GROUP, type PartLike } from "../lib/tool-views/groups";
 
 const done = (type: string, input: unknown, output: unknown = { ok: true }): PartLike => ({
   type: `tool-${type}`, state: "output-available", input, output,
@@ -79,7 +79,28 @@ describe("callState / callLabel", () => {
     expect(callLabel({ type: "tool-inspect", state: "input-available", input: { id: "c_9" } })).toBe("c_9");
     expect(callLabel(done("gh", { args: ["repo", "view", "x/y"] }))).toBe("gh repo view x/y");
     expect(callLabel(done("web_fetch", { url: "https://a.b" }))).toBe("https://a.b");
-    expect(callLabel(done("list_projects", {}))).toBe("list_projects");
+    expect(callLabel(done("list_projects", {}))).toBe("List projects");
+    expect(callLabel(done("get_preview_setup", {}))).toBe("Read preview setup");
+    expect(callLabel(done("preview_status", {}))).toBe("Check previews");
+  });
+});
+
+describe("groupStatus", () => {
+  it("describes completed activity, not overall task success", () => {
+    expect(groupStatus({ running: 0, failed: 0 })).toEqual({ tone: "ok", label: "completed" });
+    expect(groupStatus({ running: 0, failed: 1 })).toEqual({ tone: "warn", label: "completed · 1 failed call" });
+    expect(groupStatus({ running: 0, failed: 2 })).toEqual({ tone: "warn", label: "completed · 2 failed calls" });
+  });
+
+  it("keeps live work running even when earlier calls failed", () => {
+    expect(groupStatus({ running: 2, failed: 0 })).toEqual({ tone: "running", label: "running" });
+    expect(groupStatus({ running: 1, failed: 2 })).toEqual({ tone: "running", label: "running · 2 failed calls" });
+  });
+
+  it("does not claim that a successful later call recovered the earlier failure", () => {
+    const group = groupParts([bash("failed", 1), bash("next"), bash("last")])[0]!;
+    if (group.kind !== "group") throw new Error("expected group");
+    expect(groupStatus(group)).toEqual({ tone: "warn", label: "completed · 1 failed call" });
   });
 });
 

@@ -113,6 +113,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   in `@/lib/read-models` (0049). Chat header carries a context meter (0051): the
   conversation's last metered slice input+output vs the model's
   catalog window, percentage-first, warn-only.
+- Quiet tool groups (0054) keep their full-width collapsible box and
+  render calls with shadcn Trace (`components/ui/trace.tsx`): action
+  first, expandable specialized cards, repeated polls still folded.
+  Individual failures stay red; group status describes activity
+  (running/completed) with a failed-call count, not task success.
 - Models: providers and routes (0021). Providers are code, keys are env:
   `lib/providers/registry.ts` — GLM (Z.AI coding plan, `ZAI_API_KEY`),
   Gloo (`GLOO_API_KEY`) and OpenRouter (`OPENROUTER_API_KEY`) via
@@ -148,6 +153,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   Write paths live in `lib/providers/settings.ts`; surfaces are the
   chat's route picker (per conversation, not sticky), `/settings`, and
   the project page Models card.
+- Gloo prompt caching (0057): Anthropic chat/title and pi requests send
+  `X-Cache-TTL: 5m`; other families cache implicitly. Chat provider usage
+  normalizes standard cache fields plus Anthropic aliases before workflow
+  capture. `usage_events.cache_write_tokens` is separate from cache reads
+  (`cached_tokens`); both are subsets of total input. Costs include writes
+  at the five-minute rate, reads at the read rate, and newly fetched Gloo
+  prices include the guarded alias's 1.065 fee. Historical costs stay put.
 - Skills (0039, 0054): markdown runbooks in `skills/<id>/SKILL.md` are
   shipped defaults (front matter `description`, `thread: true` for a
   bindable runbook, `mode: true` for a mode — see below, implies

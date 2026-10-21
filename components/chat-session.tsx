@@ -4,7 +4,7 @@ import { WorkflowChatTransport } from "@ai-sdk/workflow/client";
 import type { ChatStatus, FileUIPart, ToolUIPart, UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { nanoid } from "nanoid";
-import { MessageSquarePlus, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import {
   useEffect,
   useImperativeHandle,
@@ -35,6 +35,7 @@ import { PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-c
 import { applyPRState, derivePhase, phaseEvents, planHistory, type Phase } from "@/lib/plan";
 import { usePRStates } from "@/lib/use-pr-states";
 import { Spinner } from "@/components/ui/spinner";
+import { SweatshopLogo } from "@/components/sweatshop-logo";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ViewingContext } from "@/lib/page-context";
 import { hasBackgroundChild, rowsToUIMessages, untilLiveTurn, type StoredRow } from "@/lib/chat-ui";
@@ -637,7 +638,7 @@ export function ChatSession({
           {messages.length === 0 && status === "ready" && !chat.error && (
             freshMode?.emptyState ?? (
               <ConversationEmptyState
-                icon={<MessageSquarePlus className="size-6" />}
+                icon={<SweatshopLogo className="size-10 text-primary" />}
                 title="sweatshop"
                 description="A conversation with your agent. Say anything to begin."
               />

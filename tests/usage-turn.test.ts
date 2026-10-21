@@ -26,6 +26,16 @@ afterAll(async () => {
 });
 
 describe("0047 chat-turn usage capture", () => {
+  it("preserves cache reads and writes through WorkflowAgent into sqlite", { timeout: 30_000 }, async () => {
+    process.env.SWEATSHOP_CHAT_MOCK = "cache";
+    const id = `c_cache_${Math.random().toString(36).slice(2, 8)}`;
+    ensureConversation(db(), id);
+    const run = await start(chatTurn, [{ conversationId: id, userText: "cache" }]);
+    await run.returnValue;
+    const row = db().select().from(usageEvents).where(eq(usageEvents.conversationId, id)).get();
+    expect(row).toMatchObject({ inputTokens: 100, cachedTokens: 60, cacheWriteTokens: 20, outputTokens: 50 });
+  });
+
   it(
     "records one chat usage row with the mock's token counts",
     { timeout: 30_000 },

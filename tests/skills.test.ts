@@ -52,7 +52,16 @@ describe("skill files", () => {
     // The review thread changes nothing and reports findings.
     expect(review?.body).toContain("Change nothing");
     expect(review?.body).toMatch(/blocking/i);
-    expect((await listSkills()).map((b) => b.id).sort()).toEqual(["review", "ship", "ticket"]);
+    expect((await listSkills()).map((b) => b.id).sort()).toEqual(["review", "review-guide", "ship", "ticket"]);
+  });
+
+  it("review-guide parses: a tour that changes nothing and flags look-closely spots", async () => {
+    const guide = await readSkill("review-guide");
+    expect(guide?.title).toMatch(/^Review guide/);
+    expect(guide?.description).toMatch(/tour/i);
+    expect(guide?.body).toContain("**Look closely**");
+    expect(guide?.body).toContain("Change nothing");
+    expect(guide?.thread).toBe(true);
   });
 
   it("rejects traversal and unknown ids", async () => {
@@ -116,7 +125,7 @@ describe("chat route skill binding", () => {
     // The bindable catalog is thread skills only — the flag, not the
     // directory, decides (a plain reference skill never appears). 0055:
     // ship ships disabled (retired) so it never appears here either.
-    expect((await listThreadSkills()).map((s) => s.id).sort()).toEqual(["review", "ticket"]);
+    expect((await listThreadSkills()).map((s) => s.id).sort()).toEqual(["review", "review-guide", "ticket"]);
     expect((await listSkills()).every((s) => typeof s.thread === "boolean")).toBe(true);
   });
 });

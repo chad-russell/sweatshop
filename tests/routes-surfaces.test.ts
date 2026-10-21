@@ -92,7 +92,7 @@ describe("global defaults write path", () => {
       expect(setDefaultRoute(db(), "cursor", { harness: "cursor", provider: "gloo" }).ok).toBe(false);
       // Reset falls back to the built-in.
       expect(setDefaultRoute(db(), "cursor", null)).toEqual({ ok: true });
-      expect(getGlobalDefaults(db()).cursor).toEqual({ harness: "cursor" });
+      expect(getGlobalDefaults(db()).cursor).toEqual({ harness: "cursor", model: "grok-4.7" });
     } finally {
       if (prev === undefined) delete process.env.HARNESS_AUTH_DIR;
       else process.env.HARNESS_AUTH_DIR = prev;
