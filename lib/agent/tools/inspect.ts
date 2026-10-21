@@ -112,6 +112,7 @@ export function inspectTarget(id: string): InspectResult {
       harness: call.kind,
       status: call.status,
       task: clipHead(call.task, 1_000),
+      ...(call.phase ? { phase: call.phase } : {}),
       ...(call.error ? { error: clipHead(call.error, 500) } : {}),
       ...(call.result ? { result: clipHead(call.result, 1_500) } : {}),
       // 0040 phase 3 (review fix): the path `harnessSettleStep` actually
@@ -135,6 +136,7 @@ export function inspectTarget(id: string): InspectResult {
       activeRunId: conversations.activeRunId,
       parentConversationId: conversations.parentConversationId,
       resultFile: conversations.resultFile,
+      workPhase: conversations.workPhase,
     })
     .from(conversations)
     .where(eq(conversations.id, id))
@@ -167,6 +169,7 @@ export function inspectTarget(id: string): InspectResult {
     // writer). Never derived/guessed: null means no file exists, not
     // "couldn't compute one."
     ...(row.parentConversationId ? { resultFile: row.resultFile } : {}),
+    ...(row.parentConversationId && row.workPhase ? { phase: row.workPhase } : {}),
   };
 }
 
