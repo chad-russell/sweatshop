@@ -59,6 +59,14 @@ describe("parseModeSkill", () => {
     expect(parsed.phases[0]).toMatchObject({ id: "write-docs", name: "Write docs!" });
   });
 
+  it("a name that slugs to empty (punctuation only) is not a declared phase — it joins the brief instead", () => {
+    const body = "Intro.\n\n## Phase: !@#\n\nThis would collide with the phaseless sentinel.\n\n## Phase: Plan\n\nPlan body.";
+    const parsed = parseModeSkill(body);
+    expect(parsed.phases).toEqual([{ id: "plan", name: "Plan", body: "Plan body." }]);
+    expect(parsed.brief).toContain("## Phase: !@#");
+    expect(parsed.brief).toContain("This would collide with the phaseless sentinel.");
+  });
+
   it("duplicate phase ids: first wins, later ones are dropped entirely", () => {
     const body = [
       "## Phase: Review",
@@ -249,6 +257,21 @@ describe("threadStateNote", () => {
     const note = threadStateNote("ticket", phases, "ship");
     expect(note).toContain("next: done");
     expect(note).toContain("(5/5)");
+  });
+
+  it("a stored phase no longer declared (heading renamed mid-run) says so plainly, listing the current phases", () => {
+    const note = threadStateNote("ticket", phases, "gone");
+    expect(note).toBe(
+      "[thread state] mode: ticket · phase: gone (not declared — advance_phase to one of: Plan, Implement, Review, Fixup, Ship)",
+    );
+    expect(note).not.toContain("(0/5)");
+    expect(note).not.toContain("next: done");
+  });
+
+  it("a stale phase on a now-zero-phase mode lists \"none\"", () => {
+    expect(threadStateNote("ticket", [], "gone")).toBe(
+      "[thread state] mode: ticket · phase: gone (not declared — advance_phase to one of: none)",
+    );
   });
 });
 

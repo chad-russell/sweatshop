@@ -92,7 +92,12 @@ export function parseModeSkill(body: string): ParsedModeSkill {
     flush();
     const label = heading[1]!.trim();
     const phaseMatch = PHASE_LABEL_RE.exec(label);
-    if (phaseMatch) {
+    // A name that slugs to "" (e.g. "!@#", punctuation only) would
+    // collide with the phaseless-mode sentinel ("" means "entered, no
+    // phases" on conversations.mode_phase) — treat it as ordinary brief
+    // content instead of a declared phase, same as any other non-phase
+    // `##` heading.
+    if (phaseMatch && slugify(phaseMatch[1]!.trim())) {
       const name = phaseMatch[1]!.trim();
       current = { kind: "phase", id: slugify(name), name };
     } else if (/^shared$/i.test(label)) {
@@ -209,10 +214,17 @@ export const THREAD_STATE_PREFIX = "[thread state]";
 
 export function threadStateNote(modeId: string, phases: readonly ModePhase[], currentId: string): string {
   const index = phases.findIndex((p) => p.id === currentId);
-  const current = index >= 0 ? phases[index]! : null;
-  const position = index >= 0 ? index + 1 : 0;
-  const next = index >= 0 && index + 1 < phases.length ? phases[index + 1]!.name : "done";
-  return `${THREAD_STATE_PREFIX} mode: ${modeId} · phase: ${current?.name ?? currentId} (${position}/${phases.length}) · next: ${next}`;
+  if (index < 0) {
+    // The stored phase isn't declared by the CURRENT skill body — a
+    // heading got renamed/removed mid-run. Say so plainly instead of
+    // claiming a bogus "(0/n) · next: done": the agent needs to know
+    // this is stale, not that it finished.
+    const names = phases.map((p) => p.name).join(", ") || "none";
+    return `${THREAD_STATE_PREFIX} mode: ${modeId} · phase: ${currentId} (not declared — advance_phase to one of: ${names})`;
+  }
+  const current = phases[index]!;
+  const next = index + 1 < phases.length ? phases[index + 1]!.name : "done";
+  return `${THREAD_STATE_PREFIX} mode: ${modeId} · phase: ${current.name} (${index + 1}/${phases.length}) · next: ${next}`;
 }
 
 /**
