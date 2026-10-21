@@ -1,6 +1,6 @@
-# 0055 — Chat modes: Quick and Full ticket, and a calmer chat chrome
+# 0055 — Ticket mode: one explicit, sticky mode, and a calmer chat chrome
 
-Status: **Draft — awaiting the owner's approval.** Phase C (the Full
+Status: **Draft v2 — awaiting the owner's approval.** Phase C (the
 ticket launcher, `run_phase`, per-phase routes) gets its own doc, 0056,
 after this one lands.
 
@@ -10,163 +10,146 @@ Thread skills (0039) are the only "mode" a chat has today, and they are
 ambiguous in three ways:
 
 1. **Which one, and when.** `ship` and `ticket` overlap (ticket = ship +
-   plan gate + review). The owner can't tell when to pick which; the base
-   prompt tells the agent to bind one *itself* on "ship it" / "do this
-   ticket", so a thread can silently change behavior mid-conversation.
+   plan gate + review). The base prompt tells the agent to bind one
+   *itself* on "ship it" / "do this ticket", so a thread can silently
+   change behavior mid-conversation.
 2. **Invisible once running.** The fresh-composer picker shows the skill
    before the first send; after that nothing on screen says the thread
    runs one (only a `use_skill` card buried in the transcript).
-3. **Unclear meaning.** "Attached" means: the body is appended to the
-   system prompt every turn, the step budget rises 50 → 400, and an
-   exhausted turn auto-continues (≤ 3). None of that is said anywhere.
+3. **Unclear meaning.** "Attached" means: the body joins the system
+   prompt every turn, the step budget rises 50 → 400, and an exhausted
+   turn auto-continues (≤ 3). None of that is said anywhere.
 
 Meanwhile the header has grown five controls (phase chip, stats drawer,
 context meter, preview pill, extras) beside the crumbs.
 
 ## Decisions (owner, in chat 2026-10-20)
 
-- Two user-facing modes: **Quick** and **Full ticket**. Review is NOT a
-  mode — it is a phase inside Full ticket, and ad hoc ("please review
-  this") in any thread.
-- Plan approval (and iteration on it) stays a human gate in Full ticket.
-- Mode switching must not break prompt caching — see "Switching".
+- **Normal chat is the default — no mode applied.** No "Quick" mode: a
+  plain chat already is quick.
+- **Ticket mode is the only mode** (for now). Review is a phase inside
+  it, and ad hoc ("please review this") in any chat — never a mode.
+- **Entering is explicit**: the owner picks it, or the agent PROPOSES it
+  and the owner approves. Never silent.
+- **Sticky**: once a chat is in ticket mode it stays in it for the rest
+  of the chat. No exit, no switching between modes.
+- Plan approval (and iteration on it) stays a human gate in ticket mode.
 
-## Modes
+## What ticket mode is
 
-A **mode** is a property of the thread, chosen at the creating send,
-shown at all times, and changed only by the owner.
-
-| | Quick | Full ticket |
+| | Normal chat (default) | Ticket mode |
 |---|---|---|
-| Who does the work | The top-level agent itself (bash edits, its own checks) | The top-level agent ORCHESTRATES; every phase runs in a harness call or child thread |
-| Harness / subagent use | Only when the owner explicitly asks | Always: plan, implement, QA/review, fix-up |
-| Plan | None (it may sketch one in its reply) | `PLAN.md` + `present_plan`, owner approves (unchanged 0041 gate) |
+| Who does the work | The agent itself; harnesses when the base steering says (non-trivial edits) or the owner asks | The agent ORCHESTRATES; every phase runs in a harness call or child thread |
+| Plan | Optional | `PLAN.md` + `present_plan`, owner approves (0041 gate, unchanged) |
 | Fresh-eyes review | Only if asked | Always, before `create_pr` |
-| Step budget | 50 (today's plain chat) | 400 + budget continuation (today's thread-skill budget) |
-| `create_pr` | Available, approval-gated as always | Required end of the run |
-| Context goal | n/a | Keep the orchestrator small: it holds the plan and the handles, never the diffs |
+| Step budget | 50 | 400 + budget continuation (≤ 3) |
+| `create_pr` | Available, approval-gated as always | The required end of the run |
+| Context goal | n/a | Orchestrator stays small: it holds the plan and the handles, never the diffs |
 
-**Default:** a project chat starts in Quick; a plain (non-project) chat
-has no mode (no chip, no picker — modes only mean something with a
-sandbox and repos).
+Ticket mode needs a project (sandbox + repos); a plain chat cannot enter
+it — the control is absent, and the tool refuses value-shaped.
 
-### Implementation: modes are skills with a flag
+### Mechanism: a mode is a flagged thread skill
 
-No new runbook mechanism. A mode is a thread skill with `mode: true` in
-its front matter / catalog row:
+No new runbook mechanism:
 
-- `skills/quick/SKILL.md` (new) and `skills/full-ticket/SKILL.md`
-  (rewritten from `ticket`, orchestrator-shaped: plan via a harness or
-  child, implement via a harness, QA via a `review` child, fix-up loop,
-  ship). Both editable in `/settings` like any skill (0054).
-- `ship` and `ticket` are **retired**: status `disabled` via a seeded
-  version (restorable — 0054 never hard-deletes), so existing threads
-  bound to them keep reading their current body.
-- `review` stays a thread skill but `mode: false` — bindable by
-  `start_thread` (the agent's tool), never shown in the mode picker.
-- `conversations.skill` stays the one column. A new derived read-model
-  field `mode: {id, title} | null` = the bound skill when it has
-  `mode: true`.
-- Budget: `resolveMaxSteps` keys off the skill's flag rather than "any
-  skill" — Quick gets 50, Full ticket 400. (A `budget: "thread"` front-
-  matter key on the skill, default thread for non-mode skills, so
-  `review` children keep 400.)
+- `skills/ticket/SKILL.md` is rewritten orchestrator-shaped (plan via a
+  harness or child → owner approval → implement via a harness → QA via a
+  `review` child → fix-up loop → ship) and gains `mode: true` in front
+  matter + a `skills.mode` column (versioned like every field, 0054).
+  Editable in `/settings` like any skill.
+- `ship` is **retired**: a seeded `disabled` version (restorable — 0054
+  never hard-deletes); threads already bound to it keep reading it.
+- `review` stays a non-mode thread skill, bindable only by
+  `start_thread` for children.
+- `conversations.skill` stays the one column; a derived read-model field
+  `mode: {id, title} | null` is the bound skill when it has `mode: true`.
+- `use_skill` stops binding: it only lists reference skills. Binding a
+  thread happens through exactly two paths — the creating send, and
+  `enter_mode` below. Since `conversations.skill` is written once and
+  never cleared, stickiness holds by construction (a second
+  `enter_mode` in a moded chat refuses: "already in ticket mode").
 
-### The agent can no longer self-bind a mode
+### Entering mid-chat: `enter_mode`
 
-- `use_skill` keeps *listing* skills (reference material) but **binding
-  refuses mode skills** value-shaped: `"modes are chosen by {{owner}} —
-  ask them, or suggest starting a Full ticket thread"`.
-- The base prompt's "bind ship or ticket" paragraph is replaced with:
-  the thread's mode is shown to the owner and set by them; if the work
-  outgrows Quick, say so and suggest a Full ticket thread.
-- Base section changes go through the 0054 store as a new `git` version
-  only when the current row is still the unedited git default
-  (same exact-match repair idiom as #136); an owner-edited base is left
-  alone and the Settings page flags "a newer default is available".
+- **Owner:** the composer's mode chip → "Switch to ticket mode". Takes
+  effect on the next send (it is a send-time flag, like `?skill=` today,
+  so no turn is interrupted).
+- **Agent:** a new tool `enter_mode({mode: "ticket", reason})`,
+  approval-gated like `create_pr` (0034 A). The card says what changes
+  (the table above, in two lines) and the agent's reason. Approve →
+  bound, the runbook comes back as the tool result so the agent follows
+  it from this turn; deny → the comment returns, nothing changes. The
+  base prompt tells the agent: when work grows past a quick change
+  (multiple files, needs a plan, wants a PR), suggest ticket mode with
+  `enter_mode` — once, not repeatedly.
 
-## Switching
+**Prompt caching:** entering costs ONE cache miss, at the next turn,
+when the runbook joins the system prompt (the entering turn itself only
+appends a tool result, which the cache keeps). Since entry is one-way
+and once per chat, that is the whole cost — no contradictory runbooks,
+no re-swaps. This is why sticky beats switchable.
 
-Appending "you are now in mode X" mid-thread keeps the cache warm only
-if the old mode's runbook stays in the system prompt — so the model
-reads two contradicting runbooks, the newer one in a user-role message.
-Swapping the system prompt instead invalidates the whole cache.
+### Base prompt
 
-**Decision for this doc: switching = a new thread with a handoff.**
-The mode chip's menu offers "Continue in Full ticket →", which:
+The "bind ship or ticket with use_skill" paragraph becomes: the chat's
+mode is visible to the owner and changes only by their choice; suggest
+ticket mode via `enter_mode` when warranted. Upgraded through the 0054
+store as a new `git` version only when the current row is still the
+unedited git default (the #136 exact-match idiom); an owner-edited base
+is left alone and `/settings` notes "a newer default is available".
 
-1. creates a new conversation in the SAME project, attached to the SAME
-   sandbox and work dir (0013 attach — the checkout, branch and any
-   `PLAN.md` carry over for free),
-2. records a new `continued_from` column — deliberately NOT
-   `parent_conversation_id`: the new thread is a sibling, never wakes
-   the old one, and is its own root in the sidebar,
-3. prefills the composer with a handoff the owner can edit: the old
-   thread's title + summary (0007), the branch, and the last assistant
-   report, clipped.
-
-The old thread gets a transcript chip "Continued in <title> →". Cheap,
-cache-safe, explicit. Revisit an in-place switch only if this proves
-annoying in practice.
-
-## Chrome: one status strip, one composer bar
+## Chrome: one composer bar, a calmer header
 
 ### Composer bar (bottom)
 
 ```
-[⚡ Quick ▾]  [model ▾]  [sandbox ▾]  [hosts toggle]        ◔ 42% · $0.31   [↑]
+[🎫 Ticket ▾]  [model ▾]  [sandbox ▾]  [hosts toggle]        ◔ 42% · $0.31   [↑]
 ```
 
-- **Mode chip** (new, left-most): icon + mode name. Before the first
-  send it is the picker (Quick / Full ticket, each with a one-line
-  description of what it means — the three facts in "Unclear meaning"
-  above). After: a menu showing what the mode does and "Continue in
-  <other mode> →". Replaces the skill half of `FreshTargetPicker`
-  (which keeps only Chat / project).
+- **Mode chip** (new, left-most, project chats only). Normal chat: a
+  quiet "Normal ▾" whose menu has "Ticket mode" with its two-line
+  meaning. In ticket mode: a tinted "Ticket" chip whose menu restates
+  what the mode does and that it is permanent for this chat; no
+  exit item. Replaces the skill half of `FreshTargetPicker` (which keeps
+  only Chat / project); `?skill=ticket` keeps working, `?mode=ticket`
+  is the new spelling.
 - **Usage control** (moved from the header, merged): the 0051 ring +
-  percentage and the 0047 cost, one button. Click opens the existing
-  stats drawer content as a popover/sheet with the context breakdown at
-  the top. Warn tones unchanged (85 / 95). Hidden until metered.
+  percentage and the 0047 cost as one button; clicking opens the stats
+  drawer content as a popover/sheet, context breakdown first. Warn tones
+  unchanged (85 / 95). Hidden until metered.
 
 ### Header (top)
 
-Crumbs · **phase chip** (0041/0052, unchanged — in Full ticket it
-becomes the phase strip in 0056) · preview pill · extras. Stats and
-context leave the header.
+Crumbs · phase chip (0041/0052, unchanged — 0056 grows it into the
+ticket phase strip) · preview pill · extras. Stats and context leave the
+header.
 
-Narrow viewports: the usage control collapses to the ring only; the
-mode chip to its icon.
+Narrow viewports: the usage control collapses to the ring; the mode chip
+to its icon.
 
 ## Not in this doc (0056, Phase C)
 
-The Full ticket launcher (form instead of the textarea, per-phase
-harness/model/effort, presets), `run_phase(phase, task)` enforcing the
-chosen routes, per-thread harness routes (today claude/cursor/codex are
-global-only — `resolveRoute`), and the header phase strip. 0055's
-`full-ticket` skill uses whatever routes resolve today; 0056 makes them
-per-phase.
+The ticket launcher (a form instead of the textarea: per-phase
+harness/model/effort, presets), `run_phase(phase, task)` enforcing those
+routes, per-thread harness routes (today claude/cursor/codex resolve
+globally only — `resolveRoute`), and the header phase strip. 0055's
+ticket runbook uses whatever routes resolve today.
 
 ## Build steps
 
-- [ ] `mode` / `budget` skill metadata (front matter + `skills` columns,
-      migration, versioned like every field), read-model `mode`.
-- [ ] `skills/quick`, `skills/full-ticket`; retire `ship`/`ticket`
+- [ ] `skills.mode` column + front matter, migration, versioned; read-
+      model `mode`.
+- [ ] Rewrite `skills/ticket` (orchestrator, `mode: true`); retire `ship`
       (disabled version); `review` unchanged.
-- [ ] `use_skill` refuses mode skills; `resolveMaxSteps` per skill.
+- [ ] `use_skill` list-only; `enter_mode` tool (approval-gated card,
+      refuses without a project / when already moded); `resolveMaxSteps`
+      unchanged (any bound skill → 400).
+- [ ] Owner entry from the mode chip (send-time flag); `?mode=` alias.
 - [ ] Base prompt paragraph rewrite + guarded upgrade of unedited rows.
-- [ ] Mode chip (fresh picker + running menu); `FreshTargetPicker`
-      loses the skill axis; `?skill=` → `?mode=` (old param still works).
+- [ ] Mode chip; `FreshTargetPicker` loses the skill axis.
 - [ ] Usage control in the composer bar; header loses stats/context.
-- [ ] "Continue in …" handoff: `continued_from`, attached sandbox,
-      prefilled composer, transcript chip.
-- [ ] Tests: catalog flags, binding refusal, budget, handoff, read
-      model; screenshots before/after of header + composer.
+- [ ] Tests: flag + read model, `use_skill` no longer binds, `enter_mode`
+      approve/deny/refusals, stickiness, owner entry; before/after
+      screenshots of header + composer.
 - [ ] AGENTS.md Skills bullet + docs/agent updated.
-
-## Open questions
-
-1. Quick in a project chat as the default — or should the picker
-   remember the last mode per project?
-2. Should Quick still require the fresh-eyes review before `create_pr`
-   if it opens one (today's base prompt says "real ticket work" gets
-   one)? Proposed: no — Quick means Quick.
