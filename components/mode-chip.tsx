@@ -240,12 +240,12 @@ export function ModeChip({
                   <>
                     <DropdownMenuSeparator />
                     <ul role="list" aria-label="Status" className="flex flex-col px-2 py-1">
-                      {stepper.map((step) => {
+                      {stepper.map((step, index) => {
                         const mark = STEP_MARK[step.state];
                         const Icon = mark.icon;
                         return (
                           <li
-                            key={step.label}
+                            key={`${index}:${step.label}`}
                             role="listitem"
                             aria-current={step.state === "active" ? "step" : undefined}
                             className="flex items-start gap-2 py-1 text-sm"

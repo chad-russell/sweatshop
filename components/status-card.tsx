@@ -45,12 +45,12 @@ export function StatusCard({ snapshot }: { snapshot: StatusSnapshot }) {
     <div className="my-1 rounded-lg border border-border bg-card px-3 py-2 text-card-foreground">
       <p className="mb-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">Status</p>
       <ul>
-        {snapshot.steps.map((step) => (
-          <li key={step.label}>
+        {snapshot.steps.map((step, index) => (
+          <li key={`${index}:${step.label}`}>
             <ul>
               <StepRow step={step} />
-              {step.children?.map((child) => (
-                <StepRow key={`${step.label}/${child.label}`} step={child} nested />
+              {step.children?.map((child, childIndex) => (
+                <StepRow key={`${index}:${childIndex}:${child.label}`} step={child} nested />
               ))}
             </ul>
           </li>
