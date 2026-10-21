@@ -226,6 +226,10 @@ Layout, top to bottom:
 
 ## Cache enablement (optional amendment, recommended)
 
+**Implemented by 0055 (2026-10-20):** five-minute Anthropic opt-in,
+read/write normalization and metering, and the documented guarded fee.
+The following is the original proposal; 0055 owns the current contract.
+
 Sweatshop never sends `X-Cache-TTL` (Anthropic-via-Gloo) or
 `prompt_cache_key` (OpenAI-via-Gloo), and the chat path resends the entire
 growing history every slice — a 50-step thread pays quadratic full-price

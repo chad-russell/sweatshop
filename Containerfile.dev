@@ -10,12 +10,15 @@ FROM docker.io/library/node:24-trixie-slim
 # explicitly) + git: 0017 — the New-preview branch picker runs
 # `git ls-remote` from the Next process (0016 shipped without it and
 # the picker was silently empty).
+# python3/make/g++: better-sqlite3 compiles from source where no prebuilt
+# binary exists (arm64 — a Mac running this under OrbStack).
 # gh (pinned exactly — Debian carries no gh package): 0033 — the
 # agent's github discovery tool runs the real CLI in this container.
 ARG GH_VERSION=2.102.0
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends docker-cli git ca-certificates curl \
-  && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" -o /tmp/gh.deb \
+  && apt-get install -y --no-install-recommends docker-cli git ca-certificates curl python3 make g++ \
+  && ARCH="$(dpkg --print-architecture)" \
+  && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${ARCH}.deb" -o /tmp/gh.deb \
   && apt-get install -y --no-install-recommends /tmp/gh.deb \
   && rm /tmp/gh.deb \
   && rm -rf /var/lib/apt/lists/*

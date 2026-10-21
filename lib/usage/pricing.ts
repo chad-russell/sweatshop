@@ -7,10 +7,7 @@
  * verified live 2026-10-17): exact per-1M rates for input/output plus
  * separate cache_read / cache_write segments and long-context tiers.
  * Those are LIST prices; a 6.5% platform fee applies to guarded
- * endpoints. Sweatshop calls the bare `/ai/v2/chat/completions` — which
- * fee surface that alias maps to is not documented, so the multiplier is
- * a column (`platform_fee`, default 1.0) calibrated once against Gloo
- * Studio's Usage dashboard (docs/0047 §calibration).
+ * endpoints, including our legacy `/ai/v2/chat/completions` alias (0055).
  */
 
 export interface LongContextTier {
@@ -19,6 +16,7 @@ export interface LongContextTier {
   inputPerM: number;
   outputPerM: number;
   cacheReadPerM: number | null;
+  cacheWritePerM?: number | null;
 }
 
 export interface ModelPrice {
@@ -39,6 +37,8 @@ export interface ModelPrice {
 export interface UsageCounts {
   inputTokens: number;
   cachedTokens: number;
+  /** Disjoint subset of inputTokens; optional for pre-0055 workflows. */
+  cacheWriteTokens?: number;
   outputTokens: number;
   reasoningTokens?: number;
 }
@@ -51,7 +51,8 @@ export function roundUsd(v: number): number {
 /**
  * The cost formula (docs/0047 §cost model), all rates per 1M tokens:
  *
- *   fresh*input + cached*cache_read + output*output, * platform_fee
+ *   fresh*input + cached*cache_read + writes*cache_write + output*output,
+ *   * platform_fee
  *
  * - cached tokens are SUBTRACTED from fresh input (they are part of it,
  *   billed at their own rate); a missing cache_read rate treats them as
@@ -62,23 +63,27 @@ export function roundUsd(v: number): number {
 export function computeCost(price: ModelPrice, usage: UsageCounts): number | null {
   const input = Math.max(0, usage.inputTokens);
   const cached = Math.max(0, Math.min(usage.cachedTokens, input));
+  const writes = Math.max(0, Math.min(usage.cacheWriteTokens ?? 0, input - cached));
   const output = Math.max(0, usage.outputTokens);
-  const fresh = input - cached;
+  const fresh = input - cached - writes;
 
   let inputRate = price.inputPerM;
   let outputRate = price.outputPerM;
   let cacheRate = price.cacheReadPerM;
+  let writeRate = price.cacheWritePerM;
   if (price.longContext) {
     for (const tier of price.longContext) {
       if (input >= tier.minPromptTokens) {
         inputRate = tier.inputPerM;
         outputRate = tier.outputPerM;
         cacheRate = tier.cacheReadPerM;
+        writeRate = tier.cacheWritePerM ?? null;
       }
     }
   }
 
-  const cost = (fresh * inputRate + cached * (cacheRate ?? inputRate) + output * outputRate) / 1e6;
+  const cost = (fresh * inputRate + cached * (cacheRate ?? inputRate)
+    + writes * (writeRate ?? inputRate) + output * outputRate) / 1e6;
   return roundUsd(cost * price.platformFee);
 }
 
@@ -100,6 +105,7 @@ interface GlooLongContext {
   input?: GlooRate;
   output?: GlooRate;
   cache_read?: GlooRate;
+  cache_write?: GlooTieredRate;
 }
 
 interface GlooModelV2 {
@@ -122,8 +128,8 @@ function rate1m(rate: GlooRate | undefined): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-/** cache_write tiers: Anthropic-style {5m, 1h}, or a flat {default}. We
- *  store the 5m rate (sweatshop never sets X-Cache-TTL today). */
+/** cache_write tiers: Anthropic-style {5m, 1h}, or a flat {default}.
+ *  The opt-in header is pinned to 5m (0055). */
 function writeRate(tiered: GlooTieredRate | undefined): number | null {
   return rate1m(tiered?.["5m"]) ?? rate1m(tiered?.default);
 }
@@ -135,7 +141,10 @@ function tiersOf(lcs: GlooLongContext[] | undefined): LongContextTier[] {
     const li = rate1m(lc?.input);
     const lo = rate1m(lc?.output);
     if (typeof min === "number" && li !== null && lo !== null) {
-      tier.push({ minPromptTokens: min, inputPerM: li, outputPerM: lo, cacheReadPerM: rate1m(lc?.cache_read) });
+      tier.push({
+        minPromptTokens: min, inputPerM: li, outputPerM: lo, cacheReadPerM: rate1m(lc?.cache_read),
+        ...(lc.cache_write ? { cacheWritePerM: writeRate(lc.cache_write) } : {}),
+      });
     }
   }
   return tier;
@@ -165,7 +174,7 @@ export function parseGlooPrices(payload: unknown, now = Date.now()): Map<string,
       cacheReadPerM: rate1m(p.cache_read),
       cacheWritePerM: writeRate(p.cache_write),
       longContext: tier.length > 0 ? tier : null,
-      platformFee: 1.0,
+      platformFee: 1.065,
       source: "gloo-v2-models",
       fetchedAt: now,
     };
@@ -190,6 +199,7 @@ export function parseGlooPrices(payload: unknown, now = Date.now()): Map<string,
 export const ZERO_USAGE: UsageCounts = {
   inputTokens: 0,
   cachedTokens: 0,
+  cacheWriteTokens: 0,
   outputTokens: 0,
   reasoningTokens: 0,
 };
@@ -203,10 +213,8 @@ function finite(v: unknown): number {
  * against the installed SDK, 2026-10-17):
  *
  * - `LanguageModelUsage` (chat `steps[].usage`): flat `inputTokens` /
- *   `outputTokens` plus `inputTokenDetails.cacheReadTokens` and
- *   `outputTokenDetails.reasoningTokens`. Cache WRITE is ignored —
- *   `cachedTokens` is cache READ only (the price table's write rate is
- *   display-only this phase).
+ *   `outputTokens` plus `inputTokenDetails.{cacheReadTokens,cacheWriteTokens}`
+ *   and `outputTokenDetails.reasoningTokens`. `cachedTokens` is READ only.
  * - `LanguageModelV4Usage` (harness `finish-step`): nested
  *   `inputTokens.{total,cacheRead,cacheWrite}` and
  *   `outputTokens.{total,reasoning}`.
@@ -226,6 +234,7 @@ export function normalizeUsage(usage: unknown): UsageCounts | null {
     return {
       inputTokens: finite(input.total),
       cachedTokens: finite(input.cacheRead),
+      cacheWriteTokens: finite(input.cacheWrite),
       outputTokens: finite(output.total),
       reasoningTokens: finite(output.reasoning),
     };
@@ -244,6 +253,7 @@ export function normalizeUsage(usage: unknown): UsageCounts | null {
   return {
     inputTokens: finite(u.inputTokens),
     cachedTokens: finite(details.cacheReadTokens ?? u.cachedInputTokens),
+    cacheWriteTokens: finite(details.cacheWriteTokens),
     outputTokens: finite(u.outputTokens),
     reasoningTokens: finite(outDetails.reasoningTokens ?? u.reasoningTokens ?? u.reasoningOutputTokens),
   };
@@ -253,6 +263,7 @@ export function addUsage(a: UsageCounts, b: UsageCounts): UsageCounts {
   return {
     inputTokens: a.inputTokens + b.inputTokens,
     cachedTokens: a.cachedTokens + b.cachedTokens,
+    cacheWriteTokens: (a.cacheWriteTokens ?? 0) + (b.cacheWriteTokens ?? 0),
     outputTokens: a.outputTokens + b.outputTokens,
     reasoningTokens: (a.reasoningTokens ?? 0) + (b.reasoningTokens ?? 0),
   };

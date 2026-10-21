@@ -106,6 +106,9 @@ export function staticModels(provider: ProviderId): readonly ModelInfo[] | null 
  */
 export const CURSOR_MODELS: readonly { id: string; label: string }[] = [
   { id: "auto-smart", label: "Auto" },
+  { id: "grok-4.7", label: "Grok 4.7" },
+  { id: "grok-4.6", label: "Grok 4.6" },
+  { id: "grok-4.5", label: "Grok 4.5" },
   { id: "composer-2.5", label: "Composer 2.5" },
   { id: "gpt-5.3-codex", label: "Codex 5.3" },
   { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },

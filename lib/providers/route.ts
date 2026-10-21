@@ -143,7 +143,8 @@ export function deriveBuiltinDefaults(
     agent: { provider: pick.provider, model: pick.model },
     pi: { harness: "pi", provider: pick.provider, model: pick.model },
     claude: { harness: "claude" },
-    cursor: { harness: "cursor" },
+    // Grok 4.7: the newest Grok Cursor offers; the row is only editable once connected.
+    cursor: { harness: "cursor", model: "grok-4.7" },
     // Model always pinned — an empty model would let the adapter send
     // its stale gpt-5.5 default, which subscriptions reject (live
     // 2026-10-19).

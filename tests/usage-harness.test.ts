@@ -36,7 +36,7 @@ describe("0047 harness usage capture", () => {
   it("records a priced pi call as u_hc_<callId>", async () => {
     const conversationId = chatId();
     ensureConversation(db(), conversationId, null);
-    replaceModelPrices(db(), "gloo-v2-models", [price()]);
+    replaceModelPrices(db(), "gloo-v2-models", [price({ cacheWritePerM: 1.25 })]);
     const call = createHarnessCall(db(), { conversationId, kind: "pi", task: "meter me" });
 
     await harnessSettleStep({
@@ -49,7 +49,7 @@ describe("0047 harness usage capture", () => {
       toolCalls: 2,
       steps: 2,
       route: { harness: "pi", provider: "gloo", model: "gloo-kimi-k3" },
-      usage: { inputTokens: 1_000_000, cachedTokens: 0, outputTokens: 0, reasoningTokens: 0 },
+      usage: { inputTokens: 1_000_000, cachedTokens: 600_000, cacheWriteTokens: 200_000, outputTokens: 0, reasoningTokens: 0 },
     }).catch(() => {});
 
     const row = db().select().from(usageEvents).where(eq(usageEvents.id, `u_hc_${call.id}`)).get();
@@ -57,9 +57,11 @@ describe("0047 harness usage capture", () => {
     expect(row!.source).toBe("harness");
     expect(row!.harnessCallId).toBe(call.id);
     expect(row!.inputTokens).toBe(1_000_000);
+    expect(row!.cacheWriteTokens).toBe(200_000);
+    expect(row!.cachedTokens).toBe(600_000);
     expect(row!.steps).toBe(2);
     expect(row!.toolCalls).toBe(2);
-    expect(row!.costUsd).toBe(1);
+    expect(row!.costUsd).toBe(0.51); // 0.2 fresh + 0.06 read + 0.25 write
     expect(row!.startedAt).toBe(call.createdAt);
   });
 
@@ -104,13 +106,13 @@ describe("0047 review fix: cancelled calls keep their metering", () => {
 
     // step 1 checkpoint (as the advance step does)
     await writeHarnessUsageRow("hc_canceltest", "c_cancel", { harness: "pi", provider: "gloo", model: "gloo-x" }, {
-      usage: { inputTokens: 500_000, cachedTokens: 0, outputTokens: 50_000 },
+      usage: { inputTokens: 500_000, cachedTokens: 0, cacheWriteTokens: 100_000, outputTokens: 50_000 },
       steps: 1,
       toolCalls: 4,
     });
     // step 2 checkpoint — same row, grown totals
     await writeHarnessUsageRow("hc_canceltest", "c_cancel", { harness: "pi", provider: "gloo", model: "gloo-x" }, {
-      usage: { inputTokens: 1_000_000, cachedTokens: 0, outputTokens: 100_000 },
+      usage: { inputTokens: 1_000_000, cachedTokens: 0, cacheWriteTokens: 200_000, outputTokens: 100_000 },
       steps: 2,
       toolCalls: 9,
     });
@@ -124,6 +126,7 @@ describe("0047 review fix: cancelled calls keep their metering", () => {
     expect(group.events[0]!.steps).toBe(2);
     expect(group.events[0]!.toolCalls).toBe(9);
     expect(group.events[0]!.inputTokens).toBe(1_000_000);
+    expect(group.events[0]!.cacheWriteTokens).toBe(200_000);
     // 1M*1 + 0.1M*2 = $1.20
     expect(group.events[0]!.costUsd).toBeCloseTo(1.2, 10);
   });

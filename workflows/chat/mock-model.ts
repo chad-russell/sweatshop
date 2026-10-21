@@ -13,7 +13,7 @@ import type { LanguageModel } from "ai";
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
  * "hang" | "create-pr" | "viewing" | "thread-state" | "skill" | "loop" |
- * "accept-plan" | "enter-mode") is read at call time so a test file can
+ * "accept-plan" | "enter-mode" | "cache") is read at call time so a test file can
  * switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
@@ -110,6 +110,13 @@ export function scriptedChatModel(): LanguageModel {
 
       if (script === "hang") {
         await new Promise<never>(() => {});
+      }
+
+      if (script === "cache") {
+        return result(textPart("cache metering").map((part) => part.type === "finish" ? {
+          ...part,
+          usage: { ...NO_USAGE, inputTokens: { total: 100, noCache: 20, cacheRead: 60, cacheWrite: 20 } },
+        } : part));
       }
 
       if (script === "approve" || script === "question") {

@@ -27,6 +27,7 @@ interface ModelUsage {
   costUsd: number | null;
   inputTokens: number;
   cachedTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   steps: number;
   toolCalls: number;
@@ -57,6 +58,7 @@ interface StatsPayload {
     costUsd: number | null;
     inputTokens: number;
     cachedTokens: number;
+    cacheWriteTokens: number;
     outputTokens: number;
     reasoningTokens: number;
     steps: number;
@@ -310,6 +312,7 @@ function StatsBody({ data }: { data: StatsPayload }) {
               <div className="font-mono text-xs text-muted-foreground">
                 {formatTokens(row.inputTokens)} in · {formatTokens(row.cachedTokens)} cached ·{" "}
                 {formatTokens(row.outputTokens)} out
+                {row.cacheWriteTokens > 0 ? ` · ${formatTokens(row.cacheWriteTokens)} cache write` : ""}
                 {row.inputTokens > 0 ? ` · cache ${percent(row.cachedTokens, row.inputTokens)}` : ""}
               </div>
             </div>

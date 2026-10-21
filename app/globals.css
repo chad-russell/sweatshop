@@ -3,6 +3,13 @@
 @import "shadcn/tailwind.css";
 
 /*
+ * Tailwind skips node_modules, so streamdown's utility classes (e.g. the
+ * code-block actions bar's pointer-events-auto) were never generated and
+ * its copy/download buttons sat under a pointer-events-none wrapper.
+ */
+@source "../node_modules/streamdown/dist";
+
+/*
  * One file per theme (docs/0044); registry in lib/themes.ts.
  * ORDER MATTERS: nova.css (the :root fallback) must come FIRST — on
  * <html> the :root and [data-theme] selectors have equal specificity,

@@ -345,6 +345,7 @@ export async function writeHarnessUsageRow(
     route: JSON.stringify(route ?? {}),
     inputTokens: counts.inputTokens,
     cachedTokens: counts.cachedTokens,
+    cacheWriteTokens: counts.cacheWriteTokens ?? 0,
     outputTokens: counts.outputTokens,
     reasoningTokens: counts.reasoningTokens ?? 0,
     steps: totals.steps,

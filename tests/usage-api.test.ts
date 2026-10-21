@@ -82,6 +82,7 @@ describe("0047 GET /api/x/stats", () => {
       route: JSON.stringify({ provider: "gloo", model: "gloo-kimi-k3" }),
       inputTokens: 1_000,
       cachedTokens: 250,
+      cacheWriteTokens: 100,
       outputTokens: 100,
       reasoningTokens: 10,
       steps: 2,
@@ -160,6 +161,7 @@ describe("0047 GET /api/x/stats", () => {
       costUsd: 1.5,
       inputTokens: 1_610,
       cachedTokens: 250,
+      cacheWriteTokens: 100,
       outputTokens: 235,
       reasoningTokens: 10,
       steps: 7,
@@ -181,6 +183,7 @@ describe("0047 GET /api/x/stats", () => {
       costUsd: 1.5,
       inputTokens: 1_000,
       cachedTokens: 250,
+      cacheWriteTokens: 100,
       events: 1,
     });
     const glm = body.byModel.find((row: { key: string }) => row.key === "glm/glm-5.3-flash");
