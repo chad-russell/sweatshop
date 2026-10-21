@@ -939,7 +939,7 @@ describe("0010 spike: chat turn workflow", () => {
       const ret = await (await start(chatTurn, [{ conversationId: id, userText: "go", skillMaxSteps: 2 }])).returnValue;
       expect(ret.finishReason).toBe("tool-calls");
       // The continuation is a NEW turn (it records its own chip row; the
-      // loop script would run it to 400 — the bound is unit-tested in
+      // loop script would run it to 800 — the bound is unit-tested in
       // skills.test.ts).
       const budgetChips = () =>
         rows(db(), id).filter((r) => r.role === "user" && r.metadata?.runEvent?.kind === "budget");
