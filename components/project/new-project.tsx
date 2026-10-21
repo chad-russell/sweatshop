@@ -126,7 +126,7 @@ export function NewProjectDialog() {
                 id="new-project-id"
                 value={id}
                 onChange={(e) => setId(e.target.value.toLowerCase())}
-                placeholder="gpl"
+                placeholder="widgets"
                 className={MONO}
                 required
               />
@@ -137,7 +137,7 @@ export function NewProjectDialog() {
                 id="new-project-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="GPL"
+                placeholder="Widgets"
                 required
               />
             </label>
@@ -151,14 +151,14 @@ export function NewProjectDialog() {
                   aria-label={`Repo ${i + 1} clone name`}
                   value={repo.name}
                   onChange={(e) => setRepo(i, { name: e.target.value })}
-                  placeholder="360-gpl"
+                  placeholder="widgets"
                   className={cn(MONO, "w-40 shrink-0")}
                 />
                 <Input
                   aria-label={`Repo ${i + 1} URL`}
                   value={repo.url}
                   onChange={(e) => setRepo(i, { url: e.target.value })}
-                  placeholder="https://github.com/TangoGroup/360-gpl"
+                  placeholder="https://github.com/acme/widgets"
                   className={MONO}
                 />
                 <button
