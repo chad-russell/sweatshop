@@ -17,12 +17,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 
 ## Ground rules
 
-- **Branch / remote:** `origin` is `chad/sweatshop` on Forgejo
-  (git.crussell.io, pushed as the `glen` account; this checkout's
-  `core.sshCommand` selects the key). `main` is this repo; the
-  prototype's history lives on as `archive/prototype` + its `v0.*` tags.
-  Agents work on branches and open PRs; Chad merges; the Forgejo deploy
-  workflow (0045) ships merged `main`.
+- **Branch / remote:** `origin` is `chad-russell/sweatshop` on GitHub —
+  the source of truth: PRs open there, and the GitHub Actions gate
+  (`.github/workflows/ci.yml`: typecheck, lint, test) must pass before
+  merge. `main` is this repo; the prototype's history lives on as
+  `archive/prototype` + its `v0.*` tags. `git.crussell.io` Forgejo is
+  now only a pull mirror of GitHub, whose deploy workflow (0045) ships
+  merged `main` (from the mirror) to the host. Agents work on branches
+  and open PRs on GitHub; Chad merges.
 - **Commits:** conventional commits — `type(scope): subject` (feat, fix,
   docs, chore, refactor…). Commit often enough that history reads as a
   logical sequence of small steps.
@@ -590,8 +592,9 @@ ONE instance (0020) — no dev server, no second checkout:
   taken) plus the preview proxy on 10.10.0.12:3301. Restart=always,
   starts at boot. Logs: `journalctl --user -u sweatshop` (agent shells
   need `XDG_RUNTIME_DIR=/run/user/1000`).
-- **This checkout is the deploy checkout.** It tracks `main` on Forgejo
-  and moves ONLY through the deploy workflow (0045): merge → checks →
+- **This checkout is the deploy checkout.** It tracks the Forgejo
+  mirror of `main` (GitHub is the source of truth; Forgejo pulls from
+  it) and moves ONLY through the deploy workflow (0045): merge → checks →
   `scripts/ci-deploy.sh` inside the `sweatshop-deploy` transient user
   unit (fast-forward → `data/backups/pre-<sha>.db` snapshot → stop →
   `npm ci` + `next build` + `db:migrate` → start → health check; a
