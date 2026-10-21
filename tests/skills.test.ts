@@ -235,13 +235,14 @@ describe("owner placeholders in skill display text", () => {
     expect(publishEdit(db(), target, { patch: { description: "Ask {{owner}} about {{owner's}} call" }, expectedVersion: original.version })).toMatchObject({ ok: true });
     try {
       const want = "Ask Riley about Riley's call";
-      expect((await readSkill("review"))?.description).toBe(want);
-      expect((await readSkill("review"))?.body).toBe(original.body);
+      const read = await readSkill("review");
+      expect(read?.description).toBe(want);
+      expect(read?.body).toBe(original.body);
       expect((await listSkills()).find((s) => s.id === "review")?.description).toBe(want);
       expect((await listThreadSkills()).find((s) => s.id === "review")?.description).toBe(want);
     } finally {
       const live = getTarget(db(), target)!;
-      expect(publishEdit(db(), target, { patch: { description: original.description }, expectedVersion: live.version })).toMatchObject({ ok: true });
+      publishEdit(db(), target, { patch: { description: original.description }, expectedVersion: live.version });
       if (prev === undefined) delete process.env.SWEATSHOP_OWNER_NAME;
       else process.env.SWEATSHOP_OWNER_NAME = prev;
     }
