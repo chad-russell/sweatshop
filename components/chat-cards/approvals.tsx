@@ -378,11 +378,12 @@ export function AcceptPlanCard({ part }: { part: ToolUIPart }) {
 
 /** Tools whose execute asks Chad first (the ask_chad pattern inside a
  * tool): while the part is unresolved, the transcript shows the
- * approval buttons right there — same POST as the inbox card. */
-export const GATED_TOOLS = new Set(["create_project", "delete_project"]);
+ * approval buttons right there — same POST as the inbox card. 0055:
+ * enter_mode reuses this same card — no new card kind. */
+export const GATED_TOOLS = new Set(["create_project", "delete_project", "enter_mode"]);
 
 export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
-  const fields = (["description", "thread", "status"] as const).filter((key) => key in card.patch);
+  const fields = (["description", "thread", "mode", "status"] as const).filter((key) => key in card.patch);
   const value = (v: unknown) => typeof v === "boolean" ? String(v) : v == null ? "(unset)" : String(v);
   return (
     <div className="space-y-2">
@@ -568,7 +569,9 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
   const headline =
     name === "create_project"
       ? `Create project ${str("id") ?? "?"}${str("name") ? ` ("${str("name")}")` : ""}`
-      : `Delete project ${str("id") ?? "?"} — and everything it owns`;
+      : name === "delete_project"
+        ? `Delete project ${str("id") ?? "?"} — and everything it owns`
+        : `Enter ${str("mode") ?? "?"} mode${str("ticket") ? `: ${str("ticket")}` : ""}`;
   const answered = part.state === "output-available" || part.state === "output-error";
 
   const post = async (approved: boolean) => {
@@ -587,7 +590,7 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
   return (
     <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
       <p className="text-sm font-medium">{headline}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">The agent is waiting for your approval.</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{str("reason") ?? "The agent is waiting for your approval."}</p>
       {!answered ? (
         <div className="mt-2 flex gap-2">
           <button
@@ -609,9 +612,20 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
         </div>
       ) : (
         <p className="mt-1 text-xs text-muted-foreground">
-          {part.state === "output-available" ? String(part.output).slice(0, 300) : "no answer recorded"}
+          {part.state === "output-available" ? answerText(part.output) : "no answer recorded"}
         </p>
       )}
     </div>
   );
+}
+
+/** A gated tool's resolved output for display: its own `message` when
+ *  it has one (enter_mode's denial, a plain string), else a clipped
+ *  JSON dump — never the bare `[object Object]` `String()` gives an
+ *  object. */
+function answerText(output: unknown): string {
+  if (typeof output === "string") return output.slice(0, 300);
+  const message = (output as { message?: unknown } | null)?.message;
+  const text = typeof message === "string" ? message : JSON.stringify(output);
+  return text.slice(0, 300);
 }

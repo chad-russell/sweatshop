@@ -16,12 +16,14 @@ export interface PromptChangeCard {
     body?: string;
     description?: string;
     thread?: boolean;
+    mode?: boolean;
     status?: "active" | "disabled" | "deleted";
   };
   before: {
     body?: string;
     description?: string;
     thread?: boolean;
+    mode?: boolean;
     status?: "active" | "disabled" | "deleted";
   } | null;
   affectedThreads?: { id: string; title: string | null }[];

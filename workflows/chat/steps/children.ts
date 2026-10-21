@@ -16,7 +16,7 @@ export async function cancelRunStep(runId: string): Promise<unknown> {
  *  sandbox by default) that wakes this conversation when it settles. */
 export async function startThreadStep(
   conversationId: string,
-  input: { prompt: string; skill?: string; fresh?: boolean },
+  input: { prompt: string; skill?: string; fresh?: boolean; phase?: string },
 ): Promise<unknown> {
   "use step";
   const { startThread } = await import("../../../lib/agent/tools/start-thread");

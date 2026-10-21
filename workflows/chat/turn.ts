@@ -3,6 +3,7 @@ import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
+import { isModeSkill, parseModeSkill, threadStateNote } from "../../lib/agent/mode-ids";
 import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
@@ -82,6 +83,23 @@ export async function chatTurn(input: ChatTurnInput) {
   const { conversationId, userText } = input;
 
   const history = await loadTurnHistory(conversationId);
+  // 0039: a thread running a skill gets its runbook in the instructions
+  // and the background budget. 0055: modePhase rides along, and is
+  // loaded BEFORE recordUserMessage below so the turn's phase can be
+  // stamped onto its own user row (db/chat.ts's listTurnMessages
+  // rebuilds the [thread state] note from that metadata next turn, the
+  // same way it already rebuilds the viewing note).
+  const skill = await loadSkillStep(conversationId);
+  const modePhase = skill?.modePhase ?? null;
+  // 0055 v7: a real (non-empty) current phase on a mode skill — render
+  // its [thread state] note NOW, from the live body, so the exact same
+  // string can be stamped onto this turn's user row below AND injected
+  // into this turn's own messages: the row's metadata and what the
+  // model is actually shown are then guaranteed byte-identical.
+  const stateNote =
+    skill && isModeSkill(skill.mode) && modePhase
+      ? threadStateNote(skill.id, parseModeSkill(skill.body).phases, modePhase)
+      : null;
   const userContent = await recordUserMessage(
     conversationId,
     userText,
@@ -89,6 +107,7 @@ export async function chatTurn(input: ChatTurnInput) {
     input.viewing,
     input.runEvent,
     input.attachments,
+    stateNote ?? undefined,
   );
 
   // 0021: resolved per turn (a picker change or a /settings swap takes
@@ -96,9 +115,6 @@ export async function chatTurn(input: ChatTurnInput) {
   const resolved = await resolveTurnRouteStep(conversationId);
   const model = await buildTurnModel(resolved.route);
   const writable = getWritable<ModelCallStreamPart>();
-  // 0039: a thread running a skill gets its runbook in the
-  // instructions and the background budget.
-  const skill = await loadSkillStep(conversationId);
   // 0054: the three editable instruction sections (Settings-edited or
   // still the git default) — resolved once per turn, same as skill.
   const sections = await loadPromptSectionsStep();
@@ -121,6 +137,7 @@ export async function chatTurn(input: ChatTurnInput) {
       hosts: input.hosts ?? [],
       repoDocs,
       skill,
+      modePhase,
       sections,
     }),
     // 0042: WorkflowAgent hard-codes supportedUrls: {}, so the SDK would try
@@ -139,9 +156,16 @@ export async function chatTurn(input: ChatTurnInput) {
   // the send (the agent forbids system messages in `messages`), model
   // input only — it is persisted as metadata on the user row above and
   // rebuilt by listTurnMessages; persistTurn's skip keeps it out.
+  // 0055: the [thread state] note is built the exact same way, from the
+  // SAME row's metadata (recorded just above) — so what this turn sends
+  // the model and what listTurnMessages rebuilds next turn are
+  // byte-identical, and the prompt-cache prefix holds. (Mid-turn
+  // advance_phase still reaches the model through its own tool result —
+  // no per-slice re-injection needed.)
   let messages: ModelMessage[] = [
     ...history,
     ...(input.viewing ? [{ role: "user" as const, content: viewingNote(input.viewing) }] : []),
+    ...(stateNote ? [{ role: "user" as const, content: stateNote }] : []),
     { role: "user", content: userContent },
   ];
   let finishReason: string = "stop";
@@ -157,8 +181,8 @@ export async function chatTurn(input: ChatTurnInput) {
   // conversation's size in tokens once the turn lands.
   let lastSliceUsage: UsageCounts | null = null;
   // skip = everything already persisted (loaded history + this turn's
-  // user message) plus the injected note, which sits right before it.
-  const skip = history.length + (input.viewing ? 1 : 0) + 1;
+  // user message) plus the injected notes, which sit right before it.
+  const skip = history.length + (input.viewing ? 1 : 0) + (stateNote ? 1 : 0) + 1;
   // One durable stream per TURN, not per slice: every slice leaves it
   // open and unfinished; finishTurnStream ends it exactly once — also
   // when a slice throws, so a reconnected browser is never left hanging.

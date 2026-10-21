@@ -1,6 +1,7 @@
 ---
 description: Take a change from ticket to an approved PR in this thread, with tests and visual evidence on the card.
 thread: true
+status: disabled
 ---
 # Ship — ticket to approved PR
 

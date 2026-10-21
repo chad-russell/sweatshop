@@ -40,7 +40,11 @@ export async function loadTurnHistory(
  * Persist the turn's user message. Id is keyed on the conversation's
  * persisted-history length — stable for a given run (replay-safe), never
  * colliding across turns (history only grows). 0015: the send's viewing
- * context rides as row metadata (the note is rebuilt from it each turn).
+ * context rides as row metadata (the note is rebuilt from it each turn);
+ * 0055: so does the turn's thread-state (mode + phase), same treatment.
+ * These are independent facts about the same row, so they merge into
+ * ONE metadata object — a second `{ metadata: {...} }` spread would
+ * silently clobber the first instead of adding to it.
  */
 export async function recordUserMessage(
   conversationId: string,
@@ -50,6 +54,8 @@ export async function recordUserMessage(
   runEvent?: import("../../../db/chat").RunEventMeta,
   /** 0042: uploaded image ids riding this send. */
   attachmentIds?: string[],
+  /** 0055: the mode/phase this turn ran in, when moded. */
+  threadState?: import("../../../db/chat").MessageRowMetadata["threadState"],
 ): Promise<UserContent> {
   "use step";
   const { db, chat } = await chatStore();
@@ -70,14 +76,17 @@ export async function recordUserMessage(
       }),
     ];
   }
+  const metadata: import("../../../db/chat").MessageRowMetadata = {};
+  if (viewing) metadata.viewing = viewing;
+  if (runEvent) metadata.runEvent = runEvent;
+  if (threadState) metadata.threadState = threadState;
   chat.appendMessages(db, conversationId, [
     {
       id: `t_${conversationId}_${seq}`,
       role: "user",
       text,
       modelMessage: { role: "user", content },
-      ...(viewing ? { metadata: { viewing } } : {}),
-      ...(runEvent ? { metadata: { runEvent } } : {}),
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     },
   ]);
   return content;
@@ -120,15 +129,22 @@ export async function finishTurnStream(
   await writable.close();
 }
 
-/** 0039: the thread's skill (null = plain chat). */
+/** 0039: the thread's skill (null = plain chat). 0055: `modePhase` rides
+ *  along — it is a property of the CONVERSATION, not the skill, but
+ *  every caller needs them together (buildInstructions's mode-skip
+ *  check, the [thread state] note) and null skill always means null
+ *  phase anyway (a mode is only ever entered together with its skill). */
 export async function loadSkillStep(
   conversationId: string,
-): Promise<{ id: string; title: string; body: string } | null> {
+): Promise<{ id: string; title: string; body: string; mode: boolean; modePhase: string | null } | null> {
   "use step";
   const [{ db, chat }, { readSkill }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
-  const id = chat.getConversation(db, conversationId)?.skill;
+  const conversation = chat.getConversation(db, conversationId);
+  const id = conversation?.skill;
   const skill = id ? await readSkill(id) : null;
-  return skill ? { id: skill.id, title: skill.title, body: skill.body } : null;
+  return skill
+    ? { id: skill.id, title: skill.title, body: skill.body, mode: skill.mode, modePhase: conversation?.modePhase ?? null }
+    : null;
 }
 
 /** 0039: list thread skills, or bind one to the thread and return its
@@ -137,7 +153,7 @@ export async function bindSkillStep(conversationId: string, id?: string): Promis
   "use step";
   const [{ db, chat }, { listThreadSkills }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
   const available = await listThreadSkills();
-  const catalog = available.map((s) => ({ id: s.id, title: s.title, description: s.description }));
+  const catalog = available.map((s) => ({ id: s.id, title: s.title, description: s.description, mode: s.mode }));
   if (!id) return { ok: true, skills: catalog };
   // readSkill deliberately resolves disabled/deleted skills for existing
   // bindings; a NEW binding must use the active thread-only catalog.

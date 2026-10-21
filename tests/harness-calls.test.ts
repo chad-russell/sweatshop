@@ -13,12 +13,14 @@ import {
   settleHarnessCall,
   setCallWorkflowRun,
 } from "../db/harness-calls";
-import { ensureConversation } from "../db/chat";
+import { ensureConversation, setConversationMode } from "../db/chat";
 import { claimHarnessRun, listActiveHarnessRuns, getHarnessEvents, getHarnessRun } from "../lib/harness-events";
 import { conversations, harnessRuns, projects } from "../db/schema";
 import { wakeCallIfDue, sweepWakes } from "../lib/chat/wake";
 import { cancelRunTool } from "../lib/agent/tools/cancel-run";
-import { startHarnessCall } from "../lib/chat/harness-call-start";
+import { startHarnessCall, withResultInstruction } from "../lib/chat/harness-call-start";
+import { getTarget } from "../db/prompt-settings";
+import { applyApprovedPromptChangeStep } from "../workflows/chat/steps/prompt-change";
 
 /**
  * 0022 cut 2 — background harness calls: the store's settle-once
@@ -37,6 +39,32 @@ const newConv = () => {
   ensureConversation(tdb, id, "p_hc");
   return id;
 };
+
+/** 0055 v7 part B: a mode skill with two phases, created fresh per
+ *  call so tests never collide on id. */
+async function createPhaseMode(id: string) {
+  const target = getTarget(tdb, { kind: "skill", id });
+  await applyApprovedPromptChangeStep(
+    { kind: "skill", id },
+    {
+      body: "# Handoff Test\n\nBrief, orchestrator-only.\n\n## Shared\n\nShared convention text.\n\n## Phase: Plan\n\nPlan phase body.\n\n## Phase: Implement\n\nImplement phase body.",
+      description: "test mode",
+      thread: true,
+      mode: true,
+      status: "active",
+    },
+    target?.version ?? 0,
+    "test: create phase mode",
+  );
+}
+
+/** A fresh conversation, moded into `modeId` at `phase` (plan/implement/"" ). */
+function modedConv(modeId: string, phase: string | null) {
+  const id = newConv();
+  if (phase !== null) setConversationMode(tdb, id, modeId, phase);
+  else tdb.update(conversations).set({ skill: modeId }).where(eq(conversations.id, id)).run();
+  return id;
+}
 
 /** A running call row on a fresh conversation. */
 function runningCall(kind: "pi" | "claude" = "pi") {
@@ -237,6 +265,115 @@ describe("startHarnessCall", () => {
     const calls = listHarnessCalls(tdb, { conversationId: conv });
     expect(calls[0]).toMatchObject({ status: "failed" });
     expect(listWakableCalls(tdb).map((c) => c.id)).toContain(calls[0]!.id);
+  });
+});
+
+describe("startHarnessCall: phase handoff (0055 v7 part B)", () => {
+  const fakeStart = async (input: { callId: string }) => {
+    setCallWorkflowRun(tdb, input.callId, "wr_fake");
+    return { runId: "wr_fake" };
+  };
+  const captureStart = (seen: { task: string }[]) => async (input: { callId: string; task: string }) => {
+    seen.push({ task: input.task });
+    setCallWorkflowRun(tdb, input.callId, "wr_fake");
+    return { runId: "wr_fake" };
+  };
+
+  it("wraps the WORKFLOW prompt with the handoff, keeping the stored task original and recording the phase name", async () => {
+    await createPhaseMode("handoff-mode-1");
+    const conv = modedConv("handoff-mode-1", "plan");
+    const seen: { task: string }[] = [];
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "do the thing", start: captureStart(seen) });
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+
+    expect(seen[0]!.task).toContain('You are doing the "Plan" phase of a "Handoff Test" run.');
+    expect(seen[0]!.task).toContain("Shared convention text.");
+    expect(seen[0]!.task).toContain("Plan phase body.");
+    expect(seen[0]!.task).not.toContain("Implement phase body.");
+    expect(seen[0]!.task).not.toContain("Brief, orchestrator-only.");
+    expect(seen[0]!.task).toContain("Task from the orchestrator:\ndo the thing");
+
+    const call = getHarnessCall(tdb, result.callId)!;
+    expect(call.task).toBe("do the thing");
+    expect(call.phase).toBe("Plan");
+    // The events-page start input stays the original ask too.
+    const start = getHarnessEvents(conv, "pi").events.find((e) => e.kind === "start");
+    expect(start?.input).toBe("do the thing");
+  });
+
+  it("an explicit phase arg overrides the chat's current phase", async () => {
+    await createPhaseMode("handoff-mode-2");
+    const conv = modedConv("handoff-mode-2", "plan");
+    const seen: { task: string }[] = [];
+    const result = await startHarnessCall({
+      conversationId: conv,
+      kind: "pi",
+      task: "do the thing",
+      phase: "implement",
+      start: captureStart(seen),
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(seen[0]!.task).toContain('"Implement" phase');
+    expect(seen[0]!.task).toContain("Implement phase body.");
+    expect(seen[0]!.task).not.toContain("Plan phase body.");
+    const call = getHarnessCall(tdb, (result as { callId: string }).callId)!;
+    expect(call.phase).toBe("Implement");
+  });
+
+  it("an explicit phase arg also matches by declared id", async () => {
+    await createPhaseMode("handoff-mode-2b");
+    const conv = modedConv("handoff-mode-2b", "plan");
+    const seen: { task: string }[] = [];
+    await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", phase: "implement", start: captureStart(seen) });
+    expect(seen[0]!.task).toContain("Implement phase body.");
+  });
+
+  it("an unknown phase refuses value-shaped, listing the declared names, and never claims a slot", async () => {
+    await createPhaseMode("handoff-mode-3");
+    const conv = modedConv("handoff-mode-3", "plan");
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", phase: "sprint", start: fakeStart });
+    expect(result).toMatchObject({ ok: false, code: "unknown-phase" });
+    if (!result.ok) {
+      expect(result.message).toContain("Plan");
+      expect(result.message).toContain("Implement");
+    }
+    expect(listActiveHarnessRuns(conv)).toHaveLength(0);
+  });
+
+  it("phase given in a non-moded chat refuses", async () => {
+    const conv = newConv();
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", phase: "plan", start: fakeStart });
+    expect(result).toMatchObject({ ok: false, code: "not-moded" });
+    expect(listActiveHarnessRuns(conv)).toHaveLength(0);
+  });
+
+  it("a non-moded chat is byte-identical to before 0055 v7 part B — no wrapping", async () => {
+    const conv = newConv();
+    const seen: { task: string }[] = [];
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "fix it", start: captureStart(seen) });
+    expect(result).toMatchObject({ ok: true });
+    expect(seen[0]!.task).toBe(withResultInstruction("fix it"));
+    const call = getHarnessCall(tdb, (result as { callId: string }).callId)!;
+    expect(call.phase).toBeNull();
+  });
+
+  it("a phaseless mode entry (mode_phase \"\") does not wrap either", async () => {
+    await createPhaseMode("handoff-mode-4");
+    const conv = modedConv("handoff-mode-4", "");
+    const seen: { task: string }[] = [];
+    await startHarnessCall({ conversationId: conv, kind: "pi", task: "fix it", start: captureStart(seen) });
+    expect(seen[0]!.task).toBe(withResultInstruction("fix it"));
+  });
+
+  it("a legacy mode-skill thread (skill bound, mode_phase null) does not wrap either", async () => {
+    await createPhaseMode("handoff-mode-5");
+    const conv = modedConv("handoff-mode-5", null);
+    const seen: { task: string }[] = [];
+    await startHarnessCall({ conversationId: conv, kind: "pi", task: "fix it", start: captureStart(seen) });
+    expect(seen[0]!.task).toBe(withResultInstruction("fix it"));
+    const call = getHarnessCall(tdb, listHarnessCalls(tdb, { conversationId: conv })[0]!.id)!;
+    expect(call.phase).toBeNull();
   });
 });
 

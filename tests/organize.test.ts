@@ -387,6 +387,7 @@ describe("loadSidebar", () => {
       conversationId: c,
       kind: "pi",
       task: "review the diff\nsecond line never shown",
+      phase: "QA",
     });
 
     // Unfiled: the synthetic row rides along in the same list.
@@ -400,6 +401,8 @@ describe("loadSidebar", () => {
       harness: "pi",
       parentConversationId: c,
       title: "review the diff",
+      // 0055 v7 part B: the phase this call was started for.
+      phase: "QA",
     });
     // buildSidebarTree nests it, and a running call rolls up to the parent.
     const tree = buildSidebarTree(g.unfiled).find((t) => t.id === c)!;
@@ -454,6 +457,15 @@ describe("loadSidebar", () => {
     expect(status(fine)).toBeNull();
     expect(status(recovered)).toBeNull();
     expect(status(top)).toBeNull();
+  });
+
+  it("0055 v7 part B: a child's work_phase surfaces on its sidebar row", () => {
+    const top = convo("org-side");
+    const child = convo("org-side");
+    tdb.update(conversations).set({ parentConversationId: top, workPhase: "Implement" }).where(eq(conversations.id, child)).run();
+    const items = loadSidebar(tdb).groups.find((g) => g.project?.id === "org-side")!.unfiled;
+    expect(items.find((i) => i.id === child)?.phase).toBe("Implement");
+    expect(items.find((i) => i.id === top)?.phase).toBeNull();
   });
 
   it("two calls of one harness under one conversation get distinct hrefs (0046)", () => {

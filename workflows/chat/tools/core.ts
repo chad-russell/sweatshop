@@ -1,5 +1,6 @@
 /**
- * Always-on tools: ask_owner, create_pr, inspect, sandbox_exec, use_skill, system_docs, note.
+ * Always-on tools: ask_owner, create_pr, inspect, sandbox_exec, use_skill,
+ * system_docs, note, and ticket mode's enter_mode / advance_phase (0055).
  */
 
 import { tool } from "ai";
@@ -7,7 +8,20 @@ import { z } from "zod";
 import { chatApprovalHook } from "../hooks";
 import { ownerName } from "../../../lib/agent/owner";
 import { commandDescription } from "./shared";
-import { applyApprovedPromptChangeStep, bindSkillStep, createPrPreviewStep, createPrStep, inspectStep, pendingStep, promptChangePreviewStep, sandboxExecStep, systemDocsStep } from "../steps";
+import {
+  advancePhaseStep,
+  applyApprovedPromptChangeStep,
+  applyEnterModeStep,
+  bindSkillStep,
+  createPrPreviewStep,
+  createPrStep,
+  enterModePreviewStep,
+  inspectStep,
+  pendingStep,
+  promptChangePreviewStep,
+  sandboxExecStep,
+  systemDocsStep,
+} from "../steps";
 
 export function coreTools(
   conversationId: string,
@@ -109,11 +123,50 @@ export function coreTools(
     }),
     use_skill: tool({
       description:
-        "Run this thread by a skill — a runbook for a kind of work (e.g. \"ship\": ticket to approved PR). " +
-        `Call it when ${ownerName()} asks for that kind of work mid-thread (\"ship it\"); the skill then guides every ` +
-        "later turn and the thread gets the background work budget. Omit id to list skills.",
-      inputSchema: z.object({ id: z.string().optional().describe("Skill id; omit to list") }),
-      execute: ({ id }) => bindSkillStep(conversationId, id),
+        "List the thread skills that exist, with their descriptions and which are modes. Binding one to THIS " +
+        "thread happens only at the creating send, by start_thread (for a child), or — for a mode — by " +
+        "enter_mode; this tool cannot bind one mid-thread.",
+      inputSchema: z.object({}),
+      execute: () => bindSkillStep(conversationId),
+    }),
+
+    enter_mode: tool({
+      description:
+        "Propose entering a mode: a sticky, phased way of working, defined freely in that skill's own markdown " +
+        `(use_skill lists which skills are modes). ${ownerName()} sees the drafted ticket and reason and must ` +
+        "approve before anything changes. Needs a project; refuses if this chat already has a mode or another " +
+        "skill bound, or if the mode is disabled.",
+      inputSchema: z.object({
+        mode: z.string().min(1).describe("The mode skill's id (use_skill lists them)"),
+        ticket: z.string().min(1).max(2_000).describe("The ticket text/key, drafted for the approval card"),
+        reason: z.string().min(1).max(500).describe("Why this work needs this mode, for the approval card"),
+      }),
+      execute: async (input, { toolCallId }) => {
+        const preview = (await enterModePreviewStep(conversationId, input)) as
+          | { ok: true; summary: string }
+          | { ok: false; code: string; message: string };
+        if (!preview.ok) return preview;
+        await pendingStep(conversationId, toolCallId, preview.summary, "approval");
+        const answer = await chatApprovalHook.create({ token: toolCallId });
+        if (!(answer.kind === "approval" && answer.approved)) {
+          const comment = answer.kind === "approval" ? answer.comment?.trim() : undefined;
+          return { ok: false, code: "denied" as const, message: comment || `${ownerName()} declined` };
+        }
+        return applyEnterModeStep(conversationId, input.mode, input.ticket);
+      },
+    }),
+
+    advance_phase: tool({
+      description:
+        "Move this moded thread to a phase the mode's CURRENT markdown declares (by id or name). The next phase " +
+        "in document order needs no note; anything else (back, skip, a loop) needs one explaining why. An unknown " +
+        "name lists the declared ones. Returns that phase's own section — no approval needed, the owner's gate is " +
+        "in the skill's own markdown (e.g. plan approval), not each phase move.",
+      inputSchema: z.object({
+        to: z.string().describe("A declared phase's id or name"),
+        note: z.string().max(500).optional().describe("Required unless moving to the very next phase"),
+      }),
+      execute: ({ to, note }) => advancePhaseStep(conversationId, to, note),
     }),
 
     propose_prompt_change: tool({
@@ -128,6 +181,7 @@ export function coreTools(
         body: z.string().max(64 * 1024).optional(),
         description: z.string().max(500).optional().describe("skill only"),
         thread: z.boolean().optional().describe("skill only"),
+        mode: z.boolean().optional().describe("skill only — this skill is a mode (implies thread)"),
         status: z.enum(["active", "disabled", "deleted"]).optional().describe("skill only"),
         note: z.string().trim().min(1).max(500).refine((value) => !/[\r\n]/.test(value), "note must be one line").describe("What changed and why"),
       }),

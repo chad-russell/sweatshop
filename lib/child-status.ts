@@ -23,6 +23,10 @@ export interface ChildStatus {
   settledAt: number | null;
   /** Where it is: a thread's skill. */
   where: string | null;
+  /** 0055 v7 part B: the phase (display name) this harness call or
+   *  child thread was started to do — null when the parent chat wasn't
+   *  moded or had no phases. */
+  phase: string | null;
   /** Clipped failure reason, when there is one. */
   error: string | null;
 }
@@ -40,6 +44,7 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       startedAt: call.createdAt,
       settledAt: call.settledAt,
       where: null,
+      phase: call.phase,
       error: clip(call.error),
     };
   }
@@ -64,6 +69,7 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       startedAt: child.createdAt,
       settledAt: live ? null : child.updatedAt,
       where: child.skill,
+      phase: child.workPhase,
       error: null,
     };
   }

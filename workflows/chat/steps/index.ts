@@ -63,6 +63,11 @@ export {
   promptChangePreviewStep,
   applyApprovedPromptChangeStep,
 } from "./prompt-change";
+export {
+  enterModePreviewStep,
+  applyEnterModeStep,
+  advancePhaseStep,
+} from "./modes";
 
 export type { PromptChangeCard } from "./prompt-change";
 

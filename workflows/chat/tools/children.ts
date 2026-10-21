@@ -5,6 +5,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { cancelRunStep, startThreadStep } from "../steps";
+import { phaseArg } from "./shared";
 
 export function childTools(
   conversationId: string,
@@ -30,9 +31,15 @@ export function childTools(
           ),
         skill: z.string().optional().describe("Skill id for the child (e.g. \"review\")"),
         fresh: z.boolean().optional().describe("Give the child its own new sandbox instead of sharing this one"),
+        phase: phaseArg,
       }),
-      execute: ({ prompt, skill, fresh }) =>
-        startThreadStep(conversationId, { prompt, ...(skill ? { skill } : {}), ...(fresh ? { fresh } : {}) }),
+      execute: ({ prompt, skill, fresh, phase }) =>
+        startThreadStep(conversationId, {
+          prompt,
+          ...(skill ? { skill } : {}),
+          ...(fresh ? { fresh } : {}),
+          ...(phase ? { phase } : {}),
+        }),
     }),
 
     cancel_run: tool({

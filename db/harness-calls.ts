@@ -34,7 +34,14 @@ export function listHarnessCalls(
 
 export function createHarnessCall(
   db: Db,
-  input: { conversationId: string; kind: "pi" | "claude" | "cursor" | "codex"; task: string },
+  input: {
+    conversationId: string;
+    kind: "pi" | "claude" | "cursor" | "codex";
+    task: string;
+    /** 0055 v7 part B: the phase (display name) this call was started
+     *  for, when the parent chat is in a mode with a resolved phase. */
+    phase?: string | null;
+  },
   now = Date.now(),
 ): HarnessCall {
   const id = `hc_${now.toString(36)}${randomUUID().replace(/-/g, "").slice(0, 6)}`;
@@ -44,6 +51,7 @@ export function createHarnessCall(
       conversationId: input.conversationId,
       kind: input.kind,
       task: input.task.slice(0, 10_000),
+      phase: input.phase ?? null,
       status: "running",
       createdAt: now,
       updatedAt: now,

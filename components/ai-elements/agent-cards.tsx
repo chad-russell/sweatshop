@@ -173,6 +173,7 @@ export function ChildMeta({ status }: { status: ChildStatus }) {
   const end = status.live ? now : (status.settledAt ?? now);
   return (
     <MetaChip>
+      {status.phase ? `${status.phase} · ` : ""}
       {status.where && status.live ? `${status.where} · ` : ""}
       {elapsed(status.startedAt, end)}
     </MetaChip>

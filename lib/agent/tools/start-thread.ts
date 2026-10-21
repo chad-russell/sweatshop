@@ -5,11 +5,13 @@ import {
   getConversation,
   setConversationParent,
   setConversationSkill,
+  setConversationWorkPhase,
 } from "@/db/chat";
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
 import { attachConversation, openConversationSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 import { listThreadSkills } from "@/lib/skills";
+import { resolvePhaseHandoff } from "@/lib/chat/phase-handoff";
 
 /**
  * 0037 phase 3: the start_thread tool's core — a fresh child chat with
@@ -41,7 +43,7 @@ export type StartThreadResult =
     }
   | {
       ok: false;
-      code: "no-skill" | "start-failed";
+      code: "no-skill" | "start-failed" | "not-moded" | "unknown-phase";
       message: string;
     };
 
@@ -51,6 +53,9 @@ export async function startThread(
     prompt: string;
     skill?: string;
     fresh?: boolean;
+    /** 0055 v7 part B: override the parent's current phase (id or name)
+     *  for this child — see docs/0055's "Phase handoff". */
+    phase?: string;
     provider?: SandboxProvider;
     /** Test seam: the child's turn starter (default startChatTurn). */
     start?: (conversationId: string, text: string) => Promise<{ runId: string }>;
@@ -70,9 +75,16 @@ export async function startThread(
   if (!parent) {
     return { ok: false, code: "start-failed", message: `no conversation ${input.conversationId}` };
   }
+  // 0055 v7 part B: before creating anything — a refused phase arg
+  // must leave no orphan child.
+  const phaseResolution = await resolvePhaseHandoff(input.conversationId, input.phase);
+  if (!phaseResolution.ok) {
+    return { ok: false, code: phaseResolution.code, message: phaseResolution.message };
+  }
   const childId = `c_t${Date.now().toString(36)}${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   ensureConversation(db(), childId, parent.projectId);
   if (input.skill) setConversationSkill(db(), childId, input.skill);
+  if (phaseResolution.phaseName) setConversationWorkPhase(db(), childId, phaseResolution.phaseName);
 
   // The sandbox choice mirrors start_machine: attached to the parent's
   // binding by default (binding the parent first if it was still
@@ -98,7 +110,7 @@ export async function startThread(
         const { startChatTurn } = await import("@/lib/chat/start-turn");
         return startChatTurn(id, text);
       });
-    const { runId } = await start(childId, input.prompt);
+    const { runId } = await start(childId, phaseResolution.wrap(input.prompt));
     return {
       ok: true,
       id: childId,

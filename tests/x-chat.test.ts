@@ -208,6 +208,36 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "enter_mode: approved writes skill + phase and returns the runbook; denied with a comment writes nothing (0055)",
+    { timeout: 30_000 },
+    async () => {
+      const { projects } = await import("../db/schema");
+      const { getConversation } = await import("../db/chat");
+      db().insert(projects).values({ id: "p_xchat_enter_mode", name: "Enter Mode", createdAt: 0 }).onConflictDoNothing().run();
+
+      process.env.SWEATSHOP_CHAT_MOCK = "enter-mode";
+      const approvedId = `c_test_enter_mode_approved_${Math.random().toString(36).slice(2, 8)}`;
+      ensureConversation(db(), approvedId, "p_xchat_enter_mode");
+      const approvedRun = await start(chatTurn, [{ conversationId: approvedId, userText: "please enter ticket mode" }]);
+      await resumeWhenReady("call_enter_mode_1", true);
+      const approvedResult = await approvedRun.returnValue;
+      expect(approvedResult.finishReason).toBe("stop");
+      expect(getConversation(db(), approvedId)).toMatchObject({ skill: "ticket", modePhase: "plan" });
+      expect(serialized(approvedId)).toContain("## Plan");
+
+      process.env.SWEATSHOP_CHAT_MOCK = "enter-mode";
+      const deniedId = `c_test_enter_mode_denied_${Math.random().toString(36).slice(2, 8)}`;
+      ensureConversation(db(), deniedId, "p_xchat_enter_mode");
+      const deniedRun = await start(chatTurn, [{ conversationId: deniedId, userText: "please enter ticket mode" }]);
+      await resumeWhenReady("call_enter_mode_1", false, "not ready yet");
+      const deniedResult = await deniedRun.returnValue;
+      expect(deniedResult.finishReason).toBe("stop");
+      expect(getConversation(db(), deniedId)).toMatchObject({ skill: null, modePhase: null });
+      expect(serialized(deniedId)).toContain("not ready yet");
+    },
+  );
+
+  it(
     "steer: a message queued while the turn runs is drained between slices",
     { timeout: 30_000 },
     async () => {
@@ -434,6 +464,88 @@ describe("0010 spike: chat turn workflow", () => {
       ]);
       await third.returnValue;
       expect(JSON.stringify(listModelMessages(db(), id))).not.toContain("[viewing]");
+    },
+  );
+
+  it(
+    "thread state: a moded conversation gets the [thread state] note every turn; a plain chat and a legacy ticket-skill thread (null phase) get none (0055)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "thread-state";
+      const { setConversationMode, setConversationSkill } = await import("../db/chat");
+
+      const plain = conv("thread-state-plain");
+      const plainRun = await start(chatTurn, [{ conversationId: plain, userText: "hi" }]);
+      await plainRun.returnValue;
+      expect(serialized(plain)).toContain("mock-thread-state:0");
+
+      const legacy = conv("thread-state-legacy");
+      setConversationSkill(db(), legacy, "ticket"); // bound, no phase — pre-0055 shape
+      const legacyRun = await start(chatTurn, [{ conversationId: legacy, userText: "hi" }]);
+      await legacyRun.returnValue;
+      expect(serialized(legacy)).toContain("mock-thread-state:0");
+
+      const moded = conv("thread-state-moded");
+      setConversationMode(db(), moded, "ticket", "implement");
+      const modedRun = await start(chatTurn, [{ conversationId: moded, userText: "hi" }]);
+      await modedRun.returnValue;
+      // The model saw exactly one note (proven by the mock's own count).
+      // The note's TEXT is never persisted — only its phase, as row
+      // metadata (threadState) on the user row — and listTurnMessages
+      // rebuilds the exact same text from that metadata on the next
+      // turn (see the cache-stability test below); it is never a bare
+      // row of its own.
+      expect(serialized(moded)).toContain("mock-thread-state:1");
+      const rows = (await import("../db/chat")).listMessageTexts(db(), moded);
+      expect(rows.some((r) => r.text.startsWith("[thread state]"))).toBe(false);
+    },
+  );
+
+  it(
+    "thread state (cache stability): turn N's model input is a byte-identical prefix of turn N+1's rebuilt history, and viewing + runEvent + threadState metadata all survive together on one row (0055 bugfix)",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      const { setConversationMode, listTurnMessages, listMessageTexts } = await import("../db/chat");
+      const id = conv("thread-state-cache");
+      setConversationMode(db(), id, "ticket", "plan");
+
+      const viewing: import("../lib/page-context").ViewingContext = { kind: "chat", id };
+      const runEvent: import("../db/chat").RunEventMeta = { kind: "budget", id: "x", status: "continuing" };
+
+      // Turn 1 carries a viewing note AND a runEvent AND runs in a moded
+      // chat — all three metadata fields on the same user row at once.
+      const first = await start(chatTurn, [{ conversationId: id, userText: "first", viewing, runEvent }]);
+      await first.returnValue;
+
+      // History was empty going in, so this IS turn 1's exact model
+      // input: the viewing note, the thread-state note, then the send.
+      const afterFirst = listTurnMessages(db(), id);
+      const turn1Input = afterFirst.slice(0, 3);
+      expect((turn1Input[0] as { content: string }).content).toContain("[viewing]");
+      const threadStateContent = (turn1Input[1] as { content: string }).content;
+      expect(threadStateContent).toContain("[thread state]");
+      expect(threadStateContent).toContain("phase: Plan");
+      expect(turn1Input[2]).toMatchObject({ role: "user", content: "first" });
+
+      // None of the three metadata fields clobbered another on the row.
+      const rows = listMessageTexts(db(), id);
+      const userRow = rows.find((r) => r.text === "first");
+      expect(userRow?.metadata).toMatchObject({
+        viewing: { kind: "chat", id },
+        runEvent: { kind: "budget", id: "x", status: "continuing" },
+        threadState: threadStateContent,
+      });
+
+      // Turn 2: a plain send, no viewing/runEvent this time.
+      const second = await start(chatTurn, [{ conversationId: id, userText: "second" }]);
+      await second.returnValue;
+      const afterSecond = listTurnMessages(db(), id);
+
+      // Turn 1's own messages (history[] + its notes + its send) are an
+      // exact prefix of what turn 2's history rebuilds — the previous
+      // turn never shifts, so the prompt-cache prefix holds.
+      expect(afterSecond.slice(0, turn1Input.length)).toEqual(turn1Input);
     },
   );
 
@@ -673,19 +785,18 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "skill: use_skill binds it, and the next turn runs with it in the instructions (0037/0039)",
+    "skill: use_skill lists skills but never binds (0055)",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_CHAT_MOCK = "skill";
       const { getConversation } = await import("../db/chat");
       const id = conv("skill");
-      await (await turn(id, "ship it")).returnValue;
-      expect(getConversation(db(), id)?.skill).toBe("ship");
-      expect(serialized(id)).toContain("Bound to this thread");
-      expect(serialized(id)).toContain("mock-skill:false");
-
-      await (await turn(id, "status?")).returnValue;
-      expect(serialized(id)).toContain("mock-skill:true");
+      await (await turn(id, "what skills exist?")).returnValue;
+      expect(getConversation(db(), id)?.skill).toBeNull();
+      const history = serialized(id);
+      expect(history).toContain('"skills"');
+      expect(history).toContain("ticket");
+      expect(history).toContain("mock-skill-done");
     },
   );
 

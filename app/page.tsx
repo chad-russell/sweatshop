@@ -10,20 +10,28 @@ export const dynamic = "force-dynamic";
  * picks it too), or running a skill via `?skill=` (0039; project
  * scope only). The key remounts on scope change so a different composer
  * mode starts clean.
+ *
+ * 0055 v7: `?mode=<id>` enters that mode on the first send — the same
+ * server-side path as picking its id from the skill picker, or the
+ * legacy `?skill=<id>` when that skill is actually a mode (the send
+ * route checks live, since modes are owner-defined, not fixed ids), so
+ * reusing the skill-id prop is enough; no separate client plumbing
+ * needed.
  */
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string; skill?: string }>;
+  searchParams: Promise<{ project?: string; skill?: string; mode?: string }>;
 }) {
-  const { project, skill } = await searchParams;
+  const { project, skill, mode } = await searchParams;
+  const skillId = mode ?? skill ?? null;
   const projectOptions = db().select({ id: projects.id, name: projects.name }).from(projects).all();
   const scoped = project ? (projectOptions.find((p) => p.id === project) ?? null) : null;
 
   return (
     <ChatSurface
-      key={`${scoped?.id ?? "chat"}:${skill ?? ""}`}
-      initialSkillId={skill ?? null}
+      key={`${scoped?.id ?? "chat"}:${skillId ?? ""}`}
+      initialSkillId={skillId}
       projectOptions={projectOptions}
       {...(scoped ? { projectId: scoped.id, projectName: scoped.name } : {})}
     />

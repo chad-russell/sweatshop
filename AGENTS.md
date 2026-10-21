@@ -150,23 +150,122 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the project page Models card.
 - Skills (0039, 0054): markdown runbooks in `skills/<id>/SKILL.md` are
   shipped defaults (front matter `description`, `thread: true` for a
-  bindable runbook). SQLite `skills` / `skill_versions` hold the active
-  catalog; `lib/skills.ts` reads it (lazy seed once from Git, no silent
-  overwrite on deploy). `/settings` edits or resets individual skills;
-  agent `propose_prompt_change` changes require approval. Status is
-  versioned: active, disabled, deleted (tombstone); existing bound
-  threads still read the current body even if disabled/deleted, but only
-  active thread skills can be newly bound. A thread runs one via
+  bindable runbook, `mode: true` for a mode — see below, implies
+  `thread` — `status: disabled` to ship pre-retired — ship uses this).
+  SQLite `skills` / `skill_versions` hold the active catalog (both carry
+  a versioned `mode` boolean alongside `thread`); `lib/skills.ts` reads
+  it (lazy seed once from Git, no silent overwrite on deploy).
+  `/settings` edits or resets individual skills (a "Mode" checkbox
+  beside "thread", auto-checking thread); agent `propose_prompt_change`
+  changes (including `mode`) require approval. Status is versioned:
+  active, disabled, deleted (tombstone); existing bound threads still
+  read the current body even if disabled/deleted, but only active
+  thread skills can be newly bound. A thread runs one via
   `conversations.skill` — chosen by the creating send (the picker,
-  `?skill=<id>`; unknown ids rejected before creating anything) or
-  mid-thread by `use_skill`. Its body joins the turn instructions and
+  `?skill=<id>`; unknown ids rejected before creating anything), by
+  `start_thread` for a child, or — for a mode — by `enter_mode`;
+  `use_skill` is list-only, marking which are modes — binding mid-thread
+  outside `enter_mode` is gone. Its body joins the turn instructions and
   the step budget rises 50 → 400; a thread-skill turn that EXHAUSTS
   continues in a new turn (runEvent `budget`, bounded at 3 consecutive
   continuations with no human message between, `lib/chat/budget.ts`).
-  Catalog: `ship`, `ticket` (a PLAN.md reviewed and approved first,
-  then ship steps, then a fresh-eyes `review` child before `create_pr`),
-  `review` (fresh context, severity-ranked findings, changes nothing).
-  Skills without `thread: true` are reference material — never bindable.
+  Catalog: `ticket` (see Modes below), `review` (fresh context,
+  severity-ranked findings, changes nothing). `ship` is retired (0055: a
+  seeded `disabled` version, restorable) — its steps folded into
+  ticket's phases. Skills without `thread: true` are reference material
+  — never bindable.
+- Modes (0055 v7): a mode is any skill flagged `mode: true` — sticky,
+  phased, and defined FREELY in that skill's own markdown, never
+  hardcoded by id. Format: `## Shared` (context every phase needs) plus
+  any number of `## Phase: <Name>` sections, in document order;
+  everything else (the H1, intro, any other `##` section) is the
+  orchestrator's brief. `lib/agent/mode-ids.ts` is the pure core —
+  `parseModeSkill(body)` → `{brief, shared, phases}` (phase id = slug of
+  its name, `##`-heading match is case-insensitive on "Phase:"/"Shared",
+  `###`+ is content not a boundary, a duplicate id keeps only the
+  first), `validateTransition` (the next phase in document order needs
+  no note; anything else — back, skip, a loop — needs one; unknown lists
+  the declared names; same-phase refuses), `checkLegacyAdopt` (no prior
+  phase to reason from: any declared phase, note always required),
+  `threadStateNote`, `renderModeEntry`/`renderPhaseSection` — no plan
+  gate, no fixed review/ship exceptions, nothing ticket-specific.
+  Dependency-free (no db import) so workflow-body files
+  (`workflows/chat/instructions.ts`, `workflows/chat/turn.ts` — both
+  must stay free of db imports, like `lib/usage/pricing.ts`) import it
+  directly; `lib/agent/tools/modes.ts` and `lib/chat/mode-entry.ts` are
+  the db-touching callers. State: `conversations.skill` IS the mode
+  (write-once, the same column 0039 uses — never cleared), paired with
+  `conversations.mode_phase` — `null` = no mode or a LEGACY thread bound
+  before a phase was recorded (`advance_phase` adopts it via
+  `checkLegacyAdopt`), `""` = entered a mode with zero declared phases,
+  any other string = a declared phase's id. Tools: `enter_mode({mode,
+  ticket, reason})` — `mode` is any skill id, validated to exist, be
+  flagged `mode: true`, and be active (disabled/deleted refuses) — asks
+  through the same approval mechanism `ask_owner`/`create_pr` use
+  (`pendingStep` + `chatApprovalHook`, no new card kind —
+  `GatedApprovalCard` renders it too) and, approved, writes skill + the
+  first declared phase (or `""`) and returns brief + phase list +
+  Shared + the first phase's section, owner-rendered; `advance_phase({to,
+  note?})` is checked against the skill's CURRENT body alone — no
+  approval (the owner's gate lives in the skill's own markdown, e.g.
+  plan approval, not each phase move) — and returns just that phase's
+  own section (Shared is not resent). Owner entry (no agent, no
+  self-approval): `mode: "<id>"` on a send (fresh OR an existing chat,
+  project-scoped; `?mode=<id>` on the fresh composer URL, `?skill=<id>`
+  means the same thing only when that skill is actually a mode, checked
+  live) writes skill + phase directly and appends a `runEvent: "mode"`
+  row carrying the rendered entry content BEFORE the owner's own message
+  (`lib/chat/mode-entry.ts`) — a transcript chip ("Entered `<id>` mode"),
+  never the system prompt. `buildInstructions` skips the skill section
+  once a mode skill's phase is set (`mode_phase` non-null, including
+  `""`); the per-turn note below covers it instead; legacy and non-mode
+  skills are unaffected. The per-turn `[thread state]` note
+  (`workflows/chat/turn.ts`, same injection point as the `[viewing]`
+  note — and, like it, rebuilt from row metadata rather than
+  re-derived: the ALREADY-RENDERED note text rides as
+  `metadata.threadState` on the turn's user row, and `db/chat.ts`'s
+  `listTurnMessages` replays it verbatim before that row on every later
+  turn, so the model sees byte-identical history turn over turn and the
+  prompt-cache prefix holds) reads `[thread state] mode: ticket · phase:
+  Implement (2/5) · next: Review`. `skills/ticket/SKILL.md` is the
+  reference mode: Plan (owner approves via `present_plan`/`accept_plan`)
+  → Implement → Review (fresh-eyes `start_thread` child) → Fixup → Ship
+  (orchestrator does Ship itself — workers lack `create_pr`/
+  `present_plan`). Settings' skill editor shows a live read-only preview
+  (phase list, Shared yes/no, brief length) derived from
+  `parseModeSkill(draft.body)` on every keystroke — the same parser
+  that drives entry/advance.
+- Phase handoff (0055 v7 part B): a harness call (`pi`/`claude`/
+  `cursor`/`codex`) or `start_thread` child started from a moded chat
+  gets the handoff block (`renderPhaseHandoff`,
+  `lib/agent/mode-ids.ts`) prepended to its task/first prompt — the
+  phase framing, `## Shared` (if any), just THAT phase's section, and
+  the orchestrator's task last; never the brief, never other phases.
+  Resolution (`lib/chat/phase-handoff.ts`'s `resolvePhaseHandoff`, the
+  db-touching half) defaults to the chat's own current `mode_phase` —
+  silently no-op (unwrapped, same as a plain chat) when it's phaseless,
+  stale, or the chat isn't moded — or an explicit `phase` arg (id or
+  name) every harness tool and `start_thread` share, which OVERRIDES
+  the current phase and refuses value-shaped (`not-moded` /
+  `unknown-phase`, listing the declared names) before claiming any
+  slot or creating any child. The two workers differ in what's VISIBLE
+  where: a harness call's `harness_calls.task` column (and its card,
+  its `start`/events-page entry) stays the orchestrator's readable
+  original — the full handoff is never stored, only the workflow
+  prompt carries it. A `start_thread` child's first turn IS its
+  prompt, so the handoff — the whole point being durable, cache-stable
+  context the worker's OWN history replays every later turn — lives in
+  the child's own first message (visible when you open the child); the
+  PARENT's card (`StartThreadCard`'s `input.prompt`) shows the
+  tool-call's own argument instead — the orchestrator's original,
+  unwrapped prompt, same as a harness call's card. The resolved phase
+  NAME is recorded on `harness_calls.phase` and, for a child, the
+  CHILD's own `conversations.work_phase` (distinct from that child's
+  own `mode_phase`, if it enters a mode itself). Exposed on
+  `childStatus`/`GET /api/x/status/<id>`, the sidebar's synthetic
+  harness rows and child conversation rows, and `inspect`. Still
+  chrome-only (docs/0055 PR 2): the mode chip, phase menu, work chips
+  on cards.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy

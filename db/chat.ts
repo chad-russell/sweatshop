@@ -31,6 +31,14 @@ export interface MessageRowMetadata {
    *  transcript chip, never read back as model input; the text IS the
    *  model input). */
   runEvent?: RunEventMeta;
+  /** 0055 v7: on a turn's user row — the turn's RENDERED `[thread
+   *  state]` note text (lib/agent/mode-ids.ts's `threadStateNote`,
+   *  already computed when this row was written). `listTurnMessages`
+   *  replays it verbatim right before this row on every later turn, so
+   *  history byte-matches what this turn actually saw (the prompt-cache
+   *  prefix holds instead of invalidating every turn) without needing
+   *  to re-parse the skill body or even import lib/agent/mode-ids here. */
+  threadState?: string;
   /** 0040 phase 3: on the turn's LAST assistant row — the turn ended by
    *  hitting its step budget, not by the model choosing to stop (so that
    *  row's text is often just a dangling `[tool …]` placeholder). Durable
@@ -41,9 +49,11 @@ export interface MessageRowMetadata {
 /** 0022: what woke a conversation (machine run or harness call; 0037:
  *  "budget" = a thread-skill turn hit its step budget and continues;
  *  "thread" = a child chat started by start_thread settled; 0041:
- *  "plan" = Chad approved the plan under review). */
+ *  "plan" = Chad approved the plan under review; 0055: "mode" = the
+ *  owner's send entered a mode — this row's TEXT is the mode's
+ *  rendered intro + first-phase runbook, not a wake). */
 export interface RunEventMeta {
-  kind: "machine" | "harness" | "budget" | "thread" | "plan";
+  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode";
   id: string;
   status: string;
 }
@@ -88,6 +98,12 @@ export function getConversation(
   trashedAt: number | null;
   /** 0039: the thread's skill id (null = plain chat). */
   skill: string | null;
+  /** 0055 v7: the sticky mode's current phase id. `null` = no mode
+   *  entered, or a LEGACY mode-skill thread bound before this column
+   *  existed. `""` (empty string) = entered a mode with zero declared
+   *  phases — a sticky runbook with no phase chip. Any other value is a
+   *  declared phase id. */
+  modePhase: string | null;
   /** 0037 phase 3: the start_thread parent, when this is a child (0040
    *  phase 3: a child gets the thread step budget even with no skill). */
   parentConversationId: string | null;
@@ -99,6 +115,7 @@ export function getConversation(
       route: conversations.route,
       trashedAt: conversations.trashedAt,
       skill: conversations.skill,
+      modePhase: conversations.modePhase,
       parentConversationId: conversations.parentConversationId,
     })
     .from(conversations)
@@ -107,9 +124,28 @@ export function getConversation(
   return row ? { ...row, route: parseStoredChatRoute(row.route) } : null;
 }
 
-/** 0039: set the thread's skill (creation send, or use_skill). */
+/** 0039: set the thread's skill (the creation send, or start_thread for
+ *  a child; 0055: use_skill no longer binds — only lists). */
 export function setConversationSkill(db: Db, id: string, skill: string): void {
   db.update(conversations).set({ skill }).where(eq(conversations.id, id)).run();
+}
+
+/** 0055: enter a mode — the skill and its starting phase, written
+ *  together (the two columns must never be seen half-set). */
+export function setConversationMode(db: Db, id: string, skill: string, phase: string): void {
+  db.update(conversations).set({ skill, modePhase: phase }).where(eq(conversations.id, id)).run();
+}
+
+/** 0055: advance_phase's write — the skill (the mode itself) is
+ *  already set and never changes here. */
+export function setConversationPhase(db: Db, id: string, phase: string): void {
+  db.update(conversations).set({ modePhase: phase }).where(eq(conversations.id, id)).run();
+}
+
+/** 0055 v7 part B: record the phase (display name) a `start_thread`
+ *  child was spawned to do — set once, at creation, by `startThread`. */
+export function setConversationWorkPhase(db: Db, id: string, phase: string): void {
+  db.update(conversations).set({ workPhase: phase }).where(eq(conversations.id, id)).run();
 }
 
 /** 0021: set (or clear, with null) the conversation's route — the chat
@@ -342,11 +378,14 @@ export function listModelMessages(db: Db, conversationId: string): ModelMessage[
 
 /**
  * The turn's model input (0015): the persisted history with each user
- * message's viewing note injected as a user-role message before it —
- * so a later turn still knows what "this" was. (The agent forbids
- * system messages in `messages`.) Notes live as row metadata; this is
- * the only place they become model-visible text, and persistTurn's
- * skip keeps the current turn's note out of the store.
+ * message's viewing note, then its thread-state note (0055), injected
+ * as user-role messages right before it — so a later turn still knows
+ * what "this" was and what mode/phase that turn ran in. (The agent
+ * forbids system messages in `messages`.) Both notes live as row
+ * metadata, never as text; this is the only place they become
+ * model-visible, and persistTurn's skip keeps the current turn's own
+ * copies out of the store (they are rebuilt here instead — the same
+ * messages byte-for-byte, so the prompt-cache prefix holds).
  */
 export function listTurnMessages(db: Db, conversationId: string): ModelMessage[] {
   const rows = db
@@ -357,10 +396,9 @@ export function listTurnMessages(db: Db, conversationId: string): ModelMessage[]
     .all();
   const out: ModelMessage[] = [];
   for (const row of rows) {
-    const viewing = row.metadata
-      ? (JSON.parse(row.metadata) as MessageRowMetadata).viewing
-      : undefined;
-    if (viewing) out.push({ role: "user", content: viewingNote(viewing) });
+    const metadata = row.metadata ? (JSON.parse(row.metadata) as MessageRowMetadata) : undefined;
+    if (metadata?.viewing) out.push({ role: "user", content: viewingNote(metadata.viewing) });
+    if (metadata?.threadState) out.push({ role: "user", content: metadata.threadState });
     out.push(JSON.parse(row.modelMessage!) as ModelMessage);
   }
   return out;
@@ -473,6 +511,9 @@ export interface ChatChild {
   id: string;
   parentConversationId: string | null;
   skill: string | null;
+  /** 0055 v7 part B: the phase (display name) this child was spawned
+   *  to do — null when the parent wasn't moded or had no phases. */
+  workPhase: string | null;
   activeRunId: string | null;
   trashedAt: number | null;
   createdAt: number;
@@ -484,6 +525,9 @@ const chatChildColumns = {
   id: conversations.id,
   parentConversationId: conversations.parentConversationId,
   skill: conversations.skill,
+  /** 0055 v7 part B: the phase (display name) this child was spawned
+   *  to do — null when the parent wasn't moded or had no phases. */
+  workPhase: conversations.workPhase,
   activeRunId: conversations.activeRunId,
   trashedAt: conversations.trashedAt,
   createdAt: conversations.createdAt,
