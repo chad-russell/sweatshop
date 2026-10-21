@@ -1,8 +1,7 @@
-import { asc, inArray, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { getHarnessCall } from "@/db/harness-calls";
-import { getChatChild, listModelMessages } from "@/db/chat";
-import { messages } from "@/db/schema";
+import { getChatChild } from "@/db/chat";
 import { renderPhaseContext } from "@/lib/chat/phase-context";
 import { deriveStatus, statusChipLabel } from "@/lib/status";
 
@@ -98,38 +97,52 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
   return null;
 }
 
-function threadStatusLabel(db: Db, conversationId: string): string | null {
-  const derived = deriveStatus(listModelMessages(db, conversationId));
+function labelFromModelMessage(modelMessage: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(modelMessage);
+  } catch {
+    return null;
+  }
+  const derived = deriveStatus([parsed]);
   return derived.current ? (statusChipLabel(derived.current)?.label ?? null) : null;
 }
 
-/** Status labels for child threads, one query. Chats with no status are absent. */
+/** The newest row per conversation whose stored message mentions
+ *  `update_status`. The sidebar label is the current status only, so
+ *  one row is enough — not the whole transcript, and not staleness.
+ *  `liveOnly` drops trashed and archived chats (the sidebar). */
+function newestStatusRows(db: Db, ids: readonly string[], liveOnly: boolean): { conversationId: string; modelMessage: string }[] {
+  if (ids.length === 0) return [];
+  const idList = sql.join(ids.map((id) => sql`${id}`), sql`, `);
+  const live = liveOnly ? sql`and c.trashed_at is null and c.archived_at is null` : sql``;
+  return db.all<{ conversationId: string; modelMessage: string }>(sql`
+    select m.conversation_id as conversationId, m.model_message as modelMessage
+    from messages m
+    join (
+      select conversation_id as cid, max(rowid) as rid
+      from messages
+      where conversation_id in (${idList})
+        and model_message like '%update_status%'
+      group by conversation_id
+    ) newest on m.rowid = newest.rid
+    join conversations c on c.id = m.conversation_id
+    where m.model_message is not null ${live}
+  `);
+}
+
+function threadStatusLabel(db: Db, conversationId: string): string | null {
+  const row = newestStatusRows(db, [conversationId], false)[0];
+  return row ? labelFromModelMessage(row.modelMessage) : null;
+}
+
+/** Status labels for child threads, one query. Trashed and archived
+ *  chats are absent. Chats with no status are absent. */
 export function childThreadStatusLabels(db: Db, ids: readonly string[]): Map<string, string> {
   const out = new Map<string, string>();
-  if (ids.length === 0) return out;
-  const rows = db
-    .select({ conversationId: messages.conversationId, modelMessage: messages.modelMessage })
-    .from(messages)
-    .where(inArray(messages.conversationId, [...ids]))
-    .orderBy(asc(sql`rowid`))
-    .all();
-  const grouped = new Map<string, unknown[]>();
-  for (const row of rows) {
-    if (!row.modelMessage) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(row.modelMessage);
-    } catch {
-      continue;
-    }
-    const list = grouped.get(row.conversationId) ?? [];
-    list.push(parsed);
-    grouped.set(row.conversationId, list);
-  }
-  for (const id of ids) {
-    const derived = deriveStatus(grouped.get(id) ?? []);
-    const label = derived.current ? statusChipLabel(derived.current)?.label : null;
-    if (label) out.set(id, label);
+  for (const row of newestStatusRows(db, ids, true)) {
+    const label = labelFromModelMessage(row.modelMessage);
+    if (label) out.set(row.conversationId, label);
   }
   return out;
 }
