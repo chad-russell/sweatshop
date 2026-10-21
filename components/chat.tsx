@@ -17,8 +17,8 @@ import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { PhaseChip } from "@/components/plan-card";
-import { ContextMeter } from "@/components/context-meter";
-import { StatsDrawer } from "@/components/stats-drawer";
+import { ModeChip } from "@/components/mode-chip";
+import { UsageControl } from "@/components/usage-control";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { type ConversationSandboxViewData } from "@/components/sandbox-view";
 import {
@@ -407,9 +407,6 @@ export function ChatSurface({
         projects={projectOptions}
         selectedProjectId={activeProjectId}
         onSelectProject={pickProject}
-        skills={skills}
-        selectedSkillId={activeSkillId}
-        onSelectSkill={setPickedSkillId}
       />
     );
     // The picker shows when there is anything to pick (projects and/or
@@ -482,6 +479,20 @@ export function ChatSurface({
       freshComposer={() => freshComposer()}
       composerTools={(s) => (
         <>
+          {/* 0055 PR2: leftmost — owns mode choice end to end. */}
+          <ModeChip
+            conversationId={s.started ? s.conversationId : null}
+            projectId={activeProjectId}
+            started={s.started}
+            fresh={s.fresh}
+            busy={s.busy}
+            messages={s.messages}
+            skills={skills}
+            pickedSkillId={pickedSkillId}
+            onPickSkill={setPickedSkillId}
+            pendingModeId={s.pendingModeId}
+            onPendingMode={s.setPendingModeId}
+          />
           <RoutePicker
             ariaLabel="Chat model"
             className={COMPOSER_PICKER}
@@ -503,6 +514,10 @@ export function ChatSurface({
           {conversationId && hasHosts && (
             <HostAutoApproveToggle conversationId={conversationId} initialValue={initialHostAutoApprove ?? false} />
           )}
+          {/* 0055 PR2: rightmost — the merged context+cost control, hidden until metered. */}
+          {conversationId && (
+            <UsageControl conversationId={conversationId} busy={s.busy} started={s.started} className="ml-auto" />
+          )}
         </>
       )}
       header={(s) => (
@@ -516,12 +531,6 @@ export function ChatSurface({
         >
           {/* 0041: plan → build → PR, derived from the transcript. */}
           <PhaseChip phase={s.phase} variant="header" />
-          {/* 0047: group cost, tokens, and time. Hidden until the chat exists. */}
-          {conversationId ? <StatsDrawer conversationId={conversationId} /> : null}
-          {/* 0051: how full THIS chat's context is. Hidden until metered. */}
-          {conversationId ? (
-            <ContextMeter conversationId={conversationId} busy={s.busy} started={s.started} />
-          ) : null}
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
           <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}
