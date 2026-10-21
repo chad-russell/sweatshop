@@ -19,10 +19,15 @@ import { harnessAdvanceStep, harnessCallIsLiveStep, harnessSettleStep, harnessSt
  * harness-bridge-cleanup: the loop rechecks the call's own row between
  * every step (`harnessCallIsLiveStep`) — if `cancel_run` settled it from
  * outside, this run's only job left is tearing down the live session
- * (`harnessStopStep`, `destroy()`) so its bridge doesn't outlive it. The
- * step cap does the same teardown (`stop()` — parked, not discarded, so
- * the NEXT call resumes it) before settling failed; a plain SDK failure
- * already carries its own `resumeFrom` and needs no extra step.
+ * (`harnessStopStep`, `destroy()`) so its bridge doesn't outlive it. This
+ * is the ONLY cancellation mechanism: `cancel_run` deliberately never
+ * calls `workflow.cancel()` on this run (lib/agent/tools/cancel-run.ts)
+ * — a cancelled Workflow DevKit run stops being replayed at its next
+ * processing boundary, which would race this very check and usually win,
+ * skipping teardown entirely. The step cap does the same teardown
+ * (`stop()` — parked, not discarded, so the NEXT call resumes it) before
+ * settling failed; a plain SDK failure already carries its own
+ * `resumeFrom` and needs no extra step.
  */
 
 const MAX_STEPS = 400;

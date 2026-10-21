@@ -32,20 +32,24 @@ export async function cancelRunTool(runId: string): Promise<CancelRunResult> {
 }
 
 /**
- * Cancel a background harness call: stop its workflow, settle the call
- * (cancelled never wakes), and release the one-per-session slot. A
- * racing natural settle loses to the first final write (both settle
- * paths are running-only).
+ * Cancel a background harness call: settle it `cancelled` (never wakes)
+ * and release the one-per-session slot. A racing natural settle loses
+ * to the first final write (both settle paths are running-only).
  *
- * harness-bridge-cleanup: this settle is the signal the `harnessCall`
- * workflow itself watches for — it rechecks the row's status between
- * every semantic step (`harnessCallIsLiveStep`) and, finding it no
- * longer "running", tears down its own live session (`harnessStopStep`,
- * `destroy()`) before exiting, so the bridge this call was holding never
- * outlives it. Settling from here first (rather than relying solely on
- * `workflow.cancel()`) is what that check sees — the two are
- * belt-and-suspenders, not redundant: `workflow.cancel()` stops token
- * spend as fast as the runtime allows, independent of where the loop is.
+ * harness-bridge-cleanup: deliberately does NOT call `workflow.cancel()`
+ * on the run. A cancelled Workflow DevKit run stops being replayed at
+ * its next processing boundary — the SAME boundary our own
+ * `harnessCallIsLiveStep` check sits at, inside the still-running
+ * `harnessCall` workflow — so calling `.cancel()` would race that check
+ * and, if it wins (it reliably does — `run_cancelled` is a terminal
+ * event the runtime stops replaying past), the workflow body never gets
+ * to run `harnessStopStep({destroy:true})` at all: exactly the leaked-
+ * bridge bug this exists to fix. Settling the row HERE, and leaving the
+ * run alone, is what lets the loop notice between steps and tear down
+ * itself. The cost is at most one in-flight semantic step finishing
+ * first — fine, and far cheaper than a leaked bridge holding a port. If
+ * the run is already gone, failed, or was never started, nothing tears
+ * down from inside — also fine: there is no live session left to leak.
  */
 async function cancelHarnessCall(runId: string): Promise<CancelRunResult> {
   const call = getHarnessCall(db(), runId);
@@ -57,10 +61,6 @@ async function cancelHarnessCall(runId: string): Promise<CancelRunResult> {
       message: `harness call ${runId} is already ${call.status} — only running calls can be cancelled`,
     };
   }
-  if (call.workflowRunId) {
-    const workflow = getWorkflowRun(call.workflowRunId);
-    if (await workflow.exists) await workflow.cancel({ cancelReason: "cancelled by cancel_run tool" });
-  }
   const settled = settleHarnessCall(db(), call.id, { status: "cancelled" });
   if (settled) {
     recordHarnessRunEnd(call.conversationId, call.kind as "pi" | "claude" | "cursor" | "codex", 0, "cancelled", "cancelled");
@@ -69,7 +69,7 @@ async function cancelHarnessCall(runId: string): Promise<CancelRunResult> {
     ok: true,
     runId,
     status: "cancelled",
-    note: `the ${call.kind} session keeps its prior context; its sandbox is untouched`,
+    note: `the ${call.kind} session is torn down at its next step boundary; the sandbox itself is untouched`,
   };
 }
 

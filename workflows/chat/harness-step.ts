@@ -495,7 +495,15 @@ export async function harnessStopStep(input: {
       if (process.env.SWEATSHOP_HARNESS_MOCK === "stop-throws") {
         throw new Error("mock teardown failed");
       }
-      return input.destroy ? {} : { resumeFrom: { mock: "stopped", from: reattachFrom } };
+      if (input.destroy) {
+        // Test observability only: destroy() itself returns nothing to
+        // persist (by design — cancel discards resumability), so tests
+        // asserting teardown actually ran need SOME durable trace of it.
+        const { recordHarnessEvent } = await import("../../lib/harness-events");
+        recordHarnessEvent(input.conversationId, input.kind, { kind: "step-end", text: "mock-teardown:destroy" });
+        return {};
+      }
+      return { resumeFrom: { mock: "stopped", from: reattachFrom } };
     }
     const { sandboxSession, agent } = await resolveHarnessRunContext(input.conversationId, input.route);
     const session = await agent.createSession({

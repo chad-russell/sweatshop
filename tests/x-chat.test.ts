@@ -743,14 +743,16 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "harness-bridge-cleanup: a call cancelled between steps tears down its live session instead of continuing to loop",
+    "harness-bridge-cleanup: cancel_run never cancels the workflow run — the loop notices the settle between steps and tears down with destroy",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_HARNESS_MOCK = "loop";
       try {
         const { projects } = await import("../db/schema");
-        const { createHarnessCall, getHarnessCall, settleHarnessCall } = await import("../db/harness-calls");
+        const { createHarnessCall, getHarnessCall, setCallWorkflowRun } = await import("../db/harness-calls");
+        const { getHarnessEvents } = await import("../lib/harness-events");
         const { harnessCall } = await import("../workflows/chat/harness-call");
+        const { cancelRunTool } = await import("../lib/agent/tools/cancel-run");
         db().insert(projects).values({ id: "p_xchat_hccancel", name: "HC Cancel", createdAt: 0 }).onConflictDoNothing().run();
         const id = `c_test_hccancel_${Math.random().toString(36).slice(2, 8)}`;
         ensureConversation(db(), id, "p_xchat_hccancel");
@@ -765,20 +767,39 @@ describe("0010 spike: chat turn workflow", () => {
             route: { harness: "pi", provider: "glm", model: "glm-5.3-flash" },
           },
         ]);
+        // A real call's workflowRunId is set by the starter before the
+        // workflow is driven — set it here so cancelRunTool can find the
+        // SAME run a production cancel_run call would.
+        setCallWorkflowRun(db(), call.id, run.runId);
 
-        // Simulate cancel_run's settle — the external signal the
-        // workflow notices between steps — WITHOUT calling
-        // workflow.cancel(): isolates this mechanism from whatever the
-        // runtime's own abort does (belt-and-suspenders; cancel_run
-        // still calls workflow.cancel() too in production).
+        // Let at least one real mock step land (so the suspended turn
+        // actually has a continueFrom to tear down) — the "loop" mock
+        // writes no observable row per step, so a short bounded delay is
+        // the only signal available; several mock round-trips easily fit
+        // in it. Then cancel through the REAL production entry point —
+        // this is the thing the previous version of this test never
+        // exercised.
         await new Promise((resolve) => setTimeout(resolve, 150));
-        settleHarnessCall(db(), call.id, { status: "cancelled" });
+        const cancelled = await cancelRunTool(call.id);
+        expect(cancelled).toMatchObject({ ok: true, status: "cancelled" });
 
+        // The run was NEVER told to cancel — it finishes on its own,
+        // normally, once the loop notices the settle and tears down.
         const ret = await run.returnValue;
         expect(ret).toEqual({ status: "cancelled" });
-        // Unchanged by the workflow's own exit — cancel_run's settle is
-        // the only write; the workflow never re-settles a cancelled call.
+        expect(await run.status).toBe("completed");
+
+        // The row stays exactly as cancelRunTool left it — the workflow
+        // never re-settles a cancelled call.
         expect(getHarnessCall(db(), call.id)?.status).toBe("cancelled");
+        // The teardown step ran, and ran with destroy (not stop) — the
+        // mock branch's only observable trace of that distinction.
+        await waitFor(
+          async () => getHarnessEvents(id, "pi").events.some((e) => e.text === "mock-teardown:destroy"),
+          "the destroy teardown to run",
+        );
+        // Cancelled calls never wake their conversation.
+        expect(listMessageTexts(db(), id).some((r) => r.text.includes("finished"))).toBe(false);
       } finally {
         delete process.env.SWEATSHOP_HARNESS_MOCK;
       }
