@@ -27,12 +27,51 @@ export interface BuildArgs {
   tools: ToolSet;
   /** pi model sizing, when the caller knows it (catalog entry). */
   modelInfo?: ModelInfo;
+  /** 0062: lifecycle taps. The workflow-harness UI stream drops each
+   *  step's cache split and the harness's reported cost; these callbacks
+   *  see the full `usage` + `providerMetadata` (settings-level, so they
+   *  fire for every stream()/continueStream()). */
+  onStepEnd?: (step: { usage?: unknown; providerMetadata?: unknown }) => void;
+  onEnd?: (event: { totalUsage?: unknown; providerMetadata?: unknown }) => void;
+  /** 0062: sees each stream()/continueStream() result. The terminal
+   *  `finish` part's harness metadata (Claude's reported cost) is only
+   *  exposed as the result's `providerMetadata` promise — the end
+   *  callback carries the LAST finish-step's metadata instead. */
+  onResult?: (result: { providerMetadata?: PromiseLike<unknown> }) => void;
+}
+
+/** Proxy that lets `onResult` see every stream result; everything else
+ *  passes straight through (methods bound to the real agent). */
+function tapResults<T extends object>(agent: T, onResult: BuildArgs["onResult"]): T {
+  if (!onResult) return agent;
+  return new Proxy(agent, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target) as unknown;
+      if (typeof value !== "function") return value;
+      if (key === "stream" || key === "continueStream") {
+        return async (...args: unknown[]) => {
+          const result = await (value as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+          onResult(result as never);
+          return result;
+        };
+      }
+      return value.bind(target);
+    },
+  });
 }
 
 /** pi provider ids are namespaced so they never collide with pi's built-ins. */
 const PI_PROVIDER_PREFIX = "ss-";
 
-export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildArgs) {
+export function buildHarnessAgent(args: BuildArgs) {
+  return tapResults(buildAgent(args), args.onResult);
+}
+
+function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: BuildArgs) {
+  const lifecycle = {
+    ...(onStepEnd ? { onStepEnd: onStepEnd as never } : {}),
+    ...(onEnd ? { onEnd: onEnd as never } : {}),
+  };
   if (route.harness === "pi") {
     // 0021: only the route's provider is registered, with the model
     // declared explicitly — pi never needs its built-in catalog to know
@@ -53,6 +92,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
       // other's work. "." = the sandbox cwd, the workspace root.
       sandboxConfig: { workDir: "." },
       tools,
+      ...lifecycle,
       stopWhen: isStepCount(1),
     });
   }
@@ -72,6 +112,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
       ...(route.model ? { model: route.model } : {}),
       sandboxConfig: { workDir: "." },
       tools,
+      ...lifecycle,
       stopWhen: isStepCount(1),
     });
   }
@@ -116,6 +157,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
       ...(credential.accountId ? { headers: { "ChatGPT-Account-ID": credential.accountId } } : {}),
       sandboxConfig: { workDir: "." },
       tools,
+      ...lifecycle,
       stopWhen: isStepCount(1),
     });
   }
@@ -140,6 +182,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
     // "." = the sandbox cwd, the workspace root (shared across calls).
     sandboxConfig: { workDir: "." },
     tools,
+    ...lifecycle,
     stopWhen: isStepCount(1),
   });
 }

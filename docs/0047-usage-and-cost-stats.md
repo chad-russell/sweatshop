@@ -24,8 +24,15 @@ Decisions from the working session (Chad, 2026-10-17):
 - **Titles are excluded** from cost (small, invisible, deliberately
   unmetered).
 - **Subscriptions (GLM coding plan, claude, cursor)**: tokens/steps/time are
-  counted; **no dollar figure** is invented. Claude Code's native `costUSD`,
-  if the adapter exposes it, is recorded when present.
+  counted; **no dollar figure is invented**. Amendment 0062: a harness that
+  reports its own cost has it recorded — Claude Code's cumulative
+  `total_cost_usd` (`harnessMetadata['claude-code'].costUsd` on the finish
+  part) lands in `cost_usd` with `cost_basis = 'reported'` (latest report
+  wins within a call; never summed) and counts in totals, the donut and
+  the lists, tagged "reported". Cursor/Codex report nothing and stay in
+  the "No cost reported" section. Caveat: the adapter says the figure
+  carries forward across resumed sessions, so a call that resumes an
+  earlier Claude session may over-report by that session's prior cost.
 - **Forward-only**: metering starts at deploy; nothing is backfilled from
   provider dashboards.
 - **Surface**: a stats drawer in the chat header (not a page), opened when

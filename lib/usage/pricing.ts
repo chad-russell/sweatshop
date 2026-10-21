@@ -259,6 +259,29 @@ export function normalizeUsage(usage: unknown): UsageCounts | null {
   };
 }
 
+/**
+ * 0062: the cost a harness reports about itself. Claude Code's bridge
+ * puts its cumulative `total_cost_usd` on the finish part as
+ * `harnessMetadata['claude-code'].costUsd`. Looks under a few wrapper
+ * names (the UI-chunk transform and finalResult rename metadata), a
+ * bounded depth deep; anything that isn't a finite non-negative number
+ * is null.
+ */
+export function readReportedCost(raw: unknown, depth = 0): number | null {
+  if (!raw || typeof raw !== "object" || depth > 4) return null;
+  const obj = raw as Record<string, unknown>;
+  const claude = obj["claude-code"];
+  if (claude && typeof claude === "object") {
+    const v = (claude as Record<string, unknown>).costUsd;
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return v;
+  }
+  for (const key of ["harnessMetadata", "providerMetadata", "messageMetadata", "metadata", "finalResult", "result"]) {
+    const found = readReportedCost(obj[key], depth + 1);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
 export function addUsage(a: UsageCounts, b: UsageCounts): UsageCounts {
   return {
     inputTokens: a.inputTokens + b.inputTokens,

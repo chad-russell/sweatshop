@@ -41,6 +41,10 @@ export interface HarnessSinkArgs {
    *  The AI SDK's UI-chunk transform currently drops that field; the
    *  hook still fires whenever a usage object is present. */
   onUsage?: (usage: unknown) => void;
+  /** 0062: a `finish` / `finish-step` chunk carrying harness metadata
+   *  (Claude Code's cumulative cost rides there). Fires with the whole
+   *  chunk; the caller extracts what it understands. */
+  onFinishMetadata?: (chunk: Record<string, unknown>) => void;
 }
 
 export interface HarnessSink {
@@ -99,6 +103,10 @@ export function harnessEventSink(args: HarnessSinkArgs): HarnessSink {
           // semantic steps. A chunk with no usage (the UI transform
           // strips it) does not clobber an earlier one.
           if (chunk.usage != null) args.onUsage?.(chunk.usage);
+          args.onFinishMetadata?.(chunk);
+          break;
+        case "finish":
+          args.onFinishMetadata?.(chunk);
           break;
       }
       const forwarded = args.forward ? args.forward(chunk) : chunk;

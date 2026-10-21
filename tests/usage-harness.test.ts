@@ -65,6 +65,53 @@ describe("0047 harness usage capture", () => {
     expect(row!.startedAt).toBe(call.createdAt);
   });
 
+  it("records claude's reported cost with basis 'reported'", async () => {
+    const conversationId = chatId();
+    ensureConversation(db(), conversationId, null);
+    const call = createHarnessCall(db(), { conversationId, kind: "claude", task: "reported" });
+
+    await harnessSettleStep({
+      callId: call.id,
+      conversationId,
+      kind: "claude",
+      status: "completed",
+      text: "ok",
+      finalText: "ok",
+      toolCalls: 1,
+      steps: 1,
+      route: { harness: "claude" },
+      usage: { inputTokens: 10, cachedTokens: 0, outputTokens: 5, reasoningTokens: 0 },
+      reportedCostUsd: 1.234,
+    }).catch(() => {});
+
+    const row = db().select().from(usageEvents).where(eq(usageEvents.id, `u_hc_${call.id}`)).get();
+    expect(row!.costUsd).toBe(1.23);
+    expect(row!.costBasis).toBe("reported");
+  });
+
+  it("stamps the resolved model onto a bare claude route", async () => {
+    const conversationId = chatId();
+    ensureConversation(db(), conversationId, null);
+    const call = createHarnessCall(db(), { conversationId, kind: "claude", task: "model" });
+
+    await harnessSettleStep({
+      callId: call.id,
+      conversationId,
+      kind: "claude",
+      status: "completed",
+      text: "ok",
+      finalText: "ok",
+      toolCalls: 0,
+      steps: 1,
+      route: { harness: "claude" },
+      usage: { inputTokens: 10, cachedTokens: 0, outputTokens: 5, reasoningTokens: 0 },
+      model: "claude-sonnet-5-5",
+    }).catch(() => {});
+
+    const row = db().select().from(usageEvents).where(eq(usageEvents.id, `u_hc_${call.id}`)).get();
+    expect(JSON.parse(row!.route)).toEqual({ harness: "claude", model: "claude-sonnet-5-5" });
+  });
+
   it("leaves claude cost null", async () => {
     const conversationId = chatId();
     ensureConversation(db(), conversationId, null);
