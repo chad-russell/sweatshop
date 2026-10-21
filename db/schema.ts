@@ -85,6 +85,13 @@ export const conversations = sqliteTable(
      *  advanced by `advance_phase`; never cleared once set (sticky by
      *  construction, same as `skill` itself). */
     modePhase: text("mode_phase"),
+    /** 0055 v7 part B: the phase (display NAME, not id) this child was
+     *  spawned to do, when a `start_thread` child was started from a
+     *  moded chat — distinct from this row's OWN `mode_phase` (which
+     *  tracks a mode this chat itself entered, if any). Set once at
+     *  creation by `startThread`; null when the parent wasn't moded, the
+     *  phase had no declared phases, or this isn't a child. */
+    workPhase: text("work_phase"),
     /** 0037 phase 3: the chat whose start_thread created this thread —
      *  the wake target when this one settles. Null = not a child. A
      *  deleted parent goes null and wakes stop. */
@@ -544,6 +551,13 @@ export const harnessCalls = sqliteTable(
     /** pi | claude */
     kind: text("kind").notNull(),
     task: text("task").notNull(),
+    /** 0055 v7 part B: the phase (display NAME, not id) this call was
+     *  started for, when the parent conversation was in a mode with a
+     *  resolved phase — null for a phaseless/legacy/non-moded parent.
+     *  Set once at creation (`startHarnessCall`); the handoff block
+     *  itself goes only into the workflow prompt, never stored here —
+     *  `task` above stays the orchestrator's original, readable text. */
+    phase: text("phase"),
     /** running | completed | failed | cancelled */
     status: text("status").notNull(),
     /** 0040 phase 3: the harness's final message (completed only), up to
