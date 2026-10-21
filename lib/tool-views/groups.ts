@@ -78,6 +78,17 @@ export function callState(part: PartLike): CallState {
   return "running";
 }
 
+/** A group's history is not the task's verdict; only individual calls fail. */
+export function groupStatus(group: Pick<ToolGroup, "running" | "failed">): {
+  tone: "running" | "warn" | "ok";
+  label: string;
+} {
+  const live = group.running > 0;
+  const label = live ? "running" : "completed";
+  const failures = group.failed > 0 ? ` · ${group.failed} failed ${group.failed === 1 ? "call" : "calls"}` : "";
+  return { tone: live ? "running" : group.failed > 0 ? "warn" : "ok", label: label + failures };
+}
+
 /** One line for a call: the command, the id, the query — what it was ABOUT. */
 export function callLabel(part: PartLike): string {
   const name = toolName(part);
@@ -113,6 +124,15 @@ export function callLabel(part: PartLike): string {
       break;
     case "use_skill":
       label = str(i?.id);
+      break;
+    case "get_preview_setup":
+      label = "Read preview setup";
+      break;
+    case "list_projects":
+      label = "List projects";
+      break;
+    case "preview_status":
+      label = "Check previews";
       break;
   }
   return (label ?? name).replace(/\s+/g, " ").trim();
