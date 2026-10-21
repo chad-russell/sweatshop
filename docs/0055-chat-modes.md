@@ -110,8 +110,15 @@ branch, where evidence is). Why this shape:
   opening the PR). Other phases' text is also wasted context.
 - **Runtime-attached, not left to the orchestrator** — the handoff is
   then exactly what the owner wrote, every time, and the orchestrator's
-  prompt stays short. The card shows the orchestrator's own task plus
-  the phase label; the full handoff lives only in the worker's prompt.
+  prompt stays short. A harness call's card (and its stored `task`)
+  shows the orchestrator's own task plus the phase label — the full
+  handoff is never stored, only the workflow prompt carries it. A
+  `start_thread` child's first turn IS its prompt, so the handoff lives
+  in the child's own first message instead — visible when you open the
+  child, and durable across its later turns (the cache-stable point of
+  storing it at all); the PARENT's card still shows the orchestrator's
+  own unwrapped prompt (the tool call's own argument), same as a
+  harness call.
 
 The phase defaults to the chat's current phase; the tools gain an
 optional `phase` arg for work outside it (e.g. a QA child spawned while

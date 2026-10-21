@@ -248,13 +248,20 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   name) every harness tool and `start_thread` share, which OVERRIDES
   the current phase and refuses value-shaped (`not-moded` /
   `unknown-phase`, listing the declared names) before claiming any
-  slot or creating any child. A harness call's `task` column and a
-  child's own first message both stay the orchestrator's readable
-  original (or, for a harness call, the full handoff is never stored —
-  only the workflow prompt carries it); the resolved phase NAME is
-  recorded on `harness_calls.phase` and, for a child, the CHILD's own
-  `conversations.work_phase` (distinct from that child's own
-  `mode_phase`, if it enters a mode itself). Exposed on
+  slot or creating any child. The two workers differ in what's VISIBLE
+  where: a harness call's `harness_calls.task` column (and its card,
+  its `start`/events-page entry) stays the orchestrator's readable
+  original — the full handoff is never stored, only the workflow
+  prompt carries it. A `start_thread` child's first turn IS its
+  prompt, so the handoff — the whole point being durable, cache-stable
+  context the worker's OWN history replays every later turn — lives in
+  the child's own first message (visible when you open the child); the
+  PARENT's card (`StartThreadCard`'s `input.prompt`) shows the
+  tool-call's own argument instead — the orchestrator's original,
+  unwrapped prompt, same as a harness call's card. The resolved phase
+  NAME is recorded on `harness_calls.phase` and, for a child, the
+  CHILD's own `conversations.work_phase` (distinct from that child's
+  own `mode_phase`, if it enters a mode itself). Exposed on
   `childStatus`/`GET /api/x/status/<id>`, the sidebar's synthetic
   harness rows and child conversation rows, and `inspect`. Still
   chrome-only (docs/0055 PR 2): the mode chip, phase menu, work chips
