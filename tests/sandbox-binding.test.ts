@@ -1,6 +1,5 @@
 import path from "node:path";
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
@@ -147,13 +146,11 @@ describe("0013 sandbox bindings", () => {
 });
 
 describe("0013 migration: sandbox_pref → binding", () => {
-  // Replays every migration. Under a full parallel run that exceeds the
-  // default 5s, so give it room (the assertions are unchanged).
   it("maps none / attached / own-lease / default rows", () => {
-    // Apply migrations up to 0019 on a scratch db, seed pref rows, then
-    // apply 0020+ and read the bindings back.
-    const dir = mkdtempSync(path.join(tmpdir(), "sweatshop-mig-"));
-    const sqlite = new Database(path.join(dir, "m.db"));
+    // Apply migrations up to 0019 on an in-memory db, seed pref rows, then
+    // apply 0020–0021 (the binding migration and the column drop) and read
+    // the bindings back. In memory: the on-disk replay took seconds.
+    const sqlite = new Database(":memory:");
     // 0031: migrations apply with FKs off (schema surgery posture —
     // same as scripts/migrate.mjs and tests/setup.ts).
     sqlite.pragma("foreign_keys = OFF");
@@ -165,6 +162,7 @@ describe("0013 migration: sandbox_pref → binding", () => {
       }
     };
     const split = files.findIndex((f) => f.startsWith("0020_"));
+    const end = files.findIndex((f) => f.startsWith("0022_"));
     files.slice(0, split).forEach(run);
 
     sqlite.exec(`
@@ -182,10 +180,10 @@ describe("0013 migration: sandbox_pref → binding", () => {
         ('c_fresh', 'p', null, 0, 0),
         ('c_plain', null, null, 0, 0);
     `);
-    // 0007 (in the first slice) ends with PRAGMA foreign_keys=ON; the
-    // 0034 table recreate needs the migration posture (FKs off) again.
+    // 0007 (in the first slice) ends with PRAGMA foreign_keys=ON; restore
+    // the migration posture (FKs off) before the slice under test.
     sqlite.pragma("foreign_keys = OFF");
-    files.slice(split).forEach(run);
+    files.slice(split, end).forEach(run);
 
     const rows = Object.fromEntries(
       (
@@ -215,5 +213,5 @@ describe("0013 migration: sandbox_pref → binding", () => {
       (c) => c.name,
     );
     expect(cols).not.toContain("sandbox_pref");
-  }, 20_000);
+  });
 });
