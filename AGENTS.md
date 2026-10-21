@@ -231,10 +231,34 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   reference mode: Plan (owner approves via `present_plan`/`accept_plan`)
   → Implement → Review (fresh-eyes `start_thread` child) → Fixup → Ship
   (orchestrator does Ship itself — workers lack `create_pr`/
-  `present_plan`). Deferred to a later PR (docs/0055): phase handoff to
-  harnesses/children (`phase` recorded on harness calls/children),
-  Settings live preview, the mode chip, phase menu, and the rest of the
-  chrome changes.
+  `present_plan`). Settings' skill editor shows a live read-only preview
+  (phase list, Shared yes/no, brief length) derived from
+  `parseModeSkill(draft.body)` on every keystroke — the same parser
+  that drives entry/advance.
+- Phase handoff (0055 v7 part B): a harness call (`pi`/`claude`/
+  `cursor`/`codex`) or `start_thread` child started from a moded chat
+  gets the handoff block (`renderPhaseHandoff`,
+  `lib/agent/mode-ids.ts`) prepended to its task/first prompt — the
+  phase framing, `## Shared` (if any), just THAT phase's section, and
+  the orchestrator's task last; never the brief, never other phases.
+  Resolution (`lib/chat/phase-handoff.ts`'s `resolvePhaseHandoff`, the
+  db-touching half) defaults to the chat's own current `mode_phase` —
+  silently no-op (unwrapped, same as a plain chat) when it's phaseless,
+  stale, or the chat isn't moded — or an explicit `phase` arg (id or
+  name) every harness tool and `start_thread` share, which OVERRIDES
+  the current phase and refuses value-shaped (`not-moded` /
+  `unknown-phase`, listing the declared names) before claiming any
+  slot or creating any child. A harness call's `task` column and a
+  child's own first message both stay the orchestrator's readable
+  original (or, for a harness call, the full handoff is never stored —
+  only the workflow prompt carries it); the resolved phase NAME is
+  recorded on `harness_calls.phase` and, for a child, the CHILD's own
+  `conversations.work_phase` (distinct from that child's own
+  `mode_phase`, if it enters a mode itself). Exposed on
+  `childStatus`/`GET /api/x/status/<id>`, the sidebar's synthetic
+  harness rows and child conversation rows, and `inspect`. Still
+  chrome-only (docs/0055 PR 2): the mode chip, phase menu, work chips
+  on cards.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy

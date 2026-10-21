@@ -27,9 +27,12 @@ directory (`fresh: true` in `start_machine` opts out with a new one).
 
 - `bash` — run a command in THIS conversation's sandbox, its working
   directory (project chats only).
-- `pi` / `claude` — hand a coding task to a harness, in the
-  background, same sandbox; the chat is woken with the result. pi
-  keeps context across calls; claude is the deep-refactor pick.
+- `pi` / `claude` / `cursor` / `codex` — hand a coding task to a
+  harness, in the background, same sandbox; the chat is woken with the
+  result. pi keeps context across calls; claude is the deep-refactor
+  pick. In a moded chat (0055), the task is handed off under the
+  chat's current phase by default; an optional `phase` arg (also on
+  `start_thread`) works a different declared phase for just this call.
 - `inspect` — read-only look at any chat, run, or sandbox: status,
   transcript tail, harness activity, binding.
 - `sandbox_exec` — one command in ANOTHER chat's or run's sandbox
