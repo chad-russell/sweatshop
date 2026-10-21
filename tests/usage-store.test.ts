@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import Database from "better-sqlite3";
 import { db as getDb, type Db } from "@/db";
 import { ensureConversation } from "@/db/chat";
 import {
@@ -13,6 +15,24 @@ import {
 import { computeCost, type ModelPrice } from "@/lib/usage/pricing";
 
 const db: Db = getDb();
+
+describe("0055 cache-write migration", () => {
+  it("defaults old usage rows to zero writes without changing their cost", () => {
+    const sqlite = new Database(":memory:");
+    try {
+      sqlite.exec("CREATE TABLE conversations (id TEXT PRIMARY KEY); INSERT INTO conversations VALUES ('c_old')");
+      sqlite.exec(readFileSync("drizzle/0054_usage_stats.sql", "utf8"));
+      sqlite.exec(`INSERT INTO usage_events
+        (id, conversation_id, source, route, input_tokens, cached_tokens, cost_usd, started_at, ended_at, created_at)
+        VALUES ('old', 'c_old', 'chat', '{}', 1000, 100, 5.34, 1, 2, 2)`);
+      sqlite.exec(readFileSync("drizzle/0058_cache_write_usage.sql", "utf8"));
+      expect(sqlite.prepare("SELECT input_tokens, cached_tokens, cache_write_tokens, cost_usd FROM usage_events").get())
+        .toEqual({ input_tokens: 1000, cached_tokens: 100, cache_write_tokens: 0, cost_usd: 5.34 });
+    } finally {
+      sqlite.close();
+    }
+  });
+});
 
 const price = (provider: string, model: string, over: Partial<ModelPrice> = {}): ModelPrice => ({
   provider,
@@ -75,6 +95,7 @@ describe("0047 usage_events store", () => {
       route: "{}",
       inputTokens: 1_000_000,
       cachedTokens: 500_000,
+      cacheWriteTokens: 100_000,
       outputTokens: 200_000,
       reasoningTokens: 20_000,
       steps: 3,
@@ -101,6 +122,7 @@ describe("0047 usage_events store", () => {
     expect(group.events).toHaveLength(2);
     expect(group.inputTokens).toBe(2_000_000);
     expect(group.cachedTokens).toBe(1_000_000);
+    expect(group.cacheWriteTokens).toBe(200_000);
     expect(group.outputTokens).toBe(400_000);
     expect(group.steps).toBe(6);
     expect(group.toolCalls).toBe(10);
@@ -131,6 +153,7 @@ describe("0047 usage_events store", () => {
       createdAt: 1,
     });
     expect(sumGroupUsage(db, ["c_plan"]).totalCostUsd).toBeNull();
+    expect(sumGroupUsage(db, ["c_plan"]).events[0]!.cacheWriteTokens).toBe(0);
   });
 
   it("usage rows cascade with their conversation", () => {

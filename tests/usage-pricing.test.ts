@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeCost,
+  addUsage,
   normalizeUsage,
   parseGlooPrices,
   readSliceUsage,
@@ -31,6 +32,32 @@ describe("0047 computeCost", () => {
   it("treats cached as fresh when the model has no cache_read rate (never free)", () => {
     const cost = computeCost(price({ cacheReadPerM: null }), { inputTokens: 1_000_000, cachedTokens: 600_000, outputTokens: 0 });
     expect(cost).toBeCloseTo(2, 10);
+  });
+
+  it("bills disjoint cache writes at the five-minute rate, not fresh input", () => {
+    expect(computeCost(price(), {
+      inputTokens: 1_000_000, cachedTokens: 600_000, cacheWriteTokens: 200_000, outputTokens: 100_000,
+    })).toBe(2.02); // 0.4 fresh + 0.12 read + 0.5 write + 1 output
+  });
+
+  it("falls back to input pricing when the write rate is missing", () => {
+    expect(computeCost(price({ cacheWritePerM: null }), {
+      inputTokens: 1_000_000, cachedTokens: 0, cacheWriteTokens: 1_000_000, outputTokens: 0,
+    })).toBe(2);
+  });
+
+  it("clamps writes to input remaining after reads", () => {
+    expect(computeCost(price(), {
+      inputTokens: 1_000_000, cachedTokens: 600_000, cacheWriteTokens: 2_000_000, outputTokens: 0,
+    })).toBe(1.12);
+  });
+
+  it("uses long-context write rates", () => {
+    expect(computeCost(price({ longContext: [
+      { minPromptTokens: 200_000, inputPerM: 4, outputPerM: 15, cacheReadPerM: 0.4, cacheWritePerM: 5 },
+    ] }), {
+      inputTokens: 300_000, cachedTokens: 100_000, cacheWriteTokens: 100_000, outputTokens: 0,
+    })).toBe(0.94);
   });
 
   it("applies the platform fee multiplier after summing", () => {
@@ -78,6 +105,7 @@ describe("0047 parseGlooPrices", () => {
               input: { rate_per_1m_tokens: "6.000000" },
               output: { rate_per_1m_tokens: "22.500000" },
               cache_read: { rate_per_1m_tokens: "0.600000" },
+              cache_write: { "5m": { rate_per_1m_tokens: "7.500000" }, "1h": { rate_per_1m_tokens: "12.000000" } },
             },
           ],
         },
@@ -123,10 +151,11 @@ describe("0047 parseGlooPrices", () => {
     expect(opus.cacheReadPerM).toBe(0.2);
     expect(opus.cacheWritePerM).toBe(5); // 5m tier
     expect(opus.longContext).toEqual([
-      { minPromptTokens: 200_000, inputPerM: 6, outputPerM: 22.5, cacheReadPerM: 0.6 },
+      { minPromptTokens: 200_000, inputPerM: 6, outputPerM: 22.5, cacheReadPerM: 0.6, cacheWritePerM: 7.5 },
     ]);
     expect(opus.source).toBe("gloo-v2-models");
     expect(opus.fetchedAt).toBe(1234);
+    expect(opus.platformFee).toBe(1.065); // our endpoint is a guarded alias
   });
 
   it("maps a flat cache_write default tier", () => {
@@ -154,7 +183,7 @@ describe("0047 parseGlooPrices", () => {
 });
 
 describe("0047 usage normalization", () => {
-  it("reads LanguageModelUsage cache-read and reasoning, ignoring cache write", () => {
+  it("reads LanguageModelUsage cache-read, cache-write and reasoning", () => {
     expect(
       normalizeUsage({
         inputTokens: 100,
@@ -162,7 +191,7 @@ describe("0047 usage normalization", () => {
         inputTokenDetails: { cacheReadTokens: 40, cacheWriteTokens: 7, noCacheTokens: 60 },
         outputTokenDetails: { reasoningTokens: 10, textTokens: 40 },
       }),
-    ).toEqual({ inputTokens: 100, cachedTokens: 40, outputTokens: 50, reasoningTokens: 10 });
+    ).toEqual({ inputTokens: 100, cachedTokens: 40, cacheWriteTokens: 7, outputTokens: 50, reasoningTokens: 10 });
   });
 
   it("reads nested LanguageModelV4Usage (harness finish-step)", () => {
@@ -171,7 +200,14 @@ describe("0047 usage normalization", () => {
         inputTokens: { total: 80, noCache: 70, cacheRead: 10, cacheWrite: 3 },
         outputTokens: { total: 20, text: 15, reasoning: 5 },
       }),
-    ).toEqual({ inputTokens: 80, cachedTokens: 10, outputTokens: 20, reasoningTokens: 5 });
+    ).toEqual({ inputTokens: 80, cachedTokens: 10, cacheWriteTokens: 3, outputTokens: 20, reasoningTokens: 5 });
+  });
+
+  it("sums writes and accepts counts from pre-0055 workflows", () => {
+    expect(addUsage(
+      { inputTokens: 10, cachedTokens: 0, outputTokens: 2 },
+      { inputTokens: 20, cachedTokens: 5, cacheWriteTokens: 7, outputTokens: 3 },
+    )).toMatchObject({ inputTokens: 30, cachedTokens: 5, cacheWriteTokens: 7, outputTokens: 5 });
   });
 
   it("prefers step usage over the stripped stream totalUsage", () => {
@@ -181,7 +217,7 @@ describe("0047 usage normalization", () => {
           usage: {
             inputTokens: 100,
             outputTokens: 50,
-            inputTokenDetails: { cacheReadTokens: 25 },
+            inputTokenDetails: { cacheReadTokens: 25, cacheWriteTokens: 10 },
             outputTokenDetails: { reasoningTokens: 10 },
           },
         },
@@ -189,6 +225,7 @@ describe("0047 usage normalization", () => {
       totalUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
     });
     expect(counts.cachedTokens).toBe(25);
+    expect(counts.cacheWriteTokens).toBe(10);
     expect(counts.reasoningTokens).toBe(10);
   });
 });

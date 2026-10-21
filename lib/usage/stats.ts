@@ -21,6 +21,7 @@ export interface ModelUsage {
   costUsd: number | null;
   inputTokens: number;
   cachedTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   steps: number;
   toolCalls: number;
@@ -46,6 +47,7 @@ export interface ConversationStats {
     costUsd: number | null;
     inputTokens: number;
     cachedTokens: number;
+    cacheWriteTokens: number;
     outputTokens: number;
     reasoningTokens: number;
     steps: number;
@@ -134,6 +136,7 @@ function modelsOf(db: Db, events: UsageEvent[]): ModelUsage[] {
         costUsd: null,
         inputTokens: 0,
         cachedTokens: 0,
+        cacheWriteTokens: 0,
         outputTokens: 0,
         steps: 0,
         toolCalls: 0,
@@ -144,6 +147,7 @@ function modelsOf(db: Db, events: UsageEvent[]): ModelUsage[] {
     }
     row.inputTokens += event.inputTokens;
     row.cachedTokens += event.cachedTokens;
+    row.cacheWriteTokens += event.cacheWriteTokens;
     row.outputTokens += event.outputTokens;
     row.steps += event.steps;
     row.toolCalls += event.toolCalls;
@@ -292,6 +296,7 @@ export function readConversationStats(db: Db, conversationId: string, now = Date
       costUsd: group.totalCostUsd,
       inputTokens: group.inputTokens,
       cachedTokens: group.cachedTokens,
+      cacheWriteTokens: group.cacheWriteTokens,
       outputTokens: group.outputTokens,
       reasoningTokens: group.reasoningTokens,
       steps: group.steps,

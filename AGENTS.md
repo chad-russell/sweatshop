@@ -153,6 +153,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   Write paths live in `lib/providers/settings.ts`; surfaces are the
   chat's route picker (per conversation, not sticky), `/settings`, and
   the project page Models card.
+- Gloo prompt caching (0055): Anthropic chat/title and pi requests send
+  `X-Cache-TTL: 5m`; other families cache implicitly. Chat provider usage
+  normalizes standard cache fields plus Anthropic aliases before workflow
+  capture. `usage_events.cache_write_tokens` is separate from cache reads
+  (`cached_tokens`); both are subsets of total input. Costs include writes
+  at the five-minute rate, reads at the read rate, and newly fetched Gloo
+  prices include the guarded alias's 1.065 fee. Historical costs stay put.
 - Skills (0039, 0054): markdown runbooks in `skills/<id>/SKILL.md` are
   shipped defaults (front matter `description`, `thread: true` for a
   bindable runbook, `mode: true` for a mode — see below, implies

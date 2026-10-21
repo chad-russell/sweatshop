@@ -38,6 +38,7 @@ export function upsertUsageEvent(db: Db, row: typeof usageEvents.$inferInsert): 
       set: {
         inputTokens: row.inputTokens,
         cachedTokens: row.cachedTokens,
+        cacheWriteTokens: row.cacheWriteTokens,
         outputTokens: row.outputTokens,
         reasoningTokens: row.reasoningTokens,
         steps: row.steps,
@@ -198,6 +199,7 @@ export interface GroupUsage {
   totalCostUsd: number | null;
   inputTokens: number;
   cachedTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   reasoningTokens: number;
   steps: number;
@@ -212,6 +214,7 @@ export function sumGroupUsage(db: Db, conversationIds: string[]): GroupUsage {
     totalCostUsd: null,
     inputTokens: 0,
     cachedTokens: 0,
+    cacheWriteTokens: 0,
     outputTokens: 0,
     reasoningTokens: 0,
     steps: 0,
@@ -230,6 +233,7 @@ export function sumGroupUsage(db: Db, conversationIds: string[]): GroupUsage {
   for (const e of events) {
     empty.inputTokens += e.inputTokens;
     empty.cachedTokens += e.cachedTokens;
+    empty.cacheWriteTokens += e.cacheWriteTokens;
     empty.outputTokens += e.outputTokens;
     empty.reasoningTokens += e.reasoningTokens ?? 0;
     empty.steps += e.steps;
