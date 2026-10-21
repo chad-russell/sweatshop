@@ -35,10 +35,16 @@ describe("loadModeChrome", () => {
     expect(await loadModeChrome(conv())).toBeNull();
   });
 
-  it("null for a chat bound to a non-mode skill", async () => {
+  it("reports {kind: 'bound'} for a chat bound to a non-mode skill — the server refuses a new mode there too", async () => {
     const id = conv();
     setConversationSkill(db(), id, "review");
-    expect(await loadModeChrome(id)).toBeNull();
+    expect(await loadModeChrome(id)).toEqual({ kind: "bound", skillId: "review" });
+  });
+
+  it("reports {kind: 'bound'} for a chat bound to a deleted skill", async () => {
+    const id = conv();
+    setConversationSkill(db(), id, "no-such-skill");
+    expect(await loadModeChrome(id)).toEqual({ kind: "bound", skillId: "no-such-skill" });
   });
 
   it("reports the title, phase list, and current phase for a moded chat", async () => {
@@ -46,6 +52,7 @@ describe("loadModeChrome", () => {
     const id = conv();
     setConversationMode(db(), id, "chrome-mode-1", "plan");
     expect(await loadModeChrome(id)).toEqual({
+      kind: "mode",
       skillId: "chrome-mode-1",
       title: "Chrome Mode",
       phases: [{ id: "plan", name: "Plan" }, { id: "ship", name: "Ship" }],
@@ -58,8 +65,7 @@ describe("loadModeChrome", () => {
     const id = conv();
     setConversationMode(db(), id, "chrome-mode-2", "");
     const chrome = await loadModeChrome(id);
-    expect(chrome?.phases).toEqual([]);
-    expect(chrome?.current).toBeNull();
+    expect(chrome).toMatchObject({ kind: "mode", phases: [], current: null });
   });
 
   it("current is null for a legacy thread (skill bound, no phase recorded yet)", async () => {
@@ -67,21 +73,20 @@ describe("loadModeChrome", () => {
     const id = conv();
     setConversationSkill(db(), id, "chrome-mode-3");
     const chrome = await loadModeChrome(id);
-    expect(chrome?.current).toBeNull();
-    expect(chrome?.phases).toEqual([{ id: "plan", name: "Plan" }]);
+    expect(chrome).toMatchObject({ kind: "mode", current: null, phases: [{ id: "plan", name: "Plan" }] });
   });
 
   it("current is null for a stale phase a renamed heading dropped", async () => {
     await createMode("chrome-mode-4", "## Phase: Plan\n\nPlan body.");
     const id = conv();
     setConversationMode(db(), id, "chrome-mode-4", "gone");
-    expect((await loadModeChrome(id))?.current).toBeNull();
+    expect(await loadModeChrome(id)).toMatchObject({ kind: "mode", current: null });
   });
 
   it("falls back to the skill id when the body has no H1", async () => {
     await createMode("chrome-mode-5", "No heading here.\n\n## Phase: Plan\n\nBody.");
     const id = conv();
     setConversationMode(db(), id, "chrome-mode-5", "plan");
-    expect((await loadModeChrome(id))?.title).toBe("chrome-mode-5");
+    expect(await loadModeChrome(id)).toMatchObject({ kind: "mode", title: "chrome-mode-5" });
   });
 });
