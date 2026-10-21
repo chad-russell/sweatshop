@@ -1,4 +1,4 @@
-# sweatshop
+# <img src="./app/icon.svg" alt="" width="28" height="28"> sweatshop
 
 A personal software factory: a single Next.js app whose agent runtime is
 the Vercel AI SDK (`WorkflowAgent`) on the Workflow SDK. You talk to an

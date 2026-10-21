@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SweatshopLogo } from "@/components/sweatshop-logo";
 import { CommandPalette } from "@/components/sidebar/command-palette";
 import { SidebarContext } from "@/components/sidebar/context";
 import { useNavDrawer } from "@/components/sidebar/nav-drawer";
@@ -124,7 +125,10 @@ export function ConversationSidebar({
         )}
       >
         <div className="flex items-center justify-between px-3 py-3">
-          <span className="px-1 font-mono text-sm">sweatshop</span>
+          <span className="flex items-center gap-2 px-1 font-mono text-sm">
+            <SweatshopLogo className="text-sidebar-primary" />
+            sweatshop
+          </span>
           {/* Drawer mode only (the nav is otherwise hidden below md). */}
           <button
             type="button"
