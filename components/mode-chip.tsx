@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { backgroundChildIds } from "@/lib/chat-ui";
+import { liveBackgroundChildIds } from "@/lib/chat-ui";
 import type { ChildStatus } from "@/lib/child-status";
 import type { ModeChromeData } from "@/lib/read-models/mode-chrome";
 import { useChildStatus } from "@/lib/use-child-status";
@@ -25,11 +25,12 @@ import { cn } from "@/lib/utils";
  * with a skill" axis moved here, scoped to ACTIVE modes only — plain
  * thread skills are agent/child-only now).
  *
- * Mounts a `ChildWatcher` per background child the transcript has ever
- * started (lib/chat-ui.ts's `backgroundChildIds`) — reusing
- * `useChildStatus`'s existing poll (settled children stop fetching on
- * their own) rather than inventing a new one, so "N working" and the
- * menu's "Working now" list stay live with no extra wiring.
+ * Mounts a `ChildWatcher` per background child still outstanding
+ * (lib/chat-ui.ts's `liveBackgroundChildIds` — excludes anything whose
+ * wake already arrived) — reusing `useChildStatus`'s existing poll
+ * (settled children stop fetching on their own) rather than inventing a
+ * new one, so "N working" and the menu's "Working now" list stay live
+ * with no extra wiring.
  */
 
 /** The harness kind from a harness call's href (`/h/<kind>/<conv>/<id>`),
@@ -124,29 +125,45 @@ export function ModeChip({
     };
   }, [started, conversationId, busy]);
 
-  // ── Live work: every background child this transcript ever started,
-  // polled via the existing per-child status hook. ───────────────────
-  const childIds = useMemo(() => backgroundChildIds(messages), [messages]);
+  // ── Live work: every background child this transcript ever started
+  // that hasn't already woken it (lib/chat-ui.ts's liveBackgroundChildIds
+  // drops settled-and-delivered children), polled via the existing
+  // per-child status hook. ────────────────────────────────────────────
+  const childIds = useMemo(() => liveBackgroundChildIds(messages), [messages]);
   const [statuses, setStatuses] = useState<Record<string, ChildStatus | null>>({});
   const onStatusChange = useCallback((id: string, status: ChildStatus | null) => {
     setStatuses((s) => (s[id] === status ? s : { ...s, [id]: status }));
   }, []);
   const working = childIds.map((id) => statuses[id]).filter((s): s is ChildStatus => Boolean(s?.live));
 
+  const mode = chrome?.kind === "mode" ? chrome : null;
+  const bound = chrome?.kind === "bound" ? chrome : null;
+
   if (!projectId) return null;
   if (!chrome && modes.length === 0) return null; // nothing to show or pick
 
   const pendingTitle = pendingModeId ? modes.find((m) => m.id === pendingModeId)?.title : null;
   const pickedTitle = fresh && pickedSkillId ? modes.find((m) => m.id === pickedSkillId)?.title : null;
-  const phaseText = chrome?.current?.name ?? null;
-  const fullLabel = chrome
+  const phaseText = mode?.current?.name ?? null;
+  const fullLabel = mode
     ? phaseText
-      ? `${chrome.title} · ${phaseText}`
-      : chrome.title
-    : pendingTitle
-      ? `pending: ${pendingTitle}`
-      : (pickedTitle ?? "Normal");
-  const narrowLabel = chrome ? (phaseText ?? chrome.title) : (pendingTitle ?? pickedTitle ?? "Normal");
+      ? `${mode.title} · ${phaseText}`
+      : mode.title
+    : bound
+      ? `Skill: ${bound.skillId}`
+      : pendingTitle
+        ? `pending: ${pendingTitle}`
+        : (pickedTitle ?? "Normal");
+  // Narrow (<sm): icon + this text only — a pending mode still needs to
+  // read as pending, not as if it had already entered.
+  const narrowLabel = mode
+    ? (phaseText ?? mode.title)
+    : bound
+      ? "Skill"
+      : pendingTitle
+        ? `→ ${pendingTitle}`
+        : (pickedTitle ?? "Normal");
+  const ariaLabel = mode || bound ? fullLabel : pendingTitle ? `pending: ${pendingTitle}` : "Mode";
 
   const select = (id: string) => {
     if (fresh) onPickSkill(id);
@@ -162,9 +179,20 @@ export function ModeChip({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label="Mode"
-            title={chrome ? "This chat's sticky mode — lasts the rest of the chat" : "Enter a sticky mode for this chat"}
-            className={cn(TRIGGER, chrome && "border-primary/30 bg-primary/10 text-primary", className)}
+            aria-label={ariaLabel}
+            title={
+              mode
+                ? "This chat's sticky mode — lasts the rest of the chat"
+                : bound
+                  ? `Already running the "${bound.skillId}" skill — a mode can't be entered here`
+                  : "Enter a sticky mode for this chat"
+            }
+            className={cn(
+              TRIGGER,
+              mode && "border-primary/30 bg-primary/10 text-primary",
+              bound && "text-muted-foreground/70",
+              className,
+            )}
           >
             <Workflow className="size-3.5 shrink-0" aria-hidden />
             <span className="hidden truncate sm:inline">{fullLabel}</span>
@@ -176,82 +204,102 @@ export function ModeChip({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-1rem)]">
-          {chrome ? (
-            <>
+            {bound ? (
               <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
-                <span className="text-xs font-medium text-foreground">{chrome.title}</span>
-                <span className="text-xs text-muted-foreground">This mode stays on for the rest of the chat.</span>
+                <span className="text-xs font-medium text-foreground">Skill: {bound.skillId}</span>
+                <span className="text-xs text-muted-foreground">
+                  A mode can&apos;t be entered in a thread already running a skill — start a new chat.
+                </span>
               </DropdownMenuLabel>
-              {chrome.phases.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  {chrome.phases.map((p) => (
-                    <DropdownMenuItem key={p.id} disabled className="items-start py-1.5 opacity-100">
-                      <Check className={cn("mt-0.5", p.id === chrome.current?.id ? "opacity-100" : "opacity-0")} aria-hidden />
-                      <span>{p.name}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-              {working.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Working now</DropdownMenuLabel>
-                  {working.map((w) => (
-                    <DropdownMenuItem key={w.id} asChild className="items-start py-1.5">
-                      <Link href={w.href} className="flex min-w-0 flex-col">
-                        <span className="truncate text-sm">
-                          {w.phase ? `${w.phase} · ` : ""}
-                          {workLabel(w)}
+            ) : mode ? (
+              <>
+                <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
+                  <span className="text-xs font-medium text-foreground">{mode.title}</span>
+                  <span className="text-xs text-muted-foreground">This mode stays on for the rest of the chat.</span>
+                </DropdownMenuLabel>
+                {mode.phases.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <ul role="list" aria-label="Phases" className="flex flex-col px-2 py-1">
+                      {mode.phases.map((p) => {
+                        const current = p.id === mode.current?.id;
+                        return (
+                          <li
+                            key={p.id}
+                            role="listitem"
+                            aria-current={current ? "step" : undefined}
+                            className="flex items-start gap-2 py-1.5 text-sm"
+                          >
+                            <Check className={cn("mt-0.5 size-4 shrink-0", current ? "opacity-100" : "opacity-0")} aria-hidden />
+                            <span>
+                              {p.name}
+                              {current && <span className="sr-only"> (current)</span>}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {pendingTitle && (
+                  <>
+                    <DropdownMenuItem onSelect={() => onPendingMode(null)} className="items-start py-2">
+                      <X className="mt-0.5 size-3.5" aria-hidden />
+                      <span className="flex flex-col">
+                        <span>Clear pending mode</span>
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {pendingTitle} will enter on the next send — clear to stay normal
                         </span>
-                        <span className="text-xs font-normal text-muted-foreground">{w.status}</span>
-                      </Link>
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              {pendingTitle && (
-                <>
-                  <DropdownMenuItem onSelect={() => onPendingMode(null)} className="items-start py-2">
-                    <X className="mt-0.5 size-3.5" aria-hidden />
-                    <span className="flex flex-col">
-                      <span>Clear pending mode</span>
-                      <span className="text-xs font-normal text-muted-foreground">
-                        {pendingTitle} will enter on the next send — clear to stay normal
                       </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  {modes.length > 0 ? "Enter a mode" : "No modes defined yet"}
+                </DropdownMenuLabel>
+                {modes.map((m) => (
+                  <DropdownMenuItem key={m.id} onSelect={() => select(m.id)} className="items-start py-2">
+                    <Check
+                      className={cn("mt-0.5", m.id === (fresh ? pickedSkillId : pendingModeId) ? "opacity-100" : "opacity-0")}
+                      aria-hidden
+                    />
+                    <span className="flex min-w-0 flex-col">
+                      <span>{m.title}</span>
+                      {m.description && (
+                        <span className="line-clamp-2 text-xs font-normal text-muted-foreground">{m.description}</span>
+                      )}
                     </span>
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                {modes.length > 0 ? "Enter a mode" : "No modes defined yet"}
-              </DropdownMenuLabel>
-              {modes.map((m) => (
-                <DropdownMenuItem key={m.id} onSelect={() => select(m.id)} className="items-start py-2">
-                  <Check
-                    className={cn("mt-0.5", m.id === (fresh ? pickedSkillId : pendingModeId) ? "opacity-100" : "opacity-0")}
-                    aria-hidden
-                  />
-                  <span className="flex min-w-0 flex-col">
-                    <span>{m.title}</span>
-                    {m.description && (
-                      <span className="line-clamp-2 text-xs font-normal text-muted-foreground">{m.description}</span>
-                    )}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-              {fresh && pickedSkillId && (
-                <DropdownMenuItem onSelect={() => onPickSkill(null)} className="items-start py-2">
-                  <X className="mt-0.5 size-3.5" aria-hidden />
-                  <span>Stay normal</span>
-                </DropdownMenuItem>
-              )}
-            </>
-          )}
+                ))}
+                {fresh && pickedSkillId && (
+                  <DropdownMenuItem onSelect={() => onPickSkill(null)} className="items-start py-2">
+                    <X className="mt-0.5 size-3.5" aria-hidden />
+                    <span>Stay normal</span>
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
+            {working.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Working now</DropdownMenuLabel>
+                {working.map((w) => (
+                  <DropdownMenuItem key={w.id} asChild className="items-start py-1.5">
+                    <Link href={w.href} className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm">
+                        {w.phase ? `${w.phase} · ` : ""}
+                        {workLabel(w)}
+                      </span>
+                      <span className="text-xs font-normal text-muted-foreground">{w.status}</span>
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </>
+            )}
         </DropdownMenuContent>
       </DropdownMenu>
     </>
