@@ -1,6 +1,7 @@
+import { unwrapShell } from "@/lib/harness-timeline";
 import { descriptionOf, parseBash } from "./bash";
 import { inspectName, inspectOf, inspectState, oneLine } from "./inspect";
-import { objectOf } from "./fields";
+import { field, objectOf } from "./fields";
 
 /**
  * Folding a turn's quiet, read-only tool calls into one expandable group
@@ -29,6 +30,11 @@ export interface PartLike {
 const QUIET_TOOLS: Record<string, { one: string; many: string }> = {
   bash: { one: "ran 1 command", many: "ran {n} commands" },
   sandbox_exec: { one: "ran 1 command", many: "ran {n} commands" },
+  read: { one: "read 1 file", many: "read {n} files" },
+  grep: { one: "searched files", many: "searched files ×{n}" },
+  glob: { one: "searched files", many: "searched files ×{n}" },
+  find: { one: "searched files", many: "searched files ×{n}" },
+  ls: { one: "searched files", many: "searched files ×{n}" },
   gh: { one: "queried GitHub", many: "queried GitHub ×{n}" },
   forgejo: { one: "queried Forgejo", many: "queried Forgejo ×{n}" },
   inspect: { one: "checked 1 chat", many: "checked {n} times" },
@@ -97,9 +103,22 @@ export function callLabel(part: PartLike): string {
   let label: string | undefined;
   switch (name) {
     case "bash":
-    case "sandbox_exec":
+    case "sandbox_exec": {
       // The caller's own "what this is for" beats the command's first line.
-      label = descriptionOf(part.input) ?? str(i?.command)?.split("\n").find((l) => l.trim());
+      const cmd = field(part.input, "command", "cmd")?.value;
+      label = descriptionOf(part.input) ?? (cmd ? unwrapShell(cmd).split("\n").find((l) => l.trim()) : undefined);
+      break;
+    }
+    case "read":
+      label = field(part.input, "file_path", "path", "filePath")?.value;
+      break;
+    case "ls":
+      label = field(part.input, "path")?.value ?? ".";
+      break;
+    case "grep":
+    case "glob":
+    case "find":
+      label = field(part.input, "pattern")?.value;
       break;
     case "inspect": {
       // What was inspected and where it stands — the id alone says nothing.

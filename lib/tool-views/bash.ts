@@ -5,6 +5,8 @@
  * text ending in `(exit N)`; input may be clipped mid-JSON).
  */
 
+import { unwrapShell } from "@/lib/harness-timeline";
+
 export interface BashView {
   command: string;
   /** The caller's one-line "what this is for" (the chat shell tools'
@@ -69,7 +71,8 @@ export function descriptionOf(input: unknown): string | undefined {
 const EXIT_SUFFIX = /\n*\(exit (-?\d+)\)\s*$/;
 
 export function parseBash(input: unknown, output: unknown, errorText?: string): BashView {
-  const command = commandOf(input);
+  // codex wraps every command as `/bin/bash -lc "<cmd>"` — show what ran.
+  const command = unwrapShell(commandOf(input));
   const description = descriptionOf(input);
   const obj = asObject(output);
   if (obj && ("stdout" in obj || "stderr" in obj || "exitCode" in obj)) {
