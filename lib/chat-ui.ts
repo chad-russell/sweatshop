@@ -210,3 +210,23 @@ export function backgroundChildIds(messages: UIMessage[]): string[] {
   }
   return ids;
 }
+
+/** 0055 PR2 review fix: `backgroundChildIds` minus any child that has
+ *  already woken this chat — a wake row is a `user` message whose
+ *  `metadata.runEvent` names the settled child by id (kind "harness" =
+ *  a harness call, "thread" = a start_thread child; same fields
+ *  `hasBackgroundChild` reasons from). Keeps the Mode chip from polling
+ *  a child forever just because the transcript still shows its tool
+ *  call — once it has settled and woken the chat, there is nothing
+ *  left to watch. */
+export function liveBackgroundChildIds(messages: UIMessage[]): string[] {
+  const woken = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== "user") continue;
+    const runEvent = (m.metadata as { runEvent?: { kind?: string; id?: string } } | undefined)?.runEvent;
+    if (runEvent && (runEvent.kind === "harness" || runEvent.kind === "thread") && typeof runEvent.id === "string") {
+      woken.add(runEvent.id);
+    }
+  }
+  return backgroundChildIds(messages).filter((id) => !woken.has(id));
+}
