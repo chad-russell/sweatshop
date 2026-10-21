@@ -1,7 +1,7 @@
 import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
-import { appendMessages, ensureConversation, markChatChildWoken, setConversationParent } from "../db/chat";
+import { appendMessages, ensureConversation, markChatChildWoken, setConversationParent, setConversationWorkPhase } from "../db/chat";
 import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
 import { getConversationBinding, getLease, markDestroyed } from "../db/sandboxes";
 import { projects } from "../db/schema";
@@ -79,6 +79,22 @@ describe("0013 inspect", () => {
   it("explains unknown ids as values, not throws (a typo'd id must not kill the turn)", () => {
     expect(inspectTarget("c_nope")).toMatchObject({ kind: "error", code: "unknown-id" });
     expect(inspectTarget("mr_typo_9")).toMatchObject({ kind: "error", code: "unknown-id" });
+  });
+
+  it("0055 v7 part B: shows a harness call's recorded phase, and a child's work_phase", () => {
+    const call = createHarnessCall(db(), { conversationId: "c_insp_target", kind: "pi", task: "x", phase: "QA" });
+    expect(inspectTarget(call.id)).toMatchObject({ phase: "QA" });
+
+    const unphased = createHarnessCall(db(), { conversationId: "c_insp_target", kind: "pi", task: "y" });
+    expect(inspectTarget(unphased.id)).not.toHaveProperty("phase");
+
+    ensureConversation(db(), "c_insp_phase_parent", "p_insp");
+    ensureConversation(db(), "c_insp_phase_child", "p_insp");
+    setConversationParent(db(), "c_insp_phase_child", "c_insp_phase_parent");
+    setConversationWorkPhase(db(), "c_insp_phase_child", "Implement");
+    expect(inspectTarget("c_insp_phase_child")).toMatchObject({ phase: "Implement" });
+    // Not a child: never shows a phase, even if the column were somehow set.
+    expect(inspectTarget("c_insp_target")).not.toHaveProperty("phase");
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "../db";
-import { ensureConversation, setActiveRun, setConversationParent } from "../db/chat";
+import { ensureConversation, setActiveRun, setConversationParent, setConversationWorkPhase } from "../db/chat";
 import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
 import { projects } from "../db/schema";
 import { childStatus } from "../lib/child-status";
@@ -47,5 +47,19 @@ describe("childStatus", () => {
     });
     setActiveRun(tdb, "c_cs_child", null);
     expect(childStatus(tdb, "c_cs_child")).toMatchObject({ status: "completed", live: false, settledAt: expect.any(Number) });
+  });
+
+  it("0055 v7 part B: exposes the recorded phase for both kinds, null when none", () => {
+    const call = createHarnessCall(tdb, { conversationId: "c_cs", kind: "pi", task: "t", phase: "QA" });
+    expect(childStatus(tdb, call.id)).toMatchObject({ phase: "QA" });
+
+    const noPhaseCall = createHarnessCall(tdb, { conversationId: "c_cs", kind: "pi", task: "t" });
+    expect(childStatus(tdb, noPhaseCall.id)).toMatchObject({ phase: null });
+
+    ensureConversation(tdb, "c_cs_parent2", "p_cs");
+    ensureConversation(tdb, "c_cs_child2", "p_cs");
+    setConversationParent(tdb, "c_cs_child2", "c_cs_parent2");
+    setConversationWorkPhase(tdb, "c_cs_child2", "Implement");
+    expect(childStatus(tdb, "c_cs_child2")).toMatchObject({ phase: "Implement" });
   });
 });

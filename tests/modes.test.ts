@@ -8,6 +8,7 @@ import {
   isModeSkill,
   parseModeSkill,
   renderModeEntry,
+  renderPhaseHandoff,
   renderPhaseList,
   renderPhaseSection,
   threadStateNote,
@@ -290,6 +291,44 @@ describe("renderPhaseSection / renderPhaseList / renderModeEntry", () => {
 
     const noPhases = parseModeSkill("Just a brief, no phases.");
     expect(renderModeEntry(noPhases)).toBe("Just a brief, no phases.");
+  });
+});
+
+describe("renderPhaseHandoff (0055 v7 part B)", () => {
+  const phase = { id: "qa", name: "QA", body: "Run the test suite and file findings." };
+
+  it("contains the phase framing, Shared, and only that phase's section, task last", () => {
+    const text = renderPhaseHandoff({ modeName: "Ticket", phase, shared: "Branch naming conventions.", task: "check PR #4" });
+    expect(text).toContain('You are doing the "QA" phase of a "Ticket" run.');
+    expect(text).toContain("Do only this phase; other phases are handled separately.");
+    expect(text).toContain("Your result goes back to the orchestrator.");
+    expect(text).toContain("Branch naming conventions.");
+    expect(text).toContain("Run the test suite and file findings.");
+    expect(text.endsWith("Task from the orchestrator:\ncheck PR #4")).toBe(true);
+    // Order: header, then Shared, then the phase body, then the task.
+    const header = text.indexOf('You are doing the "QA"');
+    const shared = text.indexOf("Branch naming conventions.");
+    const body = text.indexOf("Run the test suite");
+    const task = text.indexOf("Task from the orchestrator:");
+    expect(header).toBeLessThan(shared);
+    expect(shared).toBeLessThan(body);
+    expect(body).toBeLessThan(task);
+  });
+
+  it("never contains the brief or other phases — the caller passes only THIS phase", () => {
+    const text = renderPhaseHandoff({ modeName: "Ticket", phase, shared: null, task: "x" });
+    expect(text).not.toContain("coordinate");
+    expect(text).not.toContain("Plan phase body");
+    expect(text).not.toContain("Implement phase body");
+  });
+
+  it("drops the Shared paragraph entirely when there is none", () => {
+    const text = renderPhaseHandoff({ modeName: "Ticket", phase, shared: null, task: "x" });
+    expect(text).toBe(
+      'You are doing the "QA" phase of a "Ticket" run. Do only this phase; other phases are handled ' +
+        "separately. Your result goes back to the orchestrator.\n\n" +
+        "Run the test suite and file findings.\n\n---\nTask from the orchestrator:\nx",
+    );
   });
 });
 

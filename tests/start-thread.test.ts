@@ -8,11 +8,14 @@ import {
   getChatChild,
   getConversation,
   listWakableChatChildren,
+  setConversationMode,
 } from "../db/chat";
 import { getConversationBinding } from "../db/sandboxes";
+import { getTarget } from "../db/prompt-settings";
 import { conversations, messages, projects, sandboxAttachments } from "../db/schema";
 import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 import { startThread } from "../lib/agent/tools/start-thread";
+import { applyApprovedPromptChangeStep } from "../workflows/chat/steps/prompt-change";
 
 /**
  * 0037 phase 3 — start_thread: the child conversation (parent, project,
@@ -58,6 +61,31 @@ function childrenOf(parent: string) {
     .where(eq(conversations.parentConversationId, parent))
     .all()
     .map((row) => row.id);
+}
+
+/** 0055 v7 part B: a mode skill with two phases, created fresh per id. */
+async function createPhaseMode(id: string) {
+  const target = getTarget(db(), { kind: "skill", id });
+  await applyApprovedPromptChangeStep(
+    { kind: "skill", id },
+    {
+      body: "# Handoff Test\n\nBrief, orchestrator-only.\n\n## Shared\n\nShared convention text.\n\n## Phase: Plan\n\nPlan phase body.\n\n## Phase: Implement\n\nImplement phase body.",
+      description: "test mode",
+      thread: true,
+      mode: true,
+      status: "active",
+    },
+    target?.version ?? 0,
+    "test: create phase mode",
+  );
+}
+
+/** A fresh parent chat moded into `modeId` at `phase` (or legacy/bound-only when null). */
+function modedParent(project: string | null, name: string, modeId: string, phase: string | null) {
+  const id = parentChat(project, name);
+  if (phase !== null) setConversationMode(db(), id, modeId, phase);
+  else db().update(conversations).set({ skill: modeId }).where(eq(conversations.id, id)).run();
+  return id;
 }
 
 afterAll(() => {
@@ -199,5 +227,119 @@ describe("startThread", () => {
     expect(after.updatedAt).toBeGreaterThan(after.wokenSettledAt ?? 0);
     expect(listWakableChatChildren(db()).map((c) => c.id)).toContain(child!);
     cleanup.push(child!);
+  });
+});
+
+describe("startThread: phase handoff (0055 v7 part B)", () => {
+  it("wraps the child's first-turn prompt with the handoff and records conversations.work_phase", async () => {
+    await createPhaseMode("st-handoff-1");
+    const parent = modedParent("p_st", "handoff1", "st-handoff-1", "plan");
+    const started: { id: string; text: string }[] = [];
+    const result = await startThread({
+      conversationId: parent,
+      prompt: "look at the diff on branch x",
+      provider: new FakeProvider(),
+      start: async (id, text) => {
+        started.push({ id, text });
+        return { runId: "wr_h1" };
+      },
+    });
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(started[0]!.text).toContain('You are doing the "Plan" phase of a "Handoff Test" run.');
+    expect(started[0]!.text).toContain("Shared convention text.");
+    expect(started[0]!.text).toContain("Plan phase body.");
+    expect(started[0]!.text).not.toContain("Implement phase body.");
+    expect(started[0]!.text).toContain("Task from the orchestrator:\nlook at the diff on branch x");
+    expect(getChatChild(db(), result.id)?.workPhase).toBe("Plan");
+    cleanup.push(result.id);
+  });
+
+  it("an explicit phase arg overrides the parent's current phase", async () => {
+    await createPhaseMode("st-handoff-2");
+    const parent = modedParent("p_st", "handoff2", "st-handoff-2", "plan");
+    const started: { text: string }[] = [];
+    const result = await startThread({
+      conversationId: parent,
+      prompt: "look",
+      phase: "implement",
+      provider: new FakeProvider(),
+      start: async (_id, text) => {
+        started.push({ text });
+        return { runId: "wr_h2" };
+      },
+    });
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(started[0]!.text).toContain("Implement phase body.");
+    expect(getChatChild(db(), result.id)?.workPhase).toBe("Implement");
+    cleanup.push(result.id);
+  });
+
+  it("an unknown phase refuses before creating anything", async () => {
+    await createPhaseMode("st-handoff-3");
+    const parent = modedParent("p_st", "handoff3", "st-handoff-3", "plan");
+    const result = await startThread({
+      conversationId: parent,
+      prompt: "look",
+      phase: "sprint",
+      start: async () => ({ runId: "wr_h3" }),
+    });
+    expect(result).toMatchObject({ ok: false, code: "unknown-phase" });
+    if (!result.ok) {
+      expect(result.message).toContain("Plan");
+      expect(result.message).toContain("Implement");
+    }
+    expect(childrenOf(parent)).toEqual([]);
+  });
+
+  it("phase given on a non-moded parent refuses before creating anything", async () => {
+    const parent = parentChat("p_st", "handoff4");
+    const result = await startThread({
+      conversationId: parent,
+      prompt: "look",
+      phase: "plan",
+      start: async () => ({ runId: "wr_h4" }),
+    });
+    expect(result).toMatchObject({ ok: false, code: "not-moded" });
+    expect(childrenOf(parent)).toEqual([]);
+  });
+
+  it("a non-moded parent's child prompt is unchanged (byte-identical) — no wrapping", async () => {
+    const parent = parentChat("p_st", "handoff5");
+    const started: { text: string }[] = [];
+    const result = await startThread({
+      conversationId: parent,
+      prompt: "plain prompt, no mode",
+      provider: new FakeProvider(),
+      start: async (_id, text) => {
+        started.push({ text });
+        return { runId: "wr_h5" };
+      },
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(started[0]!.text).toBe("plain prompt, no mode");
+    if (result.ok) {
+      expect(getChatChild(db(), result.id)?.workPhase).toBeNull();
+      cleanup.push(result.id);
+    }
+  });
+
+  it("a legacy mode-skill parent (skill bound, mode_phase null) does not wrap either", async () => {
+    await createPhaseMode("st-handoff-6");
+    const parent = modedParent("p_st", "handoff6", "st-handoff-6", null);
+    const started: { text: string }[] = [];
+    const result = await startThread({
+      conversationId: parent,
+      prompt: "plain",
+      provider: new FakeProvider(),
+      start: async (_id, text) => {
+        started.push({ text });
+        return { runId: "wr_h6" };
+      },
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(started[0]!.text).toBe("plain");
+    if (result.ok) cleanup.push(result.id);
   });
 });
