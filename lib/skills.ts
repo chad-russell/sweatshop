@@ -77,8 +77,18 @@ export async function listSkills(): Promise<Skill[]> {
   return store.listTargets(db(), { includeDeleted: false }).filter(isSkillTarget).map(toSkill);
 }
 
-/** The bindable catalog: active thread skills only (pickers, use_skill,
- *  start_thread). */
+/** Active skills of every kind — `use_skill` with no id. `thread` and
+ *  `mode` say which can be bound and which are modes. */
+export async function listActiveSkills(): Promise<Skill[]> {
+  const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
+  return store
+    .listTargets(db(), { includeDeleted: false })
+    .filter(isSkillTarget)
+    .filter((row) => row.status === "active")
+    .map(toSkill);
+}
+
+/** The bindable catalog: active thread skills only (pickers, start_thread). */
 export async function listThreadSkills(): Promise<Skill[]> {
   const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
   return store

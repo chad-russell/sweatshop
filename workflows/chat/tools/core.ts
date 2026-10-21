@@ -121,9 +121,10 @@ export function coreTools(
     }),
     use_skill: tool({
       description:
-        "List skills, or load one. With no id, returns the catalog and which are modes. With an id, returns that " +
-        "active skill's body — any skill, any number of times; each load is history. Loading a mode needs no " +
-        "approval and comes back with suggestedSteps (its declared phases) to seed update_status.",
+        "List skills, or load one. With no id, returns every active skill, marking which are modes and which are " +
+        "thread skills. With an id, returns that active skill's body — any skill, any number of times; each load is " +
+        "history. Loading a mode in a project chat records it and returns suggestedSteps (its declared phases) to " +
+        "seed update_status. In a chat with no project the body still loads, but the mode is not bound.",
       inputSchema: z.object({
         id: z.string().min(1).optional().describe("Skill id to load; omit to list"),
       }),

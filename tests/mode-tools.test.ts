@@ -53,8 +53,26 @@ describe("use_skill loads a mode", () => {
     const id = convInProject();
     const listed = await skillToolStep(id);
     expect(listed).toMatchObject({ ok: true });
-    expect((listed as { skills: { id: string; mode: boolean }[] }).skills.some((s) => s.id === "ticket" && s.mode)).toBe(true);
     expect(getConversation(db(), id)?.skill).toBeNull();
+    const skills = (listed as { skills: { id: string; mode: boolean; thread: boolean }[] }).skills;
+    expect(skills.some((s) => s.id === "ticket" && s.mode && s.thread)).toBe(true);
+    expect(skills.some((s) => s.id === "review" && s.thread && !s.mode)).toBe(true);
+    expect(skills.some((s) => s.id === "ship")).toBe(false);
+  });
+
+  it("a mode load in a chat with no project returns the body and does not bind", async () => {
+    const id = `c_test_modetools_noproj_${++seq}_${Math.random().toString(36).slice(2, 8)}`;
+    ensureConversation(db(), id, null);
+    const result = await skillToolStep(id, "ticket");
+    expect(result).toMatchObject({
+      ok: true,
+      id: "ticket",
+      mode: true,
+      bound: false,
+      reason: "modes need a project",
+    });
+    expect((result as { skill: string }).skill).toContain("update_status");
+    expect(getConversation(db(), id)).toMatchObject({ skill: null, modePhase: null });
   });
 });
 

@@ -148,21 +148,28 @@ export async function loadSkillStep(
 }
 
 /** 0059: list skills, or load an active skill's body into the tool result.
- *  No id lists the thread catalog (as before). An id loads any active
- *  skill — disabled and deleted refuse, and nothing is bound for a
- *  plain skill. Loading a mode writes `conversations.skill` (a newer
- *  mode simply wins) and returns its phases as `suggestedSteps` for
- *  `update_status`. The body is the tool result, not a sticky prompt. */
+ *  No id lists every active skill (modes and thread skills marked). An
+ *  id loads any active skill — disabled and deleted refuse, and nothing
+ *  is bound for a plain skill. Loading a mode in a project chat writes
+ *  `conversations.skill` (a newer mode simply wins) and returns its
+ *  phases as `suggestedSteps`. A chat with no project still gets the
+ *  body, but the mode is not bound (no budget raise, no phase handoff). */
 export async function skillToolStep(conversationId: string, id?: string): Promise<unknown> {
   "use step";
-  const [{ db, chat }, { listThreadSkills, readSkill }, { parseModeSkill }, store] = await Promise.all([
+  const [{ db, chat }, { listActiveSkills, readSkill }, { parseModeSkill }, store] = await Promise.all([
     chatStore(),
     import("../../../lib/skills"),
     import("../../../lib/agent/mode-ids"),
     import("../../../db/prompt-settings"),
   ]);
-  const available = await listThreadSkills();
-  const catalog = available.map((s) => ({ id: s.id, title: s.title, description: s.description, mode: s.mode }));
+  const available = await listActiveSkills();
+  const catalog = available.map((s) => ({
+    id: s.id,
+    title: s.title,
+    description: s.description,
+    mode: s.mode,
+    thread: s.thread,
+  }));
   if (!id) return { ok: true, skills: catalog };
   const target = store.getTarget(db, { kind: "skill", id });
   if (!target || target.status !== "active") {
@@ -173,21 +180,21 @@ export async function skillToolStep(conversationId: string, id?: string): Promis
   const body = renderOwnerPlaceholders(skill.body);
   if (!skill.mode) return { ok: true, id: skill.id, mode: false, skill: body };
   const parsed = parseModeSkill(skill.body);
+  const suggestedSteps = parsed.phases.map((item, index) => ({
+    label: item.name,
+    state: index === 0 ? "active" : "pending",
+  }));
+  const note =
+    "Loaded. Seed update_status with suggestedSteps (adjust as the work requires). " +
+    "Call update_status again whenever the active step, a child, or a blocker changes.";
+  // Modes need a project, same as owner entry. Loading the body is fine;
+  // binding is what raises the budget and enables phase handoff.
+  if (!chat.getConversation(db, conversationId)?.projectId) {
+    return { ok: true, id: skill.id, mode: true, skill: body, suggestedSteps, bound: false, reason: "modes need a project", note };
+  }
   const phase = parsed.phases[0]?.id ?? "";
   chat.setConversationMode(db, conversationId, skill.id, phase);
-  return {
-    ok: true,
-    id: skill.id,
-    mode: true,
-    skill: body,
-    suggestedSteps: parsed.phases.map((item, index) => ({
-      label: item.name,
-      state: index === 0 ? "active" : "pending",
-    })),
-    note:
-      "Loaded. Seed update_status with suggestedSteps (adjust as the work requires). " +
-      "Call update_status again whenever the active step, a child, or a blocker changes.",
-  };
+  return { ok: true, id: skill.id, mode: true, skill: body, suggestedSteps, bound: true, note };
 }
 
 /** 0054: the three editable instruction sections, resolved to their
