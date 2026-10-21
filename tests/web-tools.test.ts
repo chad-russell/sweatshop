@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchWebPage, htmlToText } from "../lib/agent/tools/web";
-import { searchWeb } from "../lib/agent/tools/web-search";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { searchProviderOrder, searchWeb } from "../lib/agent/tools/web-search";
+import { hitsFromStream } from "../lib/agent/tools/search-providers/codex";
 
 /**
  * 1.5 (roadmap): the web tool cores against a stubbed global fetch —
@@ -134,12 +138,45 @@ const HITS = [
 
 const HITS_TEXT = JSON.stringify(JSON.stringify(HITS));
 
+const SEARCH_ENV = [
+  "ZAI_API_KEY",
+  "TAVILY_API_KEY",
+  "ANTHROPIC_SEARCH_API_KEY",
+  "WEB_SEARCH_PROVIDERS",
+  "HARNESS_AUTH_DIR",
+] as const;
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+/** A valid-shaped ChatGPT login in a throwaway auth dir (far-future expiry). */
+function plantCodexLogin(): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "codex-auth-"));
+  mkdirSync(path.join(dir, "codex"));
+  const exp = Math.floor(Date.now() / 1000) + 86_400;
+  const jwt = `x.${Buffer.from(JSON.stringify({ exp })).toString("base64url")}.y`;
+  writeFileSync(
+    path.join(dir, "codex", "auth.json"),
+    JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: jwt, refresh_token: "r", account_id: "acct-1" } }),
+  );
+  process.env.HARNESS_AUTH_DIR = dir;
+}
+
 describe("searchWeb", () => {
-  const hadKey = process.env.ZAI_API_KEY;
+  const saved = Object.fromEntries(SEARCH_ENV.map((name) => [name, process.env[name]]));
+
+  beforeEach(() => {
+    // No real login or key may leak into the gate: every provider starts unconfigured.
+    for (const name of SEARCH_ENV) delete process.env[name];
+    process.env.HARNESS_AUTH_DIR = mkdtempSync(path.join(tmpdir(), "no-auth-"));
+  });
 
   afterEach(() => {
-    if (hadKey) process.env.ZAI_API_KEY = hadKey;
-    else delete process.env.ZAI_API_KEY;
+    for (const name of SEARCH_ENV) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
   });
 
   it("is not-configured without a Z.AI key", async () => {
@@ -242,5 +279,147 @@ describe("searchWeb", () => {
       return sseResponse({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "not json {" }] } });
     }));
     await expect(searchWeb("q")).resolves.toMatchObject({ ok: false, code: "bad-response" });
+  });
+  it("reports which provider answered", async () => {
+    process.env.TAVILY_API_KEY = "t";
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ results: [{ title: "T", url: "https://a.example", content: "c" }] })));
+    await expect(searchWeb("q")).resolves.toMatchObject({ ok: true, provider: "tavily" });
+  });
+
+  it("falls through to Tavily when Z.AI is not configured", async () => {
+    process.env.TAVILY_API_KEY = "tav";
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({ authorization: "Bearer tav" });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        query: "q",
+        time_range: "week",
+        include_domains: ["docs.example.com"],
+      });
+      return jsonResponse({ results: [{ title: "T", url: "https://a.example", content: "snippet" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await searchWeb("q", { recency: "oneWeek", domain: "docs.example.com" });
+    expect(result).toMatchObject({ ok: true, provider: "tavily" });
+    expect(result.ok && result.results).toEqual([{ title: "T", url: "https://a.example", snippet: "snippet" }]);
+  });
+
+  it("falls through when Z.AI is configured but fails, and keeps its error if all fail", async () => {
+    process.env.ZAI_API_KEY = "z";
+    process.env.TAVILY_API_KEY = "tav";
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => {
+      if (String(url).includes("z.ai")) throw new Error("zai down");
+      return jsonResponse({ results: [{ title: "T", url: "https://a.example", content: "c" }] });
+    }));
+    await expect(searchWeb("q")).resolves.toMatchObject({ ok: true, provider: "tavily" });
+
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("everything down");
+    }));
+    const failed = await searchWeb("q");
+    expect(failed).toMatchObject({ ok: false, code: "network" });
+    expect(!failed.ok && failed.message).toContain("zai:");
+    expect(!failed.ok && failed.message).toContain("tavily:");
+  });
+
+  it("asks Codex with the stored login and cites sources as hits", async () => {
+    plantCodexLogin();
+    const text = "Vitest 4 shipped in October.";
+    const sse = [
+      { type: "response.created" },
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "message",
+          content: [
+            {
+              type: "output_text",
+              text,
+              annotations: [
+                { type: "url_citation", url: "https://vitest.dev/blog", title: "Vitest blog", start_index: 0, end_index: 30 },
+                { type: "url_citation", url: "https://vitest.dev/blog", title: "dupe", start_index: 0, end_index: 30 },
+              ],
+            },
+          ],
+        },
+      },
+    ]
+      .map((e) => `data: ${JSON.stringify(e)}\n\n`)
+      .join("");
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({ "chatgpt-account-id": "acct-1" });
+      const body = JSON.parse(String(init?.body)) as { tools: unknown; stream: boolean; input: { content: { text: string }[] }[] };
+      expect(body.tools).toEqual([{ type: "web_search" }]);
+      expect(body.stream).toBe(true);
+      expect(body.input[0]!.content[0]!.text).toBe("vitest site:vitest.dev");
+      return new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await searchWeb("vitest", { domain: "vitest.dev" });
+    expect(result).toMatchObject({ ok: true, provider: "codex" });
+    expect(result.ok && result.results).toEqual([
+      { title: "Vitest blog", url: "https://vitest.dev/blog", snippet: "" },
+    ]);
+  });
+
+  it("reads Claude's search-result blocks, with citations as snippets", async () => {
+    process.env.ANTHROPIC_SEARCH_API_KEY = "ak";
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({ "x-api-key": "ak" });
+      return jsonResponse({
+        content: [
+          { type: "server_tool_use", name: "web_search" },
+          {
+            type: "web_search_tool_result",
+            content: [
+              { type: "web_search_result", url: "https://a.example", title: "A" },
+              { type: "web_search_result", url: "https://b.example", title: "B" },
+            ],
+          },
+          { type: "text", text: "x", citations: [{ url: "https://a.example", cited_text: "quoted A" }] },
+        ],
+      });
+    }));
+    const result = await searchWeb("q");
+    expect(result).toMatchObject({ ok: true, provider: "claude" });
+    expect(result.ok && result.results).toEqual([
+      { title: "A", url: "https://a.example", snippet: "quoted A" },
+      { title: "B", url: "https://b.example", snippet: "" },
+    ]);
+  });
+
+  it("orders providers zai → codex → claude → tavily, overridable by env", () => {
+    expect(searchProviderOrder({})).toEqual(["zai", "codex", "claude", "tavily"]);
+    expect(searchProviderOrder({ WEB_SEARCH_PROVIDERS: "tavily, zai, bogus, tavily" })).toEqual(["tavily", "zai"]);
+    expect(searchProviderOrder({ WEB_SEARCH_PROVIDERS: "bogus" })).toEqual(["zai", "codex", "claude", "tavily"]);
+  });
+
+  it("is not-configured naming every option when nothing is set", async () => {
+    const result = await searchWeb("q");
+    expect(result).toMatchObject({ ok: false, code: "not-configured" });
+    expect(!result.ok && result.message).toMatch(/ZAI_API_KEY.*codex.*ANTHROPIC_SEARCH_API_KEY.*TAVILY_API_KEY/);
+  });
+});
+
+describe("hitsFromStream", () => {
+  it("takes the sentence a citation ends as its snippet", () => {
+    const text = "First line.\nVitest 4 shipped.";
+    const sse = `data: ${JSON.stringify({
+      type: "response.output_item.done",
+      item: {
+        type: "message",
+        content: [
+          {
+            type: "output_text",
+            text: text + " [1]",
+            annotations: [{ type: "url_citation", url: "https://x.example", title: "X", start_index: text.length + 1 }],
+          },
+        ],
+      },
+    })}\n\n`;
+    expect(hitsFromStream(sse)).toEqual([{ title: "X", url: "https://x.example", snippet: "Vitest 4 shipped." }]);
+  });
+
+  it("ignores malformed lines and non-message items", () => {
+    expect(hitsFromStream('data: not json\n\ndata: {"type":"response.output_item.done","item":{"type":"web_search_call"}}\n')).toEqual([]);
   });
 });
