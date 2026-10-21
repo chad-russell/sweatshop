@@ -13,6 +13,7 @@ import { cursorCredential } from "@/lib/harness-auth/cursor";
 import { codexCredential } from "@/lib/harness-auth/codex";
 import { requireRoute } from "@/lib/providers/resolve";
 import type { HarnessRoute } from "@/lib/providers/route";
+import { resolvePhaseHandoff } from "@/lib/chat/phase-handoff";
 import { start as startWorkflowRun } from "workflow/api";
 import { harnessCall } from "@/workflows/chat/harness-call";
 
@@ -53,7 +54,7 @@ export type StartHarnessCallResult =
     }
   | {
       ok: false;
-      code: "no-project" | "not-configured" | "busy" | "start-failed";
+      code: "no-project" | "not-configured" | "busy" | "start-failed" | "not-moded" | "unknown-phase";
       message: string;
     };
 
@@ -71,6 +72,12 @@ export async function startHarnessCall(
     conversationId: string;
     kind: "pi" | "claude" | "cursor" | "codex";
     task: string;
+    /** 0055 v7 part B: override the chat's current phase (id or name) —
+     *  refuses value-shaped when the chat isn't moded or the phase is
+     *  unknown. Absent, the chat's own current phase is used silently
+     *  (no refusal — a phaseless/legacy/non-moded chat just runs
+     *  unwrapped, same as before 0055). */
+    phase?: string;
     /** Test seam: the workflow starter (default: the real runtime). */
     start?: (workflowInput: HarnessCallWorkflowInput) => Promise<{ runId: string }>;
   },
@@ -111,6 +118,13 @@ export async function startHarnessCall(
     if (!credential.ok) return { ok: false, code: "not-configured", message: credential.message };
   }
 
+  // 0055 v7 part B: resolve the phase handoff before the claim — a
+  // refused phase arg must never hold a slot.
+  const phaseResolution = await resolvePhaseHandoff(input.conversationId, input.phase);
+  if (!phaseResolution.ok) {
+    return { ok: false, code: phaseResolution.code, message: phaseResolution.message };
+  }
+
   // 0021: pi inherits the conversation's route, else the project /
   // global default; claude takes its own global setting. Before the
   // claim, so a forbidden route never holds the slot.
@@ -133,10 +147,14 @@ export async function startHarnessCall(
     return { ok: false, code: "busy", message };
   }
 
+  // 0055 v7 part B: `harness_calls.task` stays the orchestrator's
+  // ORIGINAL text (so the card stays readable) — the handoff wrap goes
+  // only into the workflow prompt below.
   const call = createHarnessCall(db(), {
     conversationId: input.conversationId,
     kind: input.kind,
     task: input.task,
+    phase: phaseResolution.phaseName,
   });
   const resumeFrom = getHarnessResumeState(db(), input.conversationId, input.kind) ?? undefined;
 
@@ -151,7 +169,7 @@ export async function startHarnessCall(
       callId: call.id,
       conversationId: input.conversationId,
       kind: input.kind,
-      task: withResultInstruction(input.task),
+      task: withResultInstruction(phaseResolution.wrap(input.task)),
       route,
       ...(resumeFrom ? { resumeFrom } : {}),
     });

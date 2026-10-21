@@ -142,6 +142,12 @@ export function setConversationPhase(db: Db, id: string, phase: string): void {
   db.update(conversations).set({ modePhase: phase }).where(eq(conversations.id, id)).run();
 }
 
+/** 0055 v7 part B: record the phase (display name) a `start_thread`
+ *  child was spawned to do — set once, at creation, by `startThread`. */
+export function setConversationWorkPhase(db: Db, id: string, phase: string): void {
+  db.update(conversations).set({ workPhase: phase }).where(eq(conversations.id, id)).run();
+}
+
 /** 0021: set (or clear, with null) the conversation's route — the chat
  *  picker's choice. The sandbox binding is set once, through
  *  db/sandboxes.ts. Caller validates. */
@@ -505,6 +511,9 @@ export interface ChatChild {
   id: string;
   parentConversationId: string | null;
   skill: string | null;
+  /** 0055 v7 part B: the phase (display name) this child was spawned
+   *  to do — null when the parent wasn't moded or had no phases. */
+  workPhase: string | null;
   activeRunId: string | null;
   trashedAt: number | null;
   createdAt: number;
@@ -516,6 +525,9 @@ const chatChildColumns = {
   id: conversations.id,
   parentConversationId: conversations.parentConversationId,
   skill: conversations.skill,
+  /** 0055 v7 part B: the phase (display name) this child was spawned
+   *  to do — null when the parent wasn't moded or had no phases. */
+  workPhase: conversations.workPhase,
   activeRunId: conversations.activeRunId,
   trashedAt: conversations.trashedAt,
   createdAt: conversations.createdAt,
