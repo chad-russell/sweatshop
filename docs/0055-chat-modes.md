@@ -1,160 +1,190 @@
-# 0055 — Ticket mode: one sticky mode, a phase, and a calmer chat chrome
+# 0055 — Modes: owner-defined, sticky, phased skills
 
-Status: **Approved by the owner (plan v5, chat 2026-10-20).** v5 applies an
-adversarial "overengineered" review (thread c_tmvhjmxkf38ccdb74bc76):
-the thread-state subsystem is cut to one column; most gates, the form
-card, snapshots and the reserved settings slot are deferred to 0056 or
-dropped. 0056 (launcher, per-phase routes, `run_phase`) builds on this.
+Status: **Approved by the owner (plan v7, 2026-10-21).** Supersedes approved v5
+(owner feedback 2026-10-21: modes and phases are defined freely in
+Settings, not in code). History: v1–v5 in this doc's git log; the
+overengineering review (thread c_tmvhjmxkf38ccdb74bc76) still applies —
+no new tables, no code gates. 0056 (per-phase harness/model, launcher)
+builds on this.
 
 ## Why
 
-Thread skills (0039) are ambiguous: `ship` and `ticket` overlap; the
-base prompt lets the agent bind one silently mid-chat; once running,
-nothing on screen says a thread runs one or what that means (system-
-prompt runbook, 50 → 400 steps, auto-continuation). The header has five
-controls beside the crumbs.
+Thread skills (0039) are ambiguous: `ship` and `ticket` overlap, the
+agent can bind one silently mid-chat, and once running nothing on
+screen says what a thread is doing or who is working on what. Rigid
+workflow definitions (Zapier-style) failed before; prose the agent
+interprets works. So: give the owner a light, freeform way to describe
+a staged way of working, make it visible, and keep the code's share of
+structure minimal.
 
-## Decisions (owner, in chat 2026-10-20)
+## Decisions (owner)
 
-- Normal chat is the default; **ticket is the only mode**. Review is a
-  phase in it, or ad hoc — never a mode.
-- Entering is **explicit** (owner, or agent proposes + owner approves)
-  and **sticky** for the rest of the chat.
-- Plan approval and iteration stay a human gate.
-- Entering never changes the system prompt (append-only; cache holds).
-- The model sees thread state (mode + phase), re-injected each turn;
-  the agent declares phases, code checks them.
+- Normal chat is the default. A **mode** is an explicit, sticky way of
+  working, entered by the owner or by the agent with the owner's
+  approval; it lasts the rest of the chat.
+- Modes are **defined in skill markdown**, freely: create, redefine,
+  disable, delete in `/settings`. `ticket` ships as the one default.
+- **Phases are declared in the markdown**; each phase is typically
+  carried out by a harness or child thread, and the UI shows which
+  phase each piece of live work is doing.
+- Entering a mode never changes the system prompt (cache holds); a
+  per-turn `[thread state]` note carries mode + phase.
+- Plan approval stays a human gate (the 0041 card), not a code gate.
 
-## Normal chat vs ticket mode
+## Mode skill format
 
-| | Normal chat | Ticket mode |
-|---|---|---|
-| Who does the work | The agent; harnesses per base steering or when asked | The agent orchestrates; each phase runs in a harness call or child thread |
-| Plan | Optional | `PLAN.md` + `present_plan`, owner approves (0041) |
-| Fresh-eyes review | If asked | Always, before `create_pr` |
-| Step budget | 50 | 400 + continuation (≤ 3) |
-| Phase | — | `plan → implement → review → fixup → ship` |
+```markdown
+---
+description: Planned work to an approved PR.
+mode: true
+---
+# Ticket
 
-Ticket mode needs a project; elsewhere the chip is absent and
-`enter_mode` refuses value-shaped.
+Orchestrator brief: how to run this mode — delegate each phase, keep
+your own context small, wait for plan approval, etc.
+
+## Shared
+Context every phase worker gets: conventions, branch naming, how to
+verify, what "done" means.
+
+## Phase: Plan
+...
+## Phase: Implement
+...
+## Phase: QA
+...
+```
+
+Three keys, all plain markdown:
+
+| Key | Meaning |
+|---|---|
+| `mode: true` (front matter) | This skill is a mode. Without it, a skill is an ordinary skill, whatever its headings. Implies `thread: true`. Stored as a versioned `skills.mode` field; Settings shows it as a checkbox beside "thread". |
+| `## Phase: <Name>` | One phase, in document order. Name is free text ("QA", "Write docs"); its id is the slug (`qa`, `write-docs`). The section runs to the next `##`. `###` and deeper inside a phase are just content. |
+| `## Shared` (optional) | Prepended to every phase handoff. |
+
+Everything else — the H1, the text before the first `##`, any other
+`##` section — is the **orchestrator brief**: read only by the thread
+running the mode. A mode with no `## Phase:` headings is valid: a
+sticky runbook with no phases (no phase chip, `advance_phase` refuses
+value-shaped). Nothing is validated on save; Settings shows the parsed
+result live under the editor (mode yes/no, phase list, whether Shared
+is present) so the owner sees what the agent will see.
+
+## Who reads what
+
+| Reader | Gets |
+|---|---|
+| **Orchestrator, on entry** (appended row / `enter_mode` result) | brief + phase list + Shared + first phase section |
+| **Orchestrator, on `advance_phase`** (tool result) | that phase's section (it already has the brief in history) |
+| **Phase worker** (harness call or child thread started in a moded chat) | handoff block (below) + the orchestrator's task |
+| **Model, every turn** | `[thread state] mode: ticket · phase: qa (3/5) · next: ship` |
+
+**Phase handoff — runtime-attached, not paraphrased.** When the
+orchestrator starts a harness (`pi`/`claude`/`cursor`/`codex`) or
+`start_thread` child in a moded chat, the runtime prepends:
+
+```
+You are doing the "QA" phase of a "Ticket" run. Do only this phase;
+other phases are handled separately. Your result goes back to the
+orchestrator.
+
+<Shared section>
+
+<QA phase section>
+
+---
+Task from the orchestrator:
+<the task it wrote>
+```
+
+The orchestrator writes only the task-specific part (what changed, the
+branch, where evidence is). Why this shape:
+
+- **Not the phase section alone** — the worker lacks shared conventions
+  (branch naming, test command, verification standard), and every
+  phase would have to repeat them.
+- **Not the whole skill** — the brief is addressed to the orchestrator
+  ("delegate", "advance_phase", "wait for approval"); a worker reading
+  it may delegate again or wander into other phases (an implementer
+  opening the PR). Other phases' text is also wasted context.
+- **Runtime-attached, not left to the orchestrator** — the handoff is
+  then exactly what the owner wrote, every time, and visible on the
+  harness card; the orchestrator's prompt stays short.
+
+The phase defaults to the chat's current phase; the tools gain an
+optional `phase` arg for work outside it (e.g. a QA child spawned while
+still in implement). A child thread that also binds a skill (`review`)
+gets both: its skill in its system prompt, the handoff in its prompt.
+Phase sections are written for **whoever does the phase** — the
+orchestrator may do a phase itself (e.g. Ship needs `create_pr`, which
+harnesses don't have); the brief says which.
 
 ## Mechanism
 
-**State = two columns, one of them existing.**
-- `conversations.skill = "ticket"` IS the mode (write-once, never
-  cleared → sticky by construction). Budget, continuation and
-  `inspect` keep working through today's `resolveMaxSteps` /
-  `loadSkillStep` unchanged.
-- New `conversations.mode_phase` (text, null). Set to `plan` on entry.
-- No new tables. The audit trail is the transcript: every
-  `advance_phase` and entry is already a row in `messages`.
+- **State:** `conversations.skill` = the mode's skill id (write-once →
+  sticky); `conversations.mode_phase` = current phase id. Harness calls
+  and child threads record `phase` (`harness_calls.phase`, child
+  `conversations.mode_phase`-style label) at start.
+- **`lib/modes.ts`:** parse a skill body → `{brief, shared, phases[]}`;
+  `isMode(skill)` reads the flag; `threadStateNote`; `phaseHandoff`.
+  No hardcoded mode or phase ids.
+- **`enter_mode({mode, ticket, reason})`:** any active mode skill;
+  approval-gated via the existing card; project chats only; refuses
+  when already moded. Owner entry: the mode chip / `?mode=<id>` on a
+  send. Disabled modes can't be entered; chats already in them continue.
+- **`advance_phase({to, note?})`:** `to` must be a phase the CURRENT
+  body declares (unknown → refusal listing the declared ones, so a
+  renamed heading degrades to a clear message). Moving to the next
+  phase needs no note; anything else (back, skip, loop) needs one. No
+  gates. Legacy threads (bound before 0055, no phase) adopt with a note.
+- **`use_skill`** is list-only. **`buildInstructions`** skips a mode
+  skill once its phase is set; legacy and non-mode skills unchanged.
+- **Base prompt:** the mode is the owner's; suggest one with
+  `enter_mode` (once) when work needs it; honor the `[thread state]`
+  note. Guarded upgrade of the unedited default only.
+- **Skills:** `ticket` rewritten to this format (brief, Shared, phases
+  Plan / Implement / Review / Fixup / Ship); `ship` retired (disabled
+  version); `review` unchanged.
 
-**`lib/modes.ts` (~60 lines)** — the mode as code: ticket's skill id,
-phase order, transition rule (forward one step, `review → ship` when
-the review is clean, the `fixup ⇄ review` loop, backward any step with
-a note), and `##`-section extraction from the runbook. **One gate:**
-`implement` requires the latest plan row to be
-approved — a single sqlite read of `pending_inputs`, and the one human
-gate the owner named. No sandbox/git gates; "is there anything to
-review" stays runbook prose (a review child on an empty diff says so).
-*Design note:* 0041 chose no hard gate on `create_pr`; this does not
-change that — it gates the agent's own phase claim, not a tool.
-
-**Tools.**
-- `enter_mode({mode: "ticket", ticket, reason})` — the agent drafts the
-  ticket; the tool asks through the existing `ask_owner`-style approval
-  card (card shows the draft + reason). Approve → writes skill +
-  phase and returns the runbook's intro + `plan` section; deny →
-  comment returned, nothing changes. Refuses without a project or when
-  already moded. No new card kind.
-- `advance_phase({to, note})` — validated by `lib/modes.ts`; refusal
-  names the rule (`"implement needs an approved plan — present_plan
-  first"`); success writes the column and returns that phase's `##`
-  section (just-in-time runbook).
-- `use_skill` becomes list-only. Binding happens only at the creating
-  send, via `enter_mode`, or by `start_thread` for children.
-
-**Owner entry.** The mode chip's "Ticket mode" (and the fresh composer
-via `?mode=ticket`; `?skill=ticket` still works) marks the NEXT send:
-that send writes skill + phase and is followed by a `runEvent: "mode"`
-row carrying the runbook intro + `plan` section — appended, never in
-the system prompt. The ticket key rides the message text (today's
-convention). No form in 0055 — 0056's launcher is the form, when it has
-per-phase routes to collect.
-
-**Instructions.** `buildInstructions` skips a skill that is a mode
-(by `lib/modes.ts`) **when `mode_phase` is set** — legacy threads bound
-to `ticket` before 0055 (null phase) keep today's system-prompt
-behavior, untouched. Non-mode skills (`review` children) unchanged.
-Edits to the ticket skill in `/settings` reach every ticket chat on its
-next phase advance (sections are read current, per 0054); no snapshots.
-
-**Per-turn reminder.** On the existing "[viewing]" note path (rebuilt
-each turn, metadata-borne, never persisted, rides the end of the
-request so the cached prefix holds), mode chats get:
+## Chrome (PR 2)
 
 ```
-[thread state] mode: ticket · phase: implement (2/5) · next: review
+[🎫 Ticket · QA · 2 working ▾]  [model ▾]  [sandbox ▾]  [hosts]      ◔ 42% · $0.31   [↑]
 ```
 
-Normal chats get nothing. The base prompt gains one fixed line:
-"If a `[thread state]` note is present, honor its mode and phase."
-Mid-turn phase changes reach the model via `advance_phase`'s own
-result, so per-call injection isn't needed.
-
-**Base prompt.** The "bind ship or ticket with use_skill" paragraph
-becomes: the mode is the owner's; suggest ticket mode with
-`enter_mode` (once) when work needs a plan or a PR; honor the thread
-state note. Shipped as a new `git` version only if the row is still the
-unedited default (#136's exact-match idiom); an edited base is left
-alone.
-
-**Skills.** `skills/ticket` rewritten orchestrator-shaped: a short
-intro + one `##` section per phase id. `ship` retired (a seeded
-`disabled` version — restorable). `review` unchanged.
-
-## Chrome
-
-```
-[🎫 Ticket · implement ▾]  [model ▾]  [sandbox ▾]  [hosts]      ◔ 42% · $0.31   [↑]
-```
-
-- **Mode chip** (left-most, project chats only): "Normal ▾" → "Ticket
-  mode" with a two-line meaning; in ticket mode a tinted chip with the
-  phase, whose menu lists the five phases (current marked) and says it
-  is permanent for this chat. No live gate status. Replaces the skill
-  half of `FreshTargetPicker`.
+- **Mode chip:** "Normal ▾" → lists active modes with descriptions. In
+  a mode: mode · phase · "N working"; the menu shows the phase list
+  (current marked) and live work (phase · harness · status · link),
+  from the existing `useChildStatus` poll.
+- **Work chips:** harness/thread cards and their sidebar rows show
+  `QA · cursor`.
 - **Usage control:** the 0051 meter and 0047 cost merged into one
-  composer-bar button opening the stats content, context first. Tones
-  unchanged; hidden until metered.
-- **Header:** crumbs · phase chip (0041 derived, unchanged, all chats —
-  richer than five fixed phases) · preview pill · extras.
-- Narrow: usage → ring only; mode chip → icon + phase.
+  composer-bar button. Header: crumbs · phase chip (0041) · previews.
 
-## Deferred to 0056 (or until evidence)
+## Deferred to 0056
 
-Ticket form/launcher, per-phase routes and a `settings` column,
-`run_phase`, phase strip, more gates, a `skills.mode` data flag (only
-when a second mode exists), runbook snapshots.
+Per-phase harness/model/effort (likely an optional line under each
+`## Phase:` heading, e.g. `harness: cursor`, plus the launcher UI),
+`run_phase`, presets.
 
 ## Build steps
 
-PR 1 — mode + phase:
-- [ ] `conversations.mode_phase` migration; `lib/modes.ts` (order,
-      transitions, plan gate, section extraction).
-- [ ] Rewrite `skills/ticket` (intro + phase sections); retire `ship`.
-- [ ] `enter_mode`, `advance_phase`; `use_skill` list-only;
-      `buildInstructions` mode skip (phase set only).
-- [ ] Owner entry (send flag, `?mode=`) + `runEvent: "mode"` row/chip.
-- [ ] `[thread state]` per-turn note; base prompt paragraph + fixed
-      line, guarded upgrade.
-- [ ] Tests: transitions + plan gate, enter_mode approve/deny/refusals,
-      stickiness, system prompt identical before/after entry, legacy
-      ticket threads unchanged, note present/absent, use_skill no
-      longer binds.
+PR 1 (amend #137):
+- [ ] `skills.mode` versioned field + front matter + Settings checkbox;
+      parser (`brief`/`shared`/`phases`) with live Settings preview.
+- [ ] Drop hardcoded phases/transitions/plan gate; free `advance_phase`
+      over declared phases; enter any active mode; legacy adoption.
+- [ ] Phase handoff prepended to harness tasks and child prompts;
+      `phase` recorded on harness calls and children; optional `phase`
+      arg.
+- [ ] Rewrite `skills/ticket` in the new format; keep `ship` retired.
+- [ ] Tests: parser (no phases, Shared absent, `###` inside, odd names),
+      flag gating, advance over declared phases + refusals, handoff
+      content (no brief, no other phases), disabled mode entry refused,
+      cache stability, legacy.
 
 PR 2 — chrome:
-- [ ] Mode chip + phase menu; picker loses the skill axis.
-- [ ] Usage control in the composer bar; header loses stats/context.
-- [ ] Before/after screenshots (desktop + narrow).
-- [ ] AGENTS.md + docs/agent.
+- [ ] Mode chip + menu with live work; work chips on cards and sidebar.
+- [ ] Usage control in the composer bar; header slimmed.
+- [ ] Before/after screenshots; AGENTS.md + docs/agent.
