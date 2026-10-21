@@ -109,8 +109,9 @@ branch, where evidence is). Why this shape:
   it may delegate again or wander into other phases (an implementer
   opening the PR). Other phases' text is also wasted context.
 - **Runtime-attached, not left to the orchestrator** — the handoff is
-  then exactly what the owner wrote, every time, and visible on the
-  harness card; the orchestrator's prompt stays short.
+  then exactly what the owner wrote, every time, and the orchestrator's
+  prompt stays short. The card shows the orchestrator's own task plus
+  the phase label; the full handoff lives only in the worker's prompt.
 
 The phase defaults to the chat's current phase; the tools gain an
 optional `phase` arg for work outside it (e.g. a QA child spawned while
