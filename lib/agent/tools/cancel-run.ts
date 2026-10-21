@@ -36,6 +36,16 @@ export async function cancelRunTool(runId: string): Promise<CancelRunResult> {
  * (cancelled never wakes), and release the one-per-session slot. A
  * racing natural settle loses to the first final write (both settle
  * paths are running-only).
+ *
+ * harness-bridge-cleanup: this settle is the signal the `harnessCall`
+ * workflow itself watches for — it rechecks the row's status between
+ * every semantic step (`harnessCallIsLiveStep`) and, finding it no
+ * longer "running", tears down its own live session (`harnessStopStep`,
+ * `destroy()`) before exiting, so the bridge this call was holding never
+ * outlives it. Settling from here first (rather than relying solely on
+ * `workflow.cancel()`) is what that check sees — the two are
+ * belt-and-suspenders, not redundant: `workflow.cancel()` stops token
+ * spend as fast as the runtime allows, independent of where the loop is.
  */
 async function cancelHarnessCall(runId: string): Promise<CancelRunResult> {
   const call = getHarnessCall(db(), runId);

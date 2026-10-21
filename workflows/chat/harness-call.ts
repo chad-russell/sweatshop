@@ -1,6 +1,6 @@
 import type { HarnessWorkflowState } from "@ai-sdk/workflow-harness";
 import type { HarnessRoute } from "../../lib/providers/route";
-import { harnessAdvanceStep, harnessSettleStep } from "./harness-step";
+import { harnessAdvanceStep, harnessCallIsLiveStep, harnessSettleStep, harnessStopStep } from "./harness-step";
 
 /**
  * 0022 cut 2: the background harness call worker — one workflow run per
@@ -15,9 +15,17 @@ import { harnessAdvanceStep, harnessSettleStep } from "./harness-step";
  * The initial state is built inline (the run-machine trick) so the
  * bundle stays free of runtime harness imports; `resumeFrom` arrives in
  * the input as plain data (the starter read it from chat_harness_state).
+ *
+ * harness-bridge-cleanup: the loop rechecks the call's own row between
+ * every step (`harnessCallIsLiveStep`) — if `cancel_run` settled it from
+ * outside, this run's only job left is tearing down the live session
+ * (`harnessStopStep`, `destroy()`) so its bridge doesn't outlive it. The
+ * step cap does the same teardown (`stop()` — parked, not discarded, so
+ * the NEXT call resumes it) before settling failed; a plain SDK failure
+ * already carries its own `resumeFrom` and needs no extra step.
  */
 
-const MAX_STEPS = 200;
+const MAX_STEPS = 400;
 
 export interface HarnessCallInput {
   callId: string;
@@ -30,11 +38,14 @@ export interface HarnessCallInput {
   route: HarnessRoute;
   /** The previous turn's resume handle, when the session continues. */
   resumeFrom?: unknown;
+  /** Test-only override of MAX_STEPS — never set in production. */
+  maxSteps?: number;
 }
 
 export async function harnessCall(input: HarnessCallInput): Promise<{ status: string }> {
   "use workflow";
   const { callId, conversationId, kind, task, route } = input;
+  const maxSteps = input.maxSteps ?? MAX_STEPS;
 
   let state = {
     sessionId: conversationId,
@@ -60,11 +71,21 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
   let reportedCostUsd: number | null = null;
   // 0062: the model the harness resolved to; latest wins.
   let model: string | null = null;
+  // harness-bridge-cleanup: set when this call was settled from OUTSIDE
+  // (cancel_run) between two semantic steps — noticed the same way a
+  // human would reload the row, no special signal from the step itself.
+  // The row is already settled at that point; this run's only job left
+  // is tearing down the live session so its bridge doesn't outlive it.
+  let cancelledExternally = false;
   // do…while: the fresh state is "not_started", so a plain while never
   // ran the harness at all and every call "completed" in 0 s with no
   // output (caught live 2026-10-07). Same shape as run-machine's loop.
   try {
     do {
+      if (!(await harnessCallIsLiveStep(callId))) {
+        cancelledExternally = true;
+        break;
+      }
       const r = await harnessAdvanceStep({
         callId,
         conversationId,
@@ -89,7 +110,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
         reportedCostUsd = r.totals.reportedCostUsd ?? reportedCostUsd;
         model = r.totals.model ?? model;
       }
-    } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
+    } while (state.status === "ready_for_next_step" && steps < maxSteps);
   } catch (err) {
     // A step that exhausts its retries (the bridge could not start, the
     // sandbox is gone, a FatalError) throws HERE. Uncaught, the workflow
@@ -114,6 +135,18 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       error: err instanceof Error ? err.message : String(err),
     });
     return { status: "failed" };
+  }
+
+  if (cancelledExternally) {
+    // cancel_run already settled the row (status "cancelled") from
+    // outside this run — settling again here would be a no-op at best
+    // (settleHarnessCall only updates a still-"running" row) and wrong
+    // at worst. The only thing left to do is stop the live session so
+    // its bridge doesn't outlive the call (destroy: cancel means "stop,
+    // don't continue" — unlike the step cap, there is no next call
+    // waiting to resume this one).
+    await harnessStopStep({ callId, conversationId, kind, route, state, destroy: true });
+    return { status: "cancelled" };
   }
 
   if (state.status === "failed") {
@@ -158,6 +191,13 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     return { status: "failed" };
   }
   if (state.status === "ready_for_next_step") {
+    // harness-bridge-cleanup: the turn is still live — the step cap
+    // stopped US from driving it further, but the bridge is still up
+    // and holding its port until something parks it. Reattach via the
+    // suspended turn's own continueFrom and stop() it (park, don't
+    // discard — unlike cancel, the NEXT call in this conversation
+    // should resume right where this one left off).
+    const { resumeFrom } = await harnessStopStep({ callId, conversationId, kind, route, state });
     await harnessSettleStep({
       callId,
       conversationId,
@@ -171,7 +211,8 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       usage,
       reportedCostUsd,
       model,
-      error: `exceeded ${MAX_STEPS} agent steps`,
+      error: `exceeded ${maxSteps} agent steps`,
+      resumeFrom,
     });
     return { status: "failed" };
   }
