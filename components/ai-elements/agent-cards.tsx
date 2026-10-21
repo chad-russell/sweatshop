@@ -162,8 +162,12 @@ export function childPill(s: ChildStatus): { tone: Tone; pill: string } {
   }
 }
 
-/** Stage (runs) and elapsed time — ticking while live, frozen once settled. */
-export function ChildMeta({ status }: { status: ChildStatus }) {
+/** 0055 v7 PR2: a background child's work chip — `<phase> · <harness or
+ *  skill>` (whichever applies) plus elapsed time, ticking while live,
+ *  frozen once settled. `kind` is the harness name for a harness call;
+ *  threads fall back to the skill, shown only while live (settled, the
+ *  card's own subtitle already names it). */
+export function ChildMeta({ status, kind }: { status: ChildStatus; kind?: string | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!status.live) return;
@@ -171,12 +175,23 @@ export function ChildMeta({ status }: { status: ChildStatus }) {
     return () => clearInterval(t);
   }, [status.live]);
   const end = status.live ? now : (status.settledAt ?? now);
+  const label = kind ?? (status.where && status.live ? status.where : null);
   return (
-    <MetaChip>
-      {status.phase ? `${status.phase} · ` : ""}
-      {status.where && status.live ? `${status.where} · ` : ""}
-      {elapsed(status.startedAt, end)}
-    </MetaChip>
+    <span className="hidden shrink-0 items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[11px] text-muted-foreground sm:inline-flex">
+      {status.phase && (
+        <>
+          <span className="text-foreground">{status.phase}</span>
+          <span aria-hidden>·</span>
+        </>
+      )}
+      {label && (
+        <>
+          <span>{label}</span>
+          <span aria-hidden>·</span>
+        </>
+      )}
+      <span>{elapsed(status.startedAt, end)}</span>
+    </span>
   );
 }
 
@@ -235,7 +250,7 @@ export function StartThreadCard({
       subtitle={skill ?? (started ? "plain" : "…")}
       extra={
         <>
-          {live && <ChildMeta status={live} />}
+          {live && <ChildMeta status={live} kind={skill} />}
           {started ? <MetaChip>{started.sandbox === "attached" ? "this sandbox" : started.sandbox === "own" ? "own sandbox" : "no sandbox"}</MetaChip> : null}
         </>
       }
