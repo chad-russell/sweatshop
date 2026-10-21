@@ -223,7 +223,7 @@ describe("0010 spike: chat turn workflow", () => {
       const approvedResult = await approvedRun.returnValue;
       expect(approvedResult.finishReason).toBe("stop");
       expect(getConversation(db(), approvedId)).toMatchObject({ skill: "ticket", modePhase: "plan" });
-      expect(serialized(approvedId)).toContain("## plan");
+      expect(serialized(approvedId)).toContain("## Plan");
 
       process.env.SWEATSHOP_CHAT_MOCK = "enter-mode";
       const deniedId = `c_test_enter_mode_denied_${Math.random().toString(36).slice(2, 8)}`;
@@ -525,7 +525,7 @@ describe("0010 spike: chat turn workflow", () => {
       expect((turn1Input[0] as { content: string }).content).toContain("[viewing]");
       const threadStateContent = (turn1Input[1] as { content: string }).content;
       expect(threadStateContent).toContain("[thread state]");
-      expect(threadStateContent).toContain("phase: plan");
+      expect(threadStateContent).toContain("phase: Plan");
       expect(turn1Input[2]).toMatchObject({ role: "user", content: "first" });
 
       // None of the three metadata fields clobbered another on the row.
@@ -534,7 +534,7 @@ describe("0010 spike: chat turn workflow", () => {
       expect(userRow?.metadata).toMatchObject({
         viewing: { kind: "chat", id },
         runEvent: { kind: "budget", id: "x", status: "continuing" },
-        threadState: { mode: "ticket", phase: "plan" },
+        threadState: threadStateContent,
       });
 
       // Turn 2: a plain send, no viewing/runEvent this time.

@@ -35,7 +35,7 @@ describe("buildInstructions", () => {
   it("appends the skill body last, unchanged from the prior inline shape", () => {
     const withSkill = buildInstructions({
       ...base,
-      skill: { id: "ship", title: "Ship", body: "Do the ship thing." },
+      skill: { id: "ship", title: "Ship", body: "Do the ship thing.", mode: false },
     });
     expect(withSkill).toContain('# Skill: Ship\n\nThis thread runs the "ship" skill — follow it.\n\nDo the ship thing.');
     expect(withSkill.endsWith("Do the ship thing.")).toBe(true);
@@ -44,7 +44,7 @@ describe("buildInstructions", () => {
   it("0055: skips the skill section for a mode skill once its phase is set", () => {
     const withPhase = buildInstructions({
       ...base,
-      skill: { id: "ticket", title: "Ticket", body: "Full ticket runbook text." },
+      skill: { id: "ticket", title: "Ticket", body: "Full ticket runbook text.", mode: true },
       modePhase: "implement",
     });
     expect(withPhase).not.toContain("# Skill: Ticket");
@@ -54,7 +54,7 @@ describe("buildInstructions", () => {
   it("0055: a legacy ticket-skill thread with no phase keeps the skill section (unchanged pre-0055 behavior)", () => {
     const legacy = buildInstructions({
       ...base,
-      skill: { id: "ticket", title: "Ticket", body: "Full ticket runbook text." },
+      skill: { id: "ticket", title: "Ticket", body: "Full ticket runbook text.", mode: true },
       modePhase: null,
     });
     expect(legacy).toContain("# Skill: Ticket");
@@ -65,7 +65,7 @@ describe("buildInstructions", () => {
     const beforeEntry = buildInstructions({ ...base, skill: null, modePhase: null });
     const afterEntry = buildInstructions({
       ...base,
-      skill: { id: "ticket", title: "Ticket", body: "Whatever the current ticket runbook says." },
+      skill: { id: "ticket", title: "Ticket", body: "Whatever the current ticket runbook says.", mode: true },
       modePhase: "plan",
     });
     expect(afterEntry).toBe(beforeEntry);
@@ -74,7 +74,7 @@ describe("buildInstructions", () => {
   it("0055: a non-mode skill with a phase set (nonsensical, but shouldn't happen) still shows its section", () => {
     const nonMode = buildInstructions({
       ...base,
-      skill: { id: "review", title: "Review", body: "Review runbook text." },
+      skill: { id: "review", title: "Review", body: "Review runbook text.", mode: false },
       modePhase: "implement",
     });
     expect(nonMode).toContain("# Skill: Review");
@@ -100,7 +100,7 @@ describe("buildInstructions", () => {
         hasSandbox: true,
         hosts: [{ name: "bee", address: "10.0.0.1", user: "chad", apiBase: null }],
         repoDocs: [],
-        skill: { id: "ship", title: "Ship", body: "Check with {{owner}} before {{owner's}} release." },
+        skill: { id: "ship", title: "Ship", body: "Check with {{owner}} before {{owner's}} release.", mode: false },
       });
       expect(out).toContain("Riley");
       expect(out).toContain("Check with Riley before Riley's release.");

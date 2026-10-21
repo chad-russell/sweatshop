@@ -519,8 +519,10 @@ describe("0055: skill catalog repairs — ship retired, ticket upgraded, only wh
     expect(repaired?.version).toBe(2);
     expect(repaired?.editedBy).toBe("git");
     expect(repaired?.note).toBe("0055 ticket mode");
-    expect(repaired?.body).toContain("## plan");
+    expect(repaired?.body).toContain("## Phase: Plan");
     expect(repaired?.body).not.toBe(PRE_0055_TICKET_BODY);
+    // 0055 v7: the upgrade also flags the skill as a mode.
+    expect(repaired?.mode).toBe(true);
   });
 
   it("never rewrites an edited ticket row, even one byte-for-byte equal to the old body", () => {
