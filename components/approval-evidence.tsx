@@ -2,6 +2,7 @@
 
 import { CheckCircle2, CircleSlash, XCircle } from "lucide-react";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
+import { DiffBreakdownChip } from "@/components/diff-breakdown";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,6 +16,7 @@ export function ApprovalEvidenceView({ evidence }: { evidence: ApprovalEvidence 
   const passed = check?.status === "passed";
   return (
     <div className="space-y-2">
+      {evidence.breakdown && <DiffBreakdownChip breakdown={evidence.breakdown} />}
       <div
         className={cn(
           "rounded-md border p-2 text-xs",
