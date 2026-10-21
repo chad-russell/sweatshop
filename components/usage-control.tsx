@@ -1,16 +1,21 @@
 "use client";
 
-import { ChartPie, X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 /**
- * 0047: the chat-header stats drawer. Fetches the group rollup when
- * opened. Semantic tokens only; numbers are mono.
+ * 0055 PR2: ONE composer-bar control, merging the 0051 context meter
+ * and the 0047 stats drawer — a ring + percentage + cost that opens the
+ * same stats breakdown as a popover, context first. Fetches
+ * `/api/x/stats/<id>` (both readings live on `ConversationStats`,
+ * lib/usage/stats.ts); refreshed on the busy → idle edge (the usage row
+ * lands after the turn settles), not on a timer. Hidden until the chat
+ * has metered turns.
  */
 
 interface ModelUsage {
@@ -41,6 +46,12 @@ interface ChildUsage {
   href: string;
 }
 
+interface ContextStats {
+  usedTokens: number;
+  windowTokens: number;
+  pct: number;
+}
+
 interface StatsPayload {
   rootId: string;
   totals: {
@@ -61,8 +72,8 @@ interface StatsPayload {
   byModel: ModelUsage[];
   byChild: ChildUsage[];
   cacheHitRate: number | null;
-  /** 0051: this conversation's context (null = unmetered/unknown window). */
-  context: { usedTokens: number; windowTokens: number; pct: number } | null;
+  /** This conversation's context (null = unmetered/unknown window). */
+  context: ContextStats | null;
 }
 
 const CHART = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
@@ -137,9 +148,12 @@ function Donut({ slices, center }: { slices: { fraction: number; color: string }
   );
 }
 
-function ContextReadout({ context }: { context: NonNullable<StatsPayload["context"]> }) {
+function contextTone(pct: number): string {
+  return pct >= 95 ? "bg-destructive" : pct >= 85 ? "bg-warning" : "bg-primary/60";
+}
+
+function ContextReadout({ context }: { context: ContextStats }) {
   const pct = Math.round(context.pct * 100);
-  const tone = pct >= 95 ? "bg-destructive" : pct >= 85 ? "bg-warning" : "bg-primary/60";
   return (
     <section aria-label="Context window" className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-2">
@@ -149,7 +163,7 @@ function ContextReadout({ context }: { context: NonNullable<StatsPayload["contex
         </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full rounded-full", tone)} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+        <div className={cn("h-full rounded-full", contextTone(pct))} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
       </div>
       <div className="text-xs text-muted-foreground">
         <span className="font-mono tabular-nums">{pct}%</span> full — the conversation&apos;s size
@@ -159,12 +173,17 @@ function ContextReadout({ context }: { context: NonNullable<StatsPayload["contex
   );
 }
 
+/** The stats breakdown, context first (0055 PR2: this is what the merged
+ *  control's popover shows). */
 function StatsBody({ data }: { data: StatsPayload }) {
   if (data.byModel.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No metered usage yet — stats start recording with the next model call.
-      </p>
+      <div className="flex flex-col gap-5">
+        {data.context && <ContextReadout context={data.context} />}
+        <p className="text-sm text-muted-foreground">
+          No metered usage yet — stats start recording with the next model call.
+        </p>
+      </div>
     );
   }
 
@@ -324,12 +343,84 @@ function StatsBody({ data }: { data: StatsPayload }) {
   );
 }
 
-export function StatsDrawer({ conversationId }: { conversationId: string }) {
+/** The ring: a thin circular progress indicator, no center label (the
+ *  trigger's own text carries the percentage). */
+function Ring({ pct }: { pct: number }) {
+  const r = 7;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.min(100, Math.max(0, pct));
+  return (
+    <svg viewBox="0 0 18 18" className="size-4 shrink-0 -rotate-90" aria-hidden>
+      <circle cx="9" cy="9" r={r} fill="none" stroke="var(--muted)" strokeWidth="2.5" />
+      <circle
+        cx="9"
+        cy="9"
+        r={r}
+        fill="none"
+        className={cn(
+          pct >= 95 ? "stroke-destructive" : pct >= 85 ? "stroke-warning" : "stroke-primary",
+        )}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeDasharray={`${(clamped / 100) * c} ${c}`}
+      />
+    </svg>
+  );
+}
+
+export function UsageControl({
+  conversationId,
+  busy,
+  started,
+  className,
+}: {
+  conversationId: string;
+  busy: boolean;
+  started: boolean;
+  className?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const [data, setData] = useState<StatsPayload | null>(null);
+  const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<{ kind: "loading" } | { kind: "error" } | { kind: "ready"; data: StatsPayload }>({
-    kind: "loading",
-  });
+  const sawBusy = useRef(false);
+
+  useEffect(() => {
+    if (busy) sawBusy.current = true;
+  }, [busy]);
+
+  useEffect(() => {
+    if (!started) return;
+    let cancel = false;
+    const load = () => {
+      fetch(`/api/x/stats/${conversationId}`)
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()) as StatsPayload;
+        })
+        .then((body) => {
+          if (!cancel) {
+            setData(body);
+            setStatus("ready");
+          }
+        })
+        .catch(() => {
+          // Keep whatever data the trigger already showed; the popover's
+          // own error state (below) is what Retry is for.
+          if (!cancel) setStatus("error");
+        });
+    };
+    load();
+    const timer = sawBusy.current
+      ? setTimeout(() => {
+          if (!cancel) load();
+        }, 1_500)
+      : null;
+    return () => {
+      cancel = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [started, conversationId, busy, attempt]);
 
   useEffect(() => {
     if (!open) return;
@@ -340,39 +431,36 @@ export function StatsDrawer({ conversationId }: { conversationId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    let cancel = false;
-    fetch(`/api/x/stats/${conversationId}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as StatsPayload;
-      })
-      .then((data) => {
-        if (!cancel) setState({ kind: "ready", data });
-      })
-      .catch(() => {
-        if (!cancel) setState({ kind: "error" });
-      });
-    return () => {
-      cancel = true;
-    };
-  }, [open, conversationId, attempt]);
+  const context = data?.context ?? null;
+  const metered = Boolean(context && context.windowTokens > 0);
+  // Hidden until metered — UNLESS a fetch actually failed, in which case
+  // the trigger stays reachable so Retry (in the popover) is reachable
+  // too; a plain "not metered yet" 200 keeps the original quiet hide.
+  if (!metered && status !== "error") return null;
+  const pct = context ? Math.round(context.pct * 100) : 0;
+  const cost = data?.totals.costUsd ?? null;
+  const errored = status === "error" && !metered;
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon-xs"
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
         aria-label="Usage and cost"
-        title="Usage and cost"
-        onClick={() => {
-          setState({ kind: "loading" });
-          setOpen(true);
-        }}
+        title={
+          errored
+            ? "Couldn't load usage stats — click to retry"
+            : `Context ${pct}%${cost !== null ? ` · ${formatUsd(cost)}` : ""} — click for the full breakdown`
+        }
+        className={cn(
+          "inline-flex h-8 pointer-coarse:h-10 shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+          className,
+        )}
       >
-        <ChartPie />
-      </Button>
+        {errored ? <CircleAlert className="size-4 shrink-0 text-destructive" aria-hidden /> : <Ring pct={pct} />}
+        {!errored && <span className="hidden font-mono tabular-nums sm:inline">{pct}%</span>}
+        {!errored && cost !== null && <span className="hidden font-mono tabular-nums text-xs sm:inline">· {formatUsd(cost)}</span>}
+      </button>
       {open && (
         <>
           <button
@@ -390,35 +478,35 @@ export function StatsDrawer({ conversationId }: { conversationId: string }) {
             )}
           >
             <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-              <ChartPie className="size-4 text-muted-foreground" aria-hidden />
+              {errored ? <CircleAlert className="size-4 text-destructive" aria-hidden /> : <Ring pct={pct} />}
               <span className="min-w-0 flex-1 truncate text-sm font-medium">Usage and cost</span>
               <Button variant="ghost" size="icon-xs" aria-label="Close" onClick={() => setOpen(false)}>
                 <X />
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-              {state.kind === "loading" && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Spinner className="size-4" />
-                  Loading stats…
-                </div>
-              )}
-              {state.kind === "error" && (
+              {data ? (
+                <StatsBody data={data} />
+              ) : status === "error" ? (
                 <div className="flex flex-col items-start gap-2 text-sm">
-                  <p className="text-muted-foreground">Could not load stats.</p>
+                  <p className="text-muted-foreground">Couldn&apos;t load usage stats.</p>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setState({ kind: "loading" });
+                      setStatus("loading");
                       setAttempt((n) => n + 1);
                     }}
                   >
                     Retry
                   </Button>
                 </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Spinner className="size-4" />
+                  Loading stats…
+                </div>
               )}
-              {state.kind === "ready" && <StatsBody data={state.data} />}
             </div>
           </aside>
         </>

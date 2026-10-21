@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
-import { hasBackgroundChild, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
+import { backgroundChildIds, hasBackgroundChild, liveBackgroundChildIds, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
 import { parseViewingContext, viewingNote } from "../lib/page-context";
 
 let n = 0;
@@ -135,6 +135,88 @@ describe("hasBackgroundChild (0022 wake watch)", () => {
     expect(hasBackgroundChild([started("start_machine", { machines: [] })])).toBe(false);
     expect(hasBackgroundChild([started("pi", { ok: false, code: "busy" })])).toBe(false);
     expect(hasBackgroundChild([started("pi", { ok: true, callId: "hc_1" }), wake])).toBe(false);
+  });
+});
+
+describe("backgroundChildIds (0055 PR2: Mode chip's Working now set)", () => {
+  const started = (tool: string, output: unknown): import("ai").UIMessage => ({
+    id: `a_${tool}_${JSON.stringify(output)}`,
+    role: "assistant",
+    parts: [{ type: `tool-${tool}`, toolCallId: "t", state: "output-available", input: {}, output } as never],
+  });
+
+  it("collects harness callIds and start_thread ids, in first-seen order, deduped", () => {
+    const ids = backgroundChildIds([
+      started("pi", { ok: true, callId: "hc_1" }),
+      started("start_thread", { ok: true, id: "c_1" }),
+      started("claude", { ok: true, callId: "hc_2" }),
+      started("pi", { ok: true, callId: "hc_1" }), // a later pi call that reuses... never happens, but dedup is cheap insurance
+    ]);
+    expect(ids).toEqual(["hc_1", "c_1", "hc_2"]);
+  });
+
+  it("ignores failed starts, in-flight calls, and non-harness tools", () => {
+    const ids = backgroundChildIds([
+      started("pi", { ok: false, code: "busy" }),
+      started("bash", { ok: true, stdout: "hi" }),
+      { id: "x", role: "assistant", parts: [{ type: "tool-pi", toolCallId: "t", state: "input-streaming", input: {} } as never] },
+    ]);
+    expect(ids).toEqual([]);
+  });
+
+  it("is empty for an empty transcript", () => {
+    expect(backgroundChildIds([])).toEqual([]);
+  });
+});
+
+describe("liveBackgroundChildIds (0055 PR2 review fix: stop polling settled children)", () => {
+  const started = (tool: string, output: unknown): import("ai").UIMessage => ({
+    id: `a_${tool}_${JSON.stringify(output)}`,
+    role: "assistant",
+    parts: [{ type: `tool-${tool}`, toolCallId: "t", state: "output-available", input: {}, output } as never],
+  });
+  const wake = (kind: string, id: string): import("ai").UIMessage => ({
+    id: `w_${kind}_${id}`,
+    role: "user",
+    parts: [{ type: "text", text: `[${kind} finished]` }],
+    metadata: { runEvent: { kind, id, status: "completed" } },
+  });
+
+  it("excludes a child whose wake row already arrived", () => {
+    const ids = liveBackgroundChildIds([
+      started("pi", { ok: true, callId: "hc_1" }),
+      wake("harness", "hc_1"),
+    ]);
+    expect(ids).toEqual([]);
+  });
+
+  it("keeps a child with no wake row yet, alongside one that already woke", () => {
+    const ids = liveBackgroundChildIds([
+      started("pi", { ok: true, callId: "hc_1" }),
+      wake("harness", "hc_1"),
+      started("start_thread", { ok: true, id: "c_1" }),
+    ]);
+    expect(ids).toEqual(["c_1"]);
+  });
+
+  it("a thread child's wake is kind \"thread\", by conversation id", () => {
+    const ids = liveBackgroundChildIds([
+      started("start_thread", { ok: true, id: "c_1" }),
+      wake("thread", "c_1"),
+    ]);
+    expect(ids).toEqual([]);
+  });
+
+  it("ignores other runEvent kinds (budget/plan/mode) — they never name a background child", () => {
+    const ids = liveBackgroundChildIds([
+      started("pi", { ok: true, callId: "hc_1" }),
+      wake("budget", "hc_1"),
+    ]);
+    expect(ids).toEqual(["hc_1"]);
+  });
+
+  it("is empty for an empty transcript", () => {
+    expect(liveBackgroundChildIds([])).toEqual([]);
   });
 });
 

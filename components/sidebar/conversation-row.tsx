@@ -147,6 +147,14 @@ export function ConversationRow({
                     <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>
                   )}
                 </span>
+                {item.phase && (
+                  <span
+                    title={`Phase: ${item.phase}`}
+                    className="shrink-0 truncate rounded bg-sidebar-accent px-1 py-0 text-[10px] text-sidebar-foreground/60"
+                  >
+                    {item.phase}
+                  </span>
+                )}
                 {collapsedAttention && (
                   <AttentionDot unread={item.descendantAttention.unread} needsYou={item.descendantAttention.needsYou} />
                 )}

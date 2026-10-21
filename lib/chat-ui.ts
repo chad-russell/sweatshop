@@ -180,3 +180,53 @@ export function hasBackgroundChild(messages: UIMessage[]): boolean {
   }
   return false;
 }
+
+/** Harness tools whose successful result carries the started call's id
+ *  as `callId` (`StartHarnessCallResult`). `start_thread`'s own result
+ *  carries it as `id` instead (`StartThreadResult`). */
+const HARNESS_TOOLS = new Set(["pi", "claude", "cursor", "codex"]);
+
+/** 0055 PR2: every background child (harness call or start_thread
+ *  child) this transcript has ever started, in first-seen order — the
+ *  Mode chip's "Working now" set polls each via useChildStatus (no new
+ *  polling mechanism; just discovering what's already there to poll). */
+export function backgroundChildIds(messages: UIMessage[]): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const m of messages) {
+    for (const p of m.parts) {
+      if (!p.type.startsWith("tool-")) continue;
+      const name = p.type.slice(5);
+      if (!HARNESS_TOOLS.has(name) && name !== "start_thread") continue;
+      const part = p as { state?: string; output?: unknown };
+      if (part.state !== "output-available") continue;
+      const out = part.output as { callId?: unknown; id?: unknown } | undefined;
+      const id = typeof out?.callId === "string" ? out.callId : typeof out?.id === "string" ? out.id : null;
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+  }
+  return ids;
+}
+
+/** 0055 PR2 review fix: `backgroundChildIds` minus any child that has
+ *  already woken this chat — a wake row is a `user` message whose
+ *  `metadata.runEvent` names the settled child by id (kind "harness" =
+ *  a harness call, "thread" = a start_thread child; same fields
+ *  `hasBackgroundChild` reasons from). Keeps the Mode chip from polling
+ *  a child forever just because the transcript still shows its tool
+ *  call — once it has settled and woken the chat, there is nothing
+ *  left to watch. */
+export function liveBackgroundChildIds(messages: UIMessage[]): string[] {
+  const woken = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== "user") continue;
+    const runEvent = (m.metadata as { runEvent?: { kind?: string; id?: string } } | undefined)?.runEvent;
+    if (runEvent && (runEvent.kind === "harness" || runEvent.kind === "thread") && typeof runEvent.id === "string") {
+      woken.add(runEvent.id);
+    }
+  }
+  return backgroundChildIds(messages).filter((id) => !woken.has(id));
+}

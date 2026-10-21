@@ -248,7 +248,7 @@ export function HarnessCard({
                 tone={!live || live.live ? "running" : live.status === "completed" ? "ok" : live.status === "failed" ? "fail" : "neutral"}
                 label={!live ? "in background" : live.status === "running" ? "running" : live.status}
               />
-              {live && <ChildMeta status={live} />}
+              {live && <ChildMeta status={live} kind={kind} />}
             </>
           ) : (
             <StatusPill

@@ -17,12 +17,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 
 ## Ground rules
 
-- **Branch / remote:** `origin` is `chad/sweatshop` on Forgejo
-  (git.crussell.io, pushed as the `glen` account; this checkout's
-  `core.sshCommand` selects the key). `main` is this repo; the
-  prototype's history lives on as `archive/prototype` + its `v0.*` tags.
-  Agents work on branches and open PRs; Chad merges; the Forgejo deploy
-  workflow (0045) ships merged `main`.
+- **Branch / remote:** `origin` is `chad-russell/sweatshop` on GitHub —
+  the source of truth: PRs open there, and the GitHub Actions gate
+  (`.github/workflows/ci.yml`: typecheck, lint, test) must pass before
+  merge. `main` is this repo; the prototype's history lives on as
+  `archive/prototype` + its `v0.*` tags. `git.crussell.io` Forgejo is
+  now only a pull mirror of GitHub, whose deploy workflow (0045) ships
+  merged `main` (from the mirror) to the host. Agents work on branches
+  and open PRs on GitHub; Chad merges.
 - **Commits:** conventional commits — `type(scope): subject` (feat, fix,
   docs, chore, refactor…). Commit often enough that history reads as a
   logical sequence of small steps.
@@ -110,10 +112,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the `DESIGN.md` token contract: semantic tokens only, never raw
   hex/oklch in TSX; themes `clickhouse` (default), `cal`, `nova`.
   Components never import `@/db` (lint-enforced); read-model types live
-  in `@/lib/read-models` (0049). Chat header carries a context meter (0051): the
-  conversation's last metered slice input+output vs the model's
-  catalog window, percentage-first, warn-only.
-- Quiet tool groups (0054) keep their full-width collapsible box and
+  in `@/lib/read-models` (0049). A composer-bar usage control (0051 +
+  0047, merged 0055 PR2) shows a ring, the conversation's last metered
+  slice as a percentage of the model's catalog window, and cost;
+  hidden until metered, ring-only below `sm`; clicking opens the same
+  stats breakdown (context first) as a popover. The header itself just
+  holds crumbs · the 0041 phase chip · the preview pill.
+- Quiet tool groups (0056) keep their full-width collapsible box and
   render calls with shadcn Trace (`components/ui/trace.tsx`): action
   first, expandable specialized cards, repeated polls still folded.
   Individual failures stay red; group status describes activity
@@ -275,9 +280,29 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   CHILD's own `conversations.work_phase` (distinct from that child's
   own `mode_phase`, if it enters a mode itself). Exposed on
   `childStatus`/`GET /api/x/status/<id>`, the sidebar's synthetic
-  harness rows and child conversation rows, and `inspect`. Still
-  chrome-only (docs/0055 PR 2): the mode chip, phase menu, work chips
-  on cards.
+  harness rows and child conversation rows, and `inspect`.
+- Mode chrome (0055 PR2): `components/mode-chip.tsx`, leftmost in a
+  project chat's composer, owns mode choice end to end — the removed
+  `FreshTargetPicker` skill axis moved here, scoped to ACTIVE modes
+  only (plain thread skills are agent/child-only). Not moded: "Normal
+  ▾" lists active modes (`/api/skills`' `mode` flag); picking one on a
+  fresh chat sets the creating send's `skill` (unchanged path — the
+  server already aliases a mode skill id there); on an EXISTING chat it
+  queues `ChatSessionState.pendingModeId`, sent as `mode` on the VERY
+  NEXT send (cleared the instant that send fires, busy/steer or not) —
+  shown as "pending: `<title>`" with a clear option. Moded: a tinted
+  `<title> · <phase>` chip (no phase segment for a phaseless mode) plus
+  "N working"; its menu lists the declared phases (current marked,
+  server-read by `lib/chat/mode-chrome.ts`'s `loadModeChrome` — parses
+  the skill's CURRENT body, so it never drifts from what `enter_mode`/
+  `advance_phase` see) and a live "Working now" list. Live work comes
+  from `lib/chat-ui.ts`'s `backgroundChildIds` (every harness-call/
+  start_thread id the transcript ever started) each polled by the
+  existing `useChildStatus` — no new polling mechanism. `ChildMeta`
+  (`components/ai-elements/agent-cards.tsx`) is a bordered work-chip
+  pill, `<phase> · <harness or skill>` plus elapsed, on harness and
+  thread cards; the sidebar's synthetic harness rows and child
+  conversation rows show the phase as a small muted pill.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy
@@ -602,8 +627,9 @@ ONE instance (0020) — no dev server, no second checkout:
   taken) plus the preview proxy on 10.10.0.12:3301. Restart=always,
   starts at boot. Logs: `journalctl --user -u sweatshop` (agent shells
   need `XDG_RUNTIME_DIR=/run/user/1000`).
-- **This checkout is the deploy checkout.** It tracks `main` on Forgejo
-  and moves ONLY through the deploy workflow (0045): merge → checks →
+- **This checkout is the deploy checkout.** It tracks the Forgejo
+  mirror of `main` (GitHub is the source of truth; Forgejo pulls from
+  it) and moves ONLY through the deploy workflow (0045): merge → checks →
   `scripts/ci-deploy.sh` inside the `sweatshop-deploy` transient user
   unit (fast-forward → `data/backups/pre-<sha>.db` snapshot → stop →
   `npm ci` + `next build` + `db:migrate` → start → health check; a
