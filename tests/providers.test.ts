@@ -504,7 +504,7 @@ describe("derived built-in defaults (no GLM plan required)", () => {
   it("subscription-harness defaults never move", () => {
     const d = deriveBuiltinDefaults(set("gloo"));
     expect(d.claude).toEqual({ harness: "claude" });
-    expect(d.cursor).toEqual({ harness: "cursor" });
+    expect(d.cursor).toEqual({ harness: "cursor", model: "grok-4.7" });
     expect(d.codex).toEqual({ harness: "codex", model: "gpt-5.6-sol" });
   });
 
