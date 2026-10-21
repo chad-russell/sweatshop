@@ -112,9 +112,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the `DESIGN.md` token contract: semantic tokens only, never raw
   hex/oklch in TSX; themes `clickhouse` (default), `cal`, `nova`.
   Components never import `@/db` (lint-enforced); read-model types live
-  in `@/lib/read-models` (0049). Chat header carries a context meter (0051): the
-  conversation's last metered slice input+output vs the model's
-  catalog window, percentage-first, warn-only.
+  in `@/lib/read-models` (0049). A composer-bar usage control (0051 +
+  0047, merged 0055 PR2) shows a ring, the conversation's last metered
+  slice as a percentage of the model's catalog window, and cost;
+  hidden until metered, ring-only below `sm`; clicking opens the same
+  stats breakdown (context first) as a popover. The header itself just
+  holds crumbs · the 0041 phase chip · the preview pill.
 - Models: providers and routes (0021). Providers are code, keys are env:
   `lib/providers/registry.ts` — GLM (Z.AI coding plan, `ZAI_API_KEY`),
   Gloo (`GLOO_API_KEY`) and OpenRouter (`OPENROUTER_API_KEY`) via
@@ -265,9 +268,29 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   CHILD's own `conversations.work_phase` (distinct from that child's
   own `mode_phase`, if it enters a mode itself). Exposed on
   `childStatus`/`GET /api/x/status/<id>`, the sidebar's synthetic
-  harness rows and child conversation rows, and `inspect`. Still
-  chrome-only (docs/0055 PR 2): the mode chip, phase menu, work chips
-  on cards.
+  harness rows and child conversation rows, and `inspect`.
+- Mode chrome (0055 PR2): `components/mode-chip.tsx`, leftmost in a
+  project chat's composer, owns mode choice end to end — the removed
+  `FreshTargetPicker` skill axis moved here, scoped to ACTIVE modes
+  only (plain thread skills are agent/child-only). Not moded: "Normal
+  ▾" lists active modes (`/api/skills`' `mode` flag); picking one on a
+  fresh chat sets the creating send's `skill` (unchanged path — the
+  server already aliases a mode skill id there); on an EXISTING chat it
+  queues `ChatSessionState.pendingModeId`, sent as `mode` on the VERY
+  NEXT send (cleared the instant that send fires, busy/steer or not) —
+  shown as "pending: `<title>`" with a clear option. Moded: a tinted
+  `<title> · <phase>` chip (no phase segment for a phaseless mode) plus
+  "N working"; its menu lists the declared phases (current marked,
+  server-read by `lib/chat/mode-chrome.ts`'s `loadModeChrome` — parses
+  the skill's CURRENT body, so it never drifts from what `enter_mode`/
+  `advance_phase` see) and a live "Working now" list. Live work comes
+  from `lib/chat-ui.ts`'s `backgroundChildIds` (every harness-call/
+  start_thread id the transcript ever started) each polled by the
+  existing `useChildStatus` — no new polling mechanism. `ChildMeta`
+  (`components/ai-elements/agent-cards.tsx`) is a bordered work-chip
+  pill, `<phase> · <harness or skill>` plus elapsed, on harness and
+  thread cards; the sidebar's synthetic harness rows and child
+  conversation rows show the phase as a small muted pill.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy
