@@ -74,6 +74,14 @@ export const conversations = sqliteTable(
      *  null = a plain chat. Its body joins the turn instructions and
      *  raises the turn's step budget. */
     skill: text("skill"),
+    /** 0055: the sticky mode's current phase (ticket: plan/implement/
+     *  review/fixup/ship); null = no mode entered, or a legacy thread
+     *  bound to `skill = "ticket"` before 0055 (keeps today's behavior —
+     *  the skill section stays in the system prompt instead of the
+     *  per-turn [thread state] note). Set by `enter_mode`, advanced by
+     *  `advance_phase`; never cleared once set (sticky by construction,
+     *  same as `skill` itself). */
+    modePhase: text("mode_phase"),
     /** 0037 phase 3: the chat whose start_thread created this thread —
      *  the wake target when this one settles. Null = not a child. A
      *  deleted parent goes null and wakes stop. */

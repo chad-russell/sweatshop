@@ -41,9 +41,11 @@ export interface MessageRowMetadata {
 /** 0022: what woke a conversation (machine run or harness call; 0037:
  *  "budget" = a thread-skill turn hit its step budget and continues;
  *  "thread" = a child chat started by start_thread settled; 0041:
- *  "plan" = Chad approved the plan under review). */
+ *  "plan" = Chad approved the plan under review; 0055: "mode" = the
+ *  owner's send entered a mode — this row's TEXT is the mode's
+ *  rendered intro + first-phase runbook, not a wake). */
 export interface RunEventMeta {
-  kind: "machine" | "harness" | "budget" | "thread" | "plan";
+  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode";
   id: string;
   status: string;
 }
@@ -88,6 +90,9 @@ export function getConversation(
   trashedAt: number | null;
   /** 0039: the thread's skill id (null = plain chat). */
   skill: string | null;
+  /** 0055: the sticky mode's current phase (null = no mode entered, or
+   *  a legacy ticket-skill thread bound before 0055). */
+  modePhase: string | null;
   /** 0037 phase 3: the start_thread parent, when this is a child (0040
    *  phase 3: a child gets the thread step budget even with no skill). */
   parentConversationId: string | null;
@@ -99,6 +104,7 @@ export function getConversation(
       route: conversations.route,
       trashedAt: conversations.trashedAt,
       skill: conversations.skill,
+      modePhase: conversations.modePhase,
       parentConversationId: conversations.parentConversationId,
     })
     .from(conversations)
@@ -107,9 +113,22 @@ export function getConversation(
   return row ? { ...row, route: parseStoredChatRoute(row.route) } : null;
 }
 
-/** 0039: set the thread's skill (creation send, or use_skill). */
+/** 0039: set the thread's skill (the creation send, or start_thread for
+ *  a child; 0055: use_skill no longer binds — only lists). */
 export function setConversationSkill(db: Db, id: string, skill: string): void {
   db.update(conversations).set({ skill }).where(eq(conversations.id, id)).run();
+}
+
+/** 0055: enter a mode — the skill and its starting phase, written
+ *  together (the two columns must never be seen half-set). */
+export function setConversationMode(db: Db, id: string, skill: string, phase: string): void {
+  db.update(conversations).set({ skill, modePhase: phase }).where(eq(conversations.id, id)).run();
+}
+
+/** 0055: advance_phase's write — the skill (the mode itself) is
+ *  already set and never changes here. */
+export function setConversationPhase(db: Db, id: string, phase: string): void {
+  db.update(conversations).set({ modePhase: phase }).where(eq(conversations.id, id)).run();
 }
 
 /** 0021: set (or clear, with null) the conversation's route — the chat
