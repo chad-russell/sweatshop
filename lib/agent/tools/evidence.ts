@@ -7,6 +7,7 @@ import { getConversationBinding } from "@/db/sandboxes";
 import { harnessEvents } from "@/db/schema";
 import { openConversationSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
+import type { DiffBreakdown } from "@/lib/diff-breakdown";
 
 /**
  * 0037 phase 1: the evidence a gated tool's approval card carries, built
@@ -43,6 +44,9 @@ export interface ApprovalEvidence {
   check: CheckResult | null;
   /** Why the check could not run, when it could not (no sandbox, …). */
   checkNote?: string;
+  /** 0059: the sandbox diff's category breakdown — set by create_pr's
+   *  preview; undefined where no breakdown applies (e.g. no sandbox). */
+  breakdown?: DiffBreakdown;
 }
 
 type Part = { type?: string; toolName?: string; input?: unknown; output?: unknown };

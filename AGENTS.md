@@ -330,9 +330,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   derived from the transcript, never stored) says what the host says
   now: while it shows an open PR, the client polls `GET /api/x/prs`
   (`GitHost.getPRState`, 0052) and `applyPRState` relabels it merged/
-  closed — derived purity holds, the override is render-time. The
-  review skill treats `PLAN.md` as the agreed spec. No plan table, no
-  hard gate on `create_pr`.
+  closed — derived purity holds, the override is render-time. Beside it,
+  once a PR is open, a diff breakdown chip (0059, `lib/diff-breakdown.ts`'s
+  `latestDiffBreakdown`, read the same way off the transcript) opens a
+  popover with the branch's change sorted into fixed categories
+  (Generated/Tests/Docs/Migrations/Config/Code). The review skill treats
+  `PLAN.md` as the agreed spec. No plan table, no hard gate on `create_pr`.
 - PR dashboard (0053): a top-level `/prs` page lists every PR by the
   repo's own credential account across ALL project repos (hand-opened
   and agent-opened alike) — asked LIVE through `GitHost.listPRs` on

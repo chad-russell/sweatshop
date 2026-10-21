@@ -6,6 +6,7 @@ import { resolveProjectRepo } from "@/lib/git-hosts/open-pr";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 import { buildApprovalEvidence, describeCheck, type ApprovalEvidence } from "./evidence";
 import { clipLines } from "@/lib/clip";
+import { classifyDiff, parseNumstatZ, type DiffBreakdown } from "@/lib/diff-breakdown";
 
 /**
  * 0034 Phase A: the approval preview for create_pr — validate the
@@ -35,10 +36,21 @@ export type PRPreview =
 /** Ref/dir names safe to interpolate into the sandbox shell command. */
 const SAFE_NAME = /^[A-Za-z0-9._/-]+$/;
 
+/** A compact "Category  N files  +A −D" table plus a Total row, replacing
+ *  the clipped `--stat` blob (0059) — the text form carries the same
+ *  breakdown the UI chip shows. */
+function formatBreakdownTable(breakdown: DiffBreakdown): string {
+  const rows = [
+    ...breakdown.categories.map((c) => ({ label: c.label, files: c.files, added: c.added, deleted: c.deleted })),
+    { label: "Total", files: breakdown.files, added: breakdown.added, deleted: breakdown.deleted },
+  ];
+  return rows.map((r) => `${r.label}  ${r.files} files  +${r.added} −${r.deleted}`).join("\n");
+}
+
 /** The card text — pure; `git` carries what the sandbox gather returned. */
 export function formatPRSummary(
   input: PRPreviewInput,
-  git?: { log?: string; stat?: string; note?: string },
+  git?: { log?: string; breakdown?: DiffBreakdown; note?: string },
 ): string {
   const lines = [
     `Open a pull request on "${input.repo}": ${input.title}`,
@@ -50,8 +62,8 @@ export function formatPRSummary(
   if (git?.log?.trim()) {
     lines.push("", "Commits:", clipLines(git.log, 15));
   }
-  if (git?.stat?.trim()) {
-    lines.push("", "Diffstat:", clipLines(git.stat, 15));
+  if (git?.breakdown && git.breakdown.files > 0) {
+    lines.push("", "Diff:", formatBreakdownTable(git.breakdown));
   }
   if (git?.note) lines.push("", `(${git.note})`);
   return lines.join("\n").slice(0, 3_500);
@@ -64,7 +76,7 @@ export async function runGitSummary(
   repo: string,
   head: string,
   base?: string,
-): Promise<{ log?: string; stat?: string; note?: string; missingHead?: true }> {
+): Promise<{ log?: string; breakdown?: DiffBreakdown; note?: string; missingHead?: true }> {
   for (const name of [repo, head, base ?? "main"]) {
     if (!SAFE_NAME.test(name)) {
       return { note: `unusual name "${name}" — commit summary skipped` };
@@ -75,14 +87,14 @@ export async function runGitSummary(
     const exists = await run(`git -C ${repo} rev-parse --verify --quiet refs/heads/${head}`);
     if (exists.exitCode !== 0) return { missingHead: true, note: `branch "${head}" does not exist` };
     const log = await run(`git -C ${repo} log --oneline -16 ${target}..${head}`);
-    const stat = await run(`git -C ${repo} diff --stat ${target}...${head} | tail -16`);
-    if (log.exitCode !== 0 || stat.exitCode !== 0) {
-      const err = log.exitCode !== 0 ? log.stderr : stat.stderr;
+    const numstat = await run(`git -C ${repo} diff --numstat -z ${target}...${head}`);
+    if (log.exitCode !== 0 || numstat.exitCode !== 0) {
+      const err = log.exitCode !== 0 ? log.stderr : numstat.stderr;
       return {
         note: `commit summary unavailable (${err.trim().split("\n")[0] || "git error"})`,
       };
     }
-    return { log: log.stdout, stat: stat.stdout };
+    return { log: log.stdout, breakdown: classifyDiff(parseNumstatZ(numstat.stdout)) };
   } catch (err) {
     return {
       note: `commit summary unavailable (${err instanceof Error ? err.message : String(err)})`,
@@ -95,7 +107,7 @@ async function gatherGitSummary(
   conversationId: string,
   input: PRPreviewInput,
   provider?: SandboxProvider,
-): Promise<{ log?: string; stat?: string; note?: string; missingHead?: true }> {
+): Promise<{ log?: string; breakdown?: DiffBreakdown; note?: string; missingHead?: true }> {
   // Only a BOUND conversation has a sandbox to read from — pending
   // would provision one (clone repos) just to summarize, and none has
   // nothing to read. Neither belongs in an approval preview.
@@ -144,7 +156,11 @@ export async function buildChatPRPreview(
   }
   // 0037: the runtime's own evidence — the test command and the
   // thread's screenshots — so the card shows what the model skipped.
-  const evidence = await buildApprovalEvidence(conversationId, input.repo, provider, live);
+  // 0059: the sandbox's own diff breakdown rides along too.
+  const evidence: ApprovalEvidence = {
+    ...(await buildApprovalEvidence(conversationId, input.repo, provider, live)),
+    breakdown: git.breakdown,
+  };
   const shots = evidence.screenshots.length;
   const summary = `${formatPRSummary(input, git)}\n\nChecks: ${describeCheck(evidence)}\nScreenshots: ${shots === 0 ? "none attached in this thread" : shots}`;
   return { ok: true, summary, evidence };

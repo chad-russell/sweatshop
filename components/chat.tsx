@@ -17,6 +17,7 @@ import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { PhaseChip } from "@/components/plan-card";
+import { DiffBreakdownChip } from "@/components/diff-breakdown";
 import { ModeChip } from "@/components/mode-chip";
 import { UsageControl } from "@/components/usage-control";
 import { shortSandboxId } from "@/lib/sandbox-id";
@@ -531,6 +532,8 @@ export function ChatSurface({
         >
           {/* 0041: plan → build → PR, derived from the transcript. */}
           <PhaseChip phase={s.phase} variant="header" />
+          {/* 0059: the newest create_pr's diff breakdown, beside the phase chip. */}
+          {s.diffBreakdown && <DiffBreakdownChip breakdown={s.diffBreakdown} variant="header" />}
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
           <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}

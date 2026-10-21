@@ -12,6 +12,8 @@ import { isPlanCard } from "@/lib/plan";
 import { usePRStates } from "@/lib/use-pr-states";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
+import { DiffBreakdownChip } from "@/components/diff-breakdown";
+import { isDiffBreakdown } from "@/lib/diff-breakdown";
 import { cn } from "@/lib/utils";
 import type { PromptChangeCard as PromptChangeCardData } from "@/lib/read-models/attention";
 
@@ -123,10 +125,11 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
   const repoDir = typeof input?.repo === "string" ? input.repo : undefined;
   const output =
     part.state === "output-available"
-      ? (part.output as { url?: unknown; number?: unknown } | undefined)
+      ? (part.output as { url?: unknown; number?: unknown; breakdown?: unknown } | undefined)
       : undefined;
   const url = typeof output?.url === "string" ? output.url : undefined;
   const prNumber = typeof output?.number === "number" ? output.number : undefined;
+  const breakdown = isDiffBreakdown(output?.breakdown) ? output.breakdown : undefined;
   // 0052: the host's live answer (settled PRs stop polling on their own).
   const prStates = usePRStates(url ? [url] : null);
   const live = url ? prStates[url] ?? null : null;
@@ -201,6 +204,7 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
             <span aria-hidden>→</span>
             <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{base}</span>
             {!coords?.repo && repoDir && <span className="font-mono">{repoDir}</span>}
+            {breakdown && <DiffBreakdownChip breakdown={breakdown} />}
           </div>
         )}
         {body && (

@@ -5,6 +5,7 @@ import { ensureConversation } from "../db/chat";
 import { createProject } from "../db/projects";
 import { conversations, gitCredentials, projectRepos, projects } from "../db/schema";
 import { buildChatPRPreview, formatPRSummary, runGitSummary } from "../lib/agent/tools/pr-preview";
+import { classifyDiff, parseNumstatZ } from "../lib/diff-breakdown";
 
 /**
  * 0034 Phase A: the create_pr approval preview — pure formatting, and
@@ -18,17 +19,29 @@ const pid = `pv-${rand}`;
 const convId = `c_test_pv_${rand}`;
 
 describe("formatPRSummary", () => {
-  it("renders repo, head→base, title, body lead, commits, diffstat", () => {
+  it("renders repo, head→base, title, body lead, commits, diff breakdown table", () => {
     const summary = formatPRSummary(
       { repo: "r", head: "feat/x", base: "develop", title: "Fix the thing", body: "Long body\nsecond line" },
-      { log: "abc1234 fix\nabc1233 prep", stat: " lib/a.ts | 2 +-\n 1 file changed" },
+      {
+        log: "abc1234 fix\nabc1233 prep",
+        breakdown: classifyDiff(parseNumstatZ("2\t1\tlib/a.ts\0")),
+      },
     );
     expect(summary).toContain('"r"');
     expect(summary).toContain("feat/x → develop");
     expect(summary).toContain("Fix the thing");
     expect(summary).toContain("Body: Long body");
     expect(summary).toContain("abc1234 fix");
-    expect(summary).toContain("lib/a.ts | 2 +-");
+    expect(summary).toContain("Code  1 files  +2 −1");
+    expect(summary).toContain("Total  1 files  +2 −1");
+  });
+
+  it("omits the diff section for a zero-row breakdown", () => {
+    const summary = formatPRSummary(
+      { repo: "r", head: "h", title: "t" },
+      { breakdown: classifyDiff(parseNumstatZ("")) },
+    );
+    expect(summary).not.toContain("Diff:");
   });
 
   it("clips long commit lists and notes why the git summary is absent", () => {
@@ -112,9 +125,12 @@ describe("runGitSummary (run 7)", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain("refs/heads/feature/wyc-card");
 
-    const ok = await runGitSummary(async (c) =>
-      c.includes("rev-parse") ? { exitCode: 0, stdout: "sha", stderr: "" } : { exitCode: 0, stdout: "abc fix", stderr: "" },
-    "r", "feature/wyc-1589");
-    expect(ok).toEqual({ log: "abc fix", stat: "abc fix" });
+    const numstat = "2\t1\tlib/a.ts\0";
+    const ok = await runGitSummary(async (c) => {
+      if (c.includes("rev-parse")) return { exitCode: 0, stdout: "sha", stderr: "" };
+      if (c.includes("--numstat")) return { exitCode: 0, stdout: numstat, stderr: "" };
+      return { exitCode: 0, stdout: "abc fix", stderr: "" };
+    }, "r", "feature/wyc-1589");
+    expect(ok).toEqual({ log: "abc fix", breakdown: classifyDiff(parseNumstatZ(numstat)) });
   });
 });
