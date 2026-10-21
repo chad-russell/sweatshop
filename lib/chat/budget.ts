@@ -33,7 +33,7 @@ export function continuationsSinceHuman(conversationId: string): number {
 
 export const CONTINUE_TEXT =
   "[budget] Your turn hit its step budget mid-work. Continue from where you are — " +
-  `or, if you are stuck, stop and ask ${ownerName()} (ask_chad) what they want.`;
+  `or, if you are stuck, stop and ask ${ownerName()} (ask_owner) what they want.`;
 
 /** Start the continuation turn, or report that the bound was reached. */
 export async function continueAfterBudget(

@@ -23,7 +23,7 @@ import { PlanToolCard } from "@/components/plan-card";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import {
-  AskChadCard,
+  AskOwnerCard,
   AcceptPlanCard,
   HostExecApprovalCard,
   GatedApprovalCard,
@@ -144,7 +144,8 @@ export const ChatMessageView = memo(function ChatMessageView({
           }
           if (part.type.startsWith("tool-")) {
             const toolPart = part as ToolUIPart;
-            if (toolPart.type === "tool-ask_chad") return <AskChadCard key={i} part={toolPart} />;
+            if (toolPart.type === "tool-ask_owner" || toolPart.type === "tool-ask_chad")
+              return <AskOwnerCard key={i} part={toolPart} />;
             if (
               toolPart.type === "tool-pi" ||
               toolPart.type === "tool-claude" ||

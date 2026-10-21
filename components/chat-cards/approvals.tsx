@@ -217,8 +217,8 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
   );
 }
 
-/** An ask_chad call awaiting Chad: approvals get Approve/Deny, questions *  get a freeform answer box — matching what the tool asked for. */
-export function AskChadCard({ part }: { part: ToolUIPart }) {
+/** An ask_owner call awaiting the owner: approvals get Approve/Deny, questions *  get a freeform answer box — matching what the tool asked for. */
+export function AskOwnerCard({ part }: { part: ToolUIPart }) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const answered = part.state === "output-available" || part.state === "output-error";

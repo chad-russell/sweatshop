@@ -44,7 +44,7 @@ describe("groupParts", () => {
   });
 
   it("never folds approvals, harness calls, threads or screenshots", () => {
-    const loud = ["ask_chad", "create_pr", "pi", "claude", "start_thread", "attach_screenshot", "present_plan", "start_preview", "cancel_run"];
+    const loud = ["ask_owner", "create_pr", "pi", "claude", "start_thread", "attach_screenshot", "present_plan", "start_preview", "cancel_run"];
     const segs = groupParts(loud.map((t) => done(t, {})));
     expect(segs.every((s) => s.kind === "part")).toBe(true);
     const gated: PartLike = { type: "tool-bash", state: "approval-requested", input: { command: "x" } };

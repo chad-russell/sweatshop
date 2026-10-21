@@ -342,7 +342,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   bullets. History and rationale: docs/0037, docs/0048.
 - Agent everywhere (0015): every chat has the project tools, gh/forgejo,
   inspect / sandbox_exec, cancel_run, start_thread, web tools and
-  ask_chad, all value-shaped so the model repairs its calls. Page
+  ask_owner, all value-shaped so the model repairs its calls. Page
   context: pages register what they are (`components/page-context.tsx`)
   and a panel send carries a "[viewing]" note — a user-role message
   stored as `messages.metadata` (never text), rebuilt each turn,

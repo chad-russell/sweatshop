@@ -127,7 +127,7 @@ export function scriptedChatModel(): LanguageModel {
           return result(
             toolCallPart(
               askId,
-              "ask_chad",
+              "ask_owner",
               script === "question"
                 ? { kind: "question", question: "Which database should we use?" }
                 : { kind: "approval", question: "Proceed with the spike?" },

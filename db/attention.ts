@@ -153,7 +153,7 @@ export function loadPendingRequests(
             { id: "deny", label: "Deny", style: "danger" },
           ],
       allowFreeform: true,
-      toolName: isPlan ? "present_plan" : card.plan ? "accept_plan" : card.exec ? "exec" : card.promptChange ? "propose_prompt_change" : "ask_chad",
+      toolName: isPlan ? "present_plan" : card.plan ? "accept_plan" : card.exec ? "exec" : card.promptChange ? "propose_prompt_change" : "ask_owner",
       // 0043: an exec ask renders its own block — no generic JSON dump.
       toolInput: isPlan || card.plan || card.exec || card.promptChange
         ? null
