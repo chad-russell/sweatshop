@@ -8,6 +8,7 @@ export interface PromptChangePatch {
   body?: string;
   description?: string;
   thread?: boolean;
+  mode?: boolean;
   status?: "active" | "disabled" | "deleted";
 }
 
@@ -28,6 +29,7 @@ export type PromptChangeInput = {
   body?: string;
   description?: string;
   thread?: boolean;
+  mode?: boolean;
   status?: "active" | "disabled" | "deleted";
   note: string;
 };
@@ -53,7 +55,7 @@ export async function promptChangePreviewStep(input: PromptChangeInput) {
     import("../../../db/prompt-settings"),
   ]);
 
-  const fields = [input.body, input.description, input.thread, input.status];
+  const fields = [input.body, input.description, input.thread, input.mode, input.status];
   if (fields.every((value) => value === undefined)) return invalid("at least one change is required");
 
   let target: PromptChangeTarget;
@@ -61,7 +63,7 @@ export async function promptChangePreviewStep(input: PromptChangeInput) {
     if (!(SECTION_KEYS as readonly string[]).includes(input.key)) {
       return { ok: false as const, code: "not-found" as const, message: `unknown prompt section: ${input.key}` };
     }
-    if (input.description !== undefined || input.thread !== undefined || input.status !== undefined) {
+    if (input.description !== undefined || input.thread !== undefined || input.mode !== undefined || input.status !== undefined) {
       return invalid("prompt sections accept only body changes");
     }
     if (input.body === undefined) return invalid("a section change requires body");
@@ -82,6 +84,7 @@ export async function promptChangePreviewStep(input: PromptChangeInput) {
     ...(input.body !== undefined ? { body: input.body } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.thread !== undefined ? { thread: input.thread } : {}),
+    ...(input.mode !== undefined ? { mode: input.mode } : {}),
     ...(input.status !== undefined ? { status: input.status } : {}),
   };
   // Only snapshot old metadata that is actually being proposed. A body
@@ -91,6 +94,7 @@ export async function promptChangePreviewStep(input: PromptChangeInput) {
     ? {
         ...(input.description !== undefined ? { description: current.description } : {}),
         ...(input.thread !== undefined ? { thread: current.thread } : {}),
+        ...(input.mode !== undefined ? { mode: current.mode } : {}),
         ...(input.status !== undefined ? { status: current.status } : {}),
       }
     : null;

@@ -136,13 +136,15 @@ export async function finishTurnStream(
  *  phase anyway (a mode is only ever entered together with its skill). */
 export async function loadSkillStep(
   conversationId: string,
-): Promise<{ id: string; title: string; body: string; modePhase: string | null } | null> {
+): Promise<{ id: string; title: string; body: string; mode: boolean; modePhase: string | null } | null> {
   "use step";
   const [{ db, chat }, { readSkill }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
   const conversation = chat.getConversation(db, conversationId);
   const id = conversation?.skill;
   const skill = id ? await readSkill(id) : null;
-  return skill ? { id: skill.id, title: skill.title, body: skill.body, modePhase: conversation?.modePhase ?? null } : null;
+  return skill
+    ? { id: skill.id, title: skill.title, body: skill.body, mode: skill.mode, modePhase: conversation?.modePhase ?? null }
+    : null;
 }
 
 /** 0039: list thread skills, or bind one to the thread and return its
@@ -151,7 +153,7 @@ export async function bindSkillStep(conversationId: string, id?: string): Promis
   "use step";
   const [{ db, chat }, { listThreadSkills }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
   const available = await listThreadSkills();
-  const catalog = available.map((s) => ({ id: s.id, title: s.title, description: s.description }));
+  const catalog = available.map((s) => ({ id: s.id, title: s.title, description: s.description, mode: s.mode }));
   if (!id) return { ok: true, skills: catalog };
   // readSkill deliberately resolves disabled/deleted skills for existing
   // bindings; a NEW binding must use the active thread-only catalog.

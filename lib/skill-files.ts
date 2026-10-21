@@ -17,6 +17,9 @@ const ROOT = path.join(process.cwd(), "skills");
 export interface GitSkillDefault {
   description: string;
   thread: boolean;
+  /** 0055 v7: this skill is a MODE (see lib/agent/mode-ids.ts). Implies
+   *  `thread` — a mode is always bindable. */
+  mode: boolean;
   /** 0055: a skill's shipped catalog status — `disabled` retires it
    *  (ship) without deleting the file; everything else ships active. */
   status: "active" | "disabled";
@@ -28,9 +31,10 @@ function parseFrontMatter(text: string): GitSkillDefault {
   const body = (front ? text.slice(front[0].length) : text).trim();
   const header = front?.[1] ?? "";
   const description = /^description:\s*(.+)$/m.exec(header)?.[1].trim() ?? "";
-  const thread = /^thread:\s*true\s*$/m.test(header);
+  const mode = /^mode:\s*true\s*$/m.test(header);
+  const thread = mode || /^thread:\s*true\s*$/m.test(header);
   const status = /^status:\s*disabled\s*$/m.test(header) ? "disabled" : "active";
-  return { description, thread, status, body };
+  return { description, thread, mode, status, body };
 }
 
 /** The current git default for a shipped skill, or null if it isn't one

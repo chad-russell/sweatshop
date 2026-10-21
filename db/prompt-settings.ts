@@ -45,6 +45,9 @@ export interface Patch {
   body?: string;
   description?: string;
   thread?: boolean;
+  /** 0055 v7: this skill is a mode (lib/agent/mode-ids.ts). Implies
+   *  `thread` — `writeVersion` forces it on when `mode` is true. */
+  mode?: boolean;
   status?: SkillStatus;
 }
 
@@ -59,6 +62,7 @@ export interface TargetRow {
   origin?: "git" | "user";
   description?: string;
   thread?: boolean;
+  mode?: boolean;
   status?: SkillStatus;
 }
 
@@ -236,10 +240,10 @@ function repairRetiredSkill(db: Conn, id: string): void {
   const note = "retired by 0055";
   db.transaction((tx) => {
     tx.insert(skillVersions)
-      .values({ skillId: id, version: nextVersion, description: def.description, thread: def.thread, status: "disabled", body: def.body, editedBy: "git", note, createdAt: now })
+      .values({ skillId: id, version: nextVersion, description: def.description, thread: def.thread, mode: def.mode, status: "disabled", body: def.body, editedBy: "git", note, createdAt: now })
       .run();
     tx.update(skills)
-      .set({ description: def.description, thread: def.thread, status: "disabled", body: def.body, version: nextVersion, editedBy: "git", note, updatedAt: now })
+      .set({ description: def.description, thread: def.thread, mode: def.mode, status: "disabled", body: def.body, version: nextVersion, editedBy: "git", note, updatedAt: now })
       .where(eq(skills.id, id))
       .run();
   });
@@ -261,10 +265,10 @@ function repairTicketUpgrade(db: Conn, id: string): void {
   const note = "0055 ticket mode";
   db.transaction((tx) => {
     tx.insert(skillVersions)
-      .values({ skillId: id, version: nextVersion, description: def.description, thread: def.thread, status: def.status, body: def.body, editedBy: "git", note, createdAt: now })
+      .values({ skillId: id, version: nextVersion, description: def.description, thread: def.thread, mode: def.mode, status: def.status, body: def.body, editedBy: "git", note, createdAt: now })
       .run();
     tx.update(skills)
-      .set({ description: def.description, thread: def.thread, status: def.status, body: def.body, version: nextVersion, editedBy: "git", note, updatedAt: now })
+      .set({ description: def.description, thread: def.thread, mode: def.mode, status: def.status, body: def.body, version: nextVersion, editedBy: "git", note, updatedAt: now })
       .where(eq(skills.id, id))
       .run();
   });
@@ -351,7 +355,7 @@ function parseNote(value: unknown): { ok: true; note?: string } | Fail {
  *  JSON body never reaches a bare property read. */
 function parsePatch(value: unknown, kind: "section" | "skill"): { ok: true; patch: Patch } | Fail {
   if (!isPlainObject(value)) return invalid("patch must be an object");
-  const allowed = kind === "section" ? ["body"] : ["body", "description", "thread", "status"];
+  const allowed = kind === "section" ? ["body"] : ["body", "description", "thread", "mode", "status"];
   const extra = Object.keys(value).filter((k) => !allowed.includes(k));
   if (extra.length > 0) return invalid(`unknown patch field(s): ${extra.join(", ")}`);
 
@@ -369,6 +373,10 @@ function parsePatch(value: unknown, kind: "section" | "skill"): { ok: true; patc
     if (value.thread !== undefined) {
       if (typeof value.thread !== "boolean") issues.push("patch.thread must be a boolean");
       else patch.thread = value.thread;
+    }
+    if (value.mode !== undefined) {
+      if (typeof value.mode !== "boolean") issues.push("patch.mode must be a boolean");
+      else patch.mode = value.mode;
     }
     if (value.status !== undefined) {
       if (typeof value.status !== "string" || !(SKILL_STATUSES as readonly string[]).includes(value.status)) {
@@ -417,6 +425,7 @@ function skillRow(db: Conn, id: string): TargetRow | null {
     origin: row.origin as TargetRow["origin"],
     description: row.description,
     thread: row.thread,
+    mode: row.mode,
     status: row.status as SkillStatus,
   };
 }
@@ -468,6 +477,7 @@ function seedSkillIfGitShipped(db: Conn, id: string): void {
         origin: "git",
         description: def.description,
         thread: def.thread,
+        mode: def.mode,
         status: def.status,
         body: def.body,
         version: 1,
@@ -484,6 +494,7 @@ function seedSkillIfGitShipped(db: Conn, id: string): void {
         version: 1,
         description: def.description,
         thread: def.thread,
+        mode: def.mode,
         status: def.status,
         body: def.body,
         editedBy: "git",
@@ -544,6 +555,7 @@ export function listTargets(db: Db, opts: { includeDeleted?: boolean } = {}): Ta
       origin: row.origin as TargetRow["origin"],
       description: row.description,
       thread: row.thread,
+      mode: row.mode,
       status: row.status as SkillStatus,
     });
   }
@@ -587,6 +599,7 @@ export function listVersions(db: Db, target: unknown): TargetRow[] {
       updatedAt: row.createdAt,
       description: row.description,
       thread: row.thread,
+      mode: row.mode,
       status: row.status as SkillStatus,
     }));
 }
@@ -616,7 +629,7 @@ function checkPatchRules(target: Target, patch: Patch, isCreate: boolean): strin
       issues.push("creating a skill requires a body");
     }
   }
-  if (patch.body === undefined && patch.description === undefined && patch.thread === undefined && patch.status === undefined) {
+  if (patch.body === undefined && patch.description === undefined && patch.thread === undefined && patch.mode === undefined && patch.status === undefined) {
     issues.push("at least one change is required");
   }
   return issues;
@@ -681,10 +694,14 @@ function writeVersion(
         })
         .run();
     } else {
+      const mode = patch.mode ?? live?.mode ?? false;
       const merged = {
         body: patch.body ?? live?.body ?? "",
         description: patch.description ?? live?.description ?? "",
-        thread: patch.thread ?? live?.thread ?? false,
+        // 0055 v7: mode implies thread — a mode is always bindable, even
+        // if the patch (or the live row) never set thread explicitly.
+        thread: (patch.thread ?? live?.thread ?? false) || mode,
+        mode,
         status: patch.status ?? live?.status ?? "active",
       };
       const origin = live?.origin ?? "user";
@@ -697,6 +714,7 @@ function writeVersion(
           origin,
           description: merged.description,
           thread: merged.thread,
+          mode: merged.mode,
           status: merged.status,
           body: merged.body,
           version: nextVersion,
@@ -710,6 +728,7 @@ function writeVersion(
           set: {
             description: merged.description,
             thread: merged.thread,
+            mode: merged.mode,
             status: merged.status,
             body: merged.body,
             version: nextVersion,
@@ -725,6 +744,7 @@ function writeVersion(
           version: nextVersion,
           description: merged.description,
           thread: merged.thread,
+          mode: merged.mode,
           status: merged.status,
           body: merged.body,
           editedBy: input.editedBy,
@@ -833,7 +853,7 @@ export function resetToGitDefault(db: Db, targetInput: unknown, input: { expecte
   const def = readGitSkillDefault(target.id);
   if (!def) return { ok: false, code: "no-default", message: `${target.id}'s shipped file is gone` };
   return writeVersion(db, target, {
-    patch: { body: def.body, description: def.description, thread: def.thread, status: def.status },
+    patch: { body: def.body, description: def.description, thread: def.thread, mode: def.mode, status: def.status },
     expectedVersion: input.expectedVersion,
     editedBy: "user",
     note: "reset to shipped default",

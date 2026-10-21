@@ -1,6 +1,5 @@
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { ModelMessage } from "ai";
-import { isTicketPhase, threadStateNote } from "../lib/agent/mode-ids";
 import { viewingNote, type ViewingContext } from "../lib/page-context";
 import type { ChatRoute, RouteLayer } from "../lib/providers/route";
 import type { Db } from "./index";
@@ -32,13 +31,14 @@ export interface MessageRowMetadata {
    *  transcript chip, never read back as model input; the text IS the
    *  model input). */
   runEvent?: RunEventMeta;
-  /** 0055: on a turn's user row — the mode and phase the turn ran in.
-   *  Same treatment as `viewing`: never the note's text itself,
-   *  re-inserted as `threadStateNote(phase)` by `listTurnMessages` right
-   *  before this row, so a later turn's history byte-matches what this
-   *  turn actually saw (the prompt-cache prefix holds instead of
-   *  invalidating every turn). */
-  threadState?: { mode: string; phase: string };
+  /** 0055 v7: on a turn's user row — the turn's RENDERED `[thread
+   *  state]` note text (lib/agent/mode-ids.ts's `threadStateNote`,
+   *  already computed when this row was written). `listTurnMessages`
+   *  replays it verbatim right before this row on every later turn, so
+   *  history byte-matches what this turn actually saw (the prompt-cache
+   *  prefix holds instead of invalidating every turn) without needing
+   *  to re-parse the skill body or even import lib/agent/mode-ids here. */
+  threadState?: string;
   /** 0040 phase 3: on the turn's LAST assistant row — the turn ended by
    *  hitting its step budget, not by the model choosing to stop (so that
    *  row's text is often just a dangling `[tool …]` placeholder). Durable
@@ -98,8 +98,11 @@ export function getConversation(
   trashedAt: number | null;
   /** 0039: the thread's skill id (null = plain chat). */
   skill: string | null;
-  /** 0055: the sticky mode's current phase (null = no mode entered, or
-   *  a legacy ticket-skill thread bound before 0055). */
+  /** 0055 v7: the sticky mode's current phase id. `null` = no mode
+   *  entered, or a LEGACY mode-skill thread bound before this column
+   *  existed. `""` (empty string) = entered a mode with zero declared
+   *  phases — a sticky runbook with no phase chip. Any other value is a
+   *  declared phase id. */
   modePhase: string | null;
   /** 0037 phase 3: the start_thread parent, when this is a child (0040
    *  phase 3: a child gets the thread step budget even with no skill). */
@@ -389,9 +392,7 @@ export function listTurnMessages(db: Db, conversationId: string): ModelMessage[]
   for (const row of rows) {
     const metadata = row.metadata ? (JSON.parse(row.metadata) as MessageRowMetadata) : undefined;
     if (metadata?.viewing) out.push({ role: "user", content: viewingNote(metadata.viewing) });
-    if (metadata?.threadState && isTicketPhase(metadata.threadState.phase)) {
-      out.push({ role: "user", content: threadStateNote(metadata.threadState.phase) });
-    }
+    if (metadata?.threadState) out.push({ role: "user", content: metadata.threadState });
     out.push(JSON.parse(row.modelMessage!) as ModelMessage);
   }
   return out;
