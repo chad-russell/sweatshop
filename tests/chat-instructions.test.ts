@@ -41,6 +41,45 @@ describe("buildInstructions", () => {
     expect(withSkill.endsWith("Do the ship thing.")).toBe(true);
   });
 
+  it("0055: skips the skill section for a mode skill once its phase is set", () => {
+    const withPhase = buildInstructions({
+      ...base,
+      skill: { id: "ticket", title: "Ticket", body: "Full ticket runbook text." },
+      modePhase: "implement",
+    });
+    expect(withPhase).not.toContain("# Skill: Ticket");
+    expect(withPhase).not.toContain("Full ticket runbook text.");
+  });
+
+  it("0055: a legacy ticket-skill thread with no phase keeps the skill section (unchanged pre-0055 behavior)", () => {
+    const legacy = buildInstructions({
+      ...base,
+      skill: { id: "ticket", title: "Ticket", body: "Full ticket runbook text." },
+      modePhase: null,
+    });
+    expect(legacy).toContain("# Skill: Ticket");
+    expect(legacy).toContain("Full ticket runbook text.");
+  });
+
+  it("0055: entering ticket mode never changes the system prompt — identical to the no-skill case (append-only; cache holds)", () => {
+    const beforeEntry = buildInstructions({ ...base, skill: null, modePhase: null });
+    const afterEntry = buildInstructions({
+      ...base,
+      skill: { id: "ticket", title: "Ticket", body: "Whatever the current ticket runbook says." },
+      modePhase: "plan",
+    });
+    expect(afterEntry).toBe(beforeEntry);
+  });
+
+  it("0055: a non-mode skill with a phase set (nonsensical, but shouldn't happen) still shows its section", () => {
+    const nonMode = buildInstructions({
+      ...base,
+      skill: { id: "review", title: "Review", body: "Review runbook text." },
+      modePhase: "implement",
+    });
+    expect(nonMode).toContain("# Skill: Review");
+  });
+
   it("keeps the base text intact with no additions", () => {
     const plain = buildInstructions({ hasSandbox: false, hosts: [], repoDocs: [] });
     expect(plain).toContain("You are sweatshop's agent");

@@ -111,11 +111,12 @@ describe("chat route skill binding", () => {
 
   it("stores the thread's skill, and only thread skills are bindable", async () => {
     const id = conv("store");
-    setConversationSkill(db(), id, "ship");
-    expect(getConversation(db(), id)?.skill).toBe("ship");
+    setConversationSkill(db(), id, "review");
+    expect(getConversation(db(), id)?.skill).toBe("review");
     // The bindable catalog is thread skills only — the flag, not the
-    // directory, decides (a plain reference skill never appears).
-    expect((await listThreadSkills()).map((s) => s.id).sort()).toEqual(["review", "ship", "ticket"]);
+    // directory, decides (a plain reference skill never appears). 0055:
+    // ship ships disabled (retired) so it never appears here either.
+    expect((await listThreadSkills()).map((s) => s.id).sort()).toEqual(["review", "ticket"]);
     expect((await listSkills()).every((s) => typeof s.thread === "boolean")).toBe(true);
   });
 });
@@ -165,23 +166,31 @@ describe("0054: use_skill binding checks the active thread catalog", () => {
 });
 
 describe("0054: DB-backed status — disable/delete hide from catalogs, never from a bound read", () => {
-  it("disabling ship drops it from the bindable catalog but not from listSkills or readSkill", async () => {
-    const live = getTarget(db(), { kind: "skill", id: "ship" })!;
+  it("0055: ship ships disabled (retired) by default — still in listSkills and readSkill, never bindable", async () => {
+    const ship = getTarget(db(), { kind: "skill", id: "ship" })!;
+    expect(ship.status).toBe("disabled");
+    expect((await listThreadSkills()).map((s) => s.id)).not.toContain("ship");
+    expect((await listSkills()).map((s) => s.id)).toContain("ship");
+    expect((await readSkill("ship"))?.body.startsWith("# Ship")).toBe(true);
+  });
+
+  it("disabling review drops it from the bindable catalog but not from listSkills or readSkill", async () => {
+    const live = getTarget(db(), { kind: "skill", id: "review" })!;
     expect(live.status).toBe("active");
     expect(
-      publishEdit(db(), { kind: "skill", id: "ship" }, { patch: { status: "disabled" }, expectedVersion: live.version }),
+      publishEdit(db(), { kind: "skill", id: "review" }, { patch: { status: "disabled" }, expectedVersion: live.version }),
     ).toMatchObject({ ok: true });
 
     // Not bindable to a new thread...
-    expect((await listThreadSkills()).map((s) => s.id)).not.toContain("ship");
+    expect((await listThreadSkills()).map((s) => s.id)).not.toContain("review");
     // ...but still in the general catalog, and readSkill (the path an
     // already-bound thread's loadSkillStep uses) ignores status entirely.
-    expect((await listSkills()).map((s) => s.id)).toContain("ship");
-    expect((await readSkill("ship"))?.body.startsWith("# Ship")).toBe(true);
+    expect((await listSkills()).map((s) => s.id)).toContain("review");
+    expect((await readSkill("review"))?.body.startsWith("# Review")).toBe(true);
 
     // Leave it as found, for any test that runs after this one.
-    const disabled = getTarget(db(), { kind: "skill", id: "ship" })!;
-    publishEdit(db(), { kind: "skill", id: "ship" }, { patch: { status: "active" }, expectedVersion: disabled.version });
+    const disabled = getTarget(db(), { kind: "skill", id: "review" })!;
+    publishEdit(db(), { kind: "skill", id: "review" }, { patch: { status: "active" }, expectedVersion: disabled.version });
   });
 
   it("deleting (tombstoning) ticket drops it from both catalogs; restoring the pre-delete version undoes it", async () => {

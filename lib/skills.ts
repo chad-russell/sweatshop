@@ -27,10 +27,11 @@ export interface Skill {
 }
 
 /** A thread's already-bound skill is looked up by id regardless of
- *  status — "disabled"/"deleted" only hide a skill from the catalog
- *  and from a NEW use_skill bind (listSkills/listThreadSkills below),
- *  never from a thread already running it. Unknown or malformed ids
- *  return null, same as a missing file did before 0054. */
+ *  status — "disabled"/"deleted" only hide a skill from the catalog and
+ *  from a NEW bind (listSkills/listThreadSkills below, 0055: via
+ *  enter_mode, the creating send, or start_thread — use_skill itself
+ *  only lists), never from a thread already running it. Unknown or
+ *  malformed ids return null, same as a missing file did before 0054. */
 export async function readSkill(id: string): Promise<Skill | null> {
   const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
   const row = store.getTarget(db(), { kind: "skill", id });

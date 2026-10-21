@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { describe, expect, it } from "vitest";
 import { db, openDb, type Db } from "../db";
-import { promptSections, promptSectionVersions } from "../db/schema";
+import { promptSections, promptSectionVersions, skillVersions, skills } from "../db/schema";
 import { GIT_DEFAULT_SECTIONS } from "../workflows/chat/instructions";
 import {
   applyApprovedChange,
@@ -15,6 +15,8 @@ import {
   listVersions,
   publishEdit,
   PROMPT_SECTION_MAX_BYTES,
+  PRE_0055_BASE_PLACEHOLDER,
+  PRE_0055_TICKET_BODY,
   PRE_PLACEHOLDER_CHAD_BASE,
   resetToGitDefault,
   restoreVersion,
@@ -430,5 +432,114 @@ describe("repairing a stale pre-placeholder base row", () => {
     seedBaseDirectly(conn, GIT_DEFAULT_SECTIONS.base, "git");
     const same = getTarget(conn, { kind: "section", key: "base" });
     expect(same).toMatchObject({ version: 1, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git" });
+  });
+
+  it("0055: a row still at the pre-ticket-mode placeholder default also upgrades straight to the current default", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0055_BASE_PLACEHOLDER, "git");
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0055 ticket mode" });
+  });
+});
+
+/**
+ * 0055: ship's retirement and ticket's rewrite are both the same
+ * idiom as the base repair above — an unedited git row upgrades, a
+ * user/agent-edited one never does. Same isolated scratch db (these
+ * mutate singleton rows too).
+ */
+describe("0055: skill catalog repairs — ship retired, ticket upgraded, only when unedited", () => {
+  function freshDb(): Db {
+    const dir = mkdtempSync(path.join(tmpdir(), "sweatshop-skill-repair-"));
+    const dbPath = path.join(dir, "t.db");
+    const sqlite = new Database(dbPath);
+    sqlite.pragma("foreign_keys = OFF");
+    migrate(drizzle(sqlite), { migrationsFolder: path.join(process.cwd(), "drizzle") });
+    sqlite.close();
+    return openDb(dbPath);
+  }
+
+  function seedSkillDirectly(
+    conn: Db,
+    id: string,
+    input: { body: string; description?: string; thread?: boolean; status: "active" | "disabled"; editedBy: "git" | "user" | "agent" },
+  ) {
+    const now = Date.now();
+    const row = {
+      id,
+      origin: "git" as const,
+      description: input.description ?? "test",
+      thread: input.thread ?? true,
+      status: input.status,
+      body: input.body,
+      version: 1,
+      editedBy: input.editedBy,
+      note: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    conn.insert(skills).values(row).run();
+    conn.insert(skillVersions).values({ skillId: id, version: 1, description: row.description, thread: row.thread, status: row.status, body: row.body, editedBy: row.editedBy, note: null, createdAt: now }).run();
+  }
+
+  it("upgrades an unedited active ship seed to the shipped disabled default, as a new git version", () => {
+    const conn = freshDb();
+    // The exact pre-0055 ship body (unchanged by this PR) with its OLD
+    // (active) status — the shape seedSkillIfGitShipped could have
+    // written before ship's front matter gained `status: disabled`.
+    const shipBody = getTarget(conn, { kind: "skill", id: "ship" })!.body; // seeds it once, fresh (already disabled)
+    // Reset to simulate the pre-existing active row by hand: delete and
+    // reinsert at version 1, active, editedBy git.
+    conn.delete(skillVersions).run();
+    conn.delete(skills).run();
+    seedSkillDirectly(conn, "ship", { body: shipBody, status: "active", editedBy: "git" });
+
+    const repaired = getTarget(conn, { kind: "skill", id: "ship" });
+    expect(repaired).toMatchObject({ version: 2, status: "disabled", editedBy: "git", note: "retired by 0055" });
+  });
+
+  it("never re-enables a user-disabled or user-re-enabled ship row", () => {
+    const conn = freshDb();
+    const shipBody = getTarget(conn, { kind: "skill", id: "ship" })!.body;
+    conn.delete(skillVersions).run();
+    conn.delete(skills).run();
+    // A user explicitly re-activated it at some point — editedBy "user".
+    seedSkillDirectly(conn, "ship", { body: shipBody, status: "active", editedBy: "user" });
+    const untouched = getTarget(conn, { kind: "skill", id: "ship" });
+    expect(untouched).toMatchObject({ version: 1, status: "active", editedBy: "user" });
+  });
+
+  it("upgrades an unedited pre-0055 ticket seed to the new orchestrator body, as a new git version", () => {
+    const conn = freshDb();
+    conn.delete(skillVersions).run();
+    conn.delete(skills).run();
+    seedSkillDirectly(conn, "ticket", { body: PRE_0055_TICKET_BODY, status: "active", editedBy: "git" });
+
+    const repaired = getTarget(conn, { kind: "skill", id: "ticket" });
+    expect(repaired?.version).toBe(2);
+    expect(repaired?.editedBy).toBe("git");
+    expect(repaired?.note).toBe("0055 ticket mode");
+    expect(repaired?.body).toContain("## plan");
+    expect(repaired?.body).not.toBe(PRE_0055_TICKET_BODY);
+  });
+
+  it("never rewrites an edited ticket row, even one byte-for-byte equal to the old body", () => {
+    const conn = freshDb();
+    conn.delete(skillVersions).run();
+    conn.delete(skills).run();
+    seedSkillDirectly(conn, "ticket", { body: PRE_0055_TICKET_BODY, status: "active", editedBy: "agent" });
+    const untouched = getTarget(conn, { kind: "skill", id: "ticket" });
+    expect(untouched).toMatchObject({ version: 1, body: PRE_0055_TICKET_BODY, editedBy: "agent" });
+  });
+
+  it("is idempotent — reading ship or ticket twice after a repair never bumps the version again", () => {
+    const conn = freshDb();
+    const shipBody = getTarget(conn, { kind: "skill", id: "ship" })!.body;
+    conn.delete(skillVersions).run();
+    conn.delete(skills).run();
+    seedSkillDirectly(conn, "ship", { body: shipBody, status: "active", editedBy: "git" });
+    getTarget(conn, { kind: "skill", id: "ship" });
+    const second = getTarget(conn, { kind: "skill", id: "ship" });
+    expect(second?.version).toBe(2);
   });
 });

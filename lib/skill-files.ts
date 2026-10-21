@@ -17,6 +17,9 @@ const ROOT = path.join(process.cwd(), "skills");
 export interface GitSkillDefault {
   description: string;
   thread: boolean;
+  /** 0055: a skill's shipped catalog status — `disabled` retires it
+   *  (ship) without deleting the file; everything else ships active. */
+  status: "active" | "disabled";
   body: string;
 }
 
@@ -26,7 +29,8 @@ function parseFrontMatter(text: string): GitSkillDefault {
   const header = front?.[1] ?? "";
   const description = /^description:\s*(.+)$/m.exec(header)?.[1].trim() ?? "";
   const thread = /^thread:\s*true\s*$/m.test(header);
-  return { description, thread, body };
+  const status = /^status:\s*disabled\s*$/m.test(header) ? "disabled" : "active";
+  return { description, thread, status, body };
 }
 
 /** The current git default for a shipped skill, or null if it isn't one
