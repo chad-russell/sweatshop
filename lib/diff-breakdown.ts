@@ -7,6 +7,8 @@
  * diff-breakdown.tsx) can share one source of truth.
  */
 
+import type { UIMessage } from "ai";
+
 export interface NumstatRow {
   path: string;
   added: number;
@@ -212,4 +214,27 @@ export function isDiffBreakdown(value: unknown): value is DiffBreakdown {
     typeof v.deleted === "number" &&
     Array.isArray(v.categories)
   );
+}
+
+type LoosePart = { type: string; state?: string; output?: unknown };
+
+/**
+ * The header chip's source: the NEWEST create_pr call in the transcript
+ * whose output succeeded and carries a valid breakdown — null before any
+ * PR has opened, a PR was denied/sent back (`ok: false`, no breakdown
+ * field at all), or an older result predates this field. Mirrors
+ * lib/plan.ts's `phaseEvents` reading of `tool-create_pr` parts.
+ */
+export function latestDiffBreakdown(messages: readonly UIMessage[]): DiffBreakdown | null {
+  let latest: DiffBreakdown | null = null;
+  for (const message of messages) {
+    for (const raw of message.parts) {
+      const part = raw as LoosePart;
+      if (part.type !== "tool-create_pr" || part.state !== "output-available") continue;
+      const output = part.output as { ok?: unknown; breakdown?: unknown } | undefined;
+      if (output?.ok === false) continue;
+      if (isDiffBreakdown(output?.breakdown)) latest = output.breakdown;
+    }
+  }
+  return latest;
 }

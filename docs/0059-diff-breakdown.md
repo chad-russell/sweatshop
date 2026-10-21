@@ -72,6 +72,11 @@ blob, so Chad can tell at a glance where the change actually lives.
   renders the same chip next to the branch chips with no extra fetch.
   Older results without a `breakdown` field render nothing — additive,
   never a migration.
+- The thread header shows the same chip (`variant="header"`, matching
+  `PhaseChip`'s header pill) beside the phase chip once a PR has opened —
+  `lib/diff-breakdown.ts`'s `latestDiffBreakdown(messages)` reads the
+  newest successful `tool-create_pr` part out of the transcript, the same
+  way `lib/plan.ts`'s `phaseEvents` does.
 
 ## Checks
 
