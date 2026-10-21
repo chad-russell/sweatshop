@@ -58,3 +58,9 @@ the project chat. Sandboxes bind once per conversation (see
 5. Hand off the `/?project=<id>` link and say what to try first
    (a `review` on a small diff, then real work in ticket mode —
    `enter_mode`).
+
+Once a mode is entered, the owner sees it: the composer's mode chip
+reads `<mode> · <phase> · N working` (its menu lists every declared
+phase and live work), and harness/thread cards carry a `<phase> ·
+<harness or skill>` work chip — `advance_phase` moves what's shown,
+not just what the model sees.
