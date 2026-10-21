@@ -383,7 +383,7 @@ export function AcceptPlanCard({ part }: { part: ToolUIPart }) {
 export const GATED_TOOLS = new Set(["create_project", "delete_project", "enter_mode"]);
 
 export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
-  const fields = (["description", "thread", "status"] as const).filter((key) => key in card.patch);
+  const fields = (["description", "thread", "mode", "status"] as const).filter((key) => key in card.patch);
   const value = (v: unknown) => typeof v === "boolean" ? String(v) : v == null ? "(unset)" : String(v);
   return (
     <div className="space-y-2">
@@ -571,7 +571,7 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
       ? `Create project ${str("id") ?? "?"}${str("name") ? ` ("${str("name")}")` : ""}`
       : name === "delete_project"
         ? `Delete project ${str("id") ?? "?"} — and everything it owns`
-        : `Enter ticket mode${str("ticket") ? `: ${str("ticket")}` : ""}`;
+        : `Enter ${str("mode") ?? "?"} mode${str("ticket") ? `: ${str("ticket")}` : ""}`;
   const answered = part.state === "output-available" || part.state === "output-error";
 
   const post = async (approved: boolean) => {
