@@ -46,8 +46,17 @@ the scope changes materially, update the plan and `present_plan` with
 `claude` or `pi` with a precise task (files, the change, the acceptance
 check) — you hold the context, the harness holds the editor; its wake
 returns the result. Small mechanical edits you do yourself with `bash`.
-Commit on the branch with clear messages; never touch main. When the
-checklist is done, `advance_phase({to: "review"})`.
+Commit on the branch with clear messages; never touch main.
+
+Before advancing, verify. Run the project's test command. For visual
+changes: `start_preview` (the saved setup makes it one call), capture
+BEFORE and AFTER with agent-browser at `http://localhost:<port>` — the
+browser runs in the same sandbox as the server, so QA never goes
+through the preview URL — following its installed skill, and attach
+each with `attach_screenshot`. A blocked visual check is a FINDING, not
+a puzzle: retry at most twice, attach what you saw, say so — never dig
+into the app's auth or middleware to get past it. When the checklist is
+done and verified, `advance_phase({to: "review"})`.
 
 ## review
 
@@ -63,16 +72,11 @@ Nothing to fix: `advance_phase({to: "ship"})`. Real findings:
 
 Send the real findings to a harness with a precise task (what to
 change, the acceptance check); small mechanical fixes you do yourself
-with `bash`. For visual changes: `start_preview` (the saved setup makes
-it one call), capture BEFORE and AFTER with agent-browser at
-`http://localhost:<port>` — the browser runs in the same sandbox as the
-server, so QA never goes through the preview URL — following its
-installed skill, and attach each with `attach_screenshot`. A blocked
-visual check is a FINDING, not a puzzle: retry at most twice, attach
-what you saw, say so — never dig into the app's auth or middleware to
-get past it. If the fixes were material, `advance_phase({to: "review"})`
-for another fresh-eyes pass; trivial fixes go straight to
-`advance_phase({to: "ship"})`.
+with `bash`. Re-verify what you change, the same way as implement
+(tests, and BEFORE/AFTER screenshots for anything visual). If the
+fixes were material, `advance_phase({to: "review"})` for another
+fresh-eyes pass; trivial fixes go straight to `advance_phase({to:
+"ship"})`.
 
 ## ship
 
