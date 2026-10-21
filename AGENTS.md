@@ -150,23 +150,69 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the project page Models card.
 - Skills (0039, 0054): markdown runbooks in `skills/<id>/SKILL.md` are
   shipped defaults (front matter `description`, `thread: true` for a
-  bindable runbook). SQLite `skills` / `skill_versions` hold the active
-  catalog; `lib/skills.ts` reads it (lazy seed once from Git, no silent
-  overwrite on deploy). `/settings` edits or resets individual skills;
-  agent `propose_prompt_change` changes require approval. Status is
-  versioned: active, disabled, deleted (tombstone); existing bound
-  threads still read the current body even if disabled/deleted, but only
-  active thread skills can be newly bound. A thread runs one via
+  bindable runbook, `status: disabled` to ship pre-retired — ship uses
+  this). SQLite `skills` / `skill_versions` hold the active catalog;
+  `lib/skills.ts` reads it (lazy seed once from Git, no silent overwrite
+  on deploy). `/settings` edits or resets individual skills; agent
+  `propose_prompt_change` changes require approval. Status is versioned:
+  active, disabled, deleted (tombstone); existing bound threads still
+  read the current body even if disabled/deleted, but only active
+  thread skills can be newly bound. A thread runs one via
   `conversations.skill` — chosen by the creating send (the picker,
-  `?skill=<id>`; unknown ids rejected before creating anything) or
-  mid-thread by `use_skill`. Its body joins the turn instructions and
-  the step budget rises 50 → 400; a thread-skill turn that EXHAUSTS
-  continues in a new turn (runEvent `budget`, bounded at 3 consecutive
-  continuations with no human message between, `lib/chat/budget.ts`).
-  Catalog: `ship`, `ticket` (a PLAN.md reviewed and approved first,
-  then ship steps, then a fresh-eyes `review` child before `create_pr`),
-  `review` (fresh context, severity-ranked findings, changes nothing).
-  Skills without `thread: true` are reference material — never bindable.
+  `?skill=<id>`; unknown ids rejected before creating anything) or by
+  `start_thread` for a child; `use_skill` is list-only (0055) — binding
+  mid-thread is gone. Its body joins the turn instructions and the step
+  budget rises 50 → 400; a thread-skill turn that EXHAUSTS continues in
+  a new turn (runEvent `budget`, bounded at 3 consecutive continuations
+  with no human message between, `lib/chat/budget.ts`). Catalog:
+  `ticket` (see Ticket mode below — orchestrator-shaped, entered only
+  through `enter_mode`), `review` (fresh context, severity-ranked
+  findings, changes nothing). `ship` is retired (0055: a seeded
+  `disabled` version, restorable) — its steps folded into ticket's
+  phases. Skills without `thread: true` are reference material — never
+  bindable.
+- Ticket mode (0055): the one sticky mode. `conversations.skill =
+  "ticket"` IS the mode (write-once, the same column 0039 uses — never
+  cleared), paired with `conversations.mode_phase`
+  (`plan → implement → review → fixup → ship`; null = no mode, or a
+  LEGACY ticket-skill thread bound before 0055, which keeps the old
+  system-prompt behavior untouched). `lib/modes.ts` is the mode as
+  code — ids, phase order, the transition rule (forward one step or the
+  `fixup`⇄`review` loop need no note, backward any step needs one,
+  same-phase refuses), the one gate (`implement` needs the
+  conversation's latest plan approved — `db/plans.ts`'s `planState`, a
+  durable sqlite fact, never a transcript read), and `##`-section
+  extraction from the runbook (the phase id matched against a
+  `## <phase>` heading's first word, case-insensitively). Its pure core
+  (ids, transitions, note text, section extraction) lives in
+  `lib/agent/mode-ids.ts`, dependency-free so workflow-body files
+  (`workflows/chat/instructions.ts`, `workflows/chat/turn.ts` — both
+  must stay free of db imports, like `lib/usage/pricing.ts`) can import
+  it directly; `lib/modes.ts` adds the one db-touching gate and
+  re-exports the rest as the one door everything else uses. Tools:
+  `enter_mode({mode:"ticket", ticket, reason})` asks through the same
+  approval mechanism `ask_owner`/`create_pr` use (`pendingStep` +
+  `chatApprovalHook`, no new card kind — `GatedApprovalCard` renders it
+  too) and, approved, writes skill + phase `plan` and returns the
+  runbook's intro + `plan` section; `advance_phase({to, note?})` is
+  checked by `lib/modes.ts` alone — no approval (the owner already
+  approved the plan, not each phase move) — and returns that phase's
+  own section. Owner entry (no agent, no self-approval): `mode:
+  "ticket"` on a send (fresh OR an existing chat, project-scoped;
+  `?mode=ticket` on the fresh composer URL, `?skill=ticket` means the
+  same thing now) writes skill + phase directly and appends a
+  `runEvent: "mode"` row carrying the rendered runbook BEFORE the
+  owner's own message (`lib/chat/mode-entry.ts`) — a transcript chip
+  ("Entered ticket mode"), never the system prompt.
+  `buildInstructions` skips the skill section once a mode skill's phase
+  is set (the per-turn note below covers it instead); legacy and
+  non-mode skills are unaffected. The per-turn `[thread state]` note
+  (`workflows/chat/turn.ts`, same injection point as the `[viewing]`
+  note — rebuilt fresh every turn, never persisted) reads `[thread
+  state] mode: ticket · phase: implement (2/5) · next: review`; the
+  base prompt's fixed line: "If a `[thread state]` note is present,
+  honor its mode and phase." Deferred to a later PR (docs/0055): the
+  mode chip, phase menu, and the rest of the chrome changes.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy

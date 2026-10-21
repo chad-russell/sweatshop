@@ -56,4 +56,5 @@ the project chat. Sandboxes bind once per conversation (see
 3. One `create_project` call with all of it — the owner approves once.
 4. If the toolchain isn't node: `edit_project` with the sandbox image.
 5. Hand off the `/?project=<id>` link and say what to try first
-   (a `review` on a small diff, then a real `ticket`).
+   (a `review` on a small diff, then real work in ticket mode —
+   `enter_mode`).
