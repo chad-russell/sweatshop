@@ -147,6 +147,8 @@ describe("0013 sandbox bindings", () => {
 });
 
 describe("0013 migration: sandbox_pref → binding", () => {
+  // Replays every migration. Under a full parallel run that exceeds the
+  // default 5s, so give it room (the assertions are unchanged).
   it("maps none / attached / own-lease / default rows", () => {
     // Apply migrations up to 0019 on a scratch db, seed pref rows, then
     // apply 0020+ and read the bindings back.
@@ -213,5 +215,5 @@ describe("0013 migration: sandbox_pref → binding", () => {
       (c) => c.name,
     );
     expect(cols).not.toContain("sandbox_pref");
-  });
+  }, 20_000);
 });
