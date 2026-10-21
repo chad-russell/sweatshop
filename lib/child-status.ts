@@ -1,6 +1,10 @@
+import { asc, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { getHarnessCall } from "@/db/harness-calls";
-import { getChatChild } from "@/db/chat";
+import { getChatChild, listModelMessages } from "@/db/chat";
+import { messages } from "@/db/schema";
+import { renderPhaseContext } from "@/lib/chat/phase-context";
+import { deriveStatus, statusChipLabel } from "@/lib/status";
 
 /**
  * The status of a chat's background child — a background harness call
@@ -27,6 +31,12 @@ export interface ChildStatus {
    *  child thread was started to do — null when the parent chat wasn't
    *  moded or had no phases. */
   phase: string | null;
+  /** 0059: a child thread's own current status label, when it has one. */
+  statusLabel: string | null;
+  /** 0059: the handoff re-rendered from the harness call's stored skill
+   *  version. Null for threads (their first message carries it) and for
+   *  calls started with no phase. */
+  phaseContext: { phase: string; text: string } | null;
   /** Clipped failure reason, when there is one. */
   error: string | null;
 }
@@ -45,6 +55,16 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       settledAt: call.settledAt,
       where: null,
       phase: call.phase,
+      statusLabel: null,
+      phaseContext:
+        call.phaseSkillId && call.phaseSkillVersion != null && call.phaseId
+          ? renderPhaseContext(db, {
+              skillId: call.phaseSkillId,
+              skillVersion: call.phaseSkillVersion,
+              phaseId: call.phaseId,
+              task: call.task,
+            })
+          : null,
       error: clip(call.error),
     };
   }
@@ -70,10 +90,48 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       settledAt: live ? null : child.updatedAt,
       where: child.skill,
       phase: child.workPhase,
+      statusLabel: threadStatusLabel(db, id),
+      phaseContext: null,
       error: null,
     };
   }
   return null;
+}
+
+function threadStatusLabel(db: Db, conversationId: string): string | null {
+  const derived = deriveStatus(listModelMessages(db, conversationId));
+  return derived.current ? (statusChipLabel(derived.current)?.label ?? null) : null;
+}
+
+/** Status labels for child threads, one query. Chats with no status are absent. */
+export function childThreadStatusLabels(db: Db, ids: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  const rows = db
+    .select({ conversationId: messages.conversationId, modelMessage: messages.modelMessage })
+    .from(messages)
+    .where(inArray(messages.conversationId, [...ids]))
+    .orderBy(asc(sql`rowid`))
+    .all();
+  const grouped = new Map<string, unknown[]>();
+  for (const row of rows) {
+    if (!row.modelMessage) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.modelMessage);
+    } catch {
+      continue;
+    }
+    const list = grouped.get(row.conversationId) ?? [];
+    list.push(parsed);
+    grouped.set(row.conversationId, list);
+  }
+  for (const id of ids) {
+    const derived = deriveStatus(grouped.get(id) ?? []);
+    const label = derived.current ? statusChipLabel(derived.current)?.label : null;
+    if (label) out.set(id, label);
+  }
+  return out;
 }
 
 function clip(text: string | null): string | null {

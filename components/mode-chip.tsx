@@ -1,7 +1,7 @@
 "use client";
 
 import type { UIMessage } from "ai";
-import { Check, ChevronsUpDown, Workflow, X } from "lucide-react";
+import { Ban, Check, ChevronsUpDown, Circle, CircleDot, Minus, Workflow, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SkillOption } from "@/components/fresh-target-picker";
@@ -16,14 +16,16 @@ import {
 import { liveBackgroundChildIds } from "@/lib/chat-ui";
 import type { ChildStatus } from "@/lib/child-status";
 import type { ModeChromeData } from "@/lib/read-models/mode-chrome";
+import { activeStepHistory, deriveStatus, findStep, skillsUsed, type StatusState } from "@/lib/status";
 import { useChildStatus } from "@/lib/use-child-status";
 import { cn } from "@/lib/utils";
 
 /**
- * 0055 PR2 — the Mode chip: leftmost in a project chat's composer
+ * 0055 PR2 / 0059 — the Mode chip: leftmost in a project chat's composer
  * tools. Owns mode choice end to end (fresh-target-picker's old "Chat
  * with a skill" axis moved here, scoped to ACTIVE modes only — plain
- * thread skills are agent/child-only now).
+ * thread skills are agent/child-only). A bound non-mode skill does not
+ * block entering a mode.
  *
  * Mounts a `ChildWatcher` per background child still outstanding
  * (lib/chat-ui.ts's `liveBackgroundChildIds` — excludes anything whose
@@ -31,6 +33,10 @@ import { cn } from "@/lib/utils";
  * (settled children stop fetching on their own) rather than inventing a
  * new one, so "N working" and the menu's "Working now" list stay live
  * with no extra wiring.
+ *
+ * Picking a mode on a fresh chat sets the creating send's skill
+ * directly; on an existing chat it queues `pendingModeId`, sent as
+ * `mode` on the very next send.
  */
 
 /** The harness kind from a harness call's href (`/h/<kind>/<conv>/<id>`),
@@ -55,7 +61,15 @@ function ChildWatcher({
 }
 
 const TRIGGER =
-  "inline-flex h-8 pointer-coarse:h-10 max-w-56 shrink-0 items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+  "inline-flex h-8 max-h-8 pointer-coarse:h-10 pointer-coarse:max-h-10 min-w-0 max-w-56 shrink items-center self-center gap-1 rounded-lg border border-transparent px-2 py-0 text-sm leading-none font-normal text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+
+const STEP_MARK: Record<StatusState, { icon: typeof Check; className: string }> = {
+  done: { icon: Check, className: "text-success" },
+  active: { icon: CircleDot, className: "text-info" },
+  pending: { icon: Circle, className: "text-muted-foreground" },
+  skipped: { icon: Minus, className: "text-muted-foreground" },
+  blocked: { icon: Ban, className: "text-warning" },
+};
 
 export function ModeChip({
   conversationId,
@@ -136,6 +150,10 @@ export function ModeChip({
   }, []);
   const working = childIds.map((id) => statuses[id]).filter((s): s is ChildStatus => Boolean(s?.live));
 
+  const derived = useMemo(() => deriveStatus(messages), [messages]);
+  const history = useMemo(() => activeStepHistory(derived.history), [derived]);
+  const used = useMemo(() => skillsUsed(messages), [messages]);
+
   const mode = chrome?.kind === "mode" ? chrome : null;
   const bound = chrome?.kind === "bound" ? chrome : null;
 
@@ -144,7 +162,10 @@ export function ModeChip({
 
   const pendingTitle = pendingModeId ? modes.find((m) => m.id === pendingModeId)?.title : null;
   const pickedTitle = fresh && pickedSkillId ? modes.find((m) => m.id === pickedSkillId)?.title : null;
-  const phaseText = mode?.current?.name ?? null;
+  const statusStep = derived.current
+    ? (findStep(derived.current.steps, "blocked") ?? derived.current.steps.find((step) => step.state === "active") ?? null)
+    : null;
+  const phaseText = statusStep?.label ?? mode?.current?.name ?? null;
   const fullLabel = mode
     ? phaseText
       ? `${mode.title} · ${phaseText}`
@@ -170,33 +191,36 @@ export function ModeChip({
     else onPendingMode(id);
   };
 
+  const stepper = (() => {
+    if (derived.current) return derived.current.steps.map((step) => ({ label: step.label, state: step.state }));
+    if (!mode || mode.phases.length === 0) return [];
+    const currentIndex = mode.phases.findIndex((phase) => phase.id === mode.current?.id);
+    return mode.phases.map((phase, index) => ({
+      label: phase.name,
+      state: (currentIndex < 0 ? "pending" : index < currentIndex ? "done" : index === currentIndex ? "active" : "pending") as StatusState,
+    }));
+  })();
+
   return (
     <>
       {childIds.map((id) => (
         <ChildWatcher key={id} id={id} onChange={onStatusChange} />
       ))}
+      <span className="inline-flex min-w-0 shrink items-center self-center">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             aria-label={ariaLabel}
-            title={
-              mode
-                ? "This chat's sticky mode — lasts the rest of the chat"
-                : bound
-                  ? `Already running the "${bound.skillId}" skill — a mode can't be entered here`
-                  : "Enter a sticky mode for this chat"
-            }
-            className={cn(
-              TRIGGER,
-              mode && "border-primary/30 bg-primary/10 text-primary",
-              bound && "text-muted-foreground/70",
-              className,
-            )}
+            title={mode ? "This chat's mode" : bound ? `Using the "${bound.skillId}" skill` : "Enter a mode for this chat"}
+            className={cn(TRIGGER, mode && "border-primary/30 bg-primary/10 text-primary", className)}
           >
             <Workflow className="size-3.5 shrink-0" aria-hidden />
             <span className="hidden truncate sm:inline">{fullLabel}</span>
             <span className="truncate sm:hidden">{narrowLabel}</span>
+            {derived.stale && derived.current && (
+              <span className="hidden shrink-0 font-normal text-muted-foreground sm:inline">stale</span>
+            )}
             {working.length > 0 && (
               <span className="hidden shrink-0 font-mono text-xs sm:inline">{working.length} working</span>
             )}
@@ -204,36 +228,32 @@ export function ModeChip({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-1rem)]">
-            {bound ? (
-              <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
-                <span className="text-xs font-medium text-foreground">Skill: {bound.skillId}</span>
-                <span className="text-xs text-muted-foreground">
-                  A mode can&apos;t be entered in a thread already running a skill — start a new chat.
-                </span>
-              </DropdownMenuLabel>
-            ) : mode ? (
+            {mode ? (
               <>
                 <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
                   <span className="text-xs font-medium text-foreground">{mode.title}</span>
-                  <span className="text-xs text-muted-foreground">This mode stays on for the rest of the chat.</span>
+                  {derived.stale && derived.current && (
+                    <span className="text-xs text-muted-foreground">Status is stale — the last wake was not followed by update_status.</span>
+                  )}
                 </DropdownMenuLabel>
-                {mode.phases.length > 0 && (
+                {stepper.length > 0 && (
                   <>
                     <DropdownMenuSeparator />
-                    <ul role="list" aria-label="Phases" className="flex flex-col px-2 py-1">
-                      {mode.phases.map((p) => {
-                        const current = p.id === mode.current?.id;
+                    <ul role="list" aria-label="Status" className="flex flex-col px-2 py-1">
+                      {stepper.map((step) => {
+                        const mark = STEP_MARK[step.state];
+                        const Icon = mark.icon;
                         return (
                           <li
-                            key={p.id}
+                            key={step.label}
                             role="listitem"
-                            aria-current={current ? "step" : undefined}
-                            className="flex items-start gap-2 py-1.5 text-sm"
+                            aria-current={step.state === "active" ? "step" : undefined}
+                            className="flex items-start gap-2 py-1 text-sm"
                           >
-                            <Check className={cn("mt-0.5 size-4 shrink-0", current ? "opacity-100" : "opacity-0")} aria-hidden />
-                            <span>
-                              {p.name}
-                              {current && <span className="sr-only"> (current)</span>}
+                            <Icon className={cn("mt-0.5 size-3.5 shrink-0", mark.className)} aria-hidden />
+                            <span className={cn(step.state === "done" || step.state === "skipped" ? "text-muted-foreground" : "text-foreground")}>
+                              {step.label}
+                              <span className="sr-only"> ({step.state})</span>
                             </span>
                           </li>
                         );
@@ -241,9 +261,17 @@ export function ModeChip({
                     </ul>
                   </>
                 )}
+                {history.length > 0 && (
+                  <p className="px-2 py-1 text-xs text-muted-foreground">History: {history.join(" → ")}</p>
+                )}
               </>
             ) : (
               <>
+                {bound && (
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    Using skill: {bound.skillId}
+                  </DropdownMenuLabel>
+                )}
                 {pendingTitle && (
                   <>
                     <DropdownMenuItem onSelect={() => onPendingMode(null)} className="items-start py-2">
@@ -283,6 +311,13 @@ export function ModeChip({
                 )}
               </>
             )}
+            {used.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Skills used</DropdownMenuLabel>
+                <p className="px-2 pb-1 text-xs text-foreground">{used.join(", ")}</p>
+              </>
+            )}
             {working.length > 0 && (
               <>
                 <DropdownMenuSeparator />
@@ -291,7 +326,7 @@ export function ModeChip({
                   <DropdownMenuItem key={w.id} asChild className="items-start py-1.5">
                     <Link href={w.href} className="flex min-w-0 flex-col">
                       <span className="truncate text-sm">
-                        {w.phase ? `${w.phase} · ` : ""}
+                        {w.statusLabel ? `${w.statusLabel} · ` : w.phase ? `${w.phase} · ` : ""}
                         {workLabel(w)}
                       </span>
                       <span className="text-xs font-normal text-muted-foreground">{w.status}</span>
@@ -302,6 +337,7 @@ export function ModeChip({
             )}
         </DropdownMenuContent>
       </DropdownMenu>
+      </span>
     </>
   );
 }

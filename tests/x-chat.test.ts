@@ -208,36 +208,6 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "enter_mode: approved writes skill + phase and returns the runbook; denied with a comment writes nothing (0055)",
-    { timeout: 30_000 },
-    async () => {
-      const { projects } = await import("../db/schema");
-      const { getConversation } = await import("../db/chat");
-      db().insert(projects).values({ id: "p_xchat_enter_mode", name: "Enter Mode", createdAt: 0 }).onConflictDoNothing().run();
-
-      process.env.SWEATSHOP_CHAT_MOCK = "enter-mode";
-      const approvedId = `c_test_enter_mode_approved_${Math.random().toString(36).slice(2, 8)}`;
-      ensureConversation(db(), approvedId, "p_xchat_enter_mode");
-      const approvedRun = await start(chatTurn, [{ conversationId: approvedId, userText: "please enter ticket mode" }]);
-      await resumeWhenReady("call_enter_mode_1", true);
-      const approvedResult = await approvedRun.returnValue;
-      expect(approvedResult.finishReason).toBe("stop");
-      expect(getConversation(db(), approvedId)).toMatchObject({ skill: "ticket", modePhase: "plan" });
-      expect(serialized(approvedId)).toContain("## Plan");
-
-      process.env.SWEATSHOP_CHAT_MOCK = "enter-mode";
-      const deniedId = `c_test_enter_mode_denied_${Math.random().toString(36).slice(2, 8)}`;
-      ensureConversation(db(), deniedId, "p_xchat_enter_mode");
-      const deniedRun = await start(chatTurn, [{ conversationId: deniedId, userText: "please enter ticket mode" }]);
-      await resumeWhenReady("call_enter_mode_1", false, "not ready yet");
-      const deniedResult = await deniedRun.returnValue;
-      expect(deniedResult.finishReason).toBe("stop");
-      expect(getConversation(db(), deniedId)).toMatchObject({ skill: null, modePhase: null });
-      expect(serialized(deniedId)).toContain("not ready yet");
-    },
-  );
-
-  it(
     "steer: a message queued while the turn runs is drained between slices",
     { timeout: 30_000 },
     async () => {
@@ -525,7 +495,9 @@ describe("0010 spike: chat turn workflow", () => {
       expect((turn1Input[0] as { content: string }).content).toContain("[viewing]");
       const threadStateContent = (turn1Input[1] as { content: string }).content;
       expect(threadStateContent).toContain("[thread state]");
-      expect(threadStateContent).toContain("phase: Plan");
+      expect(threadStateContent).toContain("seed update_status from:");
+      expect(threadStateContent).toContain("Plan");
+      expect(threadStateContent).toContain("if this changed, call update_status");
       expect(turn1Input[2]).toMatchObject({ role: "user", content: "first" });
 
       // None of the three metadata fields clobbered another on the row.

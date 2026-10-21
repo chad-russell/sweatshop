@@ -11,8 +11,8 @@ import { POST as postChat } from "../app/api/x/chat/route";
  * 0055 v7 owner entry: `lib/chat/mode-entry.ts` (no approval — the
  * owner's own action) and the send route's `mode` field / legacy
  * `?skill=<id>` equivalence (only when that skill is actually a mode).
- * `tests/mode-tools.test.ts` covers the agent's own approval-gated
- * `enter_mode` tool.
+ * `tests/mode-tools.test.ts` covers `use_skill` loads. Re-entry
+ * overwrites; there is no one-skill rule.
  */
 
 let seq = 0;
@@ -75,12 +75,13 @@ describe("enterModeOnSend (owner entry, no approval)", () => {
     expect(result).toMatchObject({ ok: false, code: "mode-disabled" });
   });
 
-  it("refuses when already moded", async () => {
+  it("overwrites when already moded", async () => {
     const id = convInProject();
     const { setConversationSkill } = await import("../db/chat");
-    setConversationSkill(db(), id, "ticket");
+    setConversationSkill(db(), id, "review");
     const result = await enterModeOnSend(db(), id, "ticket", PROJECT_ID);
-    expect(result).toMatchObject({ ok: false, code: "already-moded" });
+    expect(result).toMatchObject({ ok: true });
+    expect(getConversation(db(), id)).toMatchObject({ skill: "ticket", modePhase: "plan" });
   });
 
   it("writes skill + phase and appends a runEvent 'mode' row carrying the rendered entry content, with no approval step", async () => {
@@ -208,7 +209,7 @@ describe("POST /api/x/chat: mode entry (0055 v7)", () => {
     expect(getConversation(db(), id)).toMatchObject({ skill: "ticket", modePhase: "plan" });
   });
 
-  it("refuses to re-enter an already-moded existing chat", async () => {
+  it("re-enters an already-moded existing chat", async () => {
     const id = convInProject();
     await enterModeOnSend(db(), id, "ticket", PROJECT_ID);
     const res = await postChat(
@@ -217,6 +218,7 @@ describe("POST /api/x/chat: mode entry (0055 v7)", () => {
         body: JSON.stringify({ conversationId: id, text: "again", mode: "ticket" }),
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(getConversation(db(), id)).toMatchObject({ skill: "ticket", modePhase: "plan" });
   });
 });

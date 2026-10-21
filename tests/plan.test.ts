@@ -87,18 +87,19 @@ describe("0041 plan derivations (pure)", () => {
     ]);
   });
 
-  it("derives the phase: review → building m/n → PR needs you → PR open", () => {
+  it("derives the phase: review → no checklist chip → PR needs you → PR open", () => {
     const plan = (version: number, status: "review" | "progress", done = 0, total = 3) =>
       ({ type: "plan", version, status, checklist: { done, total } }) as const;
     expect(derivePhase([])).toBeNull();
     expect(derivePhase([plan(1, "review"), plan(2, "review")])?.label).toBe("Plan v2 · needs you");
-    expect(derivePhase([plan(2, "review"), { type: "plan-approved" }])?.label).toBe("Building 0/3");
-    expect(derivePhase([plan(2, "review"), { type: "plan-approved" }, plan(3, "progress", 2)])?.label).toBe("Building 2/3");
+    // Approved or progress snapshots no longer invent a "Building N/M" chip.
+    expect(derivePhase([plan(2, "review"), { type: "plan-approved" }])).toBeNull();
+    expect(derivePhase([plan(2, "review"), { type: "plan-approved" }, plan(3, "progress", 2)])).toBeNull();
     // reapprove reopens the review
     expect(derivePhase([plan(2, "review"), { type: "plan-approved" }, plan(3, "review")])?.label).toBe("Plan v3 · needs you");
     const pr = [plan(1, "review"), { type: "plan-approved" } as const, { type: "pr-pending" } as const];
     expect(derivePhase(pr)?.label).toBe("PR · needs you");
-    expect(derivePhase([...pr, { type: "pr-not-opened" }])?.label).toBe("Building 0/3");
+    expect(derivePhase([...pr, { type: "pr-not-opened" }])).toBeNull();
     expect(derivePhase([...pr, { type: "pr-open", url: "http://x/pulls/1" }])).toEqual({
       label: "PR open",
       tone: "ok",
@@ -141,7 +142,7 @@ describe("0041 plan derivations (pure)", () => {
     });
     h = planHistory(msgs);
     expect(h.openReviewId).toBeNull();
-    expect(derivePhase(phaseEvents(msgs))?.label).toBe("Building 1/3");
+    expect(derivePhase(phaseEvents(msgs))).toBeNull();
 
     // A mid-turn approval arrives as a steer row: no metadata, wake text only.
     const steered = msgs.slice(0, 1).concat({
@@ -150,7 +151,7 @@ describe("0041 plan derivations (pure)", () => {
       parts: [{ type: "text", text: "[plan v2 approved] — /c/x\n\nChad approved plan v2." }],
     });
     expect(planHistory(steered).openReviewId).toBeNull();
-    expect(derivePhase(phaseEvents(steered))?.label).toBe("Building 1/3");
+    expect(derivePhase(phaseEvents(steered))).toBeNull();
     // ...but Chad typing about the plan is not an approval.
     const typed = msgs.slice(0, 1).concat({ id: "u2", role: "user", parts: [{ type: "text", text: "plan v2 approved? not yet" }] });
     expect(planHistory(typed).openReviewId).toBe("p2");
@@ -216,11 +217,11 @@ describe("0052 applyPRState (phase chip live override)", () => {
   });
 
   it("never touches another phase, or a missing one", () => {
-    const building = derivePhase([
-      { type: "plan", version: 1, status: "progress", checklist: { done: 1, total: 2 } },
+    const review = derivePhase([
+      { type: "plan", version: 1, status: "review", checklist: { done: 1, total: 2 } },
     ]);
-    if (!building) throw new Error("unreachable");
-    expect(applyPRState(building, { state: "merged" })).toBe(building);
+    if (!review) throw new Error("unreachable");
+    expect(applyPRState(review, { state: "merged" })).toBe(review);
     expect(applyPRState(null, { state: "merged" })).toBeNull();
   });
 });

@@ -98,11 +98,10 @@ export function getConversation(
   trashedAt: number | null;
   /** 0039: the thread's skill id (null = plain chat). */
   skill: string | null;
-  /** 0055 v7: the sticky mode's current phase id. `null` = no mode
-   *  entered, or a LEGACY mode-skill thread bound before this column
-   *  existed. `""` (empty string) = entered a mode with zero declared
-   *  phases — a sticky runbook with no phase chip. Any other value is a
-   *  declared phase id. */
+  /** 0055/0059: the phase id recorded when a mode was entered. Not the
+   *  source of truth for the current phase (that is the active status
+   *  step). `null` = no mode entered, or a legacy mode-skill thread.
+   *  `""` = entered a mode with zero declared phases. */
   modePhase: string | null;
   /** 0037 phase 3: the start_thread parent, when this is a child (0040
    *  phase 3: a child gets the thread step budget even with no skill). */
@@ -125,7 +124,7 @@ export function getConversation(
 }
 
 /** 0039: set the thread's skill (the creation send, or start_thread for
- *  a child; 0055: use_skill no longer binds — only lists). */
+ *  a child). 0059: use_skill of a non-mode does not call this. */
 export function setConversationSkill(db: Db, id: string, skill: string): void {
   db.update(conversations).set({ skill }).where(eq(conversations.id, id)).run();
 }
@@ -134,12 +133,6 @@ export function setConversationSkill(db: Db, id: string, skill: string): void {
  *  together (the two columns must never be seen half-set). */
 export function setConversationMode(db: Db, id: string, skill: string, phase: string): void {
   db.update(conversations).set({ skill, modePhase: phase }).where(eq(conversations.id, id)).run();
-}
-
-/** 0055: advance_phase's write — the skill (the mode itself) is
- *  already set and never changes here. */
-export function setConversationPhase(db: Db, id: string, phase: string): void {
-  db.update(conversations).set({ modePhase: phase }).where(eq(conversations.id, id)).run();
 }
 
 /** 0055 v7 part B: record the phase (display name) a `start_thread`

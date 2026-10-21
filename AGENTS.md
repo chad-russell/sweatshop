@@ -71,7 +71,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`lib/chat/wake.ts`): mid-turn the message queues as steer, idle
   `startChatTurn` starts a turn. The wake is a user row with
   `metadata.runEvent`, rendered as a transcript chip, never as Chad's
-  words. Idempotency is `woken_settled_at` (stamped after delivery —
+  words. The text includes the parent's current active step when the
+  thread has a status, and a child thread's wake also includes that
+  child's status label. Idempotency is `woken_settled_at` (stamped after delivery —
   duplicates over losses); the 30 s sweep in `instrumentation-node.ts`
   re-fires what the in-run wake missed (`WAKE_SWEEP=off` disables).
   Cancelled children never wake; trashed parents are marked woken and
@@ -180,9 +182,12 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   thread skills can be newly bound. A thread runs one via
   `conversations.skill` — chosen by the creating send (the picker,
   `?skill=<id>`; unknown ids rejected before creating anything), by
-  `start_thread` for a child, or — for a mode — by `enter_mode`;
-  `use_skill` is list-only, marking which are modes — binding mid-thread
-  outside `enter_mode` is gone. Its body joins the turn instructions and
+  `start_thread` for a child, or by owner mode entry (`mode:` on a
+  send). `use_skill` with no id lists the catalog; `use_skill({id})`
+  loads that active skill's body as the tool result, any number of
+  times. Loading a mode also writes `conversations.skill` (a newer mode
+  wins) so the step budget and handoff fallback apply; a non-mode load
+  does not bind. Its body joins the turn instructions and
   the step budget rises 50 → 400; a thread-skill turn that EXHAUSTS
   continues in a new turn (runEvent `budget`, bounded at 3 consecutive
   continuations with no human message between, `lib/chat/budget.ts`).
@@ -191,118 +196,106 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   seeded `disabled` version, restorable) — its steps folded into
   ticket's phases. Skills without `thread: true` are reference material
   — never bindable.
-- Modes (0055 v7): a mode is any skill flagged `mode: true` — sticky,
-  phased, and defined FREELY in that skill's own markdown, never
-  hardcoded by id. Format: `## Shared` (context every phase needs) plus
-  any number of `## Phase: <Name>` sections, in document order;
-  everything else (the H1, intro, any other `##` section) is the
-  orchestrator's brief. `lib/agent/mode-ids.ts` is the pure core —
-  `parseModeSkill(body)` → `{brief, shared, phases}` (phase id = slug of
-  its name, `##`-heading match is case-insensitive on "Phase:"/"Shared",
-  `###`+ is content not a boundary, a duplicate id keeps only the
-  first), `validateTransition` (the next phase in document order needs
-  no note; anything else — back, skip, a loop — needs one; unknown lists
-  the declared names; same-phase refuses), `checkLegacyAdopt` (no prior
-  phase to reason from: any declared phase, note always required),
-  `threadStateNote`, `renderModeEntry`/`renderPhaseSection` — no plan
-  gate, no fixed review/ship exceptions, nothing ticket-specific.
+- Modes (0055 v7, 0059): a mode is any skill flagged `mode: true` —
+  phased, defined FREELY in that skill's own markdown, never hardcoded
+  by id. Format: `## Shared` (context every phase needs) plus any number
+  of `## Phase: <Name>` sections, in document order; everything else
+  (the H1, intro, any other `##` section) is the orchestrator's brief.
+  `lib/agent/mode-ids.ts` is the pure core — `parseModeSkill(body)` →
+  `{brief, shared, phases}` (phase id = slug of its name,
+  `##`-heading match is case-insensitive on "Phase:"/"Shared", `###`+ is
+  content not a boundary, a duplicate id keeps only the first),
+  `findPhase`, `renderModeEntry` (brief + phase list + Shared + the
+  first phase + a seed line of `update_status` steps),
+  `renderPhaseHandoff` / `splitPhaseHandoff`. No phase-order gate.
   Dependency-free (no db import) so workflow-body files
   (`workflows/chat/instructions.ts`, `workflows/chat/turn.ts` — both
   must stay free of db imports, like `lib/usage/pricing.ts`) import it
-  directly; `lib/agent/tools/modes.ts` and `lib/chat/mode-entry.ts` are
-  the db-touching callers. State: `conversations.skill` IS the mode
-  (write-once, the same column 0039 uses — never cleared), paired with
-  `conversations.mode_phase` — `null` = no mode or a LEGACY thread bound
-  before a phase was recorded (`advance_phase` adopts it via
-  `checkLegacyAdopt`), `""` = entered a mode with zero declared phases,
-  any other string = a declared phase's id. Tools: `enter_mode({mode,
-  ticket, reason})` — `mode` is any skill id, validated to exist, be
-  flagged `mode: true`, and be active (disabled/deleted refuses) — asks
-  through the same approval mechanism `ask_owner`/`create_pr` use
-  (`pendingStep` + `chatApprovalHook`, no new card kind —
-  `GatedApprovalCard` renders it too) and, approved, writes skill + the
-  first declared phase (or `""`) and returns brief + phase list +
-  Shared + the first phase's section, owner-rendered; `advance_phase({to,
-  note?})` is checked against the skill's CURRENT body alone — no
-  approval (the owner's gate lives in the skill's own markdown, e.g.
-  plan approval, not each phase move) — and returns just that phase's
-  own section (Shared is not resent). Owner entry (no agent, no
-  self-approval): `mode: "<id>"` on a send (fresh OR an existing chat,
-  project-scoped; `?mode=<id>` on the fresh composer URL, `?skill=<id>`
-  means the same thing only when that skill is actually a mode, checked
-  live) writes skill + phase directly and appends a `runEvent: "mode"`
-  row carrying the rendered entry content BEFORE the owner's own message
-  (`lib/chat/mode-entry.ts`) — a transcript chip ("Entered `<id>` mode"),
-  never the system prompt. `buildInstructions` skips the skill section
-  once a mode skill's phase is set (`mode_phase` non-null, including
-  `""`); the per-turn note below covers it instead; legacy and non-mode
-  skills are unaffected. The per-turn `[thread state]` note
+  directly; `lib/chat/mode-entry.ts` is the db-touching owner-entry
+  path. Skills are a log: there is no `enter_mode`, no `advance_phase`,
+  and no one-skill rule. Owner entry (`mode: "<id>"` on a send — fresh
+  OR existing, project-scoped; the mode chip; `?mode=<id>`; `?skill=<id>`
+  only when that skill is actually a mode) writes `conversations.skill`
+  + the first declared phase id (or `""`) and appends a `runEvent:
+  "mode"` row carrying the rendered entry BEFORE the owner's own
+  message — a transcript chip ("Entered `<id>` mode"), never the system
+  prompt. Re-entry overwrites. `conversations.mode_phase` stays (no
+  destructive migration) but is not the source of truth: it records the
+  phase at entry and is the handoff fallback for legacy threads. The
+  current phase is the active top-level step of the derived status when
+  that label matches a declared phase of the loaded mode skill.
+  `use_skill({id})` of a mode returns the body plus `suggestedSteps`.
+  `buildInstructions` skips the skill section once `mode_phase` is
+  non-null (including `""`). The per-turn `[thread state]` note
   (`workflows/chat/turn.ts`, same injection point as the `[viewing]`
-  note — and, like it, rebuilt from row metadata rather than
-  re-derived: the ALREADY-RENDERED note text rides as
-  `metadata.threadState` on the turn's user row, and `db/chat.ts`'s
-  `listTurnMessages` replays it verbatim before that row on every later
-  turn, so the model sees byte-identical history turn over turn and the
-  prompt-cache prefix holds) reads `[thread state] mode: ticket · phase:
-  Implement (2/5) · next: Review`. `skills/ticket/SKILL.md` is the
-  reference mode: Plan (owner approves via `present_plan`/`accept_plan`)
-  → Implement → Review (fresh-eyes `start_thread` child) → Fixup → Ship
-  (orchestrator does Ship itself — workers lack `create_pr`/
-  `present_plan`). Settings' skill editor shows a live read-only preview
-  (phase list, Shared yes/no, brief length) derived from
-  `parseModeSkill(draft.body)` on every keystroke — the same parser
-  that drives entry/advance.
-- Phase handoff (0055 v7 part B): a harness call (`pi`/`claude`/
+  note — the ALREADY-RENDERED note text rides as `metadata.threadState`
+  on the turn's user row, and `db/chat.ts`'s `listTurnMessages` replays
+  it verbatim before that row on every later turn, so the model sees
+  byte-identical history and the prompt-cache prefix holds) is the
+  current status compactly plus "if this changed, call update_status",
+  or a seed line of the declared phases when a mode is entered and no
+  status exists yet. A plain chat and a legacy null `mode_phase` get no
+  note. `update_status` (every chat; `lib/agent/tools/status.ts`, thin
+  step `workflows/chat/steps/status.ts`) rewrites the whole status —
+  `{steps: [{label, state, detail?, children?}], note?}`. The current
+  status is the last such result in the transcript (`lib/status.ts`,
+  pure); history is all of them. A wake (harness, thread, or plan)
+  followed by a completed assistant turn with no `update_status` flags
+  the status stale. `skills/ticket/SKILL.md` is the reference mode:
+  Plan (owner approves via `present_plan`/`accept_plan`) → Implement →
+  Review (fresh-eyes `start_thread` child) → Fixup → Ship (orchestrator
+  does Ship itself — workers lack `create_pr`/`present_plan`); progress
+  is `update_status`, not boxes ticked in `PLAN.md`. Settings' skill
+  editor previews phases from `parseModeSkill(draft.body)`.
+- Phase handoff (0055 v7 part B, 0059): a harness call (`pi`/`claude`/
   `cursor`/`codex`) or `start_thread` child started from a moded chat
   gets the handoff block (`renderPhaseHandoff`,
   `lib/agent/mode-ids.ts`) prepended to its task/first prompt — the
   phase framing, `## Shared` (if any), just THAT phase's section, and
   the orchestrator's task last; never the brief, never other phases.
-  Resolution (`lib/chat/phase-handoff.ts`'s `resolvePhaseHandoff`, the
-  db-touching half) defaults to the chat's own current `mode_phase` —
-  silently no-op (unwrapped, same as a plain chat) when it's phaseless,
-  stale, or the chat isn't moded — or an explicit `phase` arg (id or
-  name) every harness tool and `start_thread` share, which OVERRIDES
-  the current phase and refuses value-shaped (`not-moded` /
+  Resolution (`lib/chat/phase-handoff.ts`'s `resolvePhaseHandoff`)
+  defaults to the active top-level status step when it matches a
+  declared phase of the loaded mode skill (`conversations.skill` when
+  that skill is a mode, else the last `use_skill` mode load), falling
+  back to `mode_phase` for a legacy thread — silently no-op (unwrapped)
+  when it's phaseless, stale, or the chat isn't moded. An explicit
+  `phase` arg (id or name) on every harness tool and `start_thread`
+  OVERRIDES that and refuses value-shaped (`not-moded` /
   `unknown-phase`, listing the declared names) before claiming any
-  slot or creating any child. The two workers differ in what's VISIBLE
-  where: a harness call's `harness_calls.task` column (and its card,
-  its `start`/events-page entry) stays the orchestrator's readable
-  original — the full handoff is never stored, only the workflow
-  prompt carries it. A `start_thread` child's first turn IS its
-  prompt, so the handoff — the whole point being durable, cache-stable
-  context the worker's OWN history replays every later turn — lives in
-  the child's own first message (visible when you open the child); the
-  PARENT's card (`StartThreadCard`'s `input.prompt`) shows the
-  tool-call's own argument instead — the orchestrator's original,
-  unwrapped prompt, same as a harness call's card. The resolved phase
-  NAME is recorded on `harness_calls.phase` and, for a child, the
-  CHILD's own `conversations.work_phase` (distinct from that child's
-  own `mode_phase`, if it enters a mode itself). Exposed on
-  `childStatus`/`GET /api/x/status/<id>`, the sidebar's synthetic
-  harness rows and child conversation rows, and `inspect`.
-- Mode chrome (0055 PR2): `components/mode-chip.tsx`, leftmost in a
-  project chat's composer, owns mode choice end to end — the removed
-  `FreshTargetPicker` skill axis moved here, scoped to ACTIVE modes
-  only (plain thread skills are agent/child-only). Not moded: "Normal
-  ▾" lists active modes (`/api/skills`' `mode` flag); picking one on a
-  fresh chat sets the creating send's `skill` (unchanged path — the
-  server already aliases a mode skill id there); on an EXISTING chat it
-  queues `ChatSessionState.pendingModeId`, sent as `mode` on the VERY
-  NEXT send (cleared the instant that send fires, busy/steer or not) —
-  shown as "pending: `<title>`" with a clear option. Moded: a tinted
-  `<title> · <phase>` chip (no phase segment for a phaseless mode) plus
-  "N working"; its menu lists the declared phases (current marked,
-  server-read by `lib/chat/mode-chrome.ts`'s `loadModeChrome` — parses
-  the skill's CURRENT body, so it never drifts from what `enter_mode`/
-  `advance_phase` see) and a live "Working now" list. Live work comes
-  from `lib/chat-ui.ts`'s `backgroundChildIds` (every harness-call/
-  start_thread id the transcript ever started) each polled by the
-  existing `useChildStatus` — no new polling mechanism. `ChildMeta`
-  (`components/ai-elements/agent-cards.tsx`) is a bordered work-chip
-  pill, `<phase> · <harness or skill>` plus elapsed, on harness and
-  thread cards; the sidebar's synthetic harness rows and child
-  conversation rows show the phase as a small muted pill.
+  slot or creating any child. A harness call's `harness_calls.task`
+  stays the orchestrator's readable original. The handoff is re-rendered
+  for the card from the skill version stored on the call
+  (`phase_skill_id`, `phase_skill_version`, `phase_id` — migration
+  0062): a collapsible "Phase context: <Phase>" block
+  (`renderPhaseContext`). A `start_thread` child's first message IS the
+  handoff plus the task, so the same collapsible splits that message
+  (`splitPhaseHandoff`); the parent's card shows the tool-call's own
+  argument. The resolved phase NAME is recorded on `harness_calls.phase`
+  and, for a child, `conversations.work_phase`. Exposed on
+  `childStatus`/`GET /api/x/status/<id>` (including the child's own
+  status label), the sidebar's synthetic harness rows and child
+  conversation rows (a child's status label when it has one, else
+  `work_phase`), and `inspect`.
+- Mode chrome (0055 PR2, 0059): `components/mode-chip.tsx`, leftmost in
+  a project chat's composer, owns mode choice end to end — scoped to
+  ACTIVE modes only (plain thread skills are agent/child-only). The
+  trigger matches the model picker and sandbox control beside it
+  (h-8, items-center, the shared composer-picker classes). Not moded:
+  "Normal ▾" lists active modes; picking one on a fresh chat sets the
+  creating send's skill; on an EXISTING chat it queues
+  `pendingModeId`, sent as `mode` on the VERY NEXT send — shown as
+  "pending: `<title>`" with a clear option. A bound non-mode skill does
+  not block that. Moded: a tinted `<title> · <active or blocked step>`
+  chip (legacy `mode_phase` name until a status exists; no phase
+  segment for a phaseless mode) plus "N working". The menu is a stepper
+  (done/active/pending/skipped/blocked) from the derived status, falling
+  back to declared phases (`loadModeChrome` parses the skill's CURRENT
+  body), a History line of active-step changes, "Skills used"
+  (`use_skill` loads plus owner mode entry), and "Working now". Live
+  work comes from `lib/chat-ui.ts`'s `backgroundChildIds`, each polled
+  by `useChildStatus`. A child's own status label shows in Working now.
+  `ChildMeta` is a bordered work-chip pill on harness and thread cards;
+  the sidebar shows the phase or status label as a small muted pill.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy
@@ -326,13 +319,20 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   409) resolves the row and WAKES the conversation, or the agent calls
   `accept_plan` (itself approval-gated) when Chad approves in chat.
   After approval `present_plan` is a progress snapshot (`reapprove:
-  true` reopens review). The header PHASE chip (`lib/plan.ts`, pure,
-  derived from the transcript, never stored) says what the host says
-  now: while it shows an open PR, the client polls `GET /api/x/prs`
-  (`GitHost.getPRState`, 0052) and `applyPRState` relabels it merged/
-  closed — derived purity holds, the override is render-time. The
-  review skill treats `PLAN.md` as the agreed spec. No plan table, no
-  hard gate on `create_pr`.
+  true` reopens review). The header PHASE chip (`lib/plan.ts` +
+  `lib/status.ts`, pure, derived from the transcript, never stored):
+  PR states win; a plan still in review is "Plan vN · needs you";
+  otherwise the label is the thread status — "<active step> · d/n"
+  (the active step's children, or the top-level count; done-only in
+  the numerator) or "<step> · needs you" when any step is blocked. A
+  chat that never called `update_status` shows no status chip. The
+  checklist-count "Building N/M" derivation is gone. A stale status
+  (a wake followed by a completed turn with no `update_status`) is
+  marked on the chip. While the chip shows an open PR, the client
+  polls `GET /api/x/prs` (`GitHost.getPRState`, 0052) and
+  `applyPRState` relabels it merged/closed — derived purity holds,
+  the override is render-time. The review skill treats `PLAN.md` as
+  the agreed spec. No plan table, no hard gate on `create_pr`.
 - PR dashboard (0053): a top-level `/prs` page lists every PR by the
   repo's own credential account across ALL project repos (hand-opened
   and agent-opened alike) — asked LIVE through `GitHost.listPRs` on

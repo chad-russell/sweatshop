@@ -492,6 +492,7 @@ export function ChatSurface({
             onPickSkill={setPickedSkillId}
             pendingModeId={s.pendingModeId}
             onPendingMode={s.setPendingModeId}
+            className={COMPOSER_PICKER}
           />
           <RoutePicker
             ariaLabel="Chat model"

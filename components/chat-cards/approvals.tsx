@@ -379,8 +379,8 @@ export function AcceptPlanCard({ part }: { part: ToolUIPart }) {
 /** Tools whose execute asks Chad first (the ask_chad pattern inside a
  * tool): while the part is unresolved, the transcript shows the
  * approval buttons right there — same POST as the inbox card. 0055:
- * enter_mode reuses this same card — no new card kind. */
-export const GATED_TOOLS = new Set(["create_project", "delete_project", "enter_mode"]);
+ * no new card kind. */
+export const GATED_TOOLS = new Set(["create_project", "delete_project"]);
 
 export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
   const fields = (["description", "thread", "mode", "status"] as const).filter((key) => key in card.patch);
@@ -620,7 +620,7 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
 }
 
 /** A gated tool's resolved output for display: its own `message` when
- *  it has one (enter_mode's denial, a plain string), else a clipped
+ *  it has one (a denial's comment, a plain string), else a clipped
  *  JSON dump — never the bare `[object Object]` `String()` gives an
  *  object. */
 function answerText(output: unknown): string {

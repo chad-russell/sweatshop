@@ -6,6 +6,7 @@ import {
   getChatChild,
   getConversation,
   lastAssistantReport,
+  listModelMessages,
   listWakableChatChildren,
   markChatChildWoken,
   setActiveRun,
@@ -15,6 +16,7 @@ import {
 import { markCallWoken, CALL_SETTLED_STATUSES } from "@/db/harness-calls";
 import type { HarnessCall } from "@/db/schema";
 import { ACTIVE_RUN_STATUSES, startChatTurn } from "@/lib/chat/start-turn";
+import { activeStepLabel, deriveStatus, statusChipLabel } from "@/lib/status";
 import { saveResultFile, type NoResultFileReason } from "@/lib/chat/result-file";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
@@ -51,6 +53,10 @@ export interface WakeEvent {
   status: string;
   /** Clipped outcome (completed) or reason; absent for terse events. */
   detail?: string | null;
+  /** 0059: the parent's active status step, when it has one. */
+  step?: string | null;
+  /** 0059: a child thread's own status label at settle. */
+  childStatus?: string | null;
   /** Where to look: /h/<kind>/<conversationId>/<callId> or /c/<id>. */
   url: string;
   /** 0040 phase 3: the FULL result's size and where it was saved — present
@@ -115,6 +121,8 @@ const NO_RESULT_FILE_REASON: Record<NoResultFileReason, string> = {
 export function renderWake(event: WakeEvent): string {
   const word = STATUS_WORD[event.status] ?? event.status;
   const lines = [`[${event.name} ${word}] — ${event.url}`];
+  if (event.step) lines.push("", `current step: ${event.step}`);
+  if (event.childStatus) lines.push(`child status: ${event.childStatus}`);
   if (event.detail) lines.push("", event.detail);
   if (event.result) {
     const reason = event.result.reason ? ` (${NO_RESULT_FILE_REASON[event.result.reason]})` : "";
@@ -153,10 +161,12 @@ export async function wakeConversation(
     if (!conversation || conversation.trashedAt) return "gone";
 
     const active = getActiveRun(db(), conversationId);
+    const step = event.step ?? activeStepLabel(deriveStatus(listModelMessages(db(), conversationId)));
+    const text = renderWake({ ...event, ...(step ? { step } : {}) });
     if (active) {
       const statusOf = deps.statusOf ?? ((runId: string) => getWorkflowRun(runId).status);
       if (ACTIVE_RUN_STATUSES.has(await statusOf(active))) {
-        enqueueSteer(db(), conversationId, renderWake(event));
+        enqueueSteer(db(), conversationId, text);
         return "steered";
       }
       setActiveRun(db(), conversationId, null); // stale row, like the route's sweep
@@ -166,7 +176,7 @@ export async function wakeConversation(
       (async (id: string, text: string, meta: RunEventMeta) => {
         await startChatTurn(id, text, undefined, meta);
       });
-    await start(conversationId, renderWake(event), {
+    await start(conversationId, text, {
       kind: event.kind,
       id: event.id,
       status: event.status,
@@ -303,6 +313,8 @@ export async function wakeChatChildIfDue(
       ? { chars: report!.text.length, file: null, reason: outcome.reason }
       : { chars: outcome.chars, file: outcome.path }
     : undefined;
+  const childDerived = deriveStatus(listModelMessages(db(), child.id));
+  const childLabel = childDerived.current ? statusChipLabel(childDerived.current) : null;
   const wakeOutcome = await wakeConversation(
     child.parentConversationId,
     {
@@ -310,6 +322,7 @@ export async function wakeChatChildIfDue(
       id: child.id,
       name: child.skill ?? "thread",
       status,
+      ...(childLabel ? { childStatus: childLabel.label } : {}),
       // Wider than harness calls: for a review thread the final
       // message IS the deliverable, and the smoke run showed 500 chars
       // truncating it mid-findings. The rest is one inspect away.

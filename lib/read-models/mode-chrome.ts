@@ -19,10 +19,8 @@ export interface ModeChromeMode {
 }
 
 /** A skill is bound but it isn't (or is no longer) a mode — e.g. a
- *  plain thread skill, or one that's been deleted. `checkEnterMode`
- *  refuses a NEW mode on any thread with a skill already bound, mode or
- *  not, so the chip must say entering is blocked rather than offer
- *  modes the server will always refuse. */
+ *  plain thread skill, or one that's been deleted. 0059: that does not
+ *  block owner mode entry; the chip still offers modes. */
 export interface ModeChromeBound {
   kind: "bound";
   skillId: string;

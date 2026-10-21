@@ -41,6 +41,10 @@ export function createHarnessCall(
     /** 0055 v7 part B: the phase (display name) this call was started
      *  for, when the parent chat is in a mode with a resolved phase. */
     phase?: string | null;
+    /** 0059: skill version + phase id the handoff was rendered from. */
+    phaseSkillId?: string | null;
+    phaseSkillVersion?: number | null;
+    phaseId?: string | null;
   },
   now = Date.now(),
 ): HarnessCall {
@@ -52,6 +56,9 @@ export function createHarnessCall(
       kind: input.kind,
       task: input.task.slice(0, 10_000),
       phase: input.phase ?? null,
+      phaseSkillId: input.phaseSkillId ?? null,
+      phaseSkillVersion: input.phaseSkillVersion ?? null,
+      phaseId: input.phaseId ?? null,
       status: "running",
       createdAt: now,
       updatedAt: now,

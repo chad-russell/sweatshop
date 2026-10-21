@@ -147,21 +147,47 @@ export async function loadSkillStep(
     : null;
 }
 
-/** 0039: list thread skills, or bind one to the thread and return its
- *  body (followed from this turn on; later turns get it as instructions). */
-export async function bindSkillStep(conversationId: string, id?: string): Promise<unknown> {
+/** 0059: list skills, or load an active skill's body into the tool result.
+ *  No id lists the thread catalog (as before). An id loads any active
+ *  skill — disabled and deleted refuse, and nothing is bound for a
+ *  plain skill. Loading a mode writes `conversations.skill` (a newer
+ *  mode simply wins) and returns its phases as `suggestedSteps` for
+ *  `update_status`. The body is the tool result, not a sticky prompt. */
+export async function useSkillStep(conversationId: string, id?: string): Promise<unknown> {
   "use step";
-  const [{ db, chat }, { listThreadSkills }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
+  const [{ db, chat }, { listThreadSkills, readSkill }, { parseModeSkill }, store] = await Promise.all([
+    chatStore(),
+    import("../../../lib/skills"),
+    import("../../../lib/agent/mode-ids"),
+    import("../../../db/prompt-settings"),
+  ]);
   const available = await listThreadSkills();
   const catalog = available.map((s) => ({ id: s.id, title: s.title, description: s.description, mode: s.mode }));
   if (!id) return { ok: true, skills: catalog };
-  // readSkill deliberately resolves disabled/deleted skills for existing
-  // bindings; a NEW binding must use the active thread-only catalog.
-  const skill = available.find((s) => s.id === id);
-  if (!skill)
-    return { ok: false, code: "unknown-skill", message: `No thread skill "${id}".`, skills: catalog };
-  chat.setConversationSkill(db, conversationId, skill.id);
-  return { ok: true, id: skill.id, note: "Bound to this thread — follow it from now on.", skill: renderOwnerPlaceholders(skill.body) };
+  const target = store.getTarget(db, { kind: "skill", id });
+  if (!target || target.status !== "active") {
+    return { ok: false, code: "unknown-skill", message: `No active skill "${id}".`, skills: catalog };
+  }
+  const skill = await readSkill(id);
+  if (!skill) return { ok: false, code: "unknown-skill", message: `No active skill "${id}".`, skills: catalog };
+  const body = renderOwnerPlaceholders(skill.body);
+  if (!skill.mode) return { ok: true, id: skill.id, mode: false, skill: body };
+  const parsed = parseModeSkill(skill.body);
+  const phase = parsed.phases[0]?.id ?? "";
+  chat.setConversationMode(db, conversationId, skill.id, phase);
+  return {
+    ok: true,
+    id: skill.id,
+    mode: true,
+    skill: body,
+    suggestedSteps: parsed.phases.map((item, index) => ({
+      label: item.name,
+      state: index === 0 ? "active" : "pending",
+    })),
+    note:
+      "Loaded. Seed update_status with suggestedSteps (adjust as the work requires). " +
+      "Call update_status again whenever the active step, a child, or a blocker changes.",
+  };
 }
 
 /** 0054: the three editable instruction sections, resolved to their
