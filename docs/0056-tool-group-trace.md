@@ -1,4 +1,4 @@
-# 0054 — Trace steps inside tool groups
+# 0056 — Trace steps inside tool groups
 
 Status: **approved in chat (2026-10-20); implemented on
 `fix/tool-call-full-width`.** Keep the current box and use shadcn Trace
