@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
@@ -221,5 +223,38 @@ describe("0054: DB-backed status — disable/delete hide from catalogs, never fr
       ),
     ).toMatchObject({ ok: true });
     expect((await listThreadSkills()).map((s) => s.id)).toContain("ticket");
+  });
+});
+
+describe("owner placeholders in skill display text", () => {
+  it("renders {{owner}} in description at read time, body stays raw", async () => {
+    const prev = process.env.SWEATSHOP_OWNER_NAME;
+    process.env.SWEATSHOP_OWNER_NAME = "Riley";
+    const target = { kind: "skill" as const, id: "review" };
+    const original = getTarget(db(), target)!;
+    expect(publishEdit(db(), target, { patch: { description: "Ask {{owner}} about {{owner's}} call" }, expectedVersion: original.version })).toMatchObject({ ok: true });
+    try {
+      const want = "Ask Riley about Riley's call";
+      const read = await readSkill("review");
+      expect(read?.description).toBe(want);
+      expect(read?.body).toBe(original.body);
+      expect((await listSkills()).find((s) => s.id === "review")?.description).toBe(want);
+      expect((await listThreadSkills()).find((s) => s.id === "review")?.description).toBe(want);
+    } finally {
+      const live = getTarget(db(), target)!;
+      publishEdit(db(), target, { patch: { description: original.description }, expectedVersion: live.version });
+      if (prev === undefined) delete process.env.SWEATSHOP_OWNER_NAME;
+      else process.env.SWEATSHOP_OWNER_NAME = prev;
+    }
+  });
+
+  it("no shipped SKILL.md front-matter description contains a placeholder", () => {
+    const root = join(__dirname, "..", "skills");
+    for (const dir of readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory())) {
+      const text = readFileSync(join(root, dir.name, "SKILL.md"), "utf8");
+      const fm = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
+      const desc = /^description:\s*(.*)$/m.exec(fm)?.[1] ?? "";
+      expect(desc, dir.name).not.toContain("{{");
+    }
   });
 });

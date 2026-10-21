@@ -1,5 +1,5 @@
 ---
-description: Real ticket work, phase by phase — plan {{owner}} approves, implement, review, fixup, ship.
+description: Real ticket work, phase by phase — plan (you approve it), implement, review, fixup, ship.
 mode: true
 ---
 # Ticket
