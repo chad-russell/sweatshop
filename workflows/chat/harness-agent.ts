@@ -27,12 +27,22 @@ export interface BuildArgs {
   tools: ToolSet;
   /** pi model sizing, when the caller knows it (catalog entry). */
   modelInfo?: ModelInfo;
+  /** 0062: lifecycle taps. The workflow-harness UI stream drops each
+   *  step's cache split and the harness's reported cost; these callbacks
+   *  see the full `usage` + `providerMetadata` (settings-level, so they
+   *  fire for every stream()/continueStream()). */
+  onStepEnd?: (step: { usage?: unknown; providerMetadata?: unknown }) => void;
+  onEnd?: (event: { totalUsage?: unknown; providerMetadata?: unknown }) => void;
 }
 
 /** pi provider ids are namespaced so they never collide with pi's built-ins. */
 const PI_PROVIDER_PREFIX = "ss-";
 
-export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildArgs) {
+export function buildHarnessAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: BuildArgs) {
+  const lifecycle = {
+    ...(onStepEnd ? { onStepEnd: onStepEnd as never } : {}),
+    ...(onEnd ? { onEnd: onEnd as never } : {}),
+  };
   if (route.harness === "pi") {
     // 0021: only the route's provider is registered, with the model
     // declared explicitly — pi never needs its built-in catalog to know
@@ -53,6 +63,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
       // other's work. "." = the sandbox cwd, the workspace root.
       sandboxConfig: { workDir: "." },
       tools,
+      ...lifecycle,
       stopWhen: isStepCount(1),
     });
   }
@@ -72,6 +83,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
       ...(route.model ? { model: route.model } : {}),
       sandboxConfig: { workDir: "." },
       tools,
+      ...lifecycle,
       stopWhen: isStepCount(1),
     });
   }
@@ -116,6 +128,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
       ...(credential.accountId ? { headers: { "ChatGPT-Account-ID": credential.accountId } } : {}),
       sandboxConfig: { workDir: "." },
       tools,
+      ...lifecycle,
       stopWhen: isStepCount(1),
     });
   }
@@ -140,6 +153,7 @@ export function buildHarnessAgent({ route, sessionId, tools, modelInfo }: BuildA
     // "." = the sandbox cwd, the workspace root (shared across calls).
     sandboxConfig: { workDir: "." },
     tools,
+    ...lifecycle,
     stopWhen: isStepCount(1),
   });
 }

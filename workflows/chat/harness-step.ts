@@ -238,6 +238,10 @@ export async function harnessAdvanceStep(input: {
   let stepUsage: UsageCounts | null = null;
   // 0062: cumulative, so the latest report wins (never summed).
   let reportedCost: number | null = null;
+  // 0062: the agent's own step/end callbacks see the full usage (cache
+  // split) and the harness-reported cost that the UI stream drops. They
+  // win over the sink's thin finish-step reading and finalResult.
+  let callbackUsage: UsageCounts | null = null;
   try {
     const { sink, text } = harnessEventSink({
       recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event),
@@ -286,6 +290,16 @@ export async function harnessAdvanceStep(input: {
       ...(input.route.harness === "pi"
         ? { modelInfo: getModelInfo(db(), input.route.provider, input.route.model) }
         : {}),
+      onStepEnd: (step) => {
+        const next = normalizeUsage(step.usage);
+        if (next) callbackUsage = callbackUsage ? addUsage(callbackUsage, next) : next;
+        const cost = readReportedCost({ providerMetadata: step.providerMetadata });
+        if (cost !== null) reportedCost = cost;
+      },
+      onEnd: (event) => {
+        const cost = readReportedCost({ providerMetadata: event.providerMetadata });
+        if (cost !== null) reportedCost = cost;
+      },
     });
     const state = await runHarnessAgentStep({
       agent: agent as never,
@@ -299,6 +313,10 @@ export async function harnessAdvanceStep(input: {
     });
     // The UI-chunk transform drops finish-step usage. A finished step
     // still carries a thin summary (input/output only) on finalResult.
+    if (input.route.harness === "claude" && reportedCost === null) {
+      console.warn("[usage] claude step reported no cost (providerMetadata['claude-code'].costUsd missing)");
+    }
+    if (callbackUsage) stepUsage = callbackUsage;
     if (!stepUsage) {
       const summary = (state as { finalResult?: { usage?: unknown } }).finalResult?.usage;
       stepUsage = normalizeUsage(summary);
