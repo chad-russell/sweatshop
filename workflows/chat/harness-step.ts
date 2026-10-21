@@ -144,6 +144,9 @@ export interface HarnessTotals {
   toolCalls: number;
   /** 0062: the harness's own cumulative cost (Claude Code); latest wins. */
   reportedCostUsd?: number | null;
+  /** 0062: the model the harness actually resolved to (a bare claude
+   *  route leaves it to the CLI's default); latest wins. */
+  model?: string | null;
 }
 
 export async function harnessAdvanceStep(input: {
@@ -243,6 +246,7 @@ export async function harnessAdvanceStep(input: {
   // win over the sink's thin finish-step reading and finalResult.
   let callbackUsage: UsageCounts | null = null;
   let finishMetadata: Promise<unknown> | null = null;
+  let resolvedModel: string | null = null;
   try {
     const { sink, text } = harnessEventSink({
       recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event),
@@ -292,6 +296,8 @@ export async function harnessAdvanceStep(input: {
         ? { modelInfo: getModelInfo(db(), input.route.provider, input.route.model) }
         : {}),
       onStepEnd: (step) => {
+        const id = (step as { model?: { modelId?: unknown } }).model?.modelId;
+        if (typeof id === "string" && id) resolvedModel = id;
         const next = normalizeUsage(step.usage);
         if (next) callbackUsage = callbackUsage ? addUsage(callbackUsage, next) : next;
         const cost = readReportedCost({ providerMetadata: step.providerMetadata });
@@ -349,6 +355,7 @@ export async function harnessAdvanceStep(input: {
       steps: (input.totals?.steps ?? 0) + 1,
       toolCalls: (input.totals?.toolCalls ?? 0) + toolCalls,
       reportedCostUsd: reportedCost ?? input.totals?.reportedCostUsd ?? null,
+      model: resolvedModel ?? input.totals?.model ?? null,
     };
     try {
       await writeHarnessUsageRow(input.callId, input.conversationId, input.route, totals);
@@ -402,7 +409,12 @@ export async function writeHarnessUsageRow(
     conversationId,
     source: "harness",
     harnessCallId: callId,
-    route: JSON.stringify(route ?? {}),
+    // 0062: a bare subscription route (claude/cursor/codex without a
+    // pinned model) gets the model the harness resolved, so the panel
+    // can say which one ran. Pi's route already carries its model.
+    route: JSON.stringify(
+      route && !("model" in route && route.model) && totals.model ? { ...route, model: totals.model } : (route ?? {}),
+    ),
     inputTokens: counts.inputTokens,
     cachedTokens: counts.cachedTokens,
     cacheWriteTokens: counts.cacheWriteTokens ?? 0,
@@ -445,6 +457,8 @@ export async function harnessSettleStep(input: {
   usage?: UsageCounts | null;
   /** 0062: the harness's own cumulative cost, when it reports one. */
   reportedCostUsd?: number | null;
+  /** 0062: the model the harness resolved to, when it said. */
+  model?: string | null;
   error?: string;
   resumeFrom?: unknown;
 }): Promise<void> {
@@ -517,6 +531,7 @@ export async function harnessSettleStep(input: {
         steps: input.steps ?? 0,
         toolCalls: input.toolCalls,
         reportedCostUsd: input.reportedCostUsd ?? null,
+        model: input.model ?? null,
       });
     } catch (err) {
       console.error("[usage] harness capture failed", err);

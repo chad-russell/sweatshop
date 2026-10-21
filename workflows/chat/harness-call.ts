@@ -58,6 +58,8 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
   let usage: import("../../lib/usage/pricing").UsageCounts | null = null;
   // 0062: the harness's own cumulative cost (Claude Code); latest wins.
   let reportedCostUsd: number | null = null;
+  // 0062: the model the harness resolved to; latest wins.
+  let model: string | null = null;
   // do…while: the fresh state is "not_started", so a plain while never
   // ran the harness at all and every call "completed" in 0 s with no
   // output (caught live 2026-10-07). Same shape as run-machine's loop.
@@ -69,7 +71,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
         kind,
         route,
         state,
-        totals: { usage, steps, toolCalls, reportedCostUsd },
+        totals: { usage, steps, toolCalls, reportedCostUsd, model },
       });
       state = r.state;
       lastStepHadText = Boolean(r.text);
@@ -85,6 +87,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
         steps = r.totals.steps;
         toolCalls = r.totals.toolCalls;
         reportedCostUsd = r.totals.reportedCostUsd ?? reportedCostUsd;
+        model = r.totals.model ?? model;
       }
     } while (state.status === "ready_for_next_step" && steps < MAX_STEPS);
   } catch (err) {
@@ -107,6 +110,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       route,
       usage,
       reportedCostUsd,
+      model,
       error: err instanceof Error ? err.message : String(err),
     });
     return { status: "failed" };
@@ -125,6 +129,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       route,
       usage,
       reportedCostUsd,
+      model,
       error: state.error ?? `${kind} turn failed`,
       // A failed turn can leave a LIVE session behind (the bridge process
       // keeps its port). Keep the handle so the next call reattaches to it
@@ -147,6 +152,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       route,
       usage,
       reportedCostUsd,
+      model,
       error: "harness requested a tool approval (unsupported in v1)",
     });
     return { status: "failed" };
@@ -164,6 +170,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       route,
       usage,
       reportedCostUsd,
+      model,
       error: `exceeded ${MAX_STEPS} agent steps`,
     });
     return { status: "failed" };
@@ -182,6 +189,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     route,
     usage,
     reportedCostUsd,
+    model,
     resumeFrom: state.resumeFrom,
   });
   return { status: "completed" };

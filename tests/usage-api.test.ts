@@ -353,3 +353,13 @@ describe("0051 context block — clamp and zero guards", () => {
     expect(body.context).toEqual({ usedTokens: 55_000, windowTokens: 128_000, pct: 55_000 / 128_000 });
   });
 });
+
+describe("0062 claudeModelName", () => {
+  it("prettifies Claude Code model ids", async () => {
+    const { claudeModelName } = await import("../lib/usage/stats");
+    expect(claudeModelName("claude-sonnet-5-5")).toBe("Sonnet 5.5");
+    expect(claudeModelName("claude-opus-4-8-20260101")).toBe("Opus 4.8");
+    expect(claudeModelName("claude-opus-5[1m]")).toBe("Opus 5");
+    expect(claudeModelName("opus")).toBe("Opus");
+  });
+});

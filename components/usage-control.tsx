@@ -99,6 +99,21 @@ function formatTokens(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+/** 39,534 → "39.5k", 1,234,567 → "1.2M"; under 1,000 stays exact. */
+function compactTokens(n: number): string {
+  const abs = Math.abs(n);
+  if (abs < 1_000) return String(n);
+  const [value, unit] = abs < 1_000_000 ? [n / 1_000, "k"] : [n / 1_000_000, "M"];
+  // 999,999 would round to "1000k" — promote it to the next unit.
+  if (unit === "k" && Math.abs(Number(value.toFixed(1))) >= 1_000) return "1M";
+  return `${value.toFixed(1).replace(/\.0$/, "")}${unit}`;
+}
+
+/** A compact token count whose title carries the exact number. */
+function Tok({ n }: { n: number }) {
+  return <span title={formatTokens(n)}>{compactTokens(n)}</span>;
+}
+
 function percent(part: number, whole: number): string {
   if (whole <= 0) return "—";
   return `${Math.round((part / whole) * 100)}%`;
@@ -174,7 +189,7 @@ function ContextReadout({ context }: { context: ContextStats }) {
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-xs text-muted-foreground">Context window</span>
         <span className="text-xs text-muted-foreground font-mono tabular-nums">
-          {formatTokens(context.usedTokens)} / {formatTokens(context.windowTokens)} tokens
+          <Tok n={context.usedTokens} /> / <Tok n={context.windowTokens} /> tokens
         </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -266,7 +281,7 @@ function StatsBody({ data }: { data: StatsPayload }) {
                   <span className="font-mono text-muted-foreground">{percent(row.costUsd ?? 0, meteredTotal)}</span>
                 </div>
                 <div className="pl-4 font-mono text-muted-foreground">
-                  {formatTokens(row.inputTokens + row.outputTokens)} tok · cache{" "}
+                  <Tok n={row.inputTokens + row.outputTokens} /> tok · cache{" "}
                   {percent(row.cachedTokens, row.inputTokens)}
                 </div>
               </li>
@@ -289,7 +304,7 @@ function StatsBody({ data }: { data: StatsPayload }) {
               <li key={row.key} className="flex items-center gap-2 text-sm">
                 <span className="min-w-0 flex-1 truncate">{row.label}</span>
                 <span className="font-mono text-xs text-muted-foreground">
-                  {formatTokens(row.inputTokens)} in · {row.steps} steps · {row.toolCalls} tools
+                  <Tok n={row.inputTokens} /> in · {row.steps} steps · {row.toolCalls} tools
                 </span>
                 <Badge variant="outline">plan</Badge>
               </li>
@@ -332,9 +347,14 @@ function StatsBody({ data }: { data: StatsPayload }) {
                 <div className="h-full bg-primary" style={{ width: `${(tokens / tokenMax) * 100}%` }} />
               </div>
               <div className="font-mono text-xs text-muted-foreground">
-                {formatTokens(row.inputTokens)} in · {formatTokens(row.cachedTokens)} cached ·{" "}
-                {formatTokens(row.outputTokens)} out
-                {row.cacheWriteTokens > 0 ? ` · ${formatTokens(row.cacheWriteTokens)} cache write` : ""}
+                <Tok n={row.inputTokens} /> in · <Tok n={row.cachedTokens} /> cached ·{" "}
+                <Tok n={row.outputTokens} /> out
+                {row.cacheWriteTokens > 0 && (
+                  <>
+                    {" · "}
+                    <Tok n={row.cacheWriteTokens} /> cache write
+                  </>
+                )}
                 {row.inputTokens > 0 ? ` · cache ${percent(row.cachedTokens, row.inputTokens)}` : ""}
               </div>
             </div>
