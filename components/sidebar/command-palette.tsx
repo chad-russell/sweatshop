@@ -145,7 +145,7 @@ export function CommandPalette({ data }: { data: SidebarData }) {
                     router.push(conversationHref(item));
                   }}
                 >
-                  <RunGlyph status={item.runStatus} />
+                  <RunGlyph status={item.runStatus ?? "running"} />
                   <span className="truncate">{item.title ?? item.id}</span>
                   {item.needsYou && <AttentionDot unread={0} needsYou={1} />}
                   <span className="ml-auto truncate text-xs text-muted-foreground">
