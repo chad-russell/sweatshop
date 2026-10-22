@@ -121,6 +121,20 @@ export function prependOutlineHandoff(task: string, outline: Outline | null | un
   return { task: `${renderOutlineHandoff(outline, active)}\n\n${task}`, step: active.label };
 }
 
+/** After approval the owner may only change runners on pending top-level
+ * steps. Labels, order, state, details, children, goal, and note freeze. */
+export function isPendingRunnerEdit(before: Outline, after: Outline): boolean {
+  if (before.goal !== after.goal || before.note !== after.note || before.steps.length !== after.steps.length) return false;
+  return before.steps.every((step, index) => {
+    const next = after.steps[index];
+    if (!next) return false;
+    const { runner: beforeRunner, ...beforeRest } = step;
+    const { runner: afterRunner, ...afterRest } = next;
+    if (JSON.stringify(beforeRest) !== JSON.stringify(afterRest)) return false;
+    return beforeRunner === afterRunner || step.state === "pending";
+  });
+}
+
 function isRunnerValue(value: unknown): value is Runner {
   if (value === "auto" || value === "self" || value === "thread") return true;
   return harnessRouteSchema.safeParse(value).success;
@@ -266,6 +280,34 @@ export interface OutlineSnapshot {
   next: string;
 }
 
+export interface OutlineEditSnapshot {
+  version: number;
+  outline: Outline;
+  proposed: boolean;
+}
+
+export const OUTLINE_EDIT_PREFIX = "[outline edited by owner] ";
+
+/** Model-visible form of an owner edit. Metadata renders the transcript
+ * chip; this compact payload makes the snapshot derivable from history. */
+export function renderOutlineEdit(snapshot: OutlineEditSnapshot): string {
+  return `${OUTLINE_EDIT_PREFIX}${JSON.stringify(snapshot)}`;
+}
+
+export function parseOutlineEdit(message: unknown): OutlineEditSnapshot | null {
+  if (!message || typeof message !== "object" || (message as { role?: unknown }).role !== "user") return null;
+  const text = textOf(message).trim();
+  if (!text.startsWith(OUTLINE_EDIT_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(text.slice(OUTLINE_EDIT_PREFIX.length)) as Partial<OutlineEditSnapshot>;
+    return typeof parsed.version === "number" && typeof parsed.proposed === "boolean" && isOutline(parsed.outline)
+      ? { version: parsed.version, proposed: parsed.proposed, outline: parsed.outline }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isOutlineSnapshot(value: unknown): value is OutlineSnapshot {
   const v = value as Partial<OutlineSnapshot> | null | undefined;
   return !!v && v.ok === true && typeof v.version === "number" && typeof v.proposed === "boolean" && isOutline(v.outline);
@@ -321,6 +363,8 @@ interface RawEntry {
 /** `update_outline` and legacy `update_status` results in one message, in order. */
 function entriesFromMessage(message: unknown): RawEntry[] {
   const out: RawEntry[] = [];
+  const edit = parseOutlineEdit(message);
+  if (edit) out.push(edit);
   for (const part of partsOf(message)) {
     const name = toolNameOf(part);
     if (name !== "update_outline" && name !== "update_status") continue;
@@ -596,6 +640,13 @@ export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscrip
   let approvedAfterLast = false;
   for (const message of messages) {
     if (isApprovalMessage(message)) approvedAfterLast = true;
+    const edit = parseOutlineEdit(message);
+    if (edit) {
+      const id = message.id;
+      if (last) previous.set(id, { version: last.version, outline: last.outline });
+      last = { id, version: edit.version, outline: edit.outline, proposed: edit.proposed };
+      approvedAfterLast = !edit.proposed;
+    }
     for (const raw of message.parts) {
       const part = raw as LoosePart;
       if (part.type === "tool-accept_outline" && part.state === "output-available") {

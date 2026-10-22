@@ -54,7 +54,7 @@ export interface MessageRowMetadata {
  *  rendered intro + first-phase runbook, not a wake; 0064: "outline" =
  *  Chad approved the outline under review). */
 export interface RunEventMeta {
-  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode" | "outline";
+  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode" | "outline" | "outline-edit";
   id: string;
   status: string;
 }
