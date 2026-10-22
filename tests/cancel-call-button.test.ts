@@ -1,7 +1,7 @@
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { CancelCallButton } from "../components/cancel-call-button";
+import { CancelCallButton, CancelErrorMessage } from "../components/cancel-call-button";
 import { HarnessSessionView } from "../components/harness-session-view";
 import { NavDrawerProvider } from "../components/sidebar/nav-drawer";
 
@@ -20,6 +20,19 @@ describe("CancelCallButton", () => {
     expect(html).toContain("Stop");
     expect(html).toContain("<button");
   });
+
+  it("renders no error (and no alert role) while idle", () => {
+    const html = renderToStaticMarkup(h(CancelCallButton, { callId: "hc_abc", label: "Claude Code" }));
+    expect(html).not.toContain('role="alert"');
+  });
+});
+
+describe("CancelErrorMessage", () => {
+  it("announces a failed cancel to assistive tech via role=alert", () => {
+    const html = renderToStaticMarkup(h(CancelErrorMessage, { error: "failed to cancel" }));
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("failed to cancel");
+  });
 });
 
 describe("HarnessSessionView header tone", () => {
@@ -34,8 +47,10 @@ describe("HarnessSessionView header tone", () => {
       ...base,
       initialRun: { sessionId: "c_1", kind: "pi", status: "cancelled", toolCalls: 2, startedAt: 0, lastAt: 1 },
     });
-    expect(html).toContain("text-muted-foreground");
-    expect(html).not.toContain("text-success");
+    // The status span specifically — text-muted-foreground alone also
+    // appears on unrelated chrome (turn markers, the sandbox chip).
+    expect(html).toMatch(/<span class="text-muted-foreground">cancelled<\/span>/);
+    expect(html).not.toMatch(/<span class="[^"]*text-success[^"]*">cancelled<\/span>/);
   });
 
   it("still shows the success tone for a completed run", () => {
@@ -43,7 +58,7 @@ describe("HarnessSessionView header tone", () => {
       ...base,
       initialRun: { sessionId: "c_1", kind: "pi", status: "completed", toolCalls: 2, startedAt: 0, lastAt: 1 },
     });
-    expect(html).toContain("text-success");
+    expect(html).toMatch(/<span class="text-success">completed<\/span>/);
   });
 
   it("shows the Cancel button while running when a callId is given", () => {

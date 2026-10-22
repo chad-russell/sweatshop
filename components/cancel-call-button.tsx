@@ -3,6 +3,18 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
+/** The failed-cancel message — `role="alert"` so a screen-reader user is
+ *  told the cancel failed, not just left staring at unchanged text.
+ *  A plain function (not a hook-bearing component) so it's directly
+ *  testable without simulating the click that reaches this state. */
+export function CancelErrorMessage({ error }: { error: string }) {
+  return (
+    <span role="alert" className="text-[10px] text-destructive">
+      {error}
+    </span>
+  );
+}
+
 /**
  * 0063: stop a live background harness call (hc_…). Cooperative — the
  * workflow tears its bridge down at its next step boundary, so the copy
@@ -53,7 +65,7 @@ export function CancelCallButton({
       >
         {state === "pending" ? "Stopping…" : "Stop"}
       </button>
-      {state === "error" && error && <span className="text-[10px] text-destructive">{error}</span>}
+      {state === "error" && error && <CancelErrorMessage error={error} />}
     </span>
   );
 }
