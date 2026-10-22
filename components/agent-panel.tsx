@@ -9,7 +9,8 @@ import { PhaseChip } from "@/components/status-chip";
 import { ChatSession } from "@/components/chat-session";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { usePageContextReader } from "@/components/page-context";
-import { rowsToUIMessages, type StoredRow } from "@/lib/chat-ui";
+import { rowsToUIMessages, untilLiveTurn, type StoredRow } from "@/lib/chat-ui";
+import { extendChatPageBack } from "@/lib/chat-fetch";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import type { ChatRoute } from "@/lib/providers/route";
@@ -42,6 +43,9 @@ const DEFAULT_WIDTH = 420;
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 640;
 
+/** 0075: rows in the hydrated tail window (same as the page frame). */
+const HYDRATE_TAIL = 150;
+
 interface PanelHydration {
   /** The conversation this hydration is for. */
   id: string;
@@ -50,6 +54,9 @@ interface PanelHydration {
   route: ChatRoute | null;
   projectId: string | null;
   title: string | null;
+  /** 0075: the tail window's older-page cursor / remaining count. */
+  olderCursor: number | null;
+  olderRemaining: number;
 }
 
 function stored(key: string): string | null {
@@ -151,13 +158,19 @@ export function AgentPanel() {
 
   // Fetch the stored conversation before its session mounts. "hydrating"
   // is only ever entered with a conversation id (init, closePanel), so
-  // no id here means nothing to do.
+  // no id here means nothing to do. 0075: the tail window hydrates like
+  // the page frame's — newest HYDRATE_TAIL rows, paged back to the live
+  // turn's opening t_ row when a turn is live (the stream replay
+  // supplies the turn itself).
   useEffect(() => {
     if (!open || mode !== "hydrating" || !conversationId) return;
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/x/chat?conversationId=${conversationId}`, { cache: "no-store" });
+        const res = await fetch(
+          `/api/x/chat?conversationId=${encodeURIComponent(conversationId)}&tail=${HYDRATE_TAIL}`,
+          { cache: "no-store" },
+        );
         if (!res.ok || cancelled) return;
         const body = (await res.json()) as {
           messages: StoredRow[];
@@ -165,15 +178,32 @@ export function AgentPanel() {
           route: ChatRoute | null;
           projectId: string | null;
           title: string | null;
+          olderCursor: number | null;
+          olderRemaining: number;
         };
         if (cancelled) return;
+        let page = {
+          rows: body.messages ?? [],
+          activeRunId: body.activeRunId,
+          olderCursor: body.olderCursor ?? null,
+          olderRemaining: body.olderRemaining ?? 0,
+        };
+        if (body.activeRunId && !page.rows.some((row) => row.id.startsWith("t_"))) {
+          page = await extendChatPageBack(conversationId, page, HYDRATE_TAIL, (rows) =>
+            rows.some((row) => row.id.startsWith("t_")),
+          );
+        }
+        if (cancelled) return;
+        const rows = body.activeRunId ? untilLiveTurn(page.rows) : page.rows;
         setHydration({
           id: conversationId,
-          messages: rowsToUIMessages(body.messages ?? []),
+          messages: rowsToUIMessages(rows),
           activeRunId: body.activeRunId,
           route: body.route,
           projectId: body.projectId,
           title: body.title,
+          olderCursor: page.olderCursor,
+          olderRemaining: page.olderRemaining,
         });
         setMode("stored");
       } catch {
@@ -316,6 +346,8 @@ export function AgentPanel() {
               activeRunId={hydration.activeRunId}
               initialRoute={hydration.route}
               projectId={hydration.projectId ?? undefined}
+              olderCursor={hydration.olderCursor}
+              olderRemaining={hydration.olderRemaining}
               pageContext={readPageContext}
               onAdopted={handleAdopted}
               header={sessionHeader}
