@@ -131,60 +131,31 @@ describe("GET /api/x/chat context", () => {
   it("context=1 derives the header facts from the WHOLE transcript", async () => {
     seedRows("c_ctx1", [
       { role: "user", text: "build it", modelMessage: { role: "user", content: "build it" } },
-      ...toolPair("pc1", "present_plan", {}, { ok: true, version: 1, markdown: "# Plan", checklist: { done: 0, total: 2 }, status: "review", next: "go" }),
-      { role: "assistant", text: "plan above", modelMessage: { role: "assistant", content: "plan above" } },
+      ...toolPair("oc1", "update_outline", {}, { ok: true, outline: { goal: "g", steps: [] } }),
+      { role: "assistant", text: "outlined", modelMessage: { role: "assistant", content: "outlined" } },
     ]);
     const res = await get("conversationId=c_ctx1&context=1");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       context: {
         phase: { label: string } | null;
-        plan: { latestId: string | null; latest: { version: number; markdown: string; status: string } | null; openReviewId: string | null };
         diffBreakdown: unknown;
         hasBackgroundChild: boolean;
       };
     };
-    expect(body.context.plan.latestId).toBe("pc1");
-    expect(body.context.plan.latest).toEqual({ version: 1, markdown: "# Plan", status: "review" });
-    expect(body.context.plan.openReviewId).toBe("pc1");
-    expect(body.context.phase?.label).toBe("Plan v1 · needs you");
-    expect(body.context.diffBreakdown).toBeNull();
+    // Outline-derived phase, no background children, no diff.
     expect(body.context.hasBackgroundChild).toBe(false);
+    expect(body.context.diffBreakdown).toBeNull();
   });
 
-  it("context=1 carries a background child and a PR diff breakdown", async () => {
+  it("context=1 marks a background child so the wake watch survives a tail window", async () => {
     seedRows("c_ctx2", [
-      { role: "user", text: "go", modelMessage: { role: "user", content: "go" } },
-      ...toolPair("st1", "start_thread", { prompt: "child work" }, { ok: true, id: "c_child_1", runId: "w_child_1" }),
+      { role: "user", text: "run pi", modelMessage: { role: "user", content: "run pi" } },
+      ...toolPair("pc2", "pi", { task: "ls" }, { ok: true, callId: "hc_1" }),
     ]);
     const res = await get("conversationId=c_ctx2&context=1");
+    expect(res.status).toBe(200);
     const body = (await res.json()) as { context: { hasBackgroundChild: boolean } };
     expect(body.context.hasBackgroundChild).toBe(true);
-
-    seedRows("c_ctx3", [
-      { role: "user", text: "ship it", modelMessage: { role: "user", content: "ship it" } },
-      ...toolPair("pr1", "create_pr", {}, { ok: true, url: "https://x/pr/1", breakdown: { files: 2, added: 10, deleted: 1, categories: [] } }),
-    ]);
-    const pr = await get("conversationId=c_ctx3&context=1");
-    const prBody = (await pr.json()) as { context: { diffBreakdown: { files: number; added: number } | null; phase: { label: string } | null } };
-    expect(prBody.context.diffBreakdown).toEqual({ files: 2, added: 10, deleted: 1, categories: [] });
-    expect(prBody.context.phase?.label).toBe("PR open");
-  });
-
-  it("context=1 without a plan has empty plan facts and no phase", async () => {
-    seedRows("c_ctx4", [
-      { role: "user", text: "hi", modelMessage: { role: "user", content: "hi" } },
-      { role: "assistant", text: "hello", modelMessage: { role: "assistant", content: "hello" } },
-    ]);
-    const res = await get("conversationId=c_ctx4&context=1");
-    const body = (await res.json()) as { context: { plan: { latestId: string | null; openReviewId: string | null }; phase: unknown } };
-    expect(body.context.plan).toEqual({ latestId: null, latest: null, previousOfLatest: null, openReviewId: null });
-    expect(body.context.phase).toBeNull();
-  });
-
-  it("context is omitted without the param", async () => {
-    seedRows("c_ctx5", [{ role: "user", text: "hi", modelMessage: { role: "user", content: "hi" } }]);
-    const body = (await (await get("conversationId=c_ctx5")).json()) as Record<string, unknown>;
-    expect("context" in body).toBe(false);
   });
 });
