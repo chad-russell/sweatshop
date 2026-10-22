@@ -20,7 +20,6 @@ import {
   previewSetups,
   projects,
   projectRepos,
-  sandboxes,
   sandboxServices,
 } from "../db/schema";
 

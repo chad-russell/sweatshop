@@ -1,4 +1,4 @@
-import { and, countDistinct, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "./index";
 import { getConversationBinding } from "./sandboxes";
 import {
