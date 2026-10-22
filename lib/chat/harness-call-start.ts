@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { getConversation, getHarnessResumeState } from "@/db/chat";
+import { getConversation, getHarnessResumeState, listModelMessages } from "@/db/chat";
 import { createHarnessCall, setCallWorkflowRun, settleHarnessCall } from "@/db/harness-calls";
 import {
   claimHarnessRun,
@@ -11,9 +11,10 @@ import {
 import { HARNESS_INPUT_CLIP } from "@/lib/harness-limits";
 import { cursorCredential } from "@/lib/harness-auth/cursor";
 import { codexCredential } from "@/lib/harness-auth/codex";
-import { requireRoute } from "@/lib/providers/resolve";
+import { checkRoute, requireRoute } from "@/lib/providers/resolve";
 import type { HarnessRoute } from "@/lib/providers/route";
 import { resolvePhaseHandoff } from "@/lib/chat/phase-handoff";
+import { deriveOutline, prependOutlineHandoff, runnerGate } from "@/lib/outline";
 import { start as startWorkflowRun } from "workflow/api";
 import { harnessCall } from "@/workflows/chat/harness-call";
 
@@ -54,7 +55,7 @@ export type StartHarnessCallResult =
     }
   | {
       ok: false;
-      code: "no-project" | "not-configured" | "busy" | "start-failed" | "not-moded" | "unknown-phase";
+      code: "no-project" | "not-configured" | "busy" | "start-failed" | "not-moded" | "unknown-phase" | "runner-refused" | "route-refused";
       message: string;
     };
 
@@ -96,6 +97,9 @@ export async function startHarnessCall(
       message: `${input.kind} requires a project conversation — start one from a project page`,
     };
   }
+  const outline = deriveOutline(listModelMessages(db(), input.conversationId)).current?.outline ?? null;
+  const gate = runnerGate(outline, { kind: "harness", harness: input.kind });
+  if (!gate.ok) return { ok: false, code: "runner-refused", message: gate.message };
   if (input.kind === "claude" && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     return {
       ok: false,
@@ -128,7 +132,20 @@ export async function startHarnessCall(
   // 0021: pi inherits the conversation's route, else the project /
   // global default; claude takes its own global setting. Before the
   // claim, so a forbidden route never holds the slot.
-  const { route } = requireRoute(db(), input.kind, { conversation: conversation?.route ?? null }, projectId);
+  let route: HarnessRoute;
+  if (gate.route) {
+    const checked = checkRoute(db(), input.kind, { stage: gate.route }, projectId);
+    if (!checked.ok) {
+      return {
+        ok: false,
+        code: "route-refused",
+        message: `active step "${gate.active?.label ?? "unknown"}" is pinned to a route that cannot run: ${checked.issues.join("; ")} — call update_outline to change the runner`,
+      };
+    }
+    route = checked.route as HarnessRoute;
+  } else {
+    route = requireRoute(db(), input.kind, { conversation: conversation?.route ?? null }, projectId) as unknown as HarnessRoute;
+  }
 
   // 0038 amendment: up to MAX_CONCURRENT_HARNESSES may run at once per
   // conversation, at most one of each kind — held for each call's whole
@@ -158,6 +175,7 @@ export async function startHarnessCall(
     phaseSkillId: phaseResolution.skillId,
     phaseSkillVersion: phaseResolution.skillVersion,
     phaseId: phaseResolution.phaseId,
+    step: gate.active?.label ?? null,
   });
   const resumeFrom = getHarnessResumeState(db(), input.conversationId, input.kind) ?? undefined;
 
@@ -172,7 +190,7 @@ export async function startHarnessCall(
       callId: call.id,
       conversationId: input.conversationId,
       kind: input.kind,
-      task: withResultInstruction(phaseResolution.wrap(input.task)),
+      task: withResultInstruction(prependOutlineHandoff(phaseResolution.wrap(input.task), outline).task),
       route,
       ...(resumeFrom ? { resumeFrom } : {}),
     });

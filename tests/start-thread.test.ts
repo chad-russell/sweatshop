@@ -16,6 +16,7 @@ import { conversations, messages, projects, sandboxAttachments } from "../db/sch
 import type { SandboxHandle, SandboxProvider } from "../lib/sandboxes/provider";
 import { startThread } from "../lib/agent/tools/start-thread";
 import { applyApprovedPromptChangeStep } from "../workflows/chat/steps/prompt-change";
+import type { Outline } from "../lib/outline";
 
 /**
  * 0037 phase 3 — start_thread: the child conversation (parent, project,
@@ -52,6 +53,22 @@ function parentChat(project: string | null, name: string) {
   ensureConversation(db(), id, project);
   cleanup.push(id);
   return id;
+}
+function setOutline(conversationId: string, outline: Outline) {
+  appendMessages(db(), conversationId, [{
+    id: `${conversationId}_outline`,
+    role: "tool",
+    text: "",
+    modelMessage: {
+      role: "tool",
+      content: [{
+        type: "tool-result",
+        toolCallId: `${conversationId}_outline_call`,
+        toolName: "update_outline",
+        output: { type: "json", value: { ok: true, version: 1, outline, proposed: false, next: "recorded" } as never },
+      }],
+    },
+  }]);
 }
 /** The child rows a test minted (start_thread generates the ids). */
 function childrenOf(parent: string) {
@@ -340,6 +357,65 @@ describe("startThread: phase handoff (0055 v7 part B)", () => {
     });
     expect(result).toMatchObject({ ok: true });
     expect(started[0]!.text).toBe("plain");
+    if (result.ok) cleanup.push(result.id);
+  });
+});
+
+describe("startThread: outline runners and handoff (0064 PR2)", () => {
+  const outlined = (runner: Outline["steps"][number]["runner"]): Outline => ({
+    goal: "Review it",
+    steps: [{
+      id: "review",
+      label: "Review",
+      state: "active",
+      runner,
+      children: [{ id: "diff", label: "Read diff", state: "pending" }],
+    }],
+  });
+
+  it("allows thread, prepends outline context, and records work_step", async () => {
+    const parent = parentChat("p_st", "outline-thread");
+    setOutline(parent, outlined("thread"));
+    const started: string[] = [];
+    const result = await startThread({
+      conversationId: parent,
+      prompt: "fresh eyes",
+      provider: new FakeProvider(),
+      start: async (_id, text) => {
+        started.push(text);
+        return { runId: "wr_outline_thread" };
+      },
+    });
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(started[0]).toContain("[outline context]\nGoal: Review it\n- Review [active]\n  - Read diff [pending]");
+    expect(getChatChild(db(), result.id)?.workStep).toBe("Review");
+    cleanup.push(result.id);
+  });
+
+  it("refuses self and pinned harness runners before creating a child", async () => {
+    for (const [name, runner] of [
+      ["outline-self", "self"],
+      ["outline-pinned", { harness: "pi", provider: "glm", model: "glm-5.3-flash" }],
+    ] as const) {
+      const parent = parentChat("p_st", name);
+      setOutline(parent, outlined(runner));
+      expect(await startThread({ conversationId: parent, prompt: "x", start: async () => ({ runId: "never" }) }))
+        .toMatchObject({ ok: false, code: "runner-refused" });
+      expect(childrenOf(parent)).toEqual([]);
+    }
+  });
+
+  it("leaves auto behavior unrestricted", async () => {
+    const parent = parentChat("p_st", "outline-auto");
+    setOutline(parent, outlined("auto"));
+    const result = await startThread({
+      conversationId: parent,
+      prompt: "x",
+      provider: new FakeProvider(),
+      start: async () => ({ runId: "wr_outline_auto" }),
+    });
+    expect(result).toMatchObject({ ok: true });
     if (result.ok) cleanup.push(result.id);
   });
 });

@@ -37,7 +37,7 @@ export const OUTLINE_MAX_DEPTH = 4;
 export const OUTLINE_MAX_NODES = 200;
 
 export type Runner = "auto" | "self" | "thread" | HarnessRoute;
-export type RunnerTool = { kind: "thread" } | { kind: "harness"; route: HarnessRoute };
+export type RunnerTool = { kind: "thread" } | { kind: "harness"; harness: HarnessRoute["harness"] };
 
 export interface Step {
   /** Stable agent-chosen slug, kept across rewrites. */
@@ -62,10 +62,6 @@ export type RunnerGate =
   | { ok: true; active: Step | null; route: HarnessRoute | null }
   | { ok: false; active: Step; message: string };
 
-function sameRoute(a: HarnessRoute, b: HarnessRoute): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
 /** Pure runner decision. Callers perform route availability/restriction
  * checks after this gate and before claiming a slot or creating a child. */
 export function runnerGate(outline: Outline | null | undefined, tool: RunnerTool): RunnerGate {
@@ -89,7 +85,7 @@ export function runnerGate(outline: Outline | null | undefined, tool: RunnerTool
       message: `active step "${active.label}" is pinned to ${runnerLabel(active.runner)}; start_thread is refused — ${change}`,
     };
   }
-  if (!sameRoute(active.runner, tool.route)) {
+  if (active.runner.harness !== tool.harness) {
     return {
       ok: false,
       active,

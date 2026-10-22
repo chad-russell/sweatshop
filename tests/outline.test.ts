@@ -325,13 +325,13 @@ describe("outline runner decisions and worker handoff", () => {
 
   it("allows auto/no outline, restricts self and thread, and pins an exact harness route", () => {
     expect(runnerGate(null, { kind: "thread" })).toMatchObject({ ok: true, active: null });
-    expect(runnerGate(active("auto"), { kind: "harness", route: pi })).toMatchObject({ ok: true, route: null });
+    expect(runnerGate(active("auto"), { kind: "harness", harness: "pi" })).toMatchObject({ ok: true, route: null });
     expect(runnerGate(active("self"), { kind: "thread" })).toMatchObject({ ok: false, message: expect.stringContaining("self") });
     expect(runnerGate(active("thread"), { kind: "thread" })).toMatchObject({ ok: true });
-    expect(runnerGate(active("thread"), { kind: "harness", route: pi })).toMatchObject({ ok: false, message: expect.stringContaining("thread") });
+    expect(runnerGate(active("thread"), { kind: "harness", harness: "pi" })).toMatchObject({ ok: false, message: expect.stringContaining("thread") });
     expect(runnerGate(active(pi), { kind: "thread" })).toMatchObject({ ok: false, message: expect.stringContaining("pinned") });
-    expect(runnerGate(active(pi), { kind: "harness", route: { ...pi, model: "other" } })).toMatchObject({ ok: false, message: expect.stringContaining("different") });
-    expect(runnerGate(active(pi), { kind: "harness", route: pi })).toMatchObject({ ok: true, route: pi });
+    expect(runnerGate(active(pi), { kind: "harness", harness: "claude" })).toMatchObject({ ok: false, message: expect.stringContaining("different") });
+    expect(runnerGate(active(pi), { kind: "harness", harness: "pi" })).toMatchObject({ ok: true, route: pi });
   });
 
   it("prepends the goal and active subtree compactly", () => {
