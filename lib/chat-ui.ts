@@ -1,6 +1,8 @@
 import { parseAttachmentRef } from "@/lib/attachment-ref";
 import type { ModelMessage, UIMessage } from "ai";
 import type { MessageRowMetadata } from "@/db/chat";
+import { phaseFromMessages, type Phase } from "@/lib/thread-phase";
+import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
 
 /**
  * Rebuild the UI transcript from persisted rows (reload / initial render).
@@ -59,8 +61,22 @@ export function untilLiveTurn(rows: StoredRow[]): StoredRow[] {
   return rows;
 }
 
-export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
-  const out: UIMessage[] = [];
+/**
+ * 0075 fixup: the aligned head of a page that could NOT be walked back
+ * to a turn opener (a transient fetch failure on a client path): rows
+ * before the page's oldest `t_` row are a partial turn — drop them;
+ * they stay reachable below the page's older cursor. A page holding no
+ * `t_` row at all is one fold the walk never escaped: return null so
+ * the caller can decline to render (or prepend) any of it — a partial
+ * fold splits its turn the moment an aligned page joins it.
+ */
+export function alignPageHead(rows: StoredRow[]): StoredRow[] | null {
+  const first = rows.findIndex((row) => row.id.startsWith("t_"));
+  if (first === -1) return null;
+  return first === 0 ? rows : rows.slice(first);
+}
+
+export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {  const out: UIMessage[] = [];
   const toolParts = new Map<string, ToolPart>();
   let current: UIMessage | null = null; // the open assistant message
 
@@ -167,7 +183,7 @@ const BACKGROUND_TOOLS = new Set(["start_machine", "pi", "claude", "cursor", "co
 /** Whether the transcript shows background work that has not yet woken
  *  it: a started child (run or harness handle) after the latest wake. A
  *  wake for an earlier child is fine — this only gates a cheap poll. */
-export function hasBackgroundChild(messages: UIMessage[]): boolean {
+export function hasBackgroundChild(messages: readonly UIMessage[]): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role === "user" && (m.metadata as { runEvent?: unknown } | undefined)?.runEvent) return false;
@@ -229,4 +245,143 @@ export function liveBackgroundChildIds(messages: UIMessage[]): string[] {
     }
   }
   return backgroundChildIds(messages).filter((id) => !woken.has(id));
+}
+
+// ── Lazy transcript window (0075) ──────────────────────────────────────
+// Pages of rows fold in isolation; these pure merges knit a window and a
+// fetched page back into one transcript without duplicates. Fold ids are
+// the first row id of each fold (user rows always open a fold), so id
+// equality is row-level alignment.
+
+/** Prepend older messages (a page fetched backwards) to the current
+ *  window, dropping any the window already shows. Pure — returns a new
+ *  array, oldest-first, never mutating its inputs. */
+export function mergeOlder(current: readonly UIMessage[], older: readonly UIMessage[]): UIMessage[] {
+  if (older.length === 0) return [...current];
+  const known = new Set(current.map((m) => m.id));
+  return [...older.filter((m) => !known.has(m.id)), ...current];
+}
+
+/**
+ * Append newer messages (a tail page fetched for a wake) to the current
+ * window. The page may start anywhere — mid-fold, even — so append is
+ * gated: when the page's first message is one the window already has,
+ * alignment is exact and only unknown messages append. Otherwise the
+ * window is stale past recognition and the only safe append point is a
+ * turn boundary this window has never seen (`t_…` id, always a fold
+ * opener — a partial older fold would duplicate text already shown);
+ * with no such boundary, nothing changes. New turns always open with a
+ * `t_` row, so a finished wake turn is never missed — it just may take
+ * until the boundary is fully inside the page.
+ */
+/**
+ * 0076: merge a tail page while the turn it ends with is STILL LIVE.
+ * The live turn re-folds every poll — rowsToUIMessages gives the fold
+ * the id of its first row, which changes as slices land, and the new
+ * fold CONTAINS the old one's content. Appending would duplicate every
+ * slice, so instead: keep the window up to and including the live
+ * turn's `t_` opener (a stable row), drop the stale fold after it, and
+ * append the page's messages from that opener onward, SKIPPING ids the
+ * kept head already has (a page that spans below the window must not
+ * re-append it — 0076 review finding 1). With no `t_` opener in the
+ * window (mid-fold head), fall back to merging by position against the
+ * window's OWN last fold: the page's matching fold (same id) REPLACES
+ * it — its parts grew — and messages after it append; earlier page
+ * content is dropped (the window may not even show it). That keeps a
+ * no-opener window live-updating instead of frozen (finding 2).
+ */
+export function replaceLiveTurn(current: readonly UIMessage[], newer: readonly UIMessage[]): UIMessage[] {
+  let opener = -1;
+  for (let i = current.length - 1; i >= 0; i -= 1) {
+    if (current[i]!.id.startsWith("t_")) {
+      opener = i;
+      break;
+    }
+  }
+  if (opener !== -1) {
+    const head = current.slice(0, opener + 1);
+    // Anchor the page at the opener's own message (the t_ row, which
+    // IS a UIMessage of its own) and take what follows it in the PAGE
+    // — a spanning page's below-window rows sit before the anchor and
+    // are dropped, never spliced between the opener and the live fold
+    // (review finding 1). If the page predates the opener entirely,
+    // wait for one that covers it.
+    const anchorId = current[opener]!.id;
+    const at = newer.findIndex((m) => m.id === anchorId);
+    if (at === -1) return [...current];
+    const known = new Set(head.map((m) => m.id));
+    const tail = newer.slice(at + 1).filter((m) => !known.has(m.id));
+    return [...head, ...tail];
+  }
+  // No opener in the window: merge against the window's last fold.
+  if (current.length === 0) return [...newer];
+  const last = current[current.length - 1]!;
+  const at = newer.findIndex((m) => m.id === last.id);
+  if (at === -1) return [...current]; // page doesn't cover the window's tail — wait for one that does
+  return [...current.slice(0, -1), ...newer.slice(at)]; // replace the last fold (it grew) + append after
+}
+
+/**
+ * 0076: append newer messages (a settled wake turn) — span-safe. The
+ * page may start BELOW the window head (the tail walk strides by
+ * whole pages and can overshoot; review finding 1): in that case trim
+ * the page to the window's head by id — rows the window already shows
+ * are dropped wherever they sit — and append what is genuinely new.
+ * A page whose first message is exactly known keeps the fast path.
+ * With no overlap at all, fall back to the turn-boundary gate (append
+ * only from an unseen `t_` opener): an unaligned page mid-fold
+ * would otherwise split a fold and duplicate text.
+ */
+export function appendNewer(current: readonly UIMessage[], newer: readonly UIMessage[]): UIMessage[] {
+  if (newer.length === 0) return [...current];
+  if (current.length === 0) return [...newer];
+  const known = new Set(current.map((m) => m.id));
+  if (known.has(newer[0]!.id)) {
+    return [...current, ...newer.filter((m) => !known.has(m.id))];
+  }
+  // Spanning page: it overlaps the window. Append its unknown ids only
+  // when they sit strictly AFTER the window last known row (the usual
+  // shape — the page ends in new rows). Unknown ids BELOW the window
+  // head belong to a partial fold the window may not show; decline (a
+  // no-op) and let the next poll re-page from a wider walk.
+  let lastKnown = -1;
+  for (let i = newer.length - 1; i >= 0; i -= 1) {
+    if (known.has(newer[i]!.id)) {
+      lastKnown = i;
+      break;
+    }
+  }
+  if (lastKnown !== -1) {
+    const fresh = newer.slice(lastKnown + 1).filter((m) => !known.has(m.id));
+    return fresh.length > 0 ? [...current, ...fresh] : [...current];
+  }
+  // No overlap at all. Disjoint row ids mean nothing can duplicate,
+  // so a page holding an UNSEEN turn opener appends from it (the wake
+  // case: the newest tail starts mid-fold of an older turn the window
+  // shows under a different fold id). A page with no unseen t_ is
+  // entirely older/mid-fold content — no-op (review finding 1's
+  // below-window splice happens only WITH overlap, caught above).
+  const firstNewTurn = newer.findIndex((m) => !known.has(m.id) && m.id.startsWith("t_"));
+  return firstNewTurn === -1 ? [...current] : [...current, ...newer.slice(firstNewTurn)];
+}
+
+/**
+ * The server-derived context block (`GET /api/x/chat?context=1`): the
+ * header chrome facts (phase chip, diff breakdown, wake watch) computed
+ * over the WHOLE transcript, so a page that only hydrated a tail window
+ * shows exactly what a full render would. Pure — takes the folded
+ * transcript, never the db.
+ */
+export interface ChatContextBlock {
+  phase: Phase | null;
+  diffBreakdown: DiffBreakdown | null;
+  hasBackgroundChild: boolean;
+}
+
+export function deriveChatContext(messages: readonly UIMessage[]): ChatContextBlock {
+  return {
+    phase: phaseFromMessages(messages),
+    diffBreakdown: latestDiffBreakdown(messages),
+    hasBackgroundChild: hasBackgroundChild(messages),
+  };
 }

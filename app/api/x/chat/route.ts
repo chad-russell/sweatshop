@@ -1,4 +1,3 @@
-import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
 import { createUIMessageStreamResponse } from "ai";
 import { NextResponse } from "next/server";
 import { getRun } from "workflow/api";
@@ -11,10 +10,12 @@ import {
   getActiveRun,
   getConversation,
   listMessageTexts,
+  listMessageTextsPage,
   setActiveRun,
   setConversationSkill,
   setConversationRoute,
 } from "@/db/chat";
+import { deriveChatContext, rowsToUIMessages } from "@/lib/chat-ui";
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
 import { getProject } from "@/db/projects";
 import { getProjectModels } from "@/db/providers";
@@ -78,12 +79,23 @@ export async function POST(request: Request) {
   // stream plus an `x-workflow-run-id` header; plain fetch callers (steer)
   // get JSON.
   const wantsStream = body.text === undefined && body.messages !== undefined;
+  // 0076: a steered send must NOT replay the run's stream. The caller's
+  // window already renders the turn by persisted slices (polls); a
+  // from-0 replay would land the whole turn a second time under the
+  // steer (duplicate + multi-second replay). Instead: enqueue the steer
+  // and return a finished empty stream — the slices (steer drain, the
+  // turn's continuation) arrive through the slice poll like every other
+  // slice. The sending tab's optimistic user row renders immediately.
   const respond = (runId: string, steered: boolean) =>
     wantsStream
       ? createUIMessageStreamResponse({
-          stream: getRun(runId)
-            .getReadable({ startIndex: 0 })
-            .pipeThrough(createModelCallToUIChunkTransform({ uiStartIndex: 0 })),
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "start" });
+              controller.enqueue({ type: "finish" });
+              controller.close();
+            },
+          }),
           headers: { "x-workflow-run-id": runId },
         })
       : NextResponse.json({ runId, steered });
@@ -183,8 +195,10 @@ export async function POST(request: Request) {
       }
       const answered = await answerPendingWithText(body.conversationId, text);
       if (answered) {
-        // Transport callers re-attach to the live turn's stream; plain
-        // fetch callers learn what their text answered.
+        // 0076: transport callers get the empty finished stream (the
+        // hook's answer drives the turn; its slices arrive by poll —
+        // never a from-0 replay). Plain fetch callers learn what their
+        // text answered.
         return wantsStream ? respond(active, true) : NextResponse.json({ runId: active, steered: false, answered });
       }
       enqueueSteer(db(), body.conversationId, text);
@@ -209,15 +223,45 @@ function isValidSandboxChoice(value: string): boolean {
   return value === "none" || /^attached:sbx_[\w-]+$/.test(value);
 }
 
-/** Conversation state for the chat surface (reload/initial render). */
+/** Conversation state for the chat surface (reload/initial render).
+ *  0075: `tail` pages newest-first (with an `olderCursor` rowid for the
+ *  previous page and `olderRemaining` for the load-earlier count);
+ *  `context=1` adds the server-derived header facts over the whole
+ *  transcript so a tail-hydrated page still shows them. Without
+ *  params, today's exact shape and content. */
 export async function GET(request: Request) {
-  const conversationId = new URL(request.url).searchParams.get("conversationId");
+  const params = new URL(request.url).searchParams;
+  const conversationId = params.get("conversationId");
   if (!conversationId) {
     return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
   }
+  const tailRaw = params.get("tail");
+  const beforeRaw = params.get("before");
+  const wantsContext = params.get("context") === "1";
+  const MAX_TAIL = 1000;
+  let tail: number | undefined;
+  if (tailRaw != null) {
+    tail = Number(tailRaw);
+    if (!Number.isInteger(tail) || tail < 1 || tail > MAX_TAIL) {
+      return NextResponse.json({ error: `tail must be an integer between 1 and ${MAX_TAIL}` }, { status: 400 });
+    }
+  }
+  let before: number | undefined;
+  if (beforeRaw != null) {
+    before = Number(beforeRaw);
+    if (!Number.isInteger(before) || before < 1) {
+      return NextResponse.json({ error: "before must be a positive integer rowid" }, { status: 400 });
+    }
+  }
+  const paged = tailRaw != null || beforeRaw != null;
+  const page = listMessageTextsPage(db(), conversationId, paged ? { tail, before } : {});
   const conversation = getConversation(db(), conversationId);
   return NextResponse.json({
-    messages: listMessageTexts(db(), conversationId),
+    messages: page.rows,
+    ...(paged ? { olderCursor: page.olderCursor, olderRemaining: page.olderRemaining } : {}),
+    ...(wantsContext
+      ? { context: deriveChatContext(rowsToUIMessages(listMessageTexts(db(), conversationId))) }
+      : {}),
     activeRunId: getActiveRun(db(), conversationId),
     route: conversation?.route ?? null,
     sandbox: getConversationBinding(db(), conversationId),
