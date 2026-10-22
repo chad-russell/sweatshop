@@ -32,6 +32,34 @@ export function listHarnessCalls(
     .all();
 }
 
+/**
+ * 0063: the newest still-running call for one conversation+kind — a SQL
+ * status filter, not `listHarnessCalls`' 50-newest-of-any-kind cap, so a
+ * long-running call sitting behind 50+ later settled calls (of any kind)
+ * is still found (the Cancel button on the session page).
+ */
+export function getRunningHarnessCall(
+  db: Db,
+  conversationId: string,
+  kind: "pi" | "claude" | "cursor" | "codex",
+): HarnessCall | null {
+  return (
+    db
+      .select()
+      .from(harnessCalls)
+      .where(
+        and(
+          eq(harnessCalls.conversationId, conversationId),
+          eq(harnessCalls.kind, kind),
+          eq(harnessCalls.status, "running"),
+        ),
+      )
+      .orderBy(desc(harnessCalls.createdAt))
+      .limit(1)
+      .get() ?? null
+  );
+}
+
 export function createHarnessCall(
   db: Db,
   input: {

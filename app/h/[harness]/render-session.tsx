@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { HarnessSessionView } from "@/components/harness-session-view";
 import { db } from "@/db";
-import { listHarnessCalls } from "@/db/harness-calls";
+import { getRunningHarnessCall } from "@/db/harness-calls";
 import { sandboxForHarnessSession } from "@/db/sandbox-view";
 import { conversations, projects, type HarnessCall } from "@/db/schema";
 import { getHarnessEvents, type HarnessKind, type HarnessRun } from "@/lib/harness-events";
@@ -32,10 +32,10 @@ export function renderHarnessSession(
     ? db().query.projects.findFirst({ where: eq(projects.id, parent.projectId) }).sync()
     : undefined;
   // 0063: the call to cancel — the per-call page's own call, else (the
-  // session page) the session's newest still-running call of this kind.
-  const callId =
-    call?.id ??
-    listHarnessCalls(db(), { conversationId: sessionId }).find((c) => c.kind === harness && c.status === "running")?.id;
+  // session page) the session's newest still-running call of this kind —
+  // a SQL status filter, not a client-side filter of the 50 newest calls
+  // of any kind (a long-running call can sit behind more than that).
+  const callId = call?.id ?? getRunningHarnessCall(db(), sessionId, harness)?.id;
   return (
     <HarnessSessionView
       initialRun={run}
