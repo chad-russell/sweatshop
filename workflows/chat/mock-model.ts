@@ -13,7 +13,7 @@ import type { LanguageModel } from "ai";
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
  * "hang" | "create-pr" | "viewing" | "thread-state" | "skill" | "loop" |
- * "accept-plan" | "enter-mode" | "cache") is read at call time so a test file can
+ * "accept-plan" | "outline-propose" | "enter-mode" | "cache") is read at call time so a test file can
  * switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
@@ -198,6 +198,20 @@ export function scriptedChatModel(): LanguageModel {
         if (!sawToolResult) return result(toolCallPart("call_accept_1", "accept_plan", {}));
         const toolMessage = options.prompt.find((m) => m.role === "tool");
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
+      }
+
+      // 0064: proposing an outline opens a hookless review and the turn
+      // continues immediately to its next model slice.
+      if (script === "outline-propose") {
+        if (!sawToolResult) {
+          const callId = askCallId(userTexts(options.prompt)).replace("call_ask_", "call_outline_");
+          return result(toolCallPart(callId, "update_outline", {
+            goal: "Ship the widget",
+            steps: [{ id: "build", label: "Build", state: "active" }],
+            propose: true,
+          }));
+        }
+        return result(textPart("mock-outline-continued"));
       }
 
       // 0015: report how many "[viewing]" notes the model was shown (the

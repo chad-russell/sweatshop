@@ -16,7 +16,7 @@ import {
 import { markCallWoken, CALL_SETTLED_STATUSES } from "@/db/harness-calls";
 import type { HarnessCall } from "@/db/schema";
 import { ACTIVE_RUN_STATUSES, startChatTurn } from "@/lib/chat/start-turn";
-import { activeStepLabel, deriveStatus, statusChipLabel } from "@/lib/status";
+import { activeStepLabel, deriveOutline, outlineChip } from "@/lib/outline";
 import { saveResultFile, type NoResultFileReason } from "@/lib/chat/result-file";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
@@ -42,8 +42,9 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
 
 /** One settled child, rendered into the parent's thread. */
 export interface WakeEvent {
-  /** 0041: "plan" = Chad approved the plan in review (id = the review row). */
-  kind: "harness" | "thread" | "plan";
+  /** 0041: "plan" = Chad approved the plan in review (id = the review row).
+   *  0064: "outline" = Chad approved the outline in review, same shape. */
+  kind: "harness" | "thread" | "plan" | "outline";
   /** hc_… / c_… — for inspect/cancel. */
   id: string;
   /** The harness kind ("pi" / "claude" / "cursor" / "codex") or the child thread's skill
@@ -161,7 +162,7 @@ export async function wakeConversation(
     if (!conversation || conversation.trashedAt) return "gone";
 
     const active = getActiveRun(db(), conversationId);
-    const step = event.step ?? activeStepLabel(deriveStatus(listModelMessages(db(), conversationId)));
+    const step = event.step ?? activeStepLabel(deriveOutline(listModelMessages(db(), conversationId)));
     const text = renderWake({ ...event, ...(step ? { step } : {}) });
     if (active) {
       const statusOf = deps.statusOf ?? ((runId: string) => getWorkflowRun(runId).status);
@@ -313,8 +314,8 @@ export async function wakeChatChildIfDue(
       ? { chars: report!.text.length, file: null, reason: outcome.reason }
       : { chars: outcome.chars, file: outcome.path }
     : undefined;
-  const childDerived = deriveStatus(listModelMessages(db(), child.id));
-  const childLabel = childDerived.current ? statusChipLabel(childDerived.current) : null;
+  const childDerived = deriveOutline(listModelMessages(db(), child.id));
+  const childLabel = outlineChip(childDerived);
   const wakeOutcome = await wakeConversation(
     child.parentConversationId,
     {

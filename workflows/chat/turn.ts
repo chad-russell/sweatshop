@@ -4,7 +4,7 @@ import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
 import { isModeSkill, parseModeSkill } from "../../lib/agent/mode-ids";
-import { deriveStatus, renderThreadStateNote } from "../../lib/status";
+import { deriveOutline, renderThreadStateNote } from "../../lib/outline";
 import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
@@ -92,12 +92,12 @@ export async function chatTurn(input: ChatTurnInput) {
   // same way it already rebuilds the viewing note).
   const skill = await loadSkillStep(conversationId);
   const modePhase = skill?.modePhase ?? null;
-  // 0059: the [thread state] note is the derived status (or, for a mode
-  // that has not called update_status yet, a seed line). Rendered NOW
+  // 0064: the [thread state] note is the derived outline (or, for a mode
+  // that has not called update_outline yet, a seed line). Rendered NOW
   // so the same string is stamped onto this turn's user row AND injected
   // into this turn's messages — metadata and what the model sees stay
   // byte-identical, and listTurnMessages replays the stored text.
-  const derived = deriveStatus(history);
+  const derived = deriveOutline(history);
   const seed =
     !derived.current && skill && isModeSkill(skill.mode) && modePhase != null
       ? parseModeSkill(skill.body).phases

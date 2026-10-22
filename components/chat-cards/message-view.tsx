@@ -21,12 +21,13 @@ import {
 import { HarnessCard } from "@/components/harness-card";
 import { PhaseContextBlock } from "@/components/phase-context";
 import { PlanToolCard } from "@/components/plan-card";
-import { StatusToolCard } from "@/components/status-card";
+import { OutlineToolCard } from "@/components/outline-card";
 import { splitPhaseHandoff } from "@/lib/agent/mode-ids";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import {
   AskOwnerCard,
+  AcceptOutlineCard,
   AcceptPlanCard,
   HostExecApprovalCard,
   GatedApprovalCard,
@@ -106,6 +107,8 @@ function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; stat
           ? "step budget reached · continuing"
           : runEvent.kind === "plan"
           ? `plan ${runEvent.status}`
+          : runEvent.kind === "outline"
+          ? `outline ${runEvent.status}`
           : runEvent.kind === "mode"
           ? `Entered ${runEvent.id} mode`
           : `${runEvent.kind === "machine" ? "run" : runEvent.kind === "thread" ? "thread" : runEvent.id.split("_")[0]} ${runEvent.status} · ${runEvent.id}`}
@@ -187,9 +190,32 @@ export const ChatMessageView = memo(function ChatMessageView({
             if (toolPart.type === "tool-propose_prompt_change") {
               return <PromptChangeApprovalCard key={i} part={toolPart} />;
             }
-            // 0041: the plan document and its chat-approval gate.
+            // 0064: the outline card — also renders a legacy update_status
+            // result read-only (0064 decision 10).
+            if (toolPart.type === "tool-update_outline" && toolPart.state === "output-available") {
+              return (
+                <OutlineToolCard
+                  key={i}
+                  toolCallId={toolPart.toolCallId}
+                  toolName="update_outline"
+                  state={toolPart.state}
+                  output={toolPart.output}
+                />
+              );
+            }
             if (toolPart.type === "tool-update_status" && toolPart.state === "output-available") {
-              return <StatusToolCard key={i} output={toolPart.output} />;
+              return (
+                <OutlineToolCard
+                  key={i}
+                  toolCallId={toolPart.toolCallId}
+                  toolName="update_status"
+                  state={toolPart.state}
+                  output={toolPart.output}
+                />
+              );
+            }
+            if (toolPart.type === "tool-accept_outline" && toolPart.state === "input-available") {
+              return <AcceptOutlineCard key={i} part={toolPart} />;
             }
             if (toolPart.type === "tool-present_plan") {
               return (

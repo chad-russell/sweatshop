@@ -1,15 +1,15 @@
-import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { derivePhase, phaseFromMessages } from "../lib/plan";
-import {
-  activeStepHistory,
-  deriveStatus,
-  renderThreadStateNote,
-  skillsUsed,
-  statusChipLabel,
-  type StatusSnapshot,
-} from "../lib/status";
-import { updateStatus } from "../lib/agent/tools/status";
+import { activeStepHistory, deriveStatus, skillsUsed, type StatusSnapshot } from "../lib/status";
+
+/**
+ * 0064: `lib/status.ts` is legacy now — `update_outline` (lib/outline.ts)
+ * replaced the live `update_status` tool, and lib/outline.ts owns the
+ * current chip/note derivations (tests/outline.test.ts). What's left
+ * here (`deriveStatus`, `findStep`, `activeStepHistory`, `skillsUsed`,
+ * `lastLoadedModeId`) is read only by mode machinery
+ * (lib/agent/mode-ids.ts, lib/chat/phase-handoff.ts,
+ * components/mode-chip.tsx) ahead of its removal.
+ */
 
 function snap(steps: StatusSnapshot["steps"], note?: string): StatusSnapshot {
   return note ? { ok: true, steps, note } : { ok: true, steps };
@@ -28,65 +28,6 @@ const implement = snap([
   },
   { label: "Ship", state: "pending" },
 ]);
-
-describe("updateStatus", () => {
-  it("normalizes a rewrite and drops a blank note", () => {
-    expect(updateStatus({ steps: [{ label: "  Plan  ", state: "active", detail: "  " }], note: "  " })).toEqual({
-      ok: true,
-      steps: [{ label: "Plan", state: "active" }],
-    });
-  });
-
-  it("refuses an empty list, a bad state, and grandchildren", () => {
-    expect(updateStatus({ steps: [] })).toMatchObject({ ok: false, code: "invalid" });
-    expect(updateStatus({ steps: [{ label: "Plan", state: "later" }] })).toMatchObject({ ok: false });
-    expect(
-      updateStatus({
-        steps: [{ label: "Plan", state: "active", children: [{ label: "a", state: "pending", children: [{ label: "b", state: "done" }] }] }],
-      }),
-    ).toMatchObject({ ok: false });
-  });
-});
-
-describe("statusChipLabel", () => {
-  it("uses the active step's children as the fraction", () => {
-    expect(statusChipLabel(implement)).toEqual({ label: "Implement · 2/3", tone: "running" });
-  });
-
-  it("counts top-level steps when the active step has no children, and skipped is not done", () => {
-    const snapshot = snap([
-      { label: "Plan", state: "done" },
-      { label: "Implement", state: "active" },
-      { label: "Review", state: "skipped" },
-    ]);
-    expect(statusChipLabel(snapshot)).toEqual({ label: "Implement · 1/3", tone: "running" });
-  });
-
-  it("a blocked step wins over the fraction", () => {
-    const snapshot = snap([
-      { label: "Plan", state: "done" },
-      { label: "Implement", state: "active", children: [{ label: "auth", state: "blocked" }] },
-    ]);
-    expect(statusChipLabel(snapshot)).toEqual({ label: "auth · needs you", tone: "warn" });
-  });
-
-  it("with no active step, names the last done step", () => {
-    const snapshot = snap([
-      { label: "Plan", state: "done" },
-      { label: "Ship", state: "done" },
-    ]);
-    expect(statusChipLabel(snapshot)).toEqual({ label: "Ship · 2/2", tone: "ok" });
-  });
-
-  it("with no active and no done step, names the first pending step", () => {
-    const snapshot = snap([
-      { label: "Plan", state: "pending" },
-      { label: "Implement", state: "pending" },
-      { label: "Ship", state: "pending" },
-    ]);
-    expect(statusChipLabel(snapshot)).toEqual({ label: "Plan · 0/3", tone: "ok" });
-  });
-});
 
 describe("deriveStatus", () => {
   const ui = (output: StatusSnapshot) => ({
@@ -148,7 +89,7 @@ describe("deriveStatus", () => {
   });
 });
 
-describe("history, skills, and the thread-state note", () => {
+describe("history and skills", () => {
   it("collapses consecutive active steps and lists skills in first-seen order", () => {
     const history = [
       snap([{ label: "Plan", state: "active" }]),
@@ -162,47 +103,5 @@ describe("history, skills, and the thread-state note", () => {
       { role: "assistant", parts: [{ type: "tool-use_skill", state: "output-available", output: { ok: true, id: "ticket", mode: true } }] },
     ];
     expect(skillsUsed(messages)).toEqual(["ticket", "review"]);
-  });
-
-  it("renders the status, the stale flag, and the seed line", () => {
-    const status = deriveStatus([]);
-    expect(renderThreadStateNote(status, [{ name: "Plan" }, { name: "Ship" }])).toContain(
-      "seed update_status from: Plan → Ship",
-    );
-    expect(renderThreadStateNote(status)).toBeNull();
-    const current = deriveStatus([
-      { role: "assistant", parts: [{ type: "tool-update_status", state: "output-available", output: implement }] },
-    ]);
-    const note = renderThreadStateNote(current);
-    expect(note).toContain("Implement · 2/3");
-    expect(note).toContain("if this changed, call update_status");
-    expect(renderThreadStateNote({ ...current, stale: true })).toContain("(stale)");
-  });
-});
-
-describe("derivePhase prefers PR and an open plan over status", () => {
-  const status = deriveStatus([
-    { role: "assistant", parts: [{ type: "tool-update_status", state: "output-available", output: implement }] },
-  ]);
-
-  it("status fills the chip only when no PR and no open review is waiting", () => {
-    expect(derivePhase([], status)?.label).toBe("Implement · 2/3");
-    expect(derivePhase([{ type: "plan", version: 2, status: "review", checklist: { done: 0, total: 1 } }], status)?.label).toBe(
-      "Plan v2 · needs you",
-    );
-    expect(derivePhase([{ type: "pr-open", url: "http://x/pull/1" }], status)?.label).toBe("PR open");
-    expect(derivePhase([{ type: "pr-open", url: "http://x/pull/1" }], { ...status, stale: true })?.stale).toBeUndefined();
-    expect(derivePhase([], { ...status, stale: true })?.stale).toBe(true);
-  });
-
-  it("phaseFromMessages reads both the plan events and the status", () => {
-    const phase = phaseFromMessages([
-      {
-        id: "a",
-        role: "assistant",
-        parts: [{ type: "tool-update_status", toolCallId: "s", state: "output-available", input: {}, output: implement }],
-      } as UIMessage,
-    ]);
-    expect(phase?.label).toBe("Implement · 2/3");
   });
 });
