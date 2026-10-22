@@ -48,9 +48,7 @@ import {
   alignPageHead,
   appendNewer,
   hasBackgroundChild,
-  liveTurnChanged,
   mergeOlder,
-  replaceLiveTurn,
   rowsToUIMessages,
   type ChatContextBlock,
 } from "@/lib/chat-ui";
@@ -89,10 +87,6 @@ const DRAFT_PREFIX = "sweatshop.draft.";
 
 /** How often an idle chat with background work out checks for its wake. */
 const WAKE_POLL_MS = 5000;
-/** 0076: while a turn this tab never started is live elsewhere, poll for
- * its newly persisted slices. 2s keeps a reloaded tab within a slice or
- * two of the live stream without hammering the store. */
-const SLICE_POLL_MS = 2000;
 
 /** 0075: rows fetched per page (hydration window, wake-poll tail, and
  *  the load-earlier step — one screenful of turns each). */
@@ -259,6 +253,7 @@ export function ChatSession({
   conversationId: initialConversationId,
   initialMessages,
   activeRunId,
+  activeStreamCursor,
   projectId,
   initialRoute,
   olderCursor: initialOlderCursor,
@@ -277,6 +272,8 @@ export function ChatSession({
   conversationId?: string;
   initialMessages?: UIMessage[];
   activeRunId?: string | null;
+  /** 0077: the live run's resume cursor (init-only, paired with activeRunId). */
+  activeStreamCursor?: number | null;
   projectId?: string;
   /** 0021: the stored conversation route (init-only). */
   initialRoute?: ChatRoute | null;
@@ -362,9 +359,31 @@ export function ChatSession({
     skillRef.current = skill ?? null;
   }, [route, routeTouched, sandboxChoice, conversationId, projectId, pageContext, skill]);
 
+  // 0075: the lazy window's older-pages cursor/remaining count — declared
+  // here (ahead of the rest of that section, below) because the 0077
+  // resume effect also updates them, once a resumed stream's tail reload
+  // replaces the window.
+  const [olderCursor, setOlderCursor] = useState<number | null>(initialOlderCursor ?? null);
+  const [olderRemaining, setOlderRemaining] = useState(initialOlderRemaining ?? 0);
+
   // 0076: the run id of THIS tab's own in-flight send (from the send
-  // response header) — the only stream a reconnect may attach now.
+  // response header) — a dropped mid-send connection reconnects to it
+  // via the index-0 replay route: it already streamed from chunk 0
+  // itself, so there is nothing to skip.
   const resumeRunRef = useRef<string | null>(null);
+  // 0077: a live run this tab is not currently streaming — seeded at
+  // mount from the hydrated activeRunId/activeStreamCursor (props), or
+  // discovered later (the settled-context fetch, the wake poll). Read
+  // by prepareReconnectToStreamRequest to build the cursor-based
+  // reconnect URL; the resume effect below clears it once its
+  // resumeStream() call finishes.
+  const [pendingResume, setPendingResume] = useState<{ runId: string; cursor: number } | null>(
+    () => (activeRunId ? { runId: activeRunId, cursor: activeStreamCursor ?? 0 } : null),
+  );
+  const pendingResumeRef = useRef(pendingResume);
+  useEffect(() => {
+    pendingResumeRef.current = pendingResume;
+  }, [pendingResume]);
   // The callback runs at send time (never during render) and must see
   // the current knobs.
   const [transport] = useState(
@@ -403,21 +422,29 @@ export function ChatSession({
             },
           };
         },
-        // 0076: reconnects only happen for runs THIS tab started
-        // (its own stream dropped mid-flight); reloaded tabs never
-        // attach a live run's stream (see useChat below), so the
-        // durable journal is never replayed on load.
-        prepareReconnectToStreamRequest: ({ api }) =>
-          resumeRunRef.current ? { api: `/api/x/chat/${encodeURIComponent(resumeRunRef.current)}/stream` } : { api },
+        // 0077: a tab's OWN dropped send still reconnects via the
+        // index-0 replay route (resumeRunRef). Every other resume —
+        // mounting onto a live turn, a wake, a steered send — is the
+        // cursor-based reconnect: pendingResume names the run and the
+        // raw-journal cursor `persistTurn` recorded for it, so the
+        // SDK's own reconnect contract (it appends `?startIndex=` itself)
+        // picks up exactly the in-progress slice, nothing replayed.
+        prepareReconnectToStreamRequest: ({ api }) => {
+          if (resumeRunRef.current) {
+            return { api: `/api/x/chat/${encodeURIComponent(resumeRunRef.current)}/stream` };
+          }
+          const pending = pendingResumeRef.current;
+          return pending
+            ? { api: `/api/x/chat/${encodeURIComponent(pending.runId)}/from/${pending.cursor}/stream` }
+            : { api };
+        },
       }),
   );
 
-  // 0076: NO resume on mount. Mounting with resume:true made the transport
-  // attach the run's durable stream, which the engine can only replay
-  // from chunk 0 — the multi-second "world replay" on every reload of a
-  // busy chat. Live turns this tab didn't start render from persisted
-  // slices (initialMessages + the slice poll below); the tab that
-  // started a turn streams it as always.
+  // 0077: hydration (initialMessages) already shows every slice the live
+  // turn has persisted; the resume effect below (pendingResume) attaches
+  // the SDK's own durable stream for whatever comes after — no
+  // from-chunk-0 replay, no homemade slice poll.
   const chat = useChat({
     id: activeRunId ?? conversationId,
     transport,
@@ -469,14 +496,41 @@ export function ChatSession({
   useEffect(() => {
     chatRef.current = chat;
   });
-  // A foreign live turn. The mount prop (activeRunId) only EVER says
-  // "was live at hydration" — it never clears, so it may not gate a
-  // poll alone (0076 review finding 4: a settled run would be polled
-  // forever). foreignLive is set by either poll seeing a live run in
-  // the store and cleared the moment the store reports none; the prop
-  // merely seeds the FIRST poll so a page that hydrates mid-turn
-  // starts watching immediately.
-  const [foreignLive, setForeignLive] = useState(Boolean(activeRunId));
+
+  // 0077: resume the AI SDK's own durable stream onto a known live run
+  // (pendingResume — seeded at mount, or discovered below) once this
+  // tab is idle. `chat.resumeStream()` reconnects via the transport's
+  // `prepareReconnectToStreamRequest` (the cursor-based URL above);
+  // `status` tracks it exactly like a fresh send (submitted → streaming
+  // → ready), so the thinking indicator and Stop button need no
+  // separate "live elsewhere" term. Once the stream ends, reload the
+  // tail from the store: a resumed stream may land as a NEW assistant
+  // UIMessage rather than continuing the hydrated fold (useChat only
+  // replaces the last message when the resumed message's id matches it,
+  // and the cursor-based stream's first chunk carries a fresh id — see
+  // docs/0077 decision 3) — reloading re-folds the turn exactly as a
+  // fresh load would show it.
+  useEffect(() => {
+    if (!pendingResume) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await chat.resumeStream();
+        if (cancelled) return;
+        const page = await fetchChatPage(conversationId, { tail: PAGE_TAIL });
+        if (!page || cancelled) return;
+        setOlderCursor(page.olderCursor);
+        setOlderRemaining(page.olderRemaining);
+        chatRef.current.setMessages(rowsToUIMessages(page.rows));
+      } finally {
+        if (!cancelled) setPendingResume(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the run identity, not every re-render
+  }, [pendingResume?.runId, conversationId]);
 
   // The context refetch runs once per settled transcript state: on
   // mount (initialMessages are ready), after each turn settles, and
@@ -493,15 +547,31 @@ export function ChatSession({
           { cache: "no-store" },
         );
         if (!res.ok || cancelled) return;
-        const body = (await res.json()) as { context?: ChatContextBlock; activeRunId?: string | null };
+        const body = (await res.json()) as {
+          context?: ChatContextBlock;
+          activeRunId?: string | null;
+          activeStreamCursor?: number | null;
+        };
         if (cancelled) return;
         if (body.context) setServerContext(body.context);
-        // 0076 followup: the same response reports whether a run is live,
-        // which is how a live turn becomes discoverable WITHOUT a reload
-        // (a steered send's empty stream just settled this tab, or the
-        // tab sat idle while a wake started a turn) — it feeds the slice
-        // poll below.
-        setForeignLive(Boolean(body.activeRunId));
+        // 0077: the same response reports whether a run is live, which is
+        // how a live turn becomes discoverable WITHOUT a reload (a wake
+        // turn that started server-side, or this tab's own send that
+        // steered into one it didn't know about) — merge whatever the
+        // store already has, then hand off to the resume effect above.
+        if (body.activeRunId && body.activeRunId !== pendingResumeRef.current?.runId) {
+          const page = await fetchChatPage(conversationId, { tail: PAGE_TAIL });
+          if (!cancelled && page) {
+            const known = new Set(chatRef.current.messages.map((m) => m.id));
+            const stored = rowsToUIMessages(page.rows);
+            if (!stored.every((m) => known.has(m.id))) {
+              chatRef.current.setMessages((prev) => appendNewer(prev, stored));
+            }
+          }
+          if (!cancelled) {
+            setPendingResume({ runId: body.activeRunId, cursor: body.activeStreamCursor ?? 0 });
+          }
+        }
       } catch {
         /* transient — the next settled tick retries */
       }
@@ -510,6 +580,12 @@ export function ChatSession({
       cancelled = true;
     };
   }, [adoptedNow, conversationId, settledTick]);
+
+  // 0077: the wake poll's remaining job — notice a turn a background
+  // child's settle started SERVER-side while this tab sits fully idle
+  // (nothing here is locally reactive, so settledTick above never
+  // refires on its own). It only merges already-persisted rows; a live
+  // run it finds hands off to the resume effect, never streams itself.
   useEffect(() => {
     if (!awaitingWake) return;
     let stop = false;
@@ -539,34 +615,13 @@ export function ChatSession({
         // A send may have started while the fetches were out — appending
         // stored history under an optimistic send would misorder the turn.
         if (stop || busyNow(c)) return;
-        const firstRow = page.rows[0];
-        const aligned = firstRow != null && (known.has(firstRow.id) || firstRow.id.startsWith("t_"));
-        if (!page.activeRunId) {
-          // Idle: merge, never replace — appendNewer is gated at turn
-          // boundaries, so even a tail the failed extension left
-          // unaligned can only append whole turns the window has never
-          // seen; the older pages the user already loaded stay put.
-          const stored = rowsToUIMessages(page.rows);
-          if (stored.every((m) => known.has(m.id))) return;
-          c.setMessages((prev) => appendNewer(prev, stored));
-          return;
-        }
-        // 0076: a live turn to attach — but never via the stream. The
-        // journal can only be replayed from chunk 0, so a reloaded tab
-        // views the turn by its PERSISTED SLICES instead: append them
-        // now and let the slice poll below keep it current until the
-        // run settles. (The aligned flag is now only appendNewer's gate
-        // — an unaligned page simply waits for the next tick, which
-        // re-extends from the known set; nothing is replaced.)
-        if (!aligned) return;
         const stored = rowsToUIMessages(page.rows);
-        // 0076 followup to #19/#20: a live fold keeps its id while it
-        // grows — compare content, not ids, or the window freezes.
-        if (!liveTurnChanged(c.messages, stored)) return;
-        // The turn is live: its fold re-ids and grows every poll, so
-        // replace it (keep history up to its opener) rather than append.
-        c.setMessages((prev) => replaceLiveTurn(prev, stored));
-        setForeignLive(true);
+        if (!stored.every((m) => known.has(m.id))) {
+          c.setMessages((prev) => appendNewer(prev, stored));
+        }
+        if (page.activeRunId && page.activeRunId !== pendingResumeRef.current?.runId) {
+          setPendingResume({ runId: page.activeRunId, cursor: page.activeStreamCursor ?? 0 });
+        }
       } catch {
         /* transient — the next tick retries */
       }
@@ -580,65 +635,9 @@ export function ChatSession({
     };
   }, [awaitingWake, conversationId]);
 
-  // ── 0076: the live-run slice poll ──────────────────────────────────
-  // While a run is live for this conversation but THIS tab is not
-  // streaming it (a reload mid-turn, or a wake turn that started
-  // server-side), poll the store for newly persisted slices and append
-  // them. The poll stops the moment the run settles (the wake effect
-  // and the settled context refetch take over) or this tab starts
-  // streaming itself.
-  const liveElsewhere = foreignLive && !isBusy && status === "ready";
-  useEffect(() => {
-    if (!adoptedNow || !liveElsewhere) return;
-    let stop = false;
-    const check = async () => {
-      if (stop || document.visibilityState !== "visible") return;
-      try {
-        const c = chatRef.current;
-        if (busyNow(c)) return;
-        const known = new Set(c.messages.map((m) => m.id));
-        const windowHead = c.messages[0]?.id ?? null;
-        let page = await fetchChatPage(conversationId, { tail: PAGE_TAIL });
-        if (!page || stop) return;
-        if (page.rows[0] != null && !known.has(page.rows[0].id)) {
-          // 0076 finding 1: stop at the window head or a t_ row (above).
-          page = await extendChatPageBack(conversationId, page, PAGE_TAIL, (rows) => {
-            const first = rows[0];
-            return first != null && (first.id === windowHead || known.has(first.id) || first.id.startsWith("t_"));
-          });
-        }
-        if (stop || busyNow(c)) return;
-        const firstRow = page.rows[0];
-        const aligned = firstRow != null && (known.has(firstRow.id) || firstRow.id.startsWith("t_"));
-        if (!aligned) return;
-        const stored = rowsToUIMessages(page.rows);
-        // 0076 followup to #19/#20: content growth, not new ids (see
-        // liveTurnChanged); a settled run with nothing new still stops
-        // the poll (and the foreign-turn indicator).
-        if (!liveTurnChanged(c.messages, stored)) {
-          if (!page.activeRunId) setForeignLive(false);
-          return;
-        }
-        // Growing live fold: replace, never append (see wake poll).
-        c.setMessages((prev) => replaceLiveTurn(prev, stored));
-        setForeignLive(Boolean(page.activeRunId));
-      } catch {
-        /* transient — the next tick retries */
-      }
-    };
-    const timer = setInterval(() => void check(), SLICE_POLL_MS);
-    document.addEventListener("visibilitychange", check);
-    return () => {
-      stop = true;
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", check);
-    };
-  }, [adoptedNow, liveElsewhere, conversationId]);
-
   // ── 0075: the lazy window's older-pages control ────────────────────────
-  // Init-only from the frame's hydration; owned here from the first load.
-  const [olderCursor, setOlderCursor] = useState<number | null>(initialOlderCursor ?? null);
-  const [olderRemaining, setOlderRemaining] = useState(initialOlderRemaining ?? 0);
+  // Init-only from the frame's hydration; owned here from the first load
+  // (olderCursor/olderRemaining themselves are declared above).
   const [olderLoading, setOlderLoading] = useState(false);
   // Whether any Load-earlier fetch has happened — the sentinel shows for
   // a windowed transcript even at the start (the muted "Start of
@@ -1021,12 +1020,13 @@ export function ChatSession({
           ))}
           </OutlineViewProvider>
           </SandboxViewProvider>
-          {/* 0076 followup to #19/#20: a watching tab (turn live in another
-              tab or a wake) shows the indicator too. */}
-          {(isThinking(status, messages) || liveElsewhere) && (
+          {/* 0077: driven only by useChat's own status — a tab resumed
+              onto a live run (reload, wake, steer) gets the same
+              submitted/streaming signal a fresh send does. */}
+          {isThinking(status, messages) && (
             <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground" role="status">
               <Spinner className="size-4" />
-              {(isBusy || liveElsewhere) && messages.some((m) => m.parts.some((p) => p.type.startsWith("tool-")))
+              {isBusy && messages.some((m) => m.parts.some((p) => p.type.startsWith("tool-")))
                 ? "Working…"
                 : "Thinking…"}
             </div>
