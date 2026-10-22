@@ -1,15 +1,38 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelMessage } from "ai";
 import { db } from "../db";
-import { ensureConversation, getConversation } from "../db/chat";
+import { ensureConversation, getConversation, setActiveRun } from "../db/chat";
 import { messages as messagesTable } from "../db/schema";
 import { GET as getChat, POST as postChat } from "../app/api/x/chat/route";
 
 /**
  * The chat route's request validation — paths that reject BEFORE any
  * conversation row is created or a turn starts (so no workflow runs) —
- * plus the 0075 GET paging/context params.
+ * plus the 0075 GET paging/context params, plus the POST stream shape
+ * (0076 followup to #19: a fresh send streams the run's journal, a
+ * steered send returns the empty finished stream).
  */
+
+// The stream-shape tests below need a run without driving a real
+// workflow: `getRun` answers a canned status/journal, `startChatTurn`
+// resolves a canned runId. Nothing else in this file reaches either
+// (the validation paths reject first; GET never asks).
+const { getRunMock, getReadableMock, startChatTurnMock } = vi.hoisted(() => ({
+  getRunMock: vi.fn(),
+  getReadableMock: vi.fn(),
+  startChatTurnMock: vi.fn(),
+}));
+vi.mock("workflow/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("workflow/api")>();
+  return { ...actual, getRun: (runId: string) => getRunMock(runId) };
+});
+vi.mock("../lib/chat/start-turn", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/chat/start-turn")>();
+  return {
+    ...actual,
+    startChatTurn: (...args: Parameters<typeof actual.startChatTurn>) => startChatTurnMock(...args),
+  };
+});
 
 const send = (body: unknown) =>
   postChat(new Request("http://x/api/x/chat", { method: "POST", body: JSON.stringify(body) }));
@@ -157,5 +180,72 @@ describe("GET /api/x/chat context", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { context: { hasBackgroundChild: boolean } };
     expect(body.context.hasBackgroundChild).toBe(true);
+  });
+});
+
+describe("POST /api/x/chat stream shape (0076 followup to #19)", () => {
+  /** Parse a UI message stream response's SSE body into its parts. */
+  async function sseParts(res: Response): Promise<{ type: string; delta?: string }[]> {
+    return (await res.text())
+      .split("\n")
+      .filter((line) => line.startsWith("data:") && !line.includes("[DONE]"))
+      .map((line) => JSON.parse(line.slice(5).trim()) as { type: string; delta?: string });
+  }
+
+  /** A transport send (`messages`, no explicit `text`) — wantsStream. */
+  const sendStream = (conversationId: string, text: string) =>
+    postChat(
+      new Request("http://x/api/x/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          conversationId,
+          messages: [{ role: "user", parts: [{ type: "text", text }] }],
+        }),
+      }),
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default run shape: a live status (the sweep keeps the active row),
+    // a journal nobody reads unless the fresh path pipes it.
+    getRunMock.mockImplementation(() => ({ status: "running", getReadable: getReadableMock }));
+  });
+
+  it("a steered send returns the empty finished stream, never the run's journal", async () => {
+    ensureConversation(db(), "c_steer_stream");
+    setActiveRun(db(), "c_steer_stream", "run_live_1");
+
+    const res = await sendStream("c_steer_stream", "steer it");
+    expect(res.headers.get("x-workflow-run-id")).toBe("run_live_1");
+    // The status was checked (the sweep), but the journal is never
+    // attached — no replay under the steer.
+    expect(getRunMock).toHaveBeenCalledWith("run_live_1");
+    expect(getReadableMock).not.toHaveBeenCalled();
+    // Exactly start + finish: instant settle, no data parts.
+    expect((await sseParts(res)).map((p) => p.type)).toEqual(["start", "finish"]);
+  });
+
+  it("a fresh send streams the run's journal from chunk 0", async () => {
+    ensureConversation(db(), "c_fresh_stream");
+    startChatTurnMock.mockResolvedValue({ runId: "run_fresh_1" });
+    getReadableMock.mockReturnValue(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "text-start", id: "t1" });
+          controller.enqueue({ type: "text-delta", id: "t1", text: "fresh-turn-text" });
+          controller.enqueue({ type: "text-end", id: "t1" });
+          controller.close();
+        },
+      }),
+    );
+
+    const res = await sendStream("c_fresh_stream", "begin");
+    expect(res.headers.get("x-workflow-run-id")).toBe("run_fresh_1");
+    // The run's readable stream, replayed from the start.
+    expect(getReadableMock).toHaveBeenCalledWith({ startIndex: 0 });
+    const parts = await sseParts(res);
+    expect(parts.map((p) => p.type)).toContain("text-delta");
+    expect(parts.find((p) => p.type === "text-delta")?.delta).toBe("fresh-turn-text");
+    expect(parts.at(-1)?.type).toBe("finish");
   });
 });

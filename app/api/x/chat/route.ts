@@ -1,3 +1,4 @@
+import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
 import { createUIMessageStreamResponse } from "ai";
 import { NextResponse } from "next/server";
 import { getRun } from "workflow/api";
@@ -79,23 +80,31 @@ export async function POST(request: Request) {
   // stream plus an `x-workflow-run-id` header; plain fetch callers (steer)
   // get JSON.
   const wantsStream = body.text === undefined && body.messages !== undefined;
-  // 0076: a steered send must NOT replay the run's stream. The caller's
-  // window already renders the turn by persisted slices (polls); a
-  // from-0 replay would land the whole turn a second time under the
-  // steer (duplicate + multi-second replay). Instead: enqueue the steer
-  // and return a finished empty stream — the slices (steer drain, the
-  // turn's continuation) arrive through the slice poll like every other
-  // slice. The sending tab's optimistic user row renders immediately.
+  // 0076: a STEERED send (or a typed answer) must NOT replay the run's
+  // stream. The caller's window already renders the turn by persisted
+  // slices (polls); a from-0 replay would land the whole turn a second
+  // time under the steer (duplicate + multi-second replay). Instead:
+  // enqueue and return a finished empty stream — the slices (steer
+  // drain, the turn's continuation) arrive through the slice poll like
+  // every other slice. The sending tab's optimistic user row renders
+  // immediately. A FRESH send still streams the run itself — the
+  // sending tab's useChat drives its spinner, composer lock and
+  // approval cards off that stream (0076 followup to #19: the empty
+  // stream here too made every transport send look instantly settled).
   const respond = (runId: string, steered: boolean) =>
     wantsStream
       ? createUIMessageStreamResponse({
-          stream: new ReadableStream({
-            start(controller) {
-              controller.enqueue({ type: "start" });
-              controller.enqueue({ type: "finish" });
-              controller.close();
-            },
-          }),
+          stream: steered
+            ? new ReadableStream({
+                start(controller) {
+                  controller.enqueue({ type: "start" });
+                  controller.enqueue({ type: "finish" });
+                  controller.close();
+                },
+              })
+            : getRun(runId)
+                .getReadable({ startIndex: 0 })
+                .pipeThrough(createModelCallToUIChunkTransform({ uiStartIndex: 0 })),
           headers: { "x-workflow-run-id": runId },
         })
       : NextResponse.json({ runId, steered });
