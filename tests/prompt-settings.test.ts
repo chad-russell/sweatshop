@@ -18,6 +18,7 @@ import {
   PRE_0055_BASE_PLACEHOLDER,
   PRE_GIT_LINKS_BASE,
   PRE_0059_BASE,
+  PRE_0064_BASE,
   PRE_0055_TICKET_BODY,
   PRE_0059_TICKET_BODY,
   PRE_PLACEHOLDER_CHAD_BASE,
@@ -457,8 +458,17 @@ describe("repairing a stale pre-placeholder base row", () => {
     seedBaseDirectly(conn, PRE_0059_BASE, "git");
     const repaired = getTarget(conn, { kind: "section", key: "base" });
     expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0059 thread status" });
-    expect(repaired?.body).toContain("update_status");
+    expect(repaired?.body).toContain("update_outline");
     expect(repaired?.body).not.toContain("enter_mode");
+  });
+
+  it("0064: a git row still at the pre-outline base upgrades to the current default", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0064_BASE, "git");
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0064 outline" });
+    expect(repaired?.body).toContain("update_outline");
+    expect(repaired?.body).not.toContain("update_status");
   });
 });
 

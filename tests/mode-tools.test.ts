@@ -76,12 +76,14 @@ describe("use_skill loads a mode", () => {
   });
 });
 
-describe("tool registration (0059)", () => {
-  it("update_status and use_skill are always-on; enter_mode and advance_phase are gone", () => {
+describe("tool registration (0064)", () => {
+  it("update_outline, accept_outline and use_skill are always-on; enter_mode, advance_phase and update_status are gone", () => {
     const names = Object.keys(buildChatTools("c_x", { hasSandbox: false, hasProject: false }));
-    expect(names).toContain("update_status");
+    expect(names).toContain("update_outline");
+    expect(names).toContain("accept_outline");
     expect(names).toContain("use_skill");
     expect(names).not.toContain("enter_mode");
     expect(names).not.toContain("advance_phase");
+    expect(names).not.toContain("update_status");
   });
 });

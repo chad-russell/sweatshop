@@ -1,15 +1,18 @@
 /**
  * Always-on tools: ask_owner, create_pr, inspect, sandbox_exec, use_skill,
- * update_status, system_docs, and note (0059).
+ * update_outline, accept_outline, system_docs, and note (0064).
  */
 
 import { tool } from "ai";
-import { z } from "zod";
+import { z, type ZodType } from "zod";
 import { chatApprovalHook } from "../hooks";
 import { ownerName } from "../../../lib/agent/owner";
+import { harnessRouteSchema } from "../../../lib/providers/route";
 import { commandDescription } from "./shared";
 import type { DiffBreakdown } from "../../../lib/diff-breakdown";
 import {
+  acceptOutlineApprovedStep,
+  acceptOutlinePreviewStep,
   applyApprovedPromptChangeStep,
   createPrPreviewStep,
   createPrStep,
@@ -18,9 +21,45 @@ import {
   promptChangePreviewStep,
   sandboxExecStep,
   systemDocsStep,
-  updateStatusStep,
+  updateOutlineStep,
   skillToolStep,
 } from "../steps";
+
+/** 0064: a top-level step's runner — "auto" (unrestricted, today's
+ *  behavior), "self" (no delegation), "thread" (start_thread only), or a
+ *  pinned HarnessRoute. Shape-only here (PR 2 enforces it on the harness
+ *  tools and start_thread, and checks the project allow-list). */
+const runnerSchema = z.union([z.literal("auto"), z.literal("self"), z.literal("thread"), harnessRouteSchema]);
+
+interface StepInput {
+  id: string;
+  label: string;
+  state: "pending" | "active" | "done" | "skipped" | "blocked";
+  detail?: string;
+  children?: StepInput[];
+}
+
+const STEP_STATE = z.enum(["pending", "active", "done", "skipped", "blocked"]);
+
+/** Children: any depth (lib/outline.ts enforces the real depth/node caps). */
+const childStepSchema: ZodType<StepInput> = z.lazy(() =>
+  z.object({
+    id: z.string().min(1).max(100),
+    label: z.string().min(1).max(200),
+    state: STEP_STATE,
+    detail: z.string().max(500).optional(),
+    children: z.array(childStepSchema).max(200).optional(),
+  }),
+);
+
+const topStepSchema = z.object({
+  id: z.string().min(1).max(100),
+  label: z.string().min(1).max(200),
+  state: STEP_STATE,
+  detail: z.string().max(500).optional(),
+  children: z.array(childStepSchema).max(200).optional(),
+  runner: runnerSchema.optional(),
+});
 
 export function coreTools(
   conversationId: string,
@@ -137,37 +176,55 @@ export function coreTools(
       execute: ({ id }) => skillToolStep(conversationId, id),
     }),
 
-    update_status: tool({
+    update_outline: tool({
       description:
-        "Rewrite this thread's status. For multi-step work only — a chat that never calls it shows no status. " +
-        "Pass the WHOLE status every time: steps with state pending, active, done, skipped, or blocked. " +
-        "children is one level (a phase's checklist). A mode's declared phases are the top-level steps. " +
-        "Call it whenever the active step, a child, or a blocker changes, including after a wake. " +
-        "The header chip and the next [thread state] note read the latest call.",
+        "Rewrite this thread's outline: the goal, and a step tree for plan/status/to-dos. For multi-step work only — " +
+        "a chat that never calls it shows no outline. Pass the WHOLE outline every time: a one-line goal, and steps " +
+        "with a stable id (kept across rewrites), a label, and a state (pending, active, done, skipped, blocked). " +
+        "Children can go any number of levels deep (depth 4, 200 steps total) — only TOP-LEVEL steps are the unit of " +
+        "delegation and may carry a runner (auto/self/thread/a pinned harness route); children are that step's own " +
+        `to-do list. Pass propose: true to open a review on ${ownerName()}'s screen for this version — it never ` +
+        "blocks, keep working; approval arrives as an [outline approved] message (or accept_outline when they say so " +
+        "in chat). Call it whenever the active step, a child, or a blocker changes, including after a wake. The " +
+        "header chip and the next [thread state] note read the latest call.",
       inputSchema: z.object({
-        steps: z
-          .array(
-            z.object({
-              label: z.string().min(1).max(200),
-              state: z.enum(["pending", "active", "done", "skipped", "blocked"]),
-              detail: z.string().max(500).optional(),
-              children: z
-                .array(
-                  z.object({
-                    label: z.string().min(1).max(200),
-                    state: z.enum(["pending", "active", "done", "skipped", "blocked"]),
-                    detail: z.string().max(500).optional(),
-                  }),
-                )
-                .max(50)
-                .optional(),
-            }),
-          )
-          .min(1)
-          .max(50),
+        goal: z.string().min(1).max(300),
+        steps: z.array(topStepSchema).min(1).max(200),
         note: z.string().max(500).optional().describe("One line of context, optional"),
+        propose: z.boolean().optional().describe(`Open a review on ${ownerName()}'s screen for this version`),
       }),
-      execute: (input) => updateStatusStep(input),
+      execute: (input, { toolCallId, messages }) => {
+        // The live prompt holds this turn's earlier snapshots (a turn
+        // persists slice by slice) — the version count needs them.
+        const live = messages.filter((m) => m.role === "tool");
+        return updateOutlineStep(conversationId, toolCallId, input, live);
+      },
+    }),
+
+    accept_outline: tool({
+      description:
+        `When ${ownerName()} approves the outline in chat ("looks good, go"), call this instead of proceeding on your ` +
+        "reading: it puts an Approve button for the outline version in review on their screen and waits. Approved → " +
+        "continue. Denied → their comment is feedback; the review stays open.",
+      inputSchema: z.object({}),
+      execute: async (_input, { toolCallId }) => {
+        const preview = (await acceptOutlinePreviewStep(conversationId)) as
+          | { ok: true; rowId: string; card: unknown; summary: string }
+          | { ok: false; code: string; message: string };
+        if (!preview.ok) return preview;
+        await pendingStep(conversationId, toolCallId, preview.summary, "approval", preview.card);
+        const answer = await chatApprovalHook.create({ token: toolCallId });
+        if (!(answer.kind === "approval" && answer.approved)) {
+          const comment = answer.kind === "approval" ? answer.comment?.trim() : undefined;
+          return {
+            approved: false as const,
+            message: comment
+              ? `${ownerName()} did not approve yet: ${comment} — the review stays open; revise and present again.`
+              : `${ownerName()} did not approve — the review stays open.`,
+          };
+        }
+        return acceptOutlineApprovedStep(preview.rowId, answer.comment?.trim() || undefined);
+      },
     }),
 
     propose_prompt_change: tool({
