@@ -275,6 +275,28 @@ export function mergeOlder(current: readonly UIMessage[], older: readonly UIMess
  * until the boundary is fully inside the page.
  */
 /**
+ * 0076 followup to #19/#20: did a live page change anything the window
+ * shows? A live fold keeps its FIRST row id while its parts grow, so an
+ * ids-only "all known" check freezes a watching tab. True for any
+ * unknown id, or a known message whose parts differ structurally
+ * (count; per part: type, text length, tool call id + state) — cheap,
+ * not deep text equality.
+ */
+export function liveTurnChanged(current: readonly UIMessage[], stored: readonly UIMessage[]): boolean {
+  const byId = new Map(current.map((m) => [m.id, m]));
+  const sig = (p: UIMessage["parts"][number]) => {
+    const part = p as { type: string; text?: string; toolCallId?: string; state?: string };
+    return `${part.type}:${part.text?.length ?? ""}:${part.toolCallId ?? ""}:${part.state ?? ""}`;
+  };
+  return stored.some((m) => {
+    const mine = byId.get(m.id);
+    if (!mine) return true;
+    if (mine.parts.length !== m.parts.length) return true;
+    return m.parts.some((p, i) => sig(p) !== sig(mine.parts[i]!));
+  });
+}
+
+/**
  * 0076: merge a tail page while the turn it ends with is STILL LIVE.
  * The live turn re-folds every poll — rowsToUIMessages gives the fold
  * the id of its first row, which changes as slices land, and the new
