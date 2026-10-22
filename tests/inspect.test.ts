@@ -1,7 +1,7 @@
 import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
-import { appendMessages, ensureConversation, markChatChildWoken, setConversationParent, setConversationWorkPhase, setConversationWorkStep } from "../db/chat";
+import { appendMessages, ensureConversation, markChatChildWoken, setConversationParent, setConversationWorkStep } from "../db/chat";
 import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
 import { getConversationBinding, getLease, markDestroyed } from "../db/sandboxes";
 import { projects } from "../db/schema";
@@ -81,8 +81,8 @@ describe("0013 inspect", () => {
     expect(inspectTarget("mr_typo_9")).toMatchObject({ kind: "error", code: "unknown-id" });
   });
 
-  it("prefers a recorded outline step over the legacy phase", () => {
-    const call = createHarnessCall(db(), { conversationId: "c_insp_target", kind: "pi", task: "x", phase: "QA", step: "Review" });
+  it("shows the recorded outline step", () => {
+    const call = createHarnessCall(db(), { conversationId: "c_insp_target", kind: "pi", task: "x", step: "Review" });
     expect(inspectTarget(call.id)).toMatchObject({ phase: "Review" });
 
     const unphased = createHarnessCall(db(), { conversationId: "c_insp_target", kind: "pi", task: "y" });
@@ -91,7 +91,7 @@ describe("0013 inspect", () => {
     ensureConversation(db(), "c_insp_phase_parent", "p_insp");
     ensureConversation(db(), "c_insp_phase_child", "p_insp");
     setConversationParent(db(), "c_insp_phase_child", "c_insp_phase_parent");
-    setConversationWorkPhase(db(), "c_insp_phase_child", "Implement");
+    setConversationWorkStep(db(), "c_insp_phase_child", "Implement");
     setConversationWorkStep(db(), "c_insp_phase_child", "Review");
     expect(inspectTarget("c_insp_phase_child")).toMatchObject({ phase: "Review" });
     // Not a child: never shows a phase, even if the column were somehow set.

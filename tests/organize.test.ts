@@ -387,7 +387,7 @@ describe("loadSidebar", () => {
       conversationId: c,
       kind: "pi",
       task: "review the diff\nsecond line never shown",
-      phase: "QA",
+      step: "QA",
     });
 
     // Unfiled: the synthetic row rides along in the same list.
@@ -462,7 +462,7 @@ describe("loadSidebar", () => {
   it("prefers a child's outline work step over its legacy phase on the sidebar", () => {
     const top = convo("org-side");
     const child = convo("org-side");
-    tdb.update(conversations).set({ parentConversationId: top, workPhase: "Implement", workStep: "Review" }).where(eq(conversations.id, child)).run();
+    tdb.update(conversations).set({ parentConversationId: top, workStep: "Review" }).where(eq(conversations.id, child)).run();
     const items = loadSidebar(tdb).groups.find((g) => g.project?.id === "org-side")!.unfiled;
     expect(items.find((i) => i.id === child)?.phase).toBe("Review");
     expect(items.find((i) => i.id === top)?.phase).toBeNull();

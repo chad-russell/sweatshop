@@ -99,11 +99,6 @@ export function getConversation(
   trashedAt: number | null;
   /** 0039: the thread's skill id (null = plain chat). */
   skill: string | null;
-  /** 0055/0059: the phase id recorded when a mode was entered. Not the
-   *  source of truth for the current phase (that is the active status
-   *  step). `null` = no mode entered, or a legacy mode-skill thread.
-   *  `""` = entered a mode with zero declared phases. */
-  modePhase: string | null;
   /** 0037 phase 3: the start_thread parent, when this is a child (0040
    *  phase 3: a child gets the thread step budget even with no skill). */
   parentConversationId: string | null;
@@ -115,7 +110,6 @@ export function getConversation(
       route: conversations.route,
       trashedAt: conversations.trashedAt,
       skill: conversations.skill,
-      modePhase: conversations.modePhase,
       parentConversationId: conversations.parentConversationId,
     })
     .from(conversations)
@@ -128,18 +122,6 @@ export function getConversation(
  *  a child). 0059: use_skill of a non-mode does not call this. */
 export function setConversationSkill(db: Db, id: string, skill: string): void {
   db.update(conversations).set({ skill }).where(eq(conversations.id, id)).run();
-}
-
-/** 0055: enter a mode — the skill and its starting phase, written
- *  together (the two columns must never be seen half-set). */
-export function setConversationMode(db: Db, id: string, skill: string, phase: string): void {
-  db.update(conversations).set({ skill, modePhase: phase }).where(eq(conversations.id, id)).run();
-}
-
-/** 0055 v7 part B: record the phase (display name) a `start_thread`
- *  child was spawned to do — set once, at creation, by `startThread`. */
-export function setConversationWorkPhase(db: Db, id: string, phase: string): void {
-  db.update(conversations).set({ workPhase: phase }).where(eq(conversations.id, id)).run();
 }
 
 /** 0064 PR2: record the active outline step assigned to a child. */
@@ -511,9 +493,6 @@ export interface ChatChild {
   id: string;
   parentConversationId: string | null;
   skill: string | null;
-  /** 0055 v7 part B: the phase (display name) this child was spawned
-   *  to do — null when the parent wasn't moded or had no phases. */
-  workPhase: string | null;
   /** 0064 PR2: active outline step this child was spawned to do. */
   workStep: string | null;
   activeRunId: string | null;
@@ -527,9 +506,6 @@ const chatChildColumns = {
   id: conversations.id,
   parentConversationId: conversations.parentConversationId,
   skill: conversations.skill,
-  /** 0055 v7 part B: the phase (display name) this child was spawned
-   *  to do — null when the parent wasn't moded or had no phases. */
-  workPhase: conversations.workPhase,
   workStep: conversations.workStep,
   activeRunId: conversations.activeRunId,
   trashedAt: conversations.trashedAt,
