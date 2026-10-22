@@ -24,14 +24,14 @@
  *
  *   node scripts/journal-gc.mjs             (dry run)
  *   GC_APPLY=1 node scripts/journal-gc.mjs  (apply)
- *   GC_KEEP_DAYS=14                          (default; 0 = every settled run)
+ *   GC_KEEP_DAYS=0                            (default: every settled run; raise to retain recent ones)
  */
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 const root = process.env.WORKFLOW_DATA_DIR ?? "data/workflow-data";
 const apply = process.env.GC_APPLY === "1";
-const keepDays = Number(process.env.GC_KEEP_DAYS ?? 14);
+const keepDays = Number(process.env.GC_KEEP_DAYS ?? 0);
 if (!Number.isFinite(keepDays) || keepDays < 0) {
   console.error("journal-gc: GC_KEEP_DAYS must be a number >= 0");
   process.exit(1);
