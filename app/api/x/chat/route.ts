@@ -24,8 +24,6 @@ import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
 import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
 import { answerPendingWithText } from "@/lib/chat/answer-pending";
-import { enterModeOnSend, validateModeTarget } from "@/lib/chat/mode-entry";
-import { getTarget } from "@/db/prompt-settings";
 import { listThreadSkills } from "@/lib/skills";
 import { checkClaimable } from "@/db/attachments";
 import { MAX_IMAGES_PER_MESSAGE, parseAttachmentRef } from "@/lib/attachments";
@@ -61,9 +59,6 @@ export async function POST(request: Request) {
     context?: unknown;
     /** 0039, creation only: the skill this thread runs. */
     skill?: unknown;
-    /** 0055 v7: enter this mode (any mode skill's id) with this send —
-     *  fresh OR existing chat (unlike `skill`, not creation-only). */
-    mode?: unknown;
     messages?: { role: string; parts?: { type: string; text?: string; url?: string }[] }[];
   };
   const transportText = body.messages
@@ -131,35 +126,12 @@ export async function POST(request: Request) {
     }
   }
   const projectId = existing ? existing.projectId : ((body.projectId as string | undefined) ?? null);
-  // 0055 v7: a mode — entered explicitly (the owner's own action, never
-  // self-approved), on a fresh OR an existing chat (unlike `skill`,
-  // which binds only at creation). `mode` is any skill id; the legacy
-  // `?skill=<id>` query param means the same thing ONLY when that skill
-  // actually is a mode (checked live — getTarget is synchronous), and
-  // only at creation, matching where that field has always applied.
-  let modeId: string | null = typeof body.mode === "string" ? body.mode : null;
-  if (modeId === null && !existing && typeof body.skill === "string" && body.skill) {
-    if (getTarget(db(), { kind: "skill", id: body.skill })?.mode) modeId = body.skill;
-  }
-  const modeRequested = modeId !== null;
-  // A fresh send: refuse before ensureConversation runs below, so a
-  // refused mode entry leaves no orphan conversation row — unknown /
-  // deleted / disabled / non-mode ids and a missing project all refuse
-  // here; enterModeOnSend would catch the same things, but only after
-  // the row already exists. The already-moded check needs a real
-  // conversation row, so it stays in enterModeOnSend (a no-op there for
-  // a chat just created).
-  if (modeRequested && !existing) {
-    if (!projectId) return NextResponse.json({ error: "a mode needs a project" }, { status: 400 });
-    const valid = validateModeTarget(db(), modeId!);
-    if (!valid.ok) return NextResponse.json({ error: valid.message, code: valid.code }, { status: 400 });
-  }
   // 0039: a skill is chosen by the creating send (use_skill covers
   // later); unknown ids reject before anything is created. 0054: a new
   // binding can only pick an ACTIVE thread skill — readSkill would also
   // resolve a disabled/deleted one (that's its whole point for a thread
   // already running one), which is wrong for a brand-new bind.
-  const skill = !existing && !modeRequested && typeof body.skill === "string" && body.skill ? body.skill : null;
+  const skill = !existing && typeof body.skill === "string" && body.skill ? body.skill : null;
   if (skill && !(await listThreadSkills()).some((s) => s.id === skill)) {
     return NextResponse.json({ error: `no skill "${skill}"` }, { status: 400 });
   }
@@ -195,13 +167,6 @@ export async function POST(request: Request) {
     }
   }
   if (pickedRoute !== undefined) setConversationRoute(db(), body.conversationId, pickedRoute);
-
-  if (modeRequested) {
-    const entered = await enterModeOnSend(db(), body.conversationId, modeId!, projectId);
-    if (!entered.ok) {
-      return NextResponse.json({ error: entered.message, code: entered.code }, { status: 400 });
-    }
-  }
 
   let active = getActiveRun(db(), body.conversationId);
   if (active) {

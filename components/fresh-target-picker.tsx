@@ -14,9 +14,9 @@ import { cn } from "@/lib/utils";
 /**
  * The fresh composer's target picker (0012 → 0037 phase 5 → 0055 PR2):
  * what a new chat is — a plain chat, or a chat in a project (0018). The
- * machine-run axis died with machines; the skill axis (0039) moved to
- * the Mode chip (components/mode-chip.tsx) — non-mode thread skills are
- * agent/child-only now, so this picker is project scope only.
+ * machine-run axis died with machines and the skill axis with modes
+ * (0064 — a skill binds only via `?skill=` or `start_thread`), so this
+ * picker is project scope only.
  */
 
 /** 0018: a pickable chat-in-project target. */
@@ -25,17 +25,14 @@ export interface ProjectOption {
   name: string;
 }
 
-/** 0039/0055: a thread skill a project chat can run by. */
+/** 0039: a thread skill a project chat can run by. */
 export interface SkillOption {
   id: string;
   title: string;
   description: string;
-  /** 0055 v7: this skill is a mode (lib/agent/mode-ids.ts). The Mode
-   *  chip offers only these; plain thread skills are agent/child-only. */
-  mode: boolean;
 }
 
-/** The thread-skill catalog, fetched once — consumed by the Mode chip. */
+/** The thread-skill catalog, fetched once. */
 export function useSkills(): SkillOption[] | null {
   const [books, setBooks] = useState<SkillOption[] | null>(null);
   useEffect(() => {

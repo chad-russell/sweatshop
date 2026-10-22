@@ -4,7 +4,7 @@ import { db } from "../db";
 import { appendMessages, ensureConversation, listModelMessages, listPendingInputs } from "../db/chat";
 import { getOutlineRow, outlineState } from "../db/outlines";
 import { projects } from "../db/schema";
-import { derivePhase, phaseFromMessages } from "../lib/plan";
+import { phaseFromMessages } from "../lib/thread-phase";
 import { renderWake } from "../lib/chat/wake";
 import { editOutline } from "../lib/chat/outline-edit";
 import {
@@ -14,7 +14,6 @@ import {
   updateOutline,
   type ApproveOutlineDeps,
 } from "../lib/agent/tools/outline";
-import { renderPhaseHandoff, splitPhaseHandoff } from "../lib/agent/mode-ids";
 import {
   deriveOutline,
   diffOutlineSteps,
@@ -320,7 +319,6 @@ describe("renderThreadStateNote", () => {
 
   it("seeds from declared phases when there is no outline yet, and returns null with neither", () => {
     const empty = deriveOutline([]);
-    expect(renderThreadStateNote(empty, [{ name: "Plan" }, { name: "Ship" }])).toContain("seed update_outline from: Plan → Ship");
     expect(renderThreadStateNote(empty)).toBeNull();
   });
 
@@ -375,22 +373,11 @@ describe("outline runner decisions and worker handoff", () => {
     expect(runnerGate(active(pi), { kind: "harness", harness: "pi" })).toMatchObject({ ok: true, route: pi });
   });
 
-  it("splitOutlineContext peels the block wherever it sits, so the anchored phase split still matches", () => {
-    const phaseTask = renderPhaseHandoff({
-      modeName: "Ticket",
-      phase: { id: "implement", name: "Implement", body: "Make it so." },
-      shared: null,
-      task: "fix the bug",
-    });
-    // What start_thread sends when an outline is active in a moded chat:
-    // outline context FIRST, then the 0055 phase handoff.
-    const withPhase = prependOutlineHandoff(phaseTask, active("thread")).task;
-    const phase = splitOutlineContext(withPhase)!;
-    expect(phase.context).toBe("Goal: Ship it\n- Build [active]\n  - Tests [pending] — run all");
-    // The phase split (anchored at the text's start) still matches on the rest.
-    const handoff = splitPhaseHandoff(phase.rest);
-    expect(handoff).toMatchObject({ phase: "Implement", task: "fix the bug" });
-    // Order-independent: the outline block also splits when it trails.
+  it("splitOutlineContext peels the outline block wherever it sits", () => {
+    const wrapped = prependOutlineHandoff("fix the bug", active("thread")).task;
+    const split = splitOutlineContext(wrapped)!;
+    expect(split.context).toBe("Goal: Ship it\n- Build [active]\n  - Tests [pending] — run all");
+    expect(split.rest).toBe("fix the bug");
     const outline = active("auto");
     const trailing = `do the work\n\n${renderOutlineHandoff(outline, outline.steps[0]!)}`;
     const after = splitOutlineContext(trailing)!;
@@ -407,16 +394,7 @@ describe("outline runner decisions and worker handoff", () => {
   });
 });
 
-describe("derivePhase reads the outline (0064)", () => {
-  it("fills the chip only when no PR and no open plan review is waiting", () => {
-    const status = deriveOutline([{ role: "assistant", parts: [{ type: "tool-update_outline", state: "output-available", output: { ok: true, version: 1, outline: implement, proposed: false, next: "ok" } }] }]);
-    expect(derivePhase([], status)?.label).toBe("Implement · 2/3");
-    expect(derivePhase([{ type: "plan", version: 2, status: "review", checklist: { done: 0, total: 1 } }], status)?.label).toBe("Plan v2 · needs you");
-    expect(derivePhase([{ type: "pr-open", url: "http://x/pull/1" }], status)?.label).toBe("PR open");
-    expect(derivePhase([{ type: "pr-open", url: "http://x/pull/1" }], { ...status, stale: true })?.stale).toBeUndefined();
-    expect(derivePhase([], { ...status, stale: true })?.stale).toBe(true);
-  });
-
+describe("the thread phase reads the outline (0064)", () => {
   it("phaseFromMessages reads both the plan events and the outline", () => {
     const phase = phaseFromMessages([
       {

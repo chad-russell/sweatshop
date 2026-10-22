@@ -192,14 +192,6 @@ export function scriptedChatModel(): LanguageModel {
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }
 
-      // 0041: Chad said "looks good" in chat — the agent asks through the
-      // approval-gated accept_plan instead of proceeding on its reading.
-      if (script === "accept-plan") {
-        if (!sawToolResult) return result(toolCallPart("call_accept_1", "accept_plan", {}));
-        const toolMessage = options.prompt.find((m) => m.role === "tool");
-        return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
-      }
-
       // 0064: proposing an outline opens a hookless review and the turn
       // continues immediately to its next model slice.
       if (script === "outline-propose") {

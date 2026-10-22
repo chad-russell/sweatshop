@@ -74,22 +74,6 @@ export const conversations = sqliteTable(
      *  null = a plain chat. Its body joins the turn instructions and
      *  raises the turn's step budget. */
     skill: text("skill"),
-    /** 0055/0059: the phase id recorded when a mode was entered. Kept
-     *  (no destructive migration) as the handoff fallback for legacy
-     *  threads; the current phase is the active top-level status step
-     *  when it matches a declared phase. `null` = no mode entered, or a
-     *  legacy mode-skill thread (the skill section stays in the system
-     *  prompt). `""` = entered a mode that declares zero phases — still
-     *  entered (the skill section is skipped). Written by owner entry
-     *  and by use_skill of a mode; not advanced as work moves. */
-    modePhase: text("mode_phase"),
-    /** 0055 v7 part B: the phase (display NAME, not id) this child was
-     *  spawned to do, when a `start_thread` child was started from a
-     *  moded chat — distinct from this row's OWN `mode_phase` (which
-     *  tracks a mode this chat itself entered, if any). Set once at
-     *  creation by `startThread`; null when the parent wasn't moded, the
-     *  phase had no declared phases, or this isn't a child. */
-    workPhase: text("work_phase"),
     /** 0064 PR2: active outline step this child was spawned to do. */
     workStep: text("work_step"),
     /** 0037 phase 3: the chat whose start_thread created this thread —
@@ -551,20 +535,8 @@ export const harnessCalls = sqliteTable(
     /** pi | claude */
     kind: text("kind").notNull(),
     task: text("task").notNull(),
-    /** 0055 v7 part B: the phase (display NAME, not id) this call was
-     *  started for, when the parent conversation was in a mode with a
-     *  resolved phase — null for a phaseless/legacy/non-moded parent.
-     *  Set once at creation (`startHarnessCall`); `task` above stays the
-     *  orchestrator's original, readable text. */
-    phase: text("phase"),
     /** 0064 PR2: active outline step this call was started for. */
     step: text("step"),
-    /** 0059: the mode skill id + version and phase id the handoff was
-     *  rendered from, so the card can re-render that exact block.
-     *  Null when the call had no phase handoff. */
-    phaseSkillId: text("phase_skill_id"),
-    phaseSkillVersion: integer("phase_skill_version"),
-    phaseId: text("phase_id"),
     /** running | completed | failed | cancelled */
     status: text("status").notNull(),
     /** 0040 phase 3: the harness's final message (completed only), up to
@@ -678,10 +650,6 @@ export const skills = sqliteTable("skills", {
   origin: text("origin").notNull(),
   description: text("description").notNull(),
   thread: integer("thread", { mode: "boolean" }).notNull().default(false),
-  /** 0055 v7: this skill is a MODE — phased, freely defined in its own
-   *  markdown (see lib/agent/mode-ids.ts's parseModeSkill). Implies
-   *  `thread`. Progress is update_outline (0064), not a stored phase. */
-  mode: integer("mode", { mode: "boolean" }).notNull().default(false),
   /** "active" | "disabled" | "deleted". */
   status: text("status").notNull().default("active"),
   body: text("body").notNull(),
@@ -703,7 +671,6 @@ export const skillVersions = sqliteTable(
     version: integer("version").notNull(),
     description: text("description").notNull(),
     thread: integer("thread", { mode: "boolean" }).notNull(),
-    mode: integer("mode", { mode: "boolean" }).notNull().default(false),
     status: text("status").notNull(),
     body: text("body").notNull(),
     editedBy: text("edited_by").notNull(),

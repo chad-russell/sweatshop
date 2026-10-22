@@ -129,37 +129,24 @@ export async function finishTurnStream(
   await writable.close();
 }
 
-/** 0039: the thread's skill (null = plain chat). 0055: `modePhase` rides
- *  along — it is a property of the CONVERSATION, not the skill, but
- *  every caller needs them together (buildInstructions's mode-skip
- *  check, the [thread state] note) and null skill always means null
- *  phase anyway (a mode is only ever entered together with its skill). */
+/** 0039: the thread's bound runbook (null = plain chat). */
 export async function loadSkillStep(
   conversationId: string,
-): Promise<{ id: string; title: string; body: string; mode: boolean; modePhase: string | null } | null> {
+): Promise<{ id: string; title: string; body: string } | null> {
   "use step";
   const [{ db, chat }, { readSkill }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
   const conversation = chat.getConversation(db, conversationId);
   const id = conversation?.skill;
   const skill = id ? await readSkill(id) : null;
-  return skill
-    ? { id: skill.id, title: skill.title, body: skill.body, mode: skill.mode, modePhase: conversation?.modePhase ?? null }
-    : null;
+  return skill ? { id: skill.id, title: skill.title, body: skill.body } : null;
 }
 
-/** 0059: list skills, or load an active skill's body into the tool result.
- *  No id lists every active skill (modes and thread skills marked). An
- *  id loads any active skill — disabled and deleted refuse, and nothing
- *  is bound for a plain skill. Loading a mode in a project chat writes
- *  `conversations.skill` (a newer mode simply wins) and returns its
- *  phases as `suggestedSteps`. A chat with no project still gets the
- *  body, but the mode is not bound (no budget raise, no phase handoff). */
-export async function skillToolStep(conversationId: string, id?: string): Promise<unknown> {
+/** List skills, or load an active runbook into the transcript. */
+export async function skillToolStep(_conversationId: string, id?: string): Promise<unknown> {
   "use step";
-  const [{ db, chat }, { listActiveSkills, readSkill }, { parseModeSkill }, store] = await Promise.all([
+  const [{ db }, { listActiveSkills, readSkill }, store] = await Promise.all([
     chatStore(),
     import("../../../lib/skills"),
-    import("../../../lib/agent/mode-ids"),
     import("../../../db/prompt-settings"),
   ]);
   const available = await listActiveSkills();
@@ -167,7 +154,6 @@ export async function skillToolStep(conversationId: string, id?: string): Promis
     id: s.id,
     title: s.title,
     description: s.description,
-    mode: s.mode,
     thread: s.thread,
   }));
   if (!id) return { ok: true, skills: catalog };
@@ -178,24 +164,7 @@ export async function skillToolStep(conversationId: string, id?: string): Promis
   const skill = await readSkill(id);
   if (!skill) return { ok: false, code: "unknown-skill", message: `No active skill "${id}".`, skills: catalog };
   const body = renderOwnerPlaceholders(skill.body);
-  if (!skill.mode) return { ok: true, id: skill.id, mode: false, skill: body };
-  const parsed = parseModeSkill(skill.body);
-  const suggestedSteps = parsed.phases.map((item, index) => ({
-    id: item.id,
-    label: item.name,
-    state: index === 0 ? "active" : "pending",
-  }));
-  const note =
-    "Loaded. Seed update_outline's steps with suggestedSteps (adjust as the work requires; give it a one-line goal too). " +
-    "Call update_outline again whenever the active step, a child, or a blocker changes.";
-  // Modes need a project, same as owner entry. Loading the body is fine;
-  // binding is what raises the budget and enables phase handoff.
-  if (!chat.getConversation(db, conversationId)?.projectId) {
-    return { ok: true, id: skill.id, mode: true, skill: body, suggestedSteps, bound: false, reason: "modes need a project", note };
-  }
-  const phase = parsed.phases[0]?.id ?? "";
-  chat.setConversationMode(db, conversationId, skill.id, phase);
-  return { ok: true, id: skill.id, mode: true, skill: body, suggestedSteps, bound: true, note };
+  return { ok: true, id: skill.id, skill: body };
 }
 
 /** 0054: the three editable instruction sections, resolved to their

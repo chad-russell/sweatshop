@@ -355,51 +355,6 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "accept-plan: chat approval is explicit — approve resolves the review, deny leaves it open (0041)",
-    { timeout: 30_000 },
-    async () => {
-      process.env.SWEATSHOP_CHAT_MOCK = "accept-plan";
-      const { openPlanReview, planState } = await import("../db/plans");
-      const { pendingInputs } = await import("../db/schema");
-      for (const approved of [false, true]) {
-        // The mock's call id is fixed; pending_inputs ids are global.
-        db().delete(pendingInputs).where(eq(pendingInputs.id, "call_accept_1")).run();
-        const id = conv(`accept-${approved}`);
-        openPlanReview(db(), {
-          id: `call_present_${approved}`,
-          conversationId: id,
-          card: { kind: "plan", version: 3, markdown: "# p\n- [ ] a\n", checklist: { done: 0, total: 1 } },
-        });
-        const run = await turn(id, "looks good, go");
-        await waitFor(async () => {
-          try {
-            return (await getHookByToken("call_accept_1")) != null;
-          } catch {
-            return false;
-          }
-        }, "accept_plan approval hook");
-        // Suspended on Chad's click; the review is still open.
-        expect(listPendingInputs(db(), id).map((p) => p.id).sort()).toEqual(["call_accept_1", `call_present_${approved}`].sort());
-        expect(planState(db(), id).kind).toBe("review");
-        await chatApprovalHook.resume("call_accept_1", {
-          kind: "approval",
-          approved,
-          ...(approved ? {} : { comment: "split the migration out" }),
-        });
-        resolvePendingInput(db(), "call_accept_1", { approved });
-        expect((await run.returnValue).finishReason).toBe("stop");
-        if (approved) {
-          expect(planState(db(), id).kind).toBe("approved");
-          expect(serialized(id)).toContain("Chad approved plan v3");
-        } else {
-          expect(planState(db(), id).kind).toBe("review");
-          expect(serialized(id)).toContain("split the migration out");
-        }
-      }
-    },
-  );
-
-  it(
     "viewing: the send's page context becomes a system note, rides as row metadata, and survives into later turns (0015)",
     { timeout: 30_000 },
     async () => {
@@ -454,86 +409,57 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "thread state: a moded conversation gets the [thread state] note every turn; a plain chat and a legacy ticket-skill thread (null phase) get none (0055)",
+    "thread state (cache stability): an outlined chat gets the [thread state] note, and turn N's model input is a byte-identical prefix of turn N+1's rebuilt history with viewing + runEvent + threadState on one row",
     { timeout: 30_000 },
     async () => {
-      process.env.SWEATSHOP_CHAT_MOCK = "thread-state";
-      const { setConversationMode, setConversationSkill } = await import("../db/chat");
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      const { appendMessages, listTurnMessages, listMessageTexts } = await import("../db/chat");
+      const id = conv("thread-state-cache");
+      const outline = { goal: "Ship it", steps: [{ id: "build", label: "Build", state: "active" as const, runner: "auto" as const }, { id: "ship", label: "Ship", state: "pending" as const }] };
+      appendMessages(db(), id, [{
+        id: `${id}_outline_1`,
+        role: "tool",
+        text: "",
+        modelMessage: {
+          role: "tool",
+          content: [{ type: "tool-result", toolCallId: "outline_1", toolName: "update_outline", output: { type: "json", value: { ok: true, version: 1, outline, proposed: false, next: "recorded" } as never } }],
+        },
+      }]);
 
-      const plain = conv("thread-state-plain");
-      const plainRun = await start(chatTurn, [{ conversationId: plain, userText: "hi" }]);
-      await plainRun.returnValue;
-      expect(serialized(plain)).toContain("mock-thread-state:0");
+      const viewing: import("../lib/page-context").ViewingContext = { kind: "chat", id };
+      const runEvent: import("../db/chat").RunEventMeta = { kind: "budget", id: "x", status: "continuing" };
+      const first = await start(chatTurn, [{ conversationId: id, userText: "first", viewing, runEvent }]);
+      await first.returnValue;
 
-      const legacy = conv("thread-state-legacy");
-      setConversationSkill(db(), legacy, "ticket"); // bound, no phase — pre-0055 shape
-      const legacyRun = await start(chatTurn, [{ conversationId: legacy, userText: "hi" }]);
-      await legacyRun.returnValue;
-      expect(serialized(legacy)).toContain("mock-thread-state:0");
+      const afterFirst = listTurnMessages(db(), id);
+      const sendAt = afterFirst.findIndex((m) => m.role === "user" && (m as { content: unknown }).content === "first");
+      expect(sendAt).toBeGreaterThan(0);
+      const turn1Input = afterFirst.slice(0, sendAt + 1);
+      const note = turn1Input.find((m) => typeof (m as { content: unknown }).content === "string" && ((m as { content: string }).content).startsWith("[thread state]")) as { content: string } | undefined;
+      expect(note?.content).toContain("goal: Ship it");
+      expect(note?.content).toContain("Build");
+      expect(note?.content).toContain("if this changed, call update_outline");
+      expect(turn1Input.some((m) => String((m as { content: unknown }).content).includes("[viewing]"))).toBe(true);
 
-      const moded = conv("thread-state-moded");
-      setConversationMode(db(), moded, "ticket", "implement");
-      const modedRun = await start(chatTurn, [{ conversationId: moded, userText: "hi" }]);
-      await modedRun.returnValue;
-      // The model saw exactly one note (proven by the mock's own count).
-      // The note's TEXT is never persisted — only its phase, as row
-      // metadata (threadState) on the user row — and listTurnMessages
-      // rebuilds the exact same text from that metadata on the next
-      // turn (see the cache-stability test below); it is never a bare
-      // row of its own.
-      expect(serialized(moded)).toContain("mock-thread-state:1");
-      const rows = (await import("../db/chat")).listMessageTexts(db(), moded);
-      expect(rows.some((r) => r.text.startsWith("[thread state]"))).toBe(false);
+      const userRow = listMessageTexts(db(), id).find((r) => r.text === "first");
+      expect(userRow?.metadata).toMatchObject({ viewing: { kind: "chat", id }, runEvent, threadState: note?.content });
+
+      const second = await start(chatTurn, [{ conversationId: id, userText: "second" }]);
+      await second.returnValue;
+      expect(listTurnMessages(db(), id).slice(0, turn1Input.length)).toEqual(turn1Input);
     },
   );
 
   it(
-    "thread state (cache stability): turn N's model input is a byte-identical prefix of turn N+1's rebuilt history, and viewing + runEvent + threadState metadata all survive together on one row (0055 bugfix)",
+    "thread state: a chat with no outline gets no [thread state] note",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_CHAT_MOCK = "plain";
-      const { setConversationMode, listTurnMessages, listMessageTexts } = await import("../db/chat");
-      const id = conv("thread-state-cache");
-      setConversationMode(db(), id, "ticket", "plan");
-
-      const viewing: import("../lib/page-context").ViewingContext = { kind: "chat", id };
-      const runEvent: import("../db/chat").RunEventMeta = { kind: "budget", id: "x", status: "continuing" };
-
-      // Turn 1 carries a viewing note AND a runEvent AND runs in a moded
-      // chat — all three metadata fields on the same user row at once.
-      const first = await start(chatTurn, [{ conversationId: id, userText: "first", viewing, runEvent }]);
-      await first.returnValue;
-
-      // History was empty going in, so this IS turn 1's exact model
-      // input: the viewing note, the thread-state note, then the send.
-      const afterFirst = listTurnMessages(db(), id);
-      const turn1Input = afterFirst.slice(0, 3);
-      expect((turn1Input[0] as { content: string }).content).toContain("[viewing]");
-      const threadStateContent = (turn1Input[1] as { content: string }).content;
-      expect(threadStateContent).toContain("[thread state]");
-      expect(threadStateContent).toContain("seed update_outline from:");
-      expect(threadStateContent).toContain("Plan");
-      expect(threadStateContent).toContain("if this changed, call update_outline");
-      expect(turn1Input[2]).toMatchObject({ role: "user", content: "first" });
-
-      // None of the three metadata fields clobbered another on the row.
-      const rows = listMessageTexts(db(), id);
-      const userRow = rows.find((r) => r.text === "first");
-      expect(userRow?.metadata).toMatchObject({
-        viewing: { kind: "chat", id },
-        runEvent: { kind: "budget", id: "x", status: "continuing" },
-        threadState: threadStateContent,
-      });
-
-      // Turn 2: a plain send, no viewing/runEvent this time.
-      const second = await start(chatTurn, [{ conversationId: id, userText: "second" }]);
-      await second.returnValue;
-      const afterSecond = listTurnMessages(db(), id);
-
-      // Turn 1's own messages (history[] + its notes + its send) are an
-      // exact prefix of what turn 2's history rebuilds — the previous
-      // turn never shifts, so the prompt-cache prefix holds.
-      expect(afterSecond.slice(0, turn1Input.length)).toEqual(turn1Input);
+      const { listTurnMessages } = await import("../db/chat");
+      const id = conv("thread-state-none");
+      const run = await start(chatTurn, [{ conversationId: id, userText: "hi" }]);
+      await run.returnValue;
+      expect(listTurnMessages(db(), id).some((m) => String((m as { content: unknown }).content).startsWith("[thread state]"))).toBe(false);
     },
   );
 

@@ -99,7 +99,7 @@ describe("PUT /api/settings/agent: malformed bodies never 500", () => {
 });
 
 describe("GET /api/settings/agent: shared parser, shipped metadata, traversal safety", () => {
-  it("action=default for a shipped skill matches the shared git parser exactly, including description/thread/mode/status", async () => {
+  it("action=default for a shipped skill matches the shared git parser metadata", async () => {
     const res = await get("action=default&kind=skill&id=review");
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -108,16 +108,8 @@ describe("GET /api/settings/agent: shared parser, shipped metadata, traversal sa
       body: expected?.body,
       description: expected?.description,
       thread: expected?.thread,
-      mode: expected?.mode,
       status: expected?.status,
     });
-  });
-
-  it("action=default for a shipped MODE skill reports mode: true (review fix: isDifferent must not see a permanent drift)", async () => {
-    const res = await get("action=default&kind=skill&id=ticket");
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.mode).toBe(true);
   });
 
   it("action=default 404s for a non-shipped id, never touches the filesystem outside skills/", async () => {

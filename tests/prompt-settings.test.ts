@@ -19,8 +19,10 @@ import {
   PRE_GIT_LINKS_BASE,
   PRE_0059_BASE,
   PRE_0064_BASE,
+  PRE_0064_PR3_BASE,
   PRE_0055_TICKET_BODY,
   PRE_0059_TICKET_BODY,
+  PRE_0064_TICKET_BODY,
   PRE_PLACEHOLDER_CHAD_BASE,
   resetToGitDefault,
   restoreVersion,
@@ -469,6 +471,23 @@ describe("repairing a stale pre-placeholder base row", () => {
     expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0064 outline" });
     expect(repaired?.body).toContain("update_outline");
     expect(repaired?.body).not.toContain("update_status");
+    expect(repaired?.body).not.toContain("present_plan");
+    expect(repaired?.body).toContain("Top-level runners");
+  });
+  it("0064 PR3: a git row at main's 0064 PR1–2 base (still naming present_plan) upgrades", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0064_PR3_BASE, "git");
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0064 outline (modes and PLAN.md removed)" });
+    expect(repaired?.body).not.toContain("present_plan");
+    expect(repaired?.body).not.toContain("suggestedSteps");
+    expect(PRE_0064_PR3_BASE).toContain("present_plan");
+  });
+
+  it("0064 PR3: an owner-edited copy of that base is never upgraded", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0064_PR3_BASE, "user");
+    expect(getTarget(conn, { kind: "section", key: "base" })).toMatchObject({ version: 1, body: PRE_0064_PR3_BASE, editedBy: "user" });
   });
 });
 
@@ -549,10 +568,8 @@ describe("0055: skill catalog repairs — ship retired, ticket upgraded, only wh
     expect(repaired?.version).toBe(2);
     expect(repaired?.editedBy).toBe("git");
     expect(repaired?.note).toBe("0055 ticket mode");
-    expect(repaired?.body).toContain("## Phase: Plan");
+    expect(repaired?.body).toContain("update_outline({ propose: true })");
     expect(repaired?.body).not.toBe(PRE_0055_TICKET_BODY);
-    // 0055 v7: the upgrade also flags the skill as a mode.
-    expect(repaired?.mode).toBe(true);
   });
 
   it("0059: an unedited pre-status ticket seed upgrades to the current body", () => {
@@ -568,6 +585,26 @@ describe("0055: skill catalog repairs — ship retired, ticket upgraded, only wh
     expect(repaired?.body).toContain("update_outline");
     expect(repaired?.body).not.toContain("advance_phase");
     expect(repaired?.body).not.toBe(PRE_0059_TICKET_BODY);
+  });
+
+  it("0064: upgrades the unedited phased ticket body to a plain outline runbook", () => {
+    const conn = freshDb();
+    conn.delete(skillVersions).run();
+    conn.delete(skills).run();
+    seedSkillDirectly(conn, "ticket", { body: PRE_0064_TICKET_BODY, status: "active", editedBy: "git" });
+    const repaired = getTarget(conn, { kind: "skill", id: "ticket" });
+    expect(repaired).toMatchObject({ version: 2, editedBy: "git", note: "0064 outline runbook" });
+    expect(repaired?.body).toContain("update_outline({ propose: true })");
+    expect(repaired?.body).not.toContain("## Phase:");
+    expect(repaired?.body).not.toContain("PLAN.md");
+  });
+
+  it("0064: preserves an owner-edited copy of the old ticket body", () => {
+    const conn = freshDb();
+    conn.delete(skillVersions).run();
+    conn.delete(skills).run();
+    seedSkillDirectly(conn, "ticket", { body: PRE_0064_TICKET_BODY, status: "active", editedBy: "user" });
+    expect(getTarget(conn, { kind: "skill", id: "ticket" })).toMatchObject({ version: 1, body: PRE_0064_TICKET_BODY });
   });
 
   it("never rewrites an edited ticket row, even one byte-for-byte equal to the old body", () => {

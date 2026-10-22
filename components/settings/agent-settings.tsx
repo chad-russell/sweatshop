@@ -3,21 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { diffLines } from "@/lib/plan";
-import { parseModeSkill } from "@/lib/agent/mode-ids";
+import { diffLines } from "@/lib/text-diff";
 
 type Key = "base" | "harness_steering" | "host_routing";
 type Target = { kind: "section"; key: Key } | { kind: "skill"; id: string };
-type Row = { body: string; version: number; origin?: string; description?: string; thread?: boolean; mode?: boolean; status?: "active" | "disabled" | "deleted"; editedBy?: string; note?: string | null; updatedAt?: number; createdAt?: number };
+type Row = { body: string; version: number; origin?: string; description?: string; thread?: boolean; status?: "active" | "disabled" | "deleted"; editedBy?: string; note?: string | null; updatedAt?: number; createdAt?: number };
 type Listed = Row & Target;
-type Default = { body: string; description?: string; thread?: boolean; mode?: boolean; status?: Row["status"] };
+type Default = { body: string; description?: string; thread?: boolean; status?: Row["status"] };
 type Confirmation = { action: "reset" | "restore" | "publish"; version?: number; patch?: object; before: Row; after: Default; heading: string };
 const SECTIONS = [
   { key: "base", name: "Base instructions", hint: "Every chat's top-level instructions" },
   { key: "harness_steering", name: "Harness steering", hint: "Included when the chat has a sandbox" },
   { key: "host_routing", name: "Host routing", hint: "Included when the project has hosts" },
 ] as const;
-const EMPTY: Row = { body: "", version: 0, description: "", thread: false, mode: false, status: "active" };
+const EMPTY: Row = { body: "", version: 0, description: "", thread: false, status: "active" };
 const ID = /^[a-z][a-z0-9-]{0,40}$/;
 const BOUNDARY = "This edits prompt text and the skill catalog's data. Tool access, approvals (create_pr, exec, project create/delete, and agent-proposed changes), and provider/model validation are enforced in code and cannot be changed here.";
 const ENDPOINT = "/api/settings/agent";
@@ -30,27 +29,13 @@ async function request(url: string, init?: RequestInit) {
 }
 function title(body: string) { return body.match(/^# (.+)$/m)?.[1] ?? "Untitled"; }
 function isDifferent(a: Default, b: Default, skill: boolean) {
-  return a.body !== b.body || (skill && (a.description ?? "") !== (b.description ?? "")) || (skill && !!a.thread !== !!b.thread) || (skill && !!a.mode !== !!b.mode) || (skill && (a.status ?? "active") !== (b.status ?? "active"));
+  return a.body !== b.body || (skill && (a.description ?? "") !== (b.description ?? "")) || (skill && !!a.thread !== !!b.thread) || (skill && (a.status ?? "active") !== (b.status ?? "active"));
 }
 function Changes({ before, after, skill }: { before: Default; after: Default; skill: boolean }) {
-  const fields = skill ? (["description", "thread", "mode", "status"] as const) : [];
+  const fields = skill ? (["description", "thread", "status"] as const) : [];
   return <div className="space-y-2">
-    {fields.filter(f => (before[f] ?? (f === "thread" || f === "mode" ? false : "")) !== (after[f] ?? (f === "thread" || f === "mode" ? false : ""))).map(f => <p key={f} className="rounded-md bg-muted px-2 py-1 text-xs"><strong>{f}</strong>: {String(before[f] ?? "")} → {String(after[f] ?? "")}</p>)}
+    {fields.filter(f => (before[f] ?? (f === "thread" ? false : "")) !== (after[f] ?? (f === "thread" ? false : ""))).map(f => <p key={f} className="rounded-md bg-muted px-2 py-1 text-xs"><strong>{f}</strong>: {String(before[f] ?? "")} → {String(after[f] ?? "")}</p>)}
     {before.body !== after.body ? <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs whitespace-pre-wrap">{diffLines(before.body, after.body).map((line, i) => <span key={i} className={`block ${line.op === "add" ? "bg-success/10 text-success" : line.op === "del" ? "bg-destructive/10 text-destructive" : ""}`}>{line.op === "add" ? "+ " : line.op === "del" ? "- " : "  "}{line.text}</span>)}</pre> : <p className="text-xs text-muted-foreground">Text is unchanged.</p>}
-  </div>;
-}
-
-/** 0055 v7 part B: a live, derived read-only view of `parseModeSkill`
- *  over the draft body — the same parser that drives entry/advance, so
- *  what this shows is exactly what the mode will do, never a
- *  paraphrase. Client-safe: lib/agent/mode-ids.ts is pure. */
-function ModePreview({ body }: { body: string }) {
-  const parsed = parseModeSkill(body);
-  const firstLine = parsed.brief.split("\n").find(l => l.trim())?.trim() ?? "";
-  return <div className="space-y-1 rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-    <p className="font-medium text-foreground">{parsed.phases.length > 0 ? `Mode: ${parsed.phases.map(p => p.name).join(" → ")}` : "No phases declared"}</p>
-    <p>Shared: {parsed.shared ? "yes" : "no"}</p>
-    <p>Brief: {parsed.brief.length} chars{firstLine ? ` · "${firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine}"` : ""}</p>
   </div>;
 }
 
@@ -109,7 +94,7 @@ export function AgentSettings() {
   const beginCreate = () => { ++sequence.current; setTab("skills"); setTarget(null); setCreating(true); setNewId(""); setCurrent(null); setDraft({ ...EMPTY }); setVersions([]); setShipped(null); setDefaultChecked(true); setPreview(null); setConfirmation(null); setError(""); setNotice(""); setConflict(undefined); };
   const selected: Target | null = creating ? ID.test(newId) ? { kind: "skill", id: newId } : null : target;
   const skill = creating || target?.kind === "skill";
-  const dirty = current ? isDifferent(current, draft, !!skill) : creating && (draft.body !== "" || draft.description !== "" || !!draft.thread || !!draft.mode || draft.status !== "active");
+  const dirty = current ? isDifferent(current, draft, !!skill) : creating && (draft.body !== "" || draft.description !== "" || !!draft.thread || draft.status !== "active");
   const execute = async (action: "publish" | "reset" | "restore", patch?: object, version?: number) => {
     if (!selected || busy) return;
     const token = sequence.current;
@@ -131,7 +116,7 @@ export function AgentSettings() {
   const save = () => {
     if (creating && !ID.test(newId)) { setError("Use a skill id starting with a lowercase letter, followed by up to 40 lowercase letters, digits or hyphens."); return; }
     if (!selected) return;
-    const patch = skill ? { body: draft.body, description: draft.description ?? "", thread: !!draft.thread, mode: !!draft.mode, status: draft.status ?? "active" } : { body: draft.body };
+    const patch = skill ? { body: draft.body, description: draft.description ?? "", thread: !!draft.thread, status: draft.status ?? "active" } : { body: draft.body };
     if (skill && draft.status === "deleted" && current?.status !== "deleted") setConfirmation({ action: "publish", patch, before: current ?? EMPTY, after: draft, heading: "Delete skill from the catalog?" });
     else void execute("publish", patch);
   };
@@ -169,7 +154,7 @@ export function AgentSettings() {
       {!target && !creating && tab === "skills" && <><div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Active and disabled skills. Deleted skills remain restorable in history.</p><Button onClick={beginCreate}>New skill</Button></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showDeleted} onChange={e => setShowDeleted(e.target.checked)} /> Show deleted</label><div className="divide-y divide-border rounded-lg border border-border">{list.filter(x => x.kind === "skill").map(x => <button key={x.id} type="button" onClick={() => void open({ kind: "skill", id: x.id })} className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring"><span><strong className="text-sm">{title(x.body)}</strong><small className="block font-mono text-muted-foreground">{x.id}</small></span><span className="text-xs text-muted-foreground">{x.thread ? "Thread · " : ""}{listDefaults[x.id] && isDifferent(x, listDefaults[x.id], true) ? "Differs from shipped · " : ""}{x.status} · v{x.version} →</span></button>)}</div></>}
       {(target || creating) && <div className="space-y-5"><Button size="sm" variant="ghost" onClick={leave}>← Back to {tab === "skills" ? "skills" : "prompt sections"}</Button><div className="space-y-4 rounded-lg border border-border p-4"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-semibold">{creating ? "New skill" : target?.kind === "section" ? SECTIONS.find(s => s.key === target.key)?.name : `Skill: ${target?.id}`}</h3>{current && <span className="text-xs text-muted-foreground">v{current.version} · {current.editedBy}</span>}{current && defaultChecked && shipped && isDifferent(current, shipped, !!skill) && <span className="rounded-md bg-warning/10 px-2 py-0.5 text-xs text-warning">Differs from shipped default</span>}</div>
       {creating && <label className="block text-sm">Skill id <input aria-invalid={newId !== "" && !ID.test(newId)} className="mt-1 block w-full rounded-lg border border-border bg-background p-2 font-mono text-sm" value={newId} onChange={e => setNewId(e.target.value)} placeholder="my-skill" /><span className="text-xs text-muted-foreground">Lowercase letter first, then lowercase letters, digits or hyphens; at most 41 characters. This id cannot be renamed.</span></label>}
-      {skill && <><p className="text-sm text-muted-foreground">Title (from the first # heading): {title(draft.body)}</p><label className="block text-sm">Description <input className="mt-1 block w-full rounded-lg border border-border bg-background p-2" maxLength={500} value={draft.description ?? ""} onChange={e => setDraft({ ...draft, description: e.target.value })} /></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!draft.thread} onChange={e => setDraft({ ...draft, thread: e.target.checked })} /> Bindable to a new thread</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!draft.mode} onChange={e => setDraft({ ...draft, mode: e.target.checked, thread: e.target.checked ? true : draft.thread })} /> Mode (phased — see `## Phase: Name` headings)</label>{draft.mode && <ModePreview body={draft.body} />}<label className="block text-sm">Catalog status <select className="ml-2 rounded-lg border border-border bg-background p-2" value={draft.status ?? "active"} onChange={e => setDraft({ ...draft, status: e.target.value as Row["status"] })}><option value="active">Active</option><option value="disabled">Disabled</option><option value="deleted">Deleted</option></select></label><p className="text-xs text-muted-foreground">Disabled and deleted skills disappear from new selections. Threads already bound to a skill keep running with its current body, regardless of status. Deleted entries remain in history and can be restored.</p></>}
+      {skill && <><p className="text-sm text-muted-foreground">Title (from the first # heading): {title(draft.body)}</p><label className="block text-sm">Description <input className="mt-1 block w-full rounded-lg border border-border bg-background p-2" maxLength={500} value={draft.description ?? ""} onChange={e => setDraft({ ...draft, description: e.target.value })} /></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!draft.thread} onChange={e => setDraft({ ...draft, thread: e.target.checked })} /> Bindable to a new thread</label><label className="block text-sm">Catalog status <select className="ml-2 rounded-lg border border-border bg-background p-2" value={draft.status ?? "active"} onChange={e => setDraft({ ...draft, status: e.target.value as Row["status"] })}><option value="active">Active</option><option value="disabled">Disabled</option><option value="deleted">Deleted</option></select></label><p className="text-xs text-muted-foreground">Disabled and deleted skills disappear from new selections. Threads already bound to a skill keep running with its current body, regardless of status. Deleted entries remain in history and can be restored.</p></>}
       <label className="block text-sm">{skill ? "Skill body (Markdown)" : "Instruction text"}<textarea className="mt-1 min-h-64 w-full rounded-lg border border-border bg-background p-3 font-mono text-sm" value={draft.body} onChange={e => { setDraft({ ...draft, body: e.target.value }); ++previewSequence.current; setPreview(null); }} /></label>
       <div className="flex flex-wrap gap-2"><Button disabled={busy || !selected || (!creating && !dirty)} onClick={save}>{busy ? "Saving…" : creating ? "Create skill" : "Save new version"}</Button>{!creating && current && <><Button variant="outline" onClick={() => setCompare(!compare)}>Compare shipped default</Button><Button variant="outline" disabled={busy || !shipped} onClick={() => shipped && setConfirmation({ action: "reset", before: current, after: { ...shipped, status: skill ? (shipped.status ?? "active") : undefined }, heading: "Reset to shipped default?" })}>Reset to shipped default</Button></>}{!skill && <Button variant="outline" onClick={() => void showPreview()}>Preview assembled prompt {dirty ? "with draft" : ""}</Button>}</div>
       {current && dirty && <details open className="space-y-2"><summary className="cursor-pointer text-sm font-medium">Unsaved changes · saved → draft</summary><Changes before={current} after={draft} skill={!!skill} /></details>}

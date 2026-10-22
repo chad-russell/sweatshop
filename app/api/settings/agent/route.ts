@@ -118,8 +118,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "No shipped default" }, { status: 404 });
     }
     // Shipped metadata alongside the body, so a compare can show the
-    // full picture (description/thread/mode/status), not just text.
-    return NextResponse.json({ body: def.body, description: def.description, thread: def.thread, mode: def.mode, status: def.status });
+    return NextResponse.json({ body: def.body, description: def.description, thread: def.thread, status: def.status });
   }
   if (action === "detail") return NextResponse.json({ current: getTarget(db(), target), versions: listVersions(db(), target) });
   if (action === "history") return NextResponse.json({ versions: listVersions(db(), target) });

@@ -215,7 +215,7 @@ export function backgroundChildIds(messages: UIMessage[]): string[] {
  *  already woken this chat — a wake row is a `user` message whose
  *  `metadata.runEvent` names the settled child by id (kind "harness" =
  *  a harness call, "thread" = a start_thread child; same fields
- *  `hasBackgroundChild` reasons from). Keeps the Mode chip from polling
+ *  `hasBackgroundChild` reasons from). Keeps the work chip from polling
  *  a child forever just because the transcript still shows its tool
  *  call — once it has settled and woken the chat, there is nothing
  *  left to watch. */

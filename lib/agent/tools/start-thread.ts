@@ -5,7 +5,6 @@ import {
   getConversation,
   setConversationParent,
   setConversationSkill,
-  setConversationWorkPhase,
   setConversationWorkStep,
   listModelMessages,
 } from "@/db/chat";
@@ -13,7 +12,6 @@ import { disableConversationSandbox, getConversationBinding } from "@/db/sandbox
 import { attachConversation, openConversationSandbox } from "@/lib/sandboxes/binding";
 import type { SandboxProvider } from "@/lib/sandboxes/provider";
 import { listThreadSkills } from "@/lib/skills";
-import { resolvePhaseHandoff } from "@/lib/chat/phase-handoff";
 import { deriveOutline, prependOutlineHandoff, runnerGate } from "@/lib/outline";
 
 /**
@@ -46,7 +44,7 @@ export type StartThreadResult =
     }
   | {
       ok: false;
-      code: "no-skill" | "start-failed" | "not-moded" | "unknown-phase" | "runner-refused";
+      code: "no-skill" | "start-failed" | "runner-refused";
       message: string;
     };
 
@@ -56,9 +54,6 @@ export async function startThread(
     prompt: string;
     skill?: string;
     fresh?: boolean;
-    /** 0055 v7 part B: override the parent's current phase (id or name)
-     *  for this child — see docs/0055's "Phase handoff". */
-    phase?: string;
     provider?: SandboxProvider;
     /** Test seam: the child's turn starter (default startChatTurn). */
     start?: (conversationId: string, text: string) => Promise<{ runId: string }>;
@@ -81,16 +76,9 @@ export async function startThread(
   const outline = deriveOutline(listModelMessages(db(), input.conversationId)).current?.outline ?? null;
   const gate = runnerGate(outline, { kind: "thread" });
   if (!gate.ok) return { ok: false, code: "runner-refused", message: gate.message };
-  // 0055 v7 part B: before creating anything — a refused phase arg
-  // must leave no orphan child.
-  const phaseResolution = await resolvePhaseHandoff(input.conversationId, input.phase);
-  if (!phaseResolution.ok) {
-    return { ok: false, code: phaseResolution.code, message: phaseResolution.message };
-  }
   const childId = `c_t${Date.now().toString(36)}${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   ensureConversation(db(), childId, parent.projectId);
   if (input.skill) setConversationSkill(db(), childId, input.skill);
-  if (phaseResolution.phaseName) setConversationWorkPhase(db(), childId, phaseResolution.phaseName);
   if (gate.active) setConversationWorkStep(db(), childId, gate.active.label);
 
   // The sandbox choice mirrors start_machine: attached to the parent's
@@ -117,7 +105,7 @@ export async function startThread(
         const { startChatTurn } = await import("@/lib/chat/start-turn");
         return startChatTurn(id, text);
       });
-    const { runId } = await start(childId, prependOutlineHandoff(phaseResolution.wrap(input.prompt), outline).task);
+    const { runId } = await start(childId, prependOutlineHandoff(input.prompt, outline).task);
     return {
       ok: true,
       id: childId,

@@ -148,8 +148,6 @@ export async function startHarnessCallStep(input: {
   conversationId: string;
   kind: "pi" | "claude" | "cursor" | "codex";
   task: string;
-  /** 0055 v7 part B: override the chat's current mode phase (id or name). */
-  phase?: string;
 }): Promise<import("../../lib/chat/harness-call-start").StartHarnessCallResult> {
   "use step";
   const { startHarnessCall } = await import("../../lib/chat/harness-call-start");

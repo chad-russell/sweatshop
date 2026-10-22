@@ -8,7 +8,6 @@ import { CancelCallButton } from "@/components/cancel-call-button";
 import { HARNESS_LABEL, HarnessLogo } from "@/components/harness-logo";
 import { SandboxChip } from "@/components/sandbox-view";
 import { ChildMeta } from "@/components/ai-elements/agent-cards";
-import { PhaseContextBlock } from "@/components/phase-context";
 import { summarizeActivity, type HarnessActivity, type TimelineEvent } from "@/lib/harness-timeline";
 import { useChildStatus } from "@/lib/use-child-status";
 import { cn } from "@/lib/utils";
@@ -280,8 +279,6 @@ export function HarnessCard({
           <TaskQuote>{task}</TaskQuote>
         </div>
       )}
-      {live?.phaseContext && <PhaseContextBlock phase={live.phaseContext.phase} text={live.phaseContext.text} />}
-
       {/* Live: what it is doing now (synchronous stage calls; the chat's
        * background calls live on the session page instead — 0022). */}
       <HarnessLiveLine conversationId={conversationId} kind={kind} active={running && !background} />

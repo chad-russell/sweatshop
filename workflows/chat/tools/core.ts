@@ -166,10 +166,8 @@ export function coreTools(
     }),
     use_skill: tool({
       description:
-        "List skills, or load one. With no id, returns every active skill, marking which are modes and which are " +
-        "thread skills. With an id, returns that active skill's body — any skill, any number of times; each load is " +
-        "history. Loading a mode in a project chat records it and returns suggestedSteps (its declared phases) to " +
-        "seed update_outline. In a chat with no project the body still loads, but the mode is not bound.",
+        "List skills, or load one. With no id, returns every active runbook and marks thread-bindable skills. " +
+        "With an id, returns that active skill's body; each load is transcript history.",
       inputSchema: z.object({
         id: z.string().min(1).optional().describe("Skill id to load; omit to list"),
       }),
@@ -239,7 +237,6 @@ export function coreTools(
         body: z.string().max(64 * 1024).optional(),
         description: z.string().max(500).optional().describe("skill only"),
         thread: z.boolean().optional().describe("skill only"),
-        mode: z.boolean().optional().describe("skill only — this skill is a mode (implies thread)"),
         status: z.enum(["active", "disabled", "deleted"]).optional().describe("skill only"),
         note: z.string().trim().min(1).max(500).refine((value) => !/[\r\n]/.test(value), "note must be one line").describe("What changed and why"),
       }),

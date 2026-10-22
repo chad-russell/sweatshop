@@ -16,9 +16,9 @@ import { usePageContext } from "@/components/page-context";
 import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
-import { PhaseChip } from "@/components/plan-card";
+import { PhaseChip } from "@/components/status-chip";
 import { DiffBreakdownChip } from "@/components/diff-breakdown";
-import { ModeChip } from "@/components/mode-chip";
+import { WorkChip } from "@/components/work-chip";
 import { UsageControl } from "@/components/usage-control";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { type ConversationSandboxViewData } from "@/components/sandbox-view";
@@ -480,19 +480,8 @@ export function ChatSurface({
       freshComposer={() => freshComposer()}
       composerTools={(s) => (
         <>
-          {/* 0055 PR2: leftmost — owns mode choice end to end. */}
-          <ModeChip
-            conversationId={s.started ? s.conversationId : null}
-            projectId={activeProjectId}
-            started={s.started}
-            fresh={s.fresh}
-            busy={s.busy}
+          <WorkChip
             messages={s.messages}
-            skills={skills}
-            pickedSkillId={pickedSkillId}
-            onPickSkill={setPickedSkillId}
-            pendingModeId={s.pendingModeId}
-            onPendingMode={s.setPendingModeId}
             className={COMPOSER_PICKER}
           />
           <RoutePicker
@@ -543,4 +532,3 @@ export function ChatSurface({
     />
   );
 }
-

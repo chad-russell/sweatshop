@@ -19,17 +19,15 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { HarnessCard } from "@/components/harness-card";
-import { OutlineContextBlock, PhaseContextBlock } from "@/components/phase-context";
-import { PlanToolCard } from "@/components/plan-card";
+import { OutlineContextBlock } from "@/components/outline-context";
+import { LegacyPlanCard } from "@/components/legacy-plan-card";
 import { OutlineToolCard } from "@/components/outline-card";
-import { splitPhaseHandoff } from "@/lib/agent/mode-ids";
 import { splitOutlineContext } from "@/lib/outline";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import {
   AskOwnerCard,
   AcceptOutlineCard,
-  AcceptPlanCard,
   HostExecApprovalCard,
   GatedApprovalCard,
   GATED_TOOLS,
@@ -157,17 +155,13 @@ export const ChatMessageView = memo(function ChatMessageView({
             if (runEvent?.kind === "outline-edit") return null;
             if (message.role === "user") {
               // 0064: strip the outline context first (wherever it sits),
-              // so the anchored phase split below matches on what is left.
               const outlineContext = splitOutlineContext(part.text);
               const body = outlineContext ? outlineContext.rest : part.text;
-              const handoff = splitPhaseHandoff(body);
-              if (outlineContext || handoff) {
+              if (outlineContext) {
                 return (
                   <div key={i}>
                     {outlineContext && <OutlineContextBlock text={outlineContext.context} className="mb-2 rounded-lg border border-border" />}
-                    {handoff && <PhaseContextBlock phase={handoff.phase} text={handoff.context} className="mb-2 rounded-lg border border-border" />}
-                    {handoff?.task.trim() && <MessageResponse>{handoff.task}</MessageResponse>}
-                    {!handoff && body.trim() && <MessageResponse>{body}</MessageResponse>}
+                    {body.trim() && <MessageResponse>{body}</MessageResponse>}
                   </div>
                 );
               }
@@ -232,17 +226,8 @@ export const ChatMessageView = memo(function ChatMessageView({
             }
             if (toolPart.type === "tool-present_plan") {
               return (
-                <PlanToolCard
-                  key={i}
-                  toolCallId={toolPart.toolCallId}
-                  state={toolPart.state}
-                  output={toolPart.state === "output-available" ? toolPart.output : undefined}
-                  errorText={toolPart.state === "output-error" ? (toolPart.errorText ?? "tool failed") : undefined}
-                />
+                <LegacyPlanCard key={i} output={toolPart.state === "output-available" ? toolPart.output : undefined} failed={toolPart.state === "output-error"} />
               );
-            }
-            if (toolPart.type === "tool-accept_plan" && toolPart.state === "input-available") {
-              return <AcceptPlanCard key={i} part={toolPart} />;
             }
             // 0043: exec approves inline — the buttons live in the
             // transcript while the call awaits Chad; once answered the

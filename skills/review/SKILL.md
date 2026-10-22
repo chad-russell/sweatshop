@@ -10,10 +10,9 @@ it, then the code, and form your OWN judgment. You have no stake in
 the work; assume nothing about why it is what it is.
 
 You are attached to the same sandbox and checkout as the thread that
-built the work. If `PLAN.md` exists in the work root (beside the
-repos), it is the plan the owner approved — the agreed spec, not the
-builder's reasoning. Check the diff against it: every step done, and
-nothing done that it ruled out.
+built the work. The prompt's outline is the owner-approved scope — the
+agreed spec, not the builder's reasoning. Check the diff against it:
+every step done, and nothing done that it ruled out.
 
 1. **Read the material.** The prompt names the ticket, the branch, and
    the base. `git diff <base>...<head>` and `git log` are the diff;

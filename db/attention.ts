@@ -10,7 +10,6 @@ import {
   projectRepos,
   projects,
 } from "./schema";
-import { isPlanCard } from "./plans";
 import { isOutlineCard } from "./outlines";
 import type {
   AttentionState,
@@ -89,16 +88,14 @@ export function isPromptChangeCard(value: unknown): value is PromptChangeCard {
 
 function parseCard(card: string | null): {
   evidence: PendingRequest["evidence"];
-  plan: PendingRequest["plan"];
   outline: PendingRequest["outline"];
   exec: PendingRequest["exec"];
   promptChange: PendingRequest["promptChange"];
 } {
-  const empty = { evidence: null, plan: null, outline: null, exec: null, promptChange: null };
+  const empty = { evidence: null, outline: null, exec: null, promptChange: null };
   if (!card) return empty;
   try {
     const value = JSON.parse(card) as unknown;
-    if (isPlanCard(value)) return { ...empty, plan: value };
     if (isOutlineCard(value)) return { ...empty, outline: value };
     if (isExecCard(value)) return { ...empty, exec: value };
     if (isPromptChangeCard(value)) return { ...empty, promptChange: value };
@@ -130,10 +127,10 @@ export function loadPendingRequests(
     .where(
       onlyIds
         ? and(
-            isNull(pendingInputs.resolvedAt),
+            isNull(pendingInputs.resolvedAt), ne(pendingInputs.kind, "plan"),
             inArray(pendingInputs.conversationId, [...onlyIds]),
           )
-        : isNull(pendingInputs.resolvedAt),
+        : and(isNull(pendingInputs.resolvedAt), ne(pendingInputs.kind, "plan")),
     )
     .all();
 
@@ -143,27 +140,22 @@ export function loadPendingRequests(
     // kind "question" renders the freeform question card; anything else
     // is an approval with Approve/Deny.
     const isQuestion = row.kind === "question";
-    const isPlan = row.kind === "plan";
     const isOutline = row.kind === "outline";
     const card = parseCard(row.card);
     list.push({
       requestId: row.id,
-      kind: isPlan ? "plan" : isOutline ? "outline" : isQuestion ? "question" : "tool-approval",
+      kind: isOutline ? "outline" : isQuestion ? "question" : "tool-approval",
       prompt: row.question,
-      options: isQuestion || isPlan || isOutline
+      options: isQuestion || isOutline
         ? []
         : [
             { id: "approve", label: "Approve", style: "primary" },
             { id: "deny", label: "Deny", style: "danger" },
           ],
       allowFreeform: true,
-      toolName: isPlan
-        ? "present_plan"
-        : isOutline
+      toolName: isOutline
           ? "update_outline"
-          : card.plan
-            ? "accept_plan"
-            : card.outline
+          : card.outline
               ? "accept_outline"
               : card.exec
                 ? "exec"
@@ -171,11 +163,10 @@ export function loadPendingRequests(
                   ? "propose_prompt_change"
                   : "ask_owner",
       // 0043: an exec ask renders its own block — no generic JSON dump.
-      toolInput: isPlan || isOutline || card.plan || card.outline || card.exec || card.promptChange
+      toolInput: isOutline || card.outline || card.exec || card.promptChange
         ? null
         : { kind: row.kind, question: row.question },
       evidence: card.evidence,
-      plan: card.plan,
       outline: card.outline,
       exec: card.exec,
       promptChange: card.promptChange,

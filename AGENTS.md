@@ -72,8 +72,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `startChatTurn` starts a turn. The wake is a user row with
   `metadata.runEvent`, rendered as a transcript chip, never as Chad's
   words. The text includes the parent's current active step when the
-  thread has a status, and a child thread's wake also includes that
-  child's status label. Idempotency is `woken_settled_at` (stamped after delivery —
+  thread has an outline, and a child thread's wake also includes that
+  child's active outline step. Idempotency is `woken_settled_at` (stamped after delivery —
   duplicates over losses); the 30 s sweep in `instrumentation-node.ts`
   re-fires what the in-run wake missed (`WAKE_SWEEP=off` disables).
   Cancelled children never wake; trashed parents are marked woken and
@@ -119,7 +119,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   slice as a percentage of the model's catalog window, and cost;
   hidden until metered, ring-only below `sm`; clicking opens the same
   stats breakdown (context first) as a popover. The header itself just
-  holds crumbs · the 0041 phase chip · the preview pill.
+  holds crumbs · the status chip · the preview pill. The status chip
+  (`lib/thread-phase.ts` `phaseFromMessages`, `components/status-chip.tsx`)
+  shows an open PR when `create_pr` succeeded (0052 — while it does, the
+  client polls `GET /api/x/prs` and `applyPRState` relabels it
+  merged/closed at render time), else the outline chip (0064). Once a
+  PR is open, a diff breakdown chip beside it (0059,
+  `lib/diff-breakdown.ts` `latestDiffBreakdown`, read off the
+  transcript) opens a popover with the branch's change sorted into
+  fixed categories (Generated/Tests/Docs/Migrations/Config/Code).
 - Quiet tool groups (0056) keep their full-width collapsible box and
   render calls with shadcn Trace (`components/ui/trace.tsx`): action
   first, expandable specialized cards, repeated polls still folded.
@@ -179,133 +187,81 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`cached_tokens`); both are subsets of total input. Costs include writes
   at the five-minute rate, reads at the read rate, and newly fetched Gloo
   prices include the guarded alias's 1.065 fee. Historical costs stay put.
-- Skills (0039, 0054): markdown runbooks in `skills/<id>/SKILL.md` are
-  shipped defaults (front matter `description`, `thread: true` for a
-  bindable runbook, `mode: true` for a mode — see below, implies
-  `thread` — `status: disabled` to ship pre-retired — ship uses this).
-  SQLite `skills` / `skill_versions` hold the active catalog (both carry
-  a versioned `mode` boolean alongside `thread`); `lib/skills.ts` reads
-  it (lazy seed once from Git, no silent overwrite on deploy).
-  `/settings` edits or resets individual skills (a "Mode" checkbox
-  beside "thread", auto-checking thread); agent `propose_prompt_change`
-  changes (including `mode`) require approval. Status is versioned:
-  active, disabled, deleted (tombstone); existing bound threads still
-  read the current body even if disabled/deleted, but only active
-  thread skills can be newly bound. A thread runs one via
-  `conversations.skill` — chosen by the creating send (the picker,
-  `?skill=<id>`; unknown ids rejected before creating anything), by
-  `start_thread` for a child, or by owner mode entry (`mode:` on a
-  send). `use_skill` with no id lists the catalog; `use_skill({id})`
-  loads that active skill's body as the tool result, any number of
-  times. Loading a mode also writes `conversations.skill` (a newer mode
-  wins) so the step budget and handoff fallback apply; a non-mode load
-  does not bind. Its body joins the turn instructions and
-  the step budget rises 100 → 800; a thread-skill turn that EXHAUSTS
-  continues in a new turn (runEvent `budget`, bounded at 6 consecutive
-  continuations with no human message between, `lib/chat/budget.ts`).
-  Catalog: `ticket` (see Modes below), `review` (fresh context,
-  severity-ranked findings, changes nothing). `ship` is retired (0055: a
-  seeded `disabled` version, restorable) — its steps folded into
-  ticket's phases. Skills without `thread: true` are reference material
-  — never bindable.
-- Modes (0055 v7, 0059): a mode is any skill flagged `mode: true` —
-  phased, defined FREELY in that skill's own markdown, never hardcoded
-  by id. Format: `## Shared` (context every phase needs) plus any number
-  of `## Phase: <Name>` sections, in document order; everything else
-  (the H1, intro, any other `##` section) is the orchestrator's brief.
-  `lib/agent/mode-ids.ts` is the pure core — `parseModeSkill(body)` →
-  `{brief, shared, phases}` (phase id = slug of its name,
-  `##`-heading match is case-insensitive on "Phase:"/"Shared", `###`+ is
-  content not a boundary, a duplicate id keeps only the first),
-  `findPhase`, `renderModeEntry` (brief + phase list + Shared + the
-  first phase + a seed line of `update_status` steps),
-  `renderPhaseHandoff` / `splitPhaseHandoff`. No phase-order gate.
-  Dependency-free (no db import) so workflow-body files
-  (`workflows/chat/instructions.ts`, `workflows/chat/turn.ts` — both
-  must stay free of db imports, like `lib/usage/pricing.ts`) import it
-  directly; `lib/chat/mode-entry.ts` is the db-touching owner-entry
-  path. Skills are a log: there is no `enter_mode`, no `advance_phase`,
-  and no one-skill rule. Owner entry (`mode: "<id>"` on a send — fresh
-  OR existing, project-scoped; the mode chip; `?mode=<id>`; `?skill=<id>`
-  only when that skill is actually a mode) writes `conversations.skill`
-  + the first declared phase id (or `""`) and appends a `runEvent:
-  "mode"` row carrying the rendered entry BEFORE the owner's own
-  message — a transcript chip ("Entered `<id>` mode"), never the system
-  prompt. Re-entry overwrites. `conversations.mode_phase` stays (no
-  destructive migration) but is not the source of truth: it records the
-  phase at entry and is the handoff fallback for legacy threads. The
-  current phase is the active top-level step of the derived status when
-  that label matches a declared phase of the loaded mode skill.
-  `use_skill({id})` of a mode returns the body plus `suggestedSteps`.
-  `buildInstructions` skips the skill section once `mode_phase` is
-  non-null (including `""`). The per-turn `[thread state]` note
-  (`workflows/chat/turn.ts`, same injection point as the `[viewing]`
-  note — the ALREADY-RENDERED note text rides as `metadata.threadState`
-  on the turn's user row, and `db/chat.ts`'s `listTurnMessages` replays
-  it verbatim before that row on every later turn, so the model sees
-  byte-identical history and the prompt-cache prefix holds) is the
-  current status compactly plus "if this changed, call update_status",
-  or a seed line of the declared phases when a mode is entered and no
-  status exists yet. A plain chat and a legacy null `mode_phase` get no
-  note. `update_status` is GONE as of 0064 (see the Outline bullet
-  below) — `lib/status.ts` stays only as the read-only half this mode
-  machinery (and `components/mode-chip.tsx`) still uses against
-  historical transcripts, ahead of its removal in a later PR.
-  `skills/ticket/SKILL.md` is the reference mode: Plan (owner approves
-  via `present_plan`/`accept_plan`) → Implement → Review (fresh-eyes
-  `start_thread` child) → Fixup → Ship (orchestrator does Ship itself —
-  workers lack `create_pr`/`present_plan`); progress was `update_status`,
-  not boxes ticked in `PLAN.md` — not yet rewritten for the outline.
-  Settings' skill editor previews phases from `parseModeSkill(draft.body)`.
-- Phase handoff (0055 v7 part B, 0059): a harness call (`pi`/`claude`/
-  `cursor`/`codex`) or `start_thread` child started from a moded chat
-  gets the handoff block (`renderPhaseHandoff`,
-  `lib/agent/mode-ids.ts`) prepended to its task/first prompt — the
-  phase framing, `## Shared` (if any), just THAT phase's section, and
-  the orchestrator's task last; never the brief, never other phases.
-  Resolution (`lib/chat/phase-handoff.ts`'s `resolvePhaseHandoff`)
-  defaults to the active top-level status step when it matches a
-  declared phase of the loaded mode skill (`conversations.skill` when
-  that skill is a mode, else the last `use_skill` mode load), falling
-  back to `mode_phase` for a legacy thread — silently no-op (unwrapped)
-  when it's phaseless, stale, or the chat isn't moded. An explicit
-  `phase` arg (id or name) on every harness tool and `start_thread`
-  OVERRIDES that and refuses value-shaped (`not-moded` /
-  `unknown-phase`, listing the declared names) before claiming any
-  slot or creating any child. A harness call's `harness_calls.task`
-  stays the orchestrator's readable original. The handoff is re-rendered
-  for the card from the skill version stored on the call
-  (`phase_skill_id`, `phase_skill_version`, `phase_id` — migration
-  0063): a collapsible "Phase context: <Phase>" block
-  (`renderPhaseContext`). A `start_thread` child's first message IS the
-  handoff plus the task, so the same collapsible splits that message
-  (`splitPhaseHandoff`); the parent's card shows the tool-call's own
-  argument. The resolved phase NAME is recorded on `harness_calls.phase`
-  and, for a child, `conversations.work_phase`. Exposed on
-  `childStatus`/`GET /api/x/status/<id>` (including the child's own
-  status label), the sidebar's synthetic harness rows and child
-  conversation rows (a child's status label when it has one, else
-  `work_phase`), and `inspect`.
-- Mode chrome (0055 PR2, 0059): `components/mode-chip.tsx`, leftmost in
-  a project chat's composer, owns mode choice end to end — scoped to
-  ACTIVE modes only (plain thread skills are agent/child-only). The
-  trigger matches the model picker and sandbox control beside it
-  (h-8, items-center, the shared composer-picker classes). Not moded:
-  "Normal ▾" lists active modes; picking one on a fresh chat sets the
-  creating send's skill; on an EXISTING chat it queues
-  `pendingModeId`, sent as `mode` on the VERY NEXT send — shown as
-  "pending: `<title>`" with a clear option. A bound non-mode skill does
-  not block that. Moded: a tinted `<title> · <active or blocked step>`
-  chip (legacy `mode_phase` name until a status exists; no phase
-  segment for a phaseless mode) plus "N working". The menu is a stepper
-  (done/active/pending/skipped/blocked) from the derived status, falling
-  back to declared phases (`loadModeChrome` parses the skill's CURRENT
-  body), a History line of active-step changes, "Skills used"
-  (`use_skill` loads plus owner mode entry), and "Working now". Live
-  work comes from `lib/chat-ui.ts`'s `backgroundChildIds`, each polled
-  by `useChildStatus`. A child's own status label shows in Working now.
-  `ChildMeta` is a bordered work-chip pill on harness and thread cards;
-  the sidebar shows the phase or status label as a small muted pill.
+- Skills (0039, 0054, 0064): markdown runbooks in `skills/<id>/SKILL.md`
+  are shipped defaults (front matter `description`, `thread: true` for a
+  bindable runbook, `status: disabled` to ship pre-retired — ship uses
+  this). SQLite `skills` / `skill_versions` hold the active catalog;
+  `lib/skills.ts` reads it (lazy seed once from Git, no silent overwrite
+  on deploy; an unedited default is upgraded by a guarded path).
+  `/settings` edits or resets individual skills; agent
+  `propose_prompt_change` changes require approval. Status is
+  versioned: active, disabled, deleted (tombstone); existing bound
+  threads still read the current body even if disabled/deleted, but
+  only active thread skills can be newly bound. A thread runs one via
+  `conversations.skill` — chosen by the creating send (`?skill=<id>`;
+  unknown ids rejected before creating anything) or by
+  `start_thread` for a child. `use_skill` with no id lists the catalog;
+  `use_skill({id})` loads that active skill's body as the tool result,
+  any number of times, and never binds. A bound skill's body joins the
+  turn instructions and the step budget rises 100 → 800; a thread-skill
+  turn that EXHAUSTS continues in a new turn (runEvent `budget`,
+  bounded at 6 consecutive continuations with no human message between,
+  `lib/chat/budget.ts`). Catalog: `ticket` (planned work to a PR, run
+  through an outline — see Outline below), `review` (fresh context,
+  severity-ranked findings, changes nothing). `ship` is retired (a
+  seeded `disabled` version, restorable). Skills without `thread: true`
+  are reference material — never bindable.
+- Outline (0064 — supersedes 0041's PLAN.md, 0055 modes and 0059
+  status): the ONE plan/progress/phase mechanism. `update_outline`
+  (every chat) rewrites the whole step tree in one call —
+  `{goal, steps: [{id, label, state, detail?, children?, runner?}],
+  note?, propose?}` — any depth (cap 4, 200 nodes; goal 300 / label 200
+  / detail 500 / note 500 chars), unique ids kept across rewrites, at
+  most one ACTIVE top-level step, and a `runner`
+  (`"auto"|"self"|"thread"` or a pinned `HarnessRoute`) on top-level
+  steps only. Only top-level steps are units of delegation; children
+  are the to-do list for whoever does that step. `lib/outline.ts` is the
+  pure core (no db import): `validateOutline`, `deriveOutline`
+  (current/history/stale from `update_outline` results and
+  `outline-edit` rows; legacy `update_status` results adapt with no
+  goal, ids slugged from labels, runner `"auto"`), `outlineChip`,
+  `diffOutlineSteps`, `runnerGate`, `renderOutlineHandoff`, and
+  `renderThreadStateNote` (goal, active step + runner + open children,
+  next step + runner, "if this changed, call update_outline"; rendered
+  once and replayed verbatim for cache stability). `lib/status.ts` keeps
+  only the legacy `update_status` shape check and the shared transcript
+  walkers. Review: `propose: true` opens a hookless `pending_inputs`
+  row of kind `outline` (`db/outlines.ts`; a newer proposal supersedes)
+  without suspending; `accept_outline` (approval-gated) or the card's
+  Approve (`/api/x/input` `{toolCallId, approveOutline, note?}`)
+  resolves it and WAKES the conversation (`[outline vN approved]`).
+  Owner edits (`/api/x/input` `editOutline` + `baseVersion`, stale → 409,
+  full route validation against project allow-lists,
+  `lib/chat/outline-edit.ts`) append an `outline-edit` user row (a
+  chip, never the owner's words); in review any edit is allowed and
+  supersedes the review, otherwise only pending top-level runners
+  change (enforced server-side); edit+approve is one wake.
+  Enforcement (`runnerGate`, before any harness slot claim or child
+  creation): `self` forbids delegation, `thread` permits only
+  `start_thread`, a pinned route permits exactly that harness and route
+  (overriding resolution, still `checkRoute`-validated), `auto`
+  unrestricted; refusals tell the agent to `update_outline`. Workers
+  (harness calls, `start_thread` children) get the goal + active step's
+  subtree prepended (`[outline context]`, a collapsible in a child's
+  first message); `harness_calls.step` / `conversations.work_step`
+  record the step label for cards, the sidebar, `childStatus` and
+  `inspect`. UI: `components/outline-card.tsx` (goal, recursive tree,
+  runner badges, "changes since vN" including removed steps, review
+  editing), the header chip (`<active step> · d/n`, `needs you` when
+  blocked or in review, stale after an un-followed wake; PR states win,
+  0052), the Inbox outline card, and `components/work-chip.tsx` in the
+  composer ("N working", live background work with step labels; hidden
+  when idle). Skills are plain runbooks — no `mode` flag, no phases, no
+  mode entry on send; `use_skill` loads text. Legacy read-compat:
+  historical `present_plan` results render read-only
+  (`components/legacy-plan-card.tsx`, `lib/legacy-plan.ts`) and open
+  `plan` review rows are hidden from the Inbox and typed answers, never
+  resolved by typing.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy
@@ -315,75 +271,6 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   validates agent proposals (`propose_prompt_change`), which always
   ask Chad before writing. Tool availability, approval and lockout gates
   remain code-enforced, never controlled by prompt prose.
-- Plan files (0041): a plan is a scratch `PLAN.md` in the
-  conversation's work root (`/work/<conv>/` — never in a PR), written
-  with `bash`, never re-injected into context. `present_plan`
-  (sandboxed chats; `workflows/chat/plan-tools.ts`, core
-  `lib/agent/tools/plan.ts`) snapshots it into its tool result — that
-  result IS the version, the diff base and the durable copy — and NEVER
-  suspends. Before approval it opens a review: a HOOKLESS
-  `pending_inputs` row of kind `plan` (only the latest waits; a newer
-  present supersedes). `answerPendingWithText` skips plan rows — typing
-  is plan discussion. Approval is explicit only: the card's Approve
-  (`/api/x/input` `{toolCallId, approvePlan, note?}`; stale versions
-  409) resolves the row and WAKES the conversation, or the agent calls
-  `accept_plan` (itself approval-gated) when Chad approves in chat.
-  After approval `present_plan` is a progress snapshot (`reapprove:
-  true` reopens review). The header PHASE chip (`lib/plan.ts` +
-  `lib/outline.ts`, pure, derived from the transcript, never stored):
-  PR states win; a plan still in review is "Plan vN · needs you";
-  otherwise the label is the thread outline (0064) — "<active step> ·
-  d/n" (the active step's children, or the top-level count; done-only
-  in the numerator) or "<step> · needs you" when any step is blocked. A
-  chat that never called `update_outline` shows no outline chip. The
-  checklist-count "Building N/M" derivation is gone. A stale outline
-  (a wake followed by a completed turn with no `update_outline`) is
-  marked on the chip. While the chip shows an open PR, the client
-  polls `GET /api/x/prs` (`GitHost.getPRState`, 0052) and
-  `applyPRState` relabels it merged/closed — derived purity holds,
-  the override is render-time. Beside it,
-  once a PR is open, a diff breakdown chip (0059, `lib/diff-breakdown.ts`'s
-  `latestDiffBreakdown`, read the same way off the transcript) opens a
-  popover with the branch's change sorted into fixed categories
-  (Generated/Tests/Docs/Migrations/Config/Code). The review skill treats
-  `PLAN.md` as the agreed spec. No plan table, no hard gate on `create_pr`.
-  (0064 supersedes this whole mechanism — PR 3 deletes PLAN.md, the
-  checklist/diff, and the plan card; see the Outline bullet below.)
-- Outline (0064 PR2): `update_outline` (every chat, replacing
-  `update_status`) rewrites the whole step tree in one call —
-  `{goal, steps: [{id, label, state, detail?, children?, runner?}],
-  note?}` — any depth (cap 4, 200 nodes total), unique ids kept across
-  rewrites, a `runner` (`"auto"|"self"|"thread"`, or a pinned
-  `HarnessRoute`) on top-level steps only. `runnerGate` enforces the
-  active top-level runner before harness slots/children are created:
-  `self` forbids delegation, `thread` permits only `start_thread`, and a
-  pinned route permits exactly that harness and overrides normal route
-  resolution (still fully validated against availability and project
-  restrictions). `lib/outline.ts`
-  is the pure core (no db import): `validateOutline`, `deriveOutline`
-  (current/history/stale, reading both `update_outline` and legacy
-  `update_status` results — the latter adapt with no goal, ids slugged
-  from labels, runner `"auto"`), `outlineChip`, `diffOutlineSteps`, and
-  `renderThreadStateNote` (goal, active step + runner + open children,
-  next step + runner, "if this changed, call update_outline" — replaces
-  0059's note). `propose: true` opens a hookless `pending_inputs` review
-  row of kind `outline` (`db/outlines.ts`, 0041's mechanism reused under
-  a new kind; a newer proposal supersedes the open one) without
-  suspending the turn; `accept_outline` (approval-gated, mirrors
-  `accept_plan`) and the card's Approve (`/api/x/input`
-  `{toolCallId, approveOutline, note?}`) resolve the review and WAKE the
-  conversation (`[outline vN approved]`). `components/outline-card.tsx`
-  (grown from 0059's status-card.tsx) renders the goal, a recursive
-  collapsible tree, a "changes since vN" toggle, and review editing:
-  labels/add/delete/reorder at any depth plus top-level runner routes;
-  after approval only pending top-level runners remain editable. Edits
-  append `outline-edit` user snapshots (never Chad-authored prose), with
-  stale/version and route validation in `lib/chat/outline-edit.ts`.
-  Workers receive the outline goal + active subtree before the legacy
-  phase handoff; `harness_calls.step` / `conversations.work_step` record
-  its label and display ahead of phase. Historical `update_status` rows
-  remain read-only. PR 3 deletes modes, phase handoff, PLAN.md, and
-  this whole paragraph folds into whatever remains.
 - PR dashboard (0053): a top-level `/prs` page lists every PR by the
   repo's own credential account across ALL project repos (hand-opened
   and agent-opened alike) — asked LIVE through `GitHost.listPRs` on

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { PhaseChip } from "@/components/plan-card";
+import { PhaseChip } from "@/components/status-chip";
 import { ChatSession } from "@/components/chat-session";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { usePageContextReader } from "@/components/page-context";

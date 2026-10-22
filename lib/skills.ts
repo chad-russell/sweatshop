@@ -26,9 +26,6 @@ export interface Skill {
   description: string;
   /** A thread skill (front matter `thread: true`) can bind to a conversation. */
   thread: boolean;
-  /** 0055 v7: this skill is a MODE — a phased way of working
-   *  (lib/agent/mode-ids.ts). Implies `thread`. */
-  mode: boolean;
   body: string;
   /** Catalog version the body was read from (0059 phase context). */
   version: number;
@@ -49,7 +46,6 @@ export async function readSkill(id: string): Promise<Skill | null> {
     title: renderOwnerPlaceholders(deriveSkillTitle(row.body, id)),
     description: renderOwnerPlaceholders(row.description ?? ""),
     thread: row.thread ?? false,
-    mode: row.mode ?? false,
     body: row.body,
     version: row.version,
   };
@@ -67,7 +63,6 @@ function toSkill(row: SkillTarget): Skill {
     title: renderOwnerPlaceholders(deriveSkillTitle(row.body, row.id)),
     description: renderOwnerPlaceholders(row.description ?? ""),
     thread: row.thread ?? false,
-    mode: row.mode ?? false,
     body: row.body,
     version: row.version,
   };
@@ -80,8 +75,7 @@ export async function listSkills(): Promise<Skill[]> {
   return store.listTargets(db(), { includeDeleted: false }).filter(isSkillTarget).map(toSkill);
 }
 
-/** Active skills of every kind — `use_skill` with no id. `thread` and
- *  `mode` say which can be bound and which are modes. */
+/** Active skills of every kind — `use_skill` with no id. */
 export async function listActiveSkills(): Promise<Skill[]> {
   const [{ db }, store] = await Promise.all([import("../db"), import("../db/prompt-settings")]);
   return store

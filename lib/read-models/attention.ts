@@ -3,7 +3,6 @@
  * split per 0049.
  */
 import type { ApprovalEvidence } from "../agent/tools/evidence";
-import type { PlanCard } from "../plan";
 import type { OutlineCard } from "../outline";
 
 export interface PromptChangeCard {
@@ -17,14 +16,12 @@ export interface PromptChangeCard {
     body?: string;
     description?: string;
     thread?: boolean;
-    mode?: boolean;
     status?: "active" | "disabled" | "deleted";
   };
   before: {
     body?: string;
     description?: string;
     thread?: boolean;
-    mode?: boolean;
     status?: "active" | "disabled" | "deleted";
   } | null;
   affectedThreads?: { id: string; title: string | null }[];
@@ -40,9 +37,7 @@ export interface RequestOption {
 
 export interface PendingRequest {
   requestId: string;
-  /** 0041: "plan" = a plan in review (hookless — the card approves it).
-   *  0064: "outline" = an outline in review, same shape. */
-  kind: "tool-approval" | "question" | "plan" | "outline";
+  kind: "tool-approval" | "question" | "outline";
   prompt: string;
   options: RequestOption[];
   allowFreeform: boolean;
@@ -52,8 +47,6 @@ export interface PendingRequest {
   /** 0037: runtime-built evidence (check result, screenshots) for gated
    *  tools; null for plain asks. */
   evidence: ApprovalEvidence | null;
-  /** 0041: the plan snapshot (plan reviews and accept_plan approvals). */
-  plan: PlanCard | null;
   /** 0064: the outline snapshot (outline reviews and accept_outline approvals). */
   outline: OutlineCard | null;
   /** 0043: an exec approval's structured ask (renders as a terminal
