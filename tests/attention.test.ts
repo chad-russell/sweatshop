@@ -266,3 +266,13 @@ describe("attention signature", () => {
     expect(loadAttention(tdb).signature).toBe(base);
   });
 });
+
+describe("legacy plan reviews", () => {
+  it("hides unresolved plan rows from attention and Inbox", () => {
+    const id = convId();
+    say(id, "user", "old thread", 1000);
+    recordPendingInput(tdb, { id: `old_plan_${seq}`, conversationId: id, kind: "plan", question: "Plan v1" });
+    expect(loadPendingRequests(tdb, [id]).get(id)).toBeUndefined();
+    expect(loadAttention(tdb).needsYou.has(id)).toBe(false);
+  });
+});

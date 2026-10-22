@@ -12,7 +12,7 @@ import { chatApprovalHook } from "@/workflows/chat/hooks";
  * 0041/0064: plan and outline reviews are skipped — they never block the
  * turn, so a message while one is open is just a message (the model
  * decides what it is about). Approval is the explicit button or
- * accept_plan/accept_outline.
+ * accept_outline.
  *
  * Returns what was answered, or null when nothing was pending (the
  * caller then queues a steer as before). A pending whose run already

@@ -4,7 +4,7 @@ import { db } from "../db";
 import { appendMessages, ensureConversation, listModelMessages, listPendingInputs } from "../db/chat";
 import { getOutlineRow, outlineState } from "../db/outlines";
 import { projects } from "../db/schema";
-import { derivePhase, phaseFromMessages } from "../lib/plan";
+import { phaseFromMessages } from "../lib/thread-phase";
 import { renderWake } from "../lib/chat/wake";
 import { editOutline } from "../lib/chat/outline-edit";
 import {
@@ -395,16 +395,7 @@ describe("outline runner decisions and worker handoff", () => {
   });
 });
 
-describe("derivePhase reads the outline (0064)", () => {
-  it("fills the chip only when no PR and no open plan review is waiting", () => {
-    const status = deriveOutline([{ role: "assistant", parts: [{ type: "tool-update_outline", state: "output-available", output: { ok: true, version: 1, outline: implement, proposed: false, next: "ok" } }] }]);
-    expect(derivePhase([], status)?.label).toBe("Implement · 2/3");
-    expect(derivePhase([{ type: "plan", version: 2, status: "review", checklist: { done: 0, total: 1 } }], status)?.label).toBe("Plan v2 · needs you");
-    expect(derivePhase([{ type: "pr-open", url: "http://x/pull/1" }], status)?.label).toBe("PR open");
-    expect(derivePhase([{ type: "pr-open", url: "http://x/pull/1" }], { ...status, stale: true })?.stale).toBeUndefined();
-    expect(derivePhase([], { ...status, stale: true })?.stale).toBe(true);
-  });
-
+describe("the thread phase reads the outline (0064)", () => {
   it("phaseFromMessages reads both the plan events and the outline", () => {
     const phase = phaseFromMessages([
       {

@@ -17,7 +17,6 @@ export async function POST(request: Request) {
     approved?: boolean;
     comment?: string;
     answer?: string;
-    approvePlan?: boolean;
     approveOutline?: boolean;
     conversationId?: string;
     editOutline?: unknown;
@@ -61,14 +60,6 @@ export async function POST(request: Request) {
   }
   if (!body.toolCallId) {
     return NextResponse.json({ error: "toolCallId is required" }, { status: 400 });
-  }
-  // 0041: the plan card's Approve — a hookless review row; approving it
-  // answers a waiting accept_plan or wakes the conversation.
-  if (body.approvePlan === true) {
-    const result = await approvePlanFromCard(body.toolCallId, body.note?.trim() || undefined);
-    return result.ok
-      ? NextResponse.json({ approved: true, version: result.version, delivered: result.delivered })
-      : NextResponse.json({ error: result.error }, { status: result.status });
   }
   // 0064: same mechanism for the outline card's Approve.
   if (body.approveOutline === true) {
@@ -118,25 +109,6 @@ export async function POST(request: Request) {
   const { resolvePendingInput } = await import("@/db/chat");
   resolvePendingInput(db(), body.toolCallId, payload);
   return NextResponse.json({ resumed: true });
-}
-
-async function approvePlanFromCard(rowId: string, note: string | undefined) {
-  const [{ approvePlan }, { wakeConversation }] = await Promise.all([
-    import("@/lib/agent/tools/plan"),
-    import("@/lib/chat/wake"),
-  ]);
-  return approvePlan(rowId, note, {
-    resume: (token, payload) => chatApprovalHook.resume(token, payload),
-    wake: (conversationId, version, id, n) =>
-      wakeConversation(conversationId, {
-        kind: "plan",
-        id,
-        name: `plan v${version}`,
-        status: "approved",
-        detail: `${ownerName()} approved plan v${version}${n ? `: ${n}` : ""}. Start building from PLAN.md.`,
-        url: `/c/${conversationId}`,
-      }),
-  });
 }
 
 async function approveOutlineFromCard(rowId: string, note: string | undefined) {

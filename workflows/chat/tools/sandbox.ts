@@ -1,5 +1,5 @@
 /**
- * Sandbox-gated tools: bash, previews, screenshot, plan files, pi/claude/cursor/codex.
+ * Sandbox-gated tools: bash, previews, screenshot, pi/claude/cursor/codex.
  */
 
 import { tool } from "ai";
@@ -10,7 +10,6 @@ import { commandDescription } from "./shared";
 import { bashStep, previewToolStep, screenshotStep } from "../steps";
 import { previewTools } from "../preview-tools";
 import { screenshotTool } from "../screenshot-tool";
-import { planTools } from "../plan-tools";
 
 export function sandboxTools(
   conversationId: string,
@@ -37,8 +36,6 @@ export function sandboxTools(
       ...previewTools((action, input) => previewToolStep(conversationId, action, input)),
       // 0035: QA evidence shows in the conversation.
       attach_screenshot: screenshotTool((input) => screenshotStep(conversationId, input)),
-      // 0041: the plan file lives in the sandbox's work root.
-      ...planTools(conversationId),
     }),
     ...(hasSandbox && hasProject && {
       pi: tool({

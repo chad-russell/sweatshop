@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { diffLines } from "@/lib/plan";
+import { diffLines } from "@/lib/text-diff";
 
 type Key = "base" | "harness_steering" | "host_routing";
 type Target = { kind: "section"; key: Key } | { kind: "skill"; id: string };

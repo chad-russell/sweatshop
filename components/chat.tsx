@@ -16,7 +16,7 @@ import { usePageContext } from "@/components/page-context";
 import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
-import { PhaseChip } from "@/components/plan-card";
+import { PhaseChip } from "@/components/status-chip";
 import { DiffBreakdownChip } from "@/components/diff-breakdown";
 import { WorkChip } from "@/components/mode-chip";
 import { UsageControl } from "@/components/usage-control";

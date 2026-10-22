@@ -20,7 +20,7 @@ import {
 } from "@/components/ai-elements/message";
 import { HarnessCard } from "@/components/harness-card";
 import { OutlineContextBlock } from "@/components/phase-context";
-import { PlanToolCard } from "@/components/plan-card";
+import { LegacyPlanCard } from "@/components/legacy-plan-card";
 import { OutlineToolCard } from "@/components/outline-card";
 import { splitOutlineContext } from "@/lib/outline";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
@@ -28,7 +28,6 @@ import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards"
 import {
   AskOwnerCard,
   AcceptOutlineCard,
-  AcceptPlanCard,
   HostExecApprovalCard,
   GatedApprovalCard,
   GATED_TOOLS,
@@ -227,17 +226,8 @@ export const ChatMessageView = memo(function ChatMessageView({
             }
             if (toolPart.type === "tool-present_plan") {
               return (
-                <PlanToolCard
-                  key={i}
-                  toolCallId={toolPart.toolCallId}
-                  state={toolPart.state}
-                  output={toolPart.state === "output-available" ? toolPart.output : undefined}
-                  errorText={toolPart.state === "output-error" ? (toolPart.errorText ?? "tool failed") : undefined}
-                />
+                <LegacyPlanCard key={i} output={toolPart.state === "output-available" ? toolPart.output : undefined} />
               );
-            }
-            if (toolPart.type === "tool-accept_plan" && toolPart.state === "input-available") {
-              return <AcceptPlanCard key={i} part={toolPart} />;
             }
             // 0043: exec approves inline — the buttons live in the
             // transcript while the call awaits Chad; once answered the

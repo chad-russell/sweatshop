@@ -31,9 +31,8 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { ComposerAddButton, ComposerAttachments, attachmentErrorMessage } from "@/components/composer-attachments";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from "@/lib/attachment-ref";
-import { PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-card";
 import { OutlineViewProvider, type OutlineView } from "@/components/outline-card";
-import { applyPRState, phaseFromMessages, planHistory, type Phase } from "@/lib/plan";
+import { applyPRState, phaseFromMessages, type Phase } from "@/lib/thread-phase";
 import { outlineHistory } from "@/lib/outline";
 import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
 import { usePRStates } from "@/lib/use-pr-states";
@@ -336,9 +335,6 @@ export function ChatSession({
   // with background work out, watch for that turn and attach to it: the
   // stored transcript (with the wake row) is swapped in, then the live
   // turn streams in like any other.
-  // 0041: an open plan review also wakes this chat (on Approve), so the
-  // page watches for it the same way.
-  const plans = useMemo(() => planHistory(messages), [messages]);
   // 0064: an open outline review also wakes this chat (on Approve), same watch.
   const outlines = useMemo(() => outlineHistory(messages), [messages]);
   const phase = useMemo(() => phaseFromMessages(messages), [messages]);
@@ -356,7 +352,7 @@ export function ChatSession({
   const awaitingWake =
     (adopted || selfAdopted) &&
     !isBusy &&
-    (hasBackgroundChild(messages) || plans.openReviewId !== null || outlines.openReviewId !== null);
+    (hasBackgroundChild(messages) || outlines.openReviewId !== null);
   const chatRef = useRef(chat);
   useEffect(() => {
     chatRef.current = chat;
@@ -532,19 +528,6 @@ export function ChatSession({
     messages,
   };
 
-  // 0041: Quote — a plan selection lands in the composer as a `>` block.
-  const planView = useMemo<PlanView>(() => ({
-    history: plans,
-    quote: (selection) => {
-      const el = textareaRef.current;
-      if (!el) return;
-      const before = el.value.trimEnd();
-      el.value = `${before ? `${before}\n\n` : ""}${quoteBlock(selection)}`;
-      if (el.value.trim()) window.localStorage.setItem(draftKey, el.value);
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    },
-  }), [plans, draftKey]);
   // 0064: Quote for the outline card, same mechanism.
   const outlineView = useMemo<OutlineView>(() => ({
     history: outlines,
@@ -554,7 +537,8 @@ export function ChatSession({
       const el = textareaRef.current;
       if (!el) return;
       const before = el.value.trimEnd();
-      el.value = `${before ? `${before}\n\n` : ""}${quoteBlock(selection)}`;
+      const quoted = `${selection.split("\n").map((line) => `> ${line}`.trimEnd()).join("\n")}\n\n`;
+      el.value = `${before ? `${before}\n\n` : ""}${quoted}`;
       if (el.value.trim()) window.localStorage.setItem(draftKey, el.value);
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
@@ -679,7 +663,6 @@ export function ChatSession({
             )
           )}
           <SandboxViewProvider value={sandboxView}>
-          <PlanViewProvider value={planView}>
           <OutlineViewProvider value={outlineView}>
           {messages.map((message) => (
             <ChatMessageView
@@ -689,7 +672,6 @@ export function ChatSession({
             />
           ))}
           </OutlineViewProvider>
-          </PlanViewProvider>
           </SandboxViewProvider>
           {isThinking(status, messages) && (
             <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground" role="status">

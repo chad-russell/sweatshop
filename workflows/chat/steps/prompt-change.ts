@@ -1,4 +1,4 @@
-import { diffLines, type DiffLine } from "../../../lib/plan";
+import { diffLines, type DiffLine } from "../../../lib/text-diff";
 
 export type PromptChangeTarget =
   | { kind: "section"; key: "base" | "harness_steering" | "host_routing" }
