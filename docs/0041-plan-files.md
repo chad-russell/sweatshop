@@ -1,5 +1,7 @@
 # 0041 — Plan files: an async, many-round plan review, and a visible phase
 
+> **Superseded by [0064](0064-outline.md)** — the outline replaced this mechanism (removed in 0064 PR 3).
+
 Status: **approved (PR #88, 2026-10-13); implemented on
 `feat/0041-plan-files`.** Implementation notes at the end.
 

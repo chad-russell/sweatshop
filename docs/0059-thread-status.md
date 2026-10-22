@@ -1,5 +1,7 @@
 # 0059 — Thread status: one mechanism for progress, skills as a log
 
+> **Superseded by [0064](0064-outline.md)** — the outline replaced this mechanism (removed in 0064 PR 3).
+
 Status: **approved in chat (2026-10-21).** Supersedes the progress parts
 of 0041 (the "Building N/M" checklist count) and the stickiness of 0055
 (one skill per thread, "this mode stays on"). Keeps 0055's mode skill

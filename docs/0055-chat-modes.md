@@ -1,5 +1,7 @@
 # 0055 — Modes: owner-defined, sticky, phased skills
 
+> **Superseded by [0064](0064-outline.md)** — the outline replaced this mechanism (removed in 0064 PR 3).
+
 Status: **Approved by the owner (plan v7, 2026-10-21).** Supersedes approved v5
 (owner feedback 2026-10-21: modes and phases are defined freely in
 Settings, not in code). History: v1–v5 in this doc's git log; the

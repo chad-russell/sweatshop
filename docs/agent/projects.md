@@ -56,11 +56,13 @@ the project chat. Sandboxes bind once per conversation (see
 3. One `create_project` call with all of it — the owner approves once.
 4. If the toolchain isn't node: `edit_project` with the sandbox image.
 5. Hand off the `/?project=<id>` link and say what to try first
-   (a `review` on a small diff, then real work in ticket mode — the
-   owner enters it from the composer).
+   (a `review` on a small diff, then real work with the `ticket`
+   runbook).
 
-Once a mode is entered, the owner sees it: the composer's mode chip
-reads `<mode> · <active step> · N working`. Its menu is a stepper from
-`update_status` (declared phases until the first status), plus history,
-skills used, and live work. Harness cards can expand the phase context
-they were started with. `update_status` is what moves the chip.
+Multi-step work runs through the thread's outline: `update_outline`
+writes a goal and a step tree (propose it for the owner's approval).
+Top-level steps can carry a runner — `auto`, `self`, `thread`, or a
+pinned harness route — which is enforced while that step is active. The
+owner can edit the outline and its runners on the card. The header chip
+shows the active step; the composer's work chip lists live background
+work with the step each piece is doing.
