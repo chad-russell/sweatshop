@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { harnessEvents, harnessRuns } from "@/db/schema";
 
@@ -67,6 +67,9 @@ export interface HarnessEventPage {
   readonly events: readonly HarnessEvent[];
   /** Cursor for the next incremental fetch (null when up to date). */
   readonly cursor: number | null;
+  /** Tail/before pages only: whether events older than this page remain
+   *  (in the same window) — drives "Load earlier". */
+  readonly hasOlder?: boolean;
 }
 
 /**
@@ -76,12 +79,15 @@ export interface HarnessEventPage {
  * of truncating at a hard cap (0006). `tail` returns the newest `limit`
  * events instead of the oldest. `fromAt`/`toAt` (inclusive, Unix ms)
  * scope the log to one harness call's time window (0046 per-call view).
+ * `beforeId` returns the newest `limit` events older than that id (still
+ * oldest-first) — the "Load earlier" page; it implies `tail`.
  */
 export function getHarnessEvents(
   sessionId: string,
   harness: HarnessKind = "pi",
   options: {
     afterId?: number;
+    beforeId?: number;
     limit?: number;
     tail?: boolean;
     fromAt?: number;
@@ -96,9 +102,12 @@ export function getHarnessEvents(
   if (options.afterId !== undefined) {
     filters.push(gt(harnessEvents.id, options.afterId));
   }
+  if (options.beforeId !== undefined) {
+    filters.push(lt(harnessEvents.id, options.beforeId));
+  }
   if (options.fromAt !== undefined) filters.push(gte(harnessEvents.at, options.fromAt));
   if (options.toAt !== undefined) filters.push(lte(harnessEvents.at, options.toAt));
-  if (options.tail) {
+  if (options.tail || options.beforeId !== undefined) {
     // The newest `limit` events, still returned oldest-first — what a live
     // "what is it doing now" peek wants, without paging from the start.
     const newest = db()
@@ -106,9 +115,10 @@ export function getHarnessEvents(
       .from(harnessEvents)
       .where(and(...filters))
       .orderBy(desc(harnessEvents.id))
-      .limit(limit)
+      .limit(limit + 1) // one extra row says whether anything older remains
       .all() as HarnessEvent[];
-    return { events: newest.reverse(), cursor: null };
+    const hasOlder = newest.length > limit;
+    return { events: newest.slice(0, limit).reverse(), cursor: null, hasOlder };
   }
   const rows = db()
     .select()
