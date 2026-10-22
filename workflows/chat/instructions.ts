@@ -1,5 +1,4 @@
 import { renderOwnerPlaceholders } from "../../lib/agent/owner";
-import { isModeSkill } from "../../lib/agent/mode-ids";
 import { capRepoDoc, REPO_DOC_TOTAL_CAP, type RepoDoc } from "../../lib/agent/repo-docs";
 
 /**
@@ -63,15 +62,7 @@ export interface BuildInstructionsInput {
   hasSandbox: boolean;
   hosts: readonly { name: string; address: string; user: string; apiBase: string | null }[];
   repoDocs: readonly RepoDoc[];
-  skill?: { id: string; title: string; body: string; mode: boolean } | null;
-  /** 0055/0059: `conversations.mode_phase`, kept so a mode's body is not
-   *  re-injected once the owner (or use_skill) has entered it. The
-   *  per-turn `[thread state]` note carries the derived status instead.
-   *  `null` = never entered (plain chat, non-mode skill, or a legacy
-   *  mode-skill thread). `""` = entered a phaseless mode. Any other
-   *  string is a phase id recorded at entry — not the source of truth
-   *  for the current phase (that is the active status step). */
-  modePhase?: string | null;
+  skill?: { id: string; title: string; body: string } | null;
   /** 0054: resolved section bodies (Settings-editable, DB-backed);
    *  omitted = the git defaults above — every existing caller that
    *  doesn't pass it keeps today's exact output. */
@@ -119,11 +110,7 @@ export function buildInstructions(input: BuildInstructionsInput): string {
   if (input.hosts.length > 0) parts.push(renderOwnerPlaceholders(input.sections?.hostRouting ?? GIT_DEFAULT_SECTIONS.host_routing));
   const repoSection = buildRepoDocsSection(input.repoDocs);
   if (repoSection) parts.push(repoSection);
-  // A mode already entered (modePhase set — "" counts) is not
-  // re-injected: the entry row and use_skill results are history, and
-  // the per-turn [thread state] note carries the status. A legacy
-  // thread bound before mode_phase existed (null) keeps this section.
-  if (input.skill && !(isModeSkill(input.skill.mode) && input.modePhase != null)) {
+  if (input.skill) {
     parts.push(
       `# Skill: ${input.skill.title}\n\nThis thread runs the "${input.skill.id}" skill — follow it.\n\n${renderOwnerPlaceholders(input.skill.body)}`,
     );

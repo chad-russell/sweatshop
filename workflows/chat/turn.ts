@@ -3,7 +3,6 @@ import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
-import { isModeSkill, parseModeSkill } from "../../lib/agent/mode-ids";
 import { deriveOutline, renderThreadStateNote } from "../../lib/outline";
 import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
@@ -85,24 +84,15 @@ export async function chatTurn(input: ChatTurnInput) {
 
   const history = await loadTurnHistory(conversationId);
   // 0039: a thread running a skill gets its runbook in the instructions
-  // and the background budget. 0055: modePhase rides along, and is
-  // loaded BEFORE recordUserMessage below so the turn's phase can be
-  // stamped onto its own user row (db/chat.ts's listTurnMessages
-  // rebuilds the [thread state] note from that metadata next turn, the
-  // same way it already rebuilds the viewing note).
+  // and the background budget.
   const skill = await loadSkillStep(conversationId);
-  const modePhase = skill?.modePhase ?? null;
   // 0064: the [thread state] note is the derived outline (or, for a mode
-  // that has not called update_outline yet, a seed line). Rendered NOW
+  // Rendered NOW
   // so the same string is stamped onto this turn's user row AND injected
   // into this turn's messages — metadata and what the model sees stay
   // byte-identical, and listTurnMessages replays the stored text.
   const derived = deriveOutline(history);
-  const seed =
-    !derived.current && skill && isModeSkill(skill.mode) && modePhase != null
-      ? parseModeSkill(skill.body).phases
-      : null;
-  const stateNote = renderThreadStateNote(derived, seed);
+  const stateNote = renderThreadStateNote(derived);
   const userContent = await recordUserMessage(
     conversationId,
     userText,
@@ -140,7 +130,6 @@ export async function chatTurn(input: ChatTurnInput) {
       hosts: input.hosts ?? [],
       repoDocs,
       skill,
-      modePhase,
       sections,
     }),
     // 0042: WorkflowAgent hard-codes supportedUrls: {}, so the SDK would try

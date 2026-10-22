@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { openDb } from "../db";
-import { appendMessages, ensureConversation, setActiveRun, setConversationParent, setConversationWorkPhase } from "../db/chat";
+import { appendMessages, ensureConversation, setActiveRun, setConversationParent, setConversationWorkStep } from "../db/chat";
 import { createHarnessCall, settleHarnessCall } from "../db/harness-calls";
 import { conversations, projects } from "../db/schema";
 import { childStatus, childThreadStatusLabels } from "../lib/child-status";
@@ -60,8 +60,8 @@ describe("childStatus", () => {
     expect(childStatus(tdb, "c_cs_child")).toMatchObject({ status: "completed", live: false, settledAt: expect.any(Number) });
   });
 
-  it("0055 v7 part B: exposes the recorded phase for both kinds, null when none", () => {
-    const call = createHarnessCall(tdb, { conversationId: "c_cs", kind: "pi", task: "t", phase: "QA" });
+  it("exposes the recorded outline step for both worker kinds", () => {
+    const call = createHarnessCall(tdb, { conversationId: "c_cs", kind: "pi", task: "t", step: "QA" });
     expect(childStatus(tdb, call.id)).toMatchObject({ phase: "QA" });
 
     const noPhaseCall = createHarnessCall(tdb, { conversationId: "c_cs", kind: "pi", task: "t" });
@@ -70,7 +70,7 @@ describe("childStatus", () => {
     ensureConversation(tdb, "c_cs_parent2", "p_cs");
     ensureConversation(tdb, "c_cs_child2", "p_cs");
     setConversationParent(tdb, "c_cs_child2", "c_cs_parent2");
-    setConversationWorkPhase(tdb, "c_cs_child2", "Implement");
+    setConversationWorkStep(tdb, "c_cs_child2", "Implement");
     expect(childStatus(tdb, "c_cs_child2")).toMatchObject({ phase: "Implement" });
   });
 });

@@ -136,7 +136,7 @@ describe("0059: use_skill loads an active skill without binding a non-mode", () 
   it("loads an active thread skill's body and leaves the conversation unbound", async () => {
     const id = conv("bind_active");
     const result = await skillToolStep(id, "review");
-    expect(result).toMatchObject({ ok: true, id: "review", mode: false });
+    expect(result).toMatchObject({ ok: true, id: "review" });
     expect((result as { skill?: string }).skill).toContain("review");
     expect(getConversation(db(), id)?.skill).toBeNull();
   });

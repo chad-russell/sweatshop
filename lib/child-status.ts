@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { getHarnessCall } from "@/db/harness-calls";
 import { getChatChild } from "@/db/chat";
-import { renderPhaseContext } from "@/lib/chat/phase-context";
 import { deriveOutline, outlineChip } from "@/lib/outline";
 
 /**
@@ -26,16 +25,10 @@ export interface ChildStatus {
   settledAt: number | null;
   /** Where it is: a thread's skill. */
   where: string | null;
-  /** 0055 v7 part B: the phase (display name) this harness call or
-   *  child thread was started to do — null when the parent chat wasn't
-   *  moded or had no phases. */
+  /** The outline step this worker was started to do. */
   phase: string | null;
   /** 0059: a child thread's own current status label, when it has one. */
   statusLabel: string | null;
-  /** 0059: the handoff re-rendered from the harness call's stored skill
-   *  version. Null for threads (their first message carries it) and for
-   *  calls started with no phase. */
-  phaseContext: { phase: string; text: string } | null;
   /** Clipped failure reason, when there is one. */
   error: string | null;
 }
@@ -53,17 +46,8 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       startedAt: call.createdAt,
       settledAt: call.settledAt,
       where: null,
-      phase: call.step ?? call.phase,
+      phase: call.step,
       statusLabel: null,
-      phaseContext:
-        call.phaseSkillId && call.phaseSkillVersion != null && call.phaseId
-          ? renderPhaseContext(db, {
-              skillId: call.phaseSkillId,
-              skillVersion: call.phaseSkillVersion,
-              phaseId: call.phaseId,
-              task: call.task,
-            })
-          : null,
       error: clip(call.error),
     };
   }
@@ -88,9 +72,8 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       startedAt: child.createdAt,
       settledAt: live ? null : child.updatedAt,
       where: child.skill,
-      phase: child.workStep ?? child.workPhase,
+      phase: child.workStep,
       statusLabel: threadStatusLabel(db, id),
-      phaseContext: null,
       error: null,
     };
   }

@@ -6,7 +6,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { startHarnessCallStep } from "../harness-step";
 import { possessive } from "../../../lib/agent/owner";
-import { commandDescription, phaseArg } from "./shared";
+import { commandDescription } from "./shared";
 import { bashStep, previewToolStep, screenshotStep } from "../steps";
 import { previewTools } from "../preview-tools";
 import { screenshotTool } from "../screenshot-tool";
@@ -53,9 +53,8 @@ export function sandboxTools(
           "files or areas; for work that could collide, use start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
-          phase: phaseArg,
         }),
-        execute: ({ task, phase }) => startHarnessCallStep({ conversationId, kind: "pi", task, phase }),
+        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "pi", task }),
       }),
 
       claude: tool({
@@ -70,9 +69,8 @@ export function sandboxTools(
           "collide, use start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
-          phase: phaseArg,
         }),
-        execute: ({ task, phase }) => startHarnessCallStep({ conversationId, kind: "claude", task, phase }),
+        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "claude", task }),
       }),
 
       cursor: tool({
@@ -87,9 +85,8 @@ export function sandboxTools(
           "start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
-          phase: phaseArg,
         }),
-        execute: ({ task, phase }) => startHarnessCallStep({ conversationId, kind: "cursor", task, phase }),
+        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "cursor", task }),
       }),
 
       codex: tool({
@@ -104,9 +101,8 @@ export function sandboxTools(
           "start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
-          phase: phaseArg,
         }),
-        execute: ({ task, phase }) => startHarnessCallStep({ conversationId, kind: "codex", task, phase }),
+        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "codex", task }),
       }),
     }),
   };
