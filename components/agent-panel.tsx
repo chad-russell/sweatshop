@@ -51,6 +51,8 @@ interface PanelHydration {
   id: string;
   messages: ReturnType<typeof rowsToUIMessages>;
   activeRunId: string | null;
+  /** 0077: the live run's resume cursor. */
+  activeStreamCursor: number | null;
   route: ChatRoute | null;
   projectId: string | null;
   title: string | null;
@@ -175,6 +177,7 @@ export function AgentPanel() {
         const body = (await res.json()) as {
           messages: StoredRow[];
           activeRunId: string | null;
+          activeStreamCursor: number | null;
           route: ChatRoute | null;
           projectId: string | null;
           title: string | null;
@@ -185,14 +188,16 @@ export function AgentPanel() {
         let page = {
           rows: body.messages ?? [],
           activeRunId: body.activeRunId,
+          activeStreamCursor: body.activeStreamCursor ?? null,
           olderCursor: body.olderCursor ?? null,
           olderRemaining: body.olderRemaining ?? 0,
         };
-        // 0076: a live turn hydrates from its persisted slices — the
-        // panel never attaches the run's stream; the session's slice
-        // poll keeps it current. 0076 review finding 5: walk the page
-        // back to a t_ opener so the window head is fold-aligned (a
-        // mid-fold head is the precondition for merge corruption).
+        // 0077: a live turn hydrates from its persisted slices, same as
+        // the page frame — the session resumes the run's own durable
+        // stream from `activeStreamCursor` for the rest. Walk the page
+        // back to a t_ opener so the window head is fold-aligned (0076
+        // review finding 5; a mid-fold head is the precondition for
+        // merge corruption).
         if (!cancelled && page.rows.length > 0 && !page.rows.some((row) => row.id.startsWith("t_"))) {
           page = await extendChatPageBack(conversationId, page, HYDRATE_TAIL, (rows) =>
             rows.some((row) => row.id.startsWith("t_")),
@@ -204,6 +209,7 @@ export function AgentPanel() {
           id: conversationId,
           messages: rowsToUIMessages(rows),
           activeRunId: body.activeRunId,
+          activeStreamCursor: body.activeStreamCursor ?? null,
           route: body.route,
           projectId: body.projectId,
           title: body.title,
@@ -349,6 +355,7 @@ export function AgentPanel() {
               conversationId={conversationId}
               initialMessages={hydration.messages}
               activeRunId={hydration.activeRunId}
+              activeStreamCursor={hydration.activeStreamCursor}
               initialRoute={hydration.route}
               projectId={hydration.projectId ?? undefined}
               olderCursor={hydration.olderCursor}

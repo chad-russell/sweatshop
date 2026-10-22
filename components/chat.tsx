@@ -327,6 +327,7 @@ export function ChatSurface({
   conversationId,
   initialMessages,
   activeRunId,
+  activeStreamCursor,
   projectId,
   projectName,
   initialRoute,
@@ -342,6 +343,8 @@ export function ChatSurface({
   conversationId?: string;
   initialMessages?: import("ai").UIMessage[];
   activeRunId?: string | null;
+  /** 0077: the live run's resume cursor (init-only, like activeRunId). */
+  activeStreamCursor?: number | null;
   projectId?: string;
   projectName?: string;
   initialRoute?: ChatRoute | null;
@@ -477,6 +480,7 @@ export function ChatSurface({
       conversationId={conversationId}
       initialMessages={initialMessages}
       activeRunId={activeRunId}
+      activeStreamCursor={activeStreamCursor}
       projectId={activeProjectId ?? undefined}
       skill={activeSkillId}
       initialRoute={initialRoute}
