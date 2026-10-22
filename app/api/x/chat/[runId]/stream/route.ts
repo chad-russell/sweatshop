@@ -9,6 +9,12 @@ export const dynamic = "force-dynamic";
  * replay the durable raw ModelCallStreamPart stream from index 0 and
  * apply the client's UI cursor, so a reconnected browser neither misses
  * nor duplicates chunks.
+ *
+ * 0076: this route now serves exactly one caller — a tab RECONNECTING to
+ * a run IT started (a dropped connection mid-send). Page loads never
+ * attach it anymore (they hydrate persisted slices + poll), so the
+ * full-journal replay below only ever covers the few chunks the sending
+ * tab itself already showed.
  */
 export async function GET(
   request: Request,

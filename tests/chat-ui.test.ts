@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage, UIMessage } from "ai";
-import { appendNewer, backgroundChildIds, hasBackgroundChild, liveBackgroundChildIds, mergeOlder, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
+import { appendNewer, backgroundChildIds, replaceLiveTurn, hasBackgroundChild, liveBackgroundChildIds, mergeOlder, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
 import { parseViewingContext, viewingNote } from "../lib/page-context";
 
 let n = 0;
@@ -293,5 +293,82 @@ describe("appendNewer (wake poll tail pages append, gated at turn boundaries)", 
     expect(appendNewer(window, [])).toEqual(window);
     const page = [msg("t_c1_1")];
     expect(appendNewer([], page).map((m) => m.id)).toEqual(["t_c1_1"]);
+  });
+});
+
+// ── 0076: replaceLiveTurn (live turns merge by REPLACING their fold) ────
+
+describe("replaceLiveTurn", () => {
+  const openerRow = (id: string, text: string): StoredRow => ({
+    id,
+    role: "user",
+    text,
+    at: 1000,
+    modelMessage: { role: "user", content: text },
+  });
+  const sliceRow = (id: string, text: string): StoredRow => ({
+    id,
+    role: "assistant",
+    text,
+    at: 1001,
+    modelMessage: { role: "assistant", content: [{ type: "text", text }] },
+  });
+  const textsOf = (msgs: ReturnType<typeof rowsToUIMessages>) =>
+    msgs.flatMap((m) => m.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])));
+
+  it("replaces a growing live turn's fold (stable fold id, fuller parts) without duplicating slices", () => {
+    // The turn's rows after the opener fold into ONE message whose id is
+    // the FIRST assistant row — stable as slices land; the fold's PARTS
+    // grow. appendNewer would see the known id and DROP the growth.
+    const poll1 = rowsToUIMessages([openerRow("t_1", "go"), sliceRow("m_skip0_1", "slice one")]);
+    const poll2 = rowsToUIMessages([
+      openerRow("t_1", "go"),
+      sliceRow("m_skip0_1", "slice one"),
+      sliceRow("m_skip0_2", "slice two"),
+    ]);
+    expect(poll1.map((m) => m.id)).toEqual(["t_1", "m_skip0_1"]);
+    expect(poll2.map((m) => m.id)).toEqual(["t_1", "m_skip0_1"]); // stable id…
+    expect(textsOf(poll2)).toEqual(["go", "slice one", "slice two"]); // …fuller fold
+    const merged = replaceLiveTurn(poll1, poll2);
+    expect(textsOf(merged).filter((t) => t === "slice one")).toHaveLength(1);
+    expect(textsOf(merged).filter((t) => t === "slice two")).toHaveLength(1);
+  });
+
+  it("keeps settled history before the opener and replaces only the live fold", () => {
+    const settled = rowsToUIMessages([
+      openerRow("t_0", "first"),
+      sliceRow("m_a", "done"),
+      openerRow("t_1", "second"),
+      sliceRow("m_b", "live"),
+    ]);
+    const grown = rowsToUIMessages([
+      openerRow("t_1", "second"),
+      sliceRow("m_b", "live"),
+      sliceRow("m_c", "more"),
+    ]);
+    const merged = replaceLiveTurn(settled, grown);
+    expect(merged.map((m) => m.id)).toEqual(["t_0", "m_a", "t_1", "m_b"]);
+    expect(textsOf(merged)).toEqual(["first", "done", "second", "live", "more"]);
+  });
+
+  it("falls back to appendNewer when the window holds no opener — appendNewer's own gates apply", () => {
+    // No t_ row in the window: the live fold opener is not rendered as
+    // itself, so replaceLiveTurn defers to appendNewer. Same-fold rows
+    // (m_y merges into the m_x fold) stay behind appendNewer's exact-
+    // alignment gate; whole new turns would append.
+    const windowMsgs = rowsToUIMessages([sliceRow("m_x", "a")]);
+    const page = rowsToUIMessages([sliceRow("m_x", "a"), sliceRow("m_y", "b")]);
+    const merged = replaceLiveTurn(windowMsgs, page);
+    expect(merged.map((m) => m.id)).toEqual(["m_x"]); // fold already known, growth gated
+    const pageNewTurn = rowsToUIMessages([
+      sliceRow("m_x", "a"),
+      openerRow("t_9", "next"),
+      sliceRow("m_z", "c"),
+    ]);
+    expect(replaceLiveTurn(windowMsgs, pageNewTurn).map((m) => m.id)).toEqual([
+      "m_x",
+      "t_9",
+      "m_z",
+    ]);
   });
 });

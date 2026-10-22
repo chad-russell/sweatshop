@@ -9,8 +9,7 @@ import { PhaseChip } from "@/components/status-chip";
 import { ChatSession } from "@/components/chat-session";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { usePageContextReader } from "@/components/page-context";
-import { rowsToUIMessages, untilLiveTurn, type StoredRow } from "@/lib/chat-ui";
-import { extendChatPageBack } from "@/lib/chat-fetch";
+import { rowsToUIMessages, type StoredRow } from "@/lib/chat-ui";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import type { ChatRoute } from "@/lib/providers/route";
@@ -182,19 +181,17 @@ export function AgentPanel() {
           olderRemaining: number;
         };
         if (cancelled) return;
-        let page = {
+        const page = {
           rows: body.messages ?? [],
           activeRunId: body.activeRunId,
           olderCursor: body.olderCursor ?? null,
           olderRemaining: body.olderRemaining ?? 0,
         };
-        if (body.activeRunId && !page.rows.some((row) => row.id.startsWith("t_"))) {
-          page = await extendChatPageBack(conversationId, page, HYDRATE_TAIL, (rows) =>
-            rows.some((row) => row.id.startsWith("t_")),
-          );
-        }
+        // 0076: a live turn hydrates from its persisted slices — the
+        // panel never attaches the run's stream, so no alignment with a
+        // replay is needed; the session's slice poll keeps it current.
         if (cancelled) return;
-        const rows = body.activeRunId ? untilLiveTurn(page.rows) : page.rows;
+        const rows = page.rows;
         setHydration({
           id: conversationId,
           messages: rowsToUIMessages(rows),

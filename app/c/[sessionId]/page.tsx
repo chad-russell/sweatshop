@@ -6,7 +6,7 @@ import { conversations, projects } from "@/db/schema";
 import { getActiveRun, listMessageTextsPage } from "@/db/chat";
 import { listProjectHosts } from "@/db/hosts";
 import { parseStoredChatRoute } from "@/db/providers";
-import { rowsToUIMessages, untilLiveTurn } from "@/lib/chat-ui";
+import { rowsToUIMessages } from "@/lib/chat-ui";
 
 /**
  * Open a conversation by its durable address (0010 Phase 4). History
@@ -40,18 +40,21 @@ export default async function ConversationPage({
     : undefined;
 
   const activeRunId = getActiveRun(db(), sessionId);
-  // 0075: hydrate the newest tail window. A live turn persists slice by
-  // slice (0037), but a reload REPLAYS the turn's whole stream from
-  // index 0 — so the window must at least reach the live turn's opening
-  // user row (`t_…`, which `untilLiveTurn` then cuts at, keeping its
-  // persisted slices out of the initial render): page backwards until
-  // it does.
+  // 0075: hydrate the newest tail window, aligned to a turn opener.
+  // 0076: a LIVE turn hydrates from its persisted slices too — no stream
+  // attach, no replay. The durable journal cannot resume mid-stream
+  // cheaply (the local world scans its chunk files from index 0), so a
+  // reload used to replay the whole turn at ~500 chunks/s — the "watch
+  // the world replay" load. Instead the session mounts ready, shows the
+  // spinner (activeRunId is display-only now), and the wake poll
+  // appends each newly persisted slice within ~2s. The tab that STARTED
+  // the turn keeps its token stream; only reloaded tabs view by slices.
   let page = listMessageTextsPage(db(), sessionId, { tail: HYDRATE_TAIL });
-  while (activeRunId && !page.rows.some((row) => row.id.startsWith("t_")) && page.olderCursor != null) {
+  while (!page.rows.some((row) => row.id.startsWith("t_")) && page.olderCursor != null) {
     const older = listMessageTextsPage(db(), sessionId, { tail: HYDRATE_TAIL, before: page.olderCursor });
     page = { rows: [...older.rows, ...page.rows], olderCursor: older.olderCursor, olderRemaining: older.olderRemaining };
   }
-  const initialMessages = rowsToUIMessages(activeRunId ? untilLiveTurn(page.rows) : page.rows);
+  const initialMessages = rowsToUIMessages(page.rows);
   // 0043 amendment: the auto-approve toggle only makes sense where exec
   // itself does — a project with hosts on its allow-list.
   const hasHosts = project ? listProjectHosts(db(), project.id).length > 0 : false;

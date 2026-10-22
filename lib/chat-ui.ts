@@ -1,7 +1,7 @@
 import { parseAttachmentRef } from "@/lib/attachment-ref";
 import type { ModelMessage, UIMessage } from "ai";
 import type { MessageRowMetadata } from "@/db/chat";
-import { isPlanSnapshot, phaseFromMessages, planHistory, type Phase } from "@/lib/plan";
+import { phaseFromMessages, type Phase } from "@/lib/thread-phase";
 import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
 
 /**
@@ -59,6 +59,21 @@ export function untilLiveTurn(rows: StoredRow[]): StoredRow[] {
     if (rows[i]!.id.startsWith("t_")) return rows.slice(0, i + 1);
   }
   return rows;
+}
+
+/**
+ * 0075 fixup: the aligned head of a page that could NOT be walked back
+ * to a turn opener (a transient fetch failure on a client path): rows
+ * before the page's oldest `t_` row are a partial turn — drop them;
+ * they stay reachable below the page's older cursor. A page holding no
+ * `t_` row at all is one fold the walk never escaped: return null so
+ * the caller can decline to render (or prepend) any of it — a partial
+ * fold splits its turn the moment an aligned page joins it.
+ */
+export function alignPageHead(rows: StoredRow[]): StoredRow[] | null {
+  const first = rows.findIndex((row) => row.id.startsWith("t_"));
+  if (first === -1) return null;
+  return first === 0 ? rows : rows.slice(first);
 }
 
 export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {  const out: UIMessage[] = [];
@@ -259,6 +274,31 @@ export function mergeOlder(current: readonly UIMessage[], older: readonly UIMess
  * `t_` row, so a finished wake turn is never missed — it just may take
  * until the boundary is fully inside the page.
  */
+/**
+ * 0076: merge a tail page while the turn it ends with is STILL LIVE.
+ * The live turn re-folds every poll — rowsToUIMessages gives the fold
+ * the id of its FIRST row, which changes as slices land, and the new
+ * fold CONTAINS the old one's content. Appending would duplicate every
+ * slice, so instead: keep the window up to and including the live
+ * turn's `t_` opener (a stable row), drop the stale fold after it, and
+ * append the page's messages from that opener onward. Settled turns
+ * fold stably — appendNewer is correct for them.
+ */
+export function replaceLiveTurn(current: readonly UIMessage[], newer: readonly UIMessage[]): UIMessage[] {
+  let opener = -1;
+  for (let i = current.length - 1; i >= 0; i -= 1) {
+    if (current[i]!.id.startsWith("t_")) {
+      opener = i;
+      break;
+    }
+  }
+  if (opener === -1) return appendNewer(current, newer);
+  const head = current.slice(0, opener + 1);
+  const known = new Set(head.map((m) => m.id));
+  const tail = newer.filter((m) => !known.has(m.id));
+  return [...head, ...tail];
+}
+
 export function appendNewer(current: readonly UIMessage[], newer: readonly UIMessage[]): UIMessage[] {
   if (newer.length === 0) return [...current];
   const known = new Set(current.map((m) => m.id));
@@ -271,51 +311,20 @@ export function appendNewer(current: readonly UIMessage[], newer: readonly UIMes
 
 /**
  * The server-derived context block (`GET /api/x/chat?context=1`): the
- * header chrome facts (phase chip, plan review, diff breakdown, wake
- * watch) computed over the WHOLE transcript, so a page that only
- * hydrated a tail window shows exactly what a full render would. Pure —
- * takes the folded transcript, never the db.
+ * header chrome facts (phase chip, diff breakdown, wake watch) computed
+ * over the WHOLE transcript, so a page that only hydrated a tail window
+ * shows exactly what a full render would. Pure — takes the folded
+ * transcript, never the db.
  */
 export interface ChatContextBlock {
   phase: Phase | null;
-  plan: {
-    latestId: string | null;
-    latest: { version: number; markdown: string; status: string } | null;
-    previousOfLatest: { version: number; markdown: string } | null;
-    openReviewId: string | null;
-  };
   diffBreakdown: DiffBreakdown | null;
   hasBackgroundChild: boolean;
 }
 
 export function deriveChatContext(messages: readonly UIMessage[]): ChatContextBlock {
-  const history = planHistory(messages);
-  let latest: { version: number; markdown: string; status: string } | null = null;
-  if (history.latestId) {
-    const id = history.latestId;
-    for (let i = messages.length - 1; i >= 0 && !latest; i -= 1) {
-      for (const raw of messages[i]!.parts) {
-        const part = raw as {
-          type?: string;
-          state?: string;
-          toolCallId?: string;
-          output?: unknown;
-        };
-        if (part.type !== "tool-present_plan" || part.state !== "output-available") continue;
-        if (part.toolCallId !== id || !isPlanSnapshot(part.output)) continue;
-        latest = { version: part.output.version, markdown: part.output.markdown, status: part.output.status };
-        break;
-      }
-    }
-  }
   return {
     phase: phaseFromMessages(messages),
-    plan: {
-      latestId: history.latestId,
-      latest,
-      previousOfLatest: history.latestId ? history.previous.get(history.latestId) ?? null : null,
-      openReviewId: history.openReviewId,
-    },
     diffBreakdown: latestDiffBreakdown(messages),
     hasBackgroundChild: hasBackgroundChild(messages),
   };
