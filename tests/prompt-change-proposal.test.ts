@@ -69,45 +69,6 @@ describe("0054 agent prompt proposals", () => {
     resolvePendingInput(db(), `prompt_call_${seq}`, { approved: false });
   });
 
-  it("review fix: a mode-flag-only proposal snapshots `mode` on the card (patch AND before), visible to the approval read model", async () => {
-    const id = skillId();
-    const created = await promptChangePreviewStep({
-      kind: "skill",
-      key: id,
-      body: "# Fixture\n\nbody",
-      description: "fixture",
-      thread: true,
-      mode: false,
-      status: "active",
-      note: "create not-a-mode fixture",
-    });
-    if (!created.ok) throw new Error("expected valid creation preview");
-    await applyApprovedPromptChangeStep(created.target, created.patch, created.expectedVersion, "create fixture");
-
-    const preview = await promptChangePreviewStep({
-      kind: "skill",
-      key: id,
-      mode: true,
-      note: "flip it to a mode",
-    });
-    expect(preview).toMatchObject({ ok: true, card: { patch: { mode: true }, before: { mode: false } } });
-    if (!preview.ok) throw new Error("expected valid preview");
-
-    const conversationId = `c_prompt_proposal_mode_${seq}`;
-    ensureConversation(db(), conversationId);
-    recordPendingInput(db(), {
-      id: `prompt_call_mode_${seq}`,
-      conversationId,
-      kind: "approval",
-      question: preview.summary,
-      card: preview.card,
-    });
-    const request = loadPendingRequests(db()).get(conversationId)?.[0];
-    expect(request?.promptChange?.patch.mode).toBe(true);
-    expect(request?.promptChange?.before?.mode).toBe(false);
-    resolvePendingInput(db(), `prompt_call_mode_${seq}`, { approved: false });
-  });
-
   it("applies once after approval and conflicts after a concurrent user edit", async () => {
     const id = skillId();
     const preview = await promptChangePreviewStep({

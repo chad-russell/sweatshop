@@ -551,8 +551,6 @@ describe("0055: skill catalog repairs — ship retired, ticket upgraded, only wh
     expect(repaired?.note).toBe("0055 ticket mode");
     expect(repaired?.body).toContain("## Phase: Plan");
     expect(repaired?.body).not.toBe(PRE_0055_TICKET_BODY);
-    // 0055 v7: the upgrade also flags the skill as a mode.
-    expect(repaired?.mode).toBe(true);
   });
 
   it("0059: an unedited pre-status ticket seed upgrades to the current body", () => {

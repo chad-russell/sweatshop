@@ -1,6 +1,6 @@
 ---
 description: Real ticket work, phase by phase — plan (you approve it), implement, review, fixup, ship.
-mode: true
+thread: true
 ---
 # Ticket
 
