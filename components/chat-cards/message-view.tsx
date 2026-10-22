@@ -148,6 +148,9 @@ export const ChatMessageView = memo(function ChatMessageView({
   const runEvent = (
     message.metadata as { runEvent?: { kind: string; id: string; status: string } } | undefined
   )?.runEvent;
+  // The outline-edit row's text is the hidden machine payload — never
+  // offered as copyable text.
+  const copyable = runEvent?.kind !== "outline-edit" ? text : "";
 
   const renderPart = (part: (typeof message.parts)[number], i: number): ReactNode => {
           if (part.type === "text") {
@@ -325,7 +328,7 @@ export const ChatMessageView = memo(function ChatMessageView({
               {timeText}
             </time>
           )}
-          {text && <MessageCopyButton text={text} />}
+          {copyable && <MessageCopyButton text={copyable} />}
         </MessageActions>
       )}
     </Message>
