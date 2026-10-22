@@ -255,6 +255,9 @@ export async function maybeTitleStep(conversationId: string): Promise<void> {
  * by `skip`, which grows every turn — so a retried step never
  * duplicates a row. Exactly one turn runs per conversation at a time
  * (route-enforced), so the final clear cannot clobber another turn.
+ * 0077: every non-final slice also records the run's resume cursor
+ * (`activeStreamCursor`) — where a reconnecting tab's `/from/<cursor>/
+ * stream` starts reading the durable journal.
  */
 export async function persistTurn(
   conversationId: string,
@@ -293,7 +296,20 @@ export async function persistTurn(
     });
   });
   chat.appendMessages(db, conversationId, tail);
-  if (opts.final ?? true) chat.setActiveRun(db, conversationId, null);
+  if (opts.final ?? true) {
+    chat.setActiveRun(db, conversationId, null);
+  } else {
+    // 0077: the resume cursor — raw journal chunks already durably
+    // written for THIS run, read via the World's stream metadata (no
+    // payloads). `getTailIndex()` is the last known chunk's index (-1
+    // before anything is written), so + 1 is "chunks written so far".
+    const [{ getWorkflowMetadata }, { getRun }] = await Promise.all([
+      import("workflow"),
+      import("workflow/api"),
+    ]);
+    const tailIndex = await getRun(getWorkflowMetadata().workflowRunId).getReadable().getTailIndex();
+    chat.setActiveStreamCursor(db, conversationId, tailIndex + 1);
+  }
   return tail.length;
 }
 
