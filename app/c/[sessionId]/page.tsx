@@ -40,14 +40,20 @@ export default async function ConversationPage({
     : undefined;
 
   const activeRunId = getActiveRun(db(), sessionId);
-  // 0075: hydrate the newest tail window. A live turn persists slice by
-  // slice (0037), but a reload REPLAYS the turn's whole stream from
-  // index 0 — so the window must at least reach the live turn's opening
-  // user row (`t_…`, which `untilLiveTurn` then cuts at, keeping its
-  // persisted slices out of the initial render): page backwards until
-  // it does.
+  // 0075: hydrate the newest tail window, ALIGNED: walk pages back
+  // until the window's OLDEST row is a turn opener (`t_…`, the id
+  // recordUserMessage writes) or the conversation's start. A window
+  // that opens mid-fold renders a partial first turn — tool-result
+  // rows whose calls sit below the seam drop — and the Load-earlier
+  // page (aligned by construction) then re-splits the turn into two
+  // bubbles. Alignment is independent of a live run: a seam inside the
+  // live turn's fold stops at exactly that turn's opener (the row
+  // `untilLiveTurn` cuts at, keeping the replayed turn's persisted
+  // slices out of the initial render, 0037); a seam in an older turn
+  // aligns to its own opener. An exhausted walk (no `t_` at the start)
+  // is the pre-0010 prefix — aligned by definition.
   let page = listMessageTextsPage(db(), sessionId, { tail: HYDRATE_TAIL });
-  while (activeRunId && !page.rows.some((row) => row.id.startsWith("t_")) && page.olderCursor != null) {
+  while (page.rows.length > 0 && !page.rows[0].id.startsWith("t_") && page.olderCursor != null) {
     const older = listMessageTextsPage(db(), sessionId, { tail: HYDRATE_TAIL, before: page.olderCursor });
     page = { rows: [...older.rows, ...page.rows], olderCursor: older.olderCursor, olderRemaining: older.olderRemaining };
   }
