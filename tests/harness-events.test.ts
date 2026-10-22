@@ -165,3 +165,40 @@ describe("countToolCalls (machine-stage settle)", () => {
     expect(getHarnessRun("mr_cnt_0", "pi")?.toolCalls).toBe(3);
   });
 });
+
+describe("harness event paging backwards (load earlier)", () => {
+  it("tail reports hasOlder; before pages older events oldest-first", () => {
+    for (let i = 0; i < 7; i += 1) {
+      recordHarnessEvent("wrun_hb", "pi", { kind: "step-end", text: `t${i}` });
+    }
+    const tail = getHarnessEvents("wrun_hb", "pi", { limit: 3, tail: true });
+    expect(tail.events.map((e) => e.text)).toEqual(["t4", "t5", "t6"]);
+    expect(tail.hasOlder).toBe(true);
+
+    const mid = getHarnessEvents("wrun_hb", "pi", { limit: 3, beforeId: tail.events[0].id });
+    expect(mid.events.map((e) => e.text)).toEqual(["t1", "t2", "t3"]);
+    expect(mid.hasOlder).toBe(true);
+
+    const first = getHarnessEvents("wrun_hb", "pi", { limit: 3, beforeId: mid.events[0].id });
+    expect(first.events.map((e) => e.text)).toEqual(["t0"]);
+    expect(first.hasOlder).toBe(false);
+  });
+
+  it("an exactly-full tail has no older events", () => {
+    for (let i = 0; i < 3; i += 1) recordHarnessEvent("wrun_hb2", "pi", { kind: "step-end" });
+    expect(getHarnessEvents("wrun_hb2", "pi", { limit: 3, tail: true }).hasOlder).toBe(false);
+  });
+
+  it("before stays inside the call's from/to window", async () => {
+    const { db } = await import("../db");
+    const { harnessEvents } = await import("../db/schema");
+    for (const at of [100, 200, 300, 400, 500]) {
+      db().insert(harnessEvents).values({ sessionId: "wrun_hbw", harness: "pi", at, kind: "step-end", text: `t${at}` }).run();
+    }
+    const tail = getHarnessEvents("wrun_hbw", "pi", { limit: 2, tail: true, fromAt: 200, toAt: 400 });
+    expect(tail.events.map((e) => e.text)).toEqual(["t300", "t400"]);
+    const older = getHarnessEvents("wrun_hbw", "pi", { limit: 2, beforeId: tail.events[0].id, fromAt: 200, toAt: 400 });
+    expect(older.events.map((e) => e.text)).toEqual(["t200"]);
+    expect(older.hasOlder).toBe(false);
+  });
+});

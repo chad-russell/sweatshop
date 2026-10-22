@@ -143,8 +143,19 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `unwrapShell`. Cancel: `POST /api/x/harness-calls/<hc_…>/cancel` →
   `cancelRunTool` (cooperative — settles `cancelled` now, the workflow
   tears the bridge down at its next step boundary; never
-  `workflow.cancel()`); `CancelCallButton` sits on the session header
-  and the chat's `HarnessCard` while a call runs.
+  `workflow.cancel()`). The page hydrates the NEWEST `HARNESS_PAGE`
+  (500, `lib/harness-paging.ts`) events (`tail`, still oldest-first,
+  call window kept), polls `after=<lastId>` while running, and pages
+  older with Load earlier (`before=<id>` → newest page below it +
+  `hasOlder`; the timeline is rebuilt over the merged list, so a page
+  cut mid tool call shows an input-less finished call until its start
+  loads). It renders in the chat's stick-to-bottom `Conversation`
+  (`initial="instant"`), prepends pinned by the shared 0075 anchor
+  (`lib/use-prepend-anchor.ts` + `components/prepend-sentinel.tsx`),
+  ends with a `Working…` status row while running, and shows
+  `CancelCallBar` (composer-width stop bar) under the log; the chat's
+  `HarnessCard` keeps the compact `CancelCallButton`. Both share
+  `useCancelCall` (confirm, POST, re-arm on failure).
 - Models: providers and routes (0021). Providers are code, keys are env:
   `lib/providers/registry.ts` — GLM (Z.AI coding plan, `ZAI_API_KEY`),
   Gloo (`GLOO_API_KEY`) and OpenRouter (`OPENROUTER_API_KEY`) via

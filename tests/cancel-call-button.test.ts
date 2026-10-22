@@ -1,7 +1,7 @@
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { CancelCallButton, CancelErrorMessage } from "../components/cancel-call-button";
+import { CancelCallBar, CancelCallButton, CancelErrorMessage } from "../components/cancel-call-button";
 import { HarnessSessionView } from "../components/harness-session-view";
 import { NavDrawerProvider } from "../components/sidebar/nav-drawer";
 
@@ -77,5 +77,42 @@ describe("HarnessSessionView header tone", () => {
       callId: "hc_live",
     });
     expect(html).not.toContain("Stop");
+  });
+
+  it("running: Working… row at the bottom of the log and a stop bar, no header spinner", () => {
+    const html = renderView({
+      ...base,
+      initialRun: { sessionId: "c_1", kind: "pi", status: "running", toolCalls: 0, startedAt: 0, lastAt: 1 },
+      callId: "hc_live",
+    });
+    expect(html).toMatch(/role="status"[^>]*>[\s\S]*Working…/);
+    expect(html).toContain("is running");
+    expect(html).toContain("aria-label=\"Stop ");
+    expect(html).not.toContain("animate-spin text-info");
+  });
+
+  it("settled: no Working… row and no stop bar", () => {
+    const html = renderView({
+      ...base,
+      initialRun: { sessionId: "c_1", kind: "pi", status: "completed", toolCalls: 0, startedAt: 0, lastAt: 1 },
+      callId: "hc_live",
+    });
+    expect(html).not.toContain("Working…");
+    expect(html).not.toContain("is running");
+  });
+
+  it("shows Load earlier only for a tail window with older events", () => {
+    const run = { sessionId: "c_1", kind: "pi", status: "completed", toolCalls: 0, startedAt: 0, lastAt: 1 };
+    expect(renderView({ ...base, initialRun: run, initialHasOlder: true })).toContain("Load earlier");
+    expect(renderView({ ...base, initialRun: run })).not.toContain("Load earlier");
+  });
+});
+
+describe("CancelCallBar", () => {
+  it("renders the running text and a square stop icon button", () => {
+    const html = renderToStaticMarkup(h(CancelCallBar, { callId: "hc_abc", label: "Claude Code" }));
+    expect(html).toContain("Claude Code is running");
+    expect(html).toContain("aria-label=\"Stop Claude Code\"");
+    expect(html).not.toContain("role=\"alert\"");
   });
 });

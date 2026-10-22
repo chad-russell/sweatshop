@@ -12,6 +12,8 @@ export const dynamic = "force-dynamic";
  * input, and output as it happened (events land live; poll
  * incrementally with ?after=<lastEventId>). ?from=/&to= (Unix ms,
  * inclusive) scope it to one call's window (0046 per-call view).
+ * ?before=<id> pages older events: the newest `tail` (default 500)
+ * below that id, oldest-first, with `hasOlder`.
  */
 export async function GET(
   request: Request,
@@ -38,10 +40,13 @@ export async function GET(
   const window = { fromAt: num("from"), toAt: num("to") };
 
   const run = getHarnessRun(sessionId, harness);
+  const beforeId = num("before");
   const page =
-    tail !== undefined && afterId === undefined
-      ? getHarnessEvents(sessionId, harness, { limit: tail, tail: true, ...window })
-      : getHarnessEvents(sessionId, harness, { afterId, ...window });
+    beforeId !== undefined
+      ? getHarnessEvents(sessionId, harness, { limit: tail, beforeId, ...window })
+      : tail !== undefined && afterId === undefined
+        ? getHarnessEvents(sessionId, harness, { limit: tail, tail: true, ...window })
+        : getHarnessEvents(sessionId, harness, { afterId, ...window });
   return Response.json({
     sessionId,
     harness,
@@ -49,5 +54,6 @@ export async function GET(
     count: page.events.length,
     cursor: page.cursor,
     events: page.events,
+    ...(page.hasOlder !== undefined ? { hasOlder: page.hasOlder } : {}),
   });
 }
