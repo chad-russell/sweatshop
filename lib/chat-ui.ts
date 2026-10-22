@@ -76,7 +76,8 @@ export function alignPageHead(rows: StoredRow[]): StoredRow[] | null {
   return first === 0 ? rows : rows.slice(first);
 }
 
-export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {  const out: UIMessage[] = [];
+export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
+  const out: UIMessage[] = [];
   const toolParts = new Map<string, ToolPart>();
   let current: UIMessage | null = null; // the open assistant message
 
