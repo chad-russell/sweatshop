@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { getRunningHarnessCall } from "@/db/harness-calls";
 import { sandboxForHarnessSession } from "@/db/sandbox-view";
 import { conversations, projects, type HarnessCall } from "@/db/schema";
-import { HARNESS_PAGE } from "@/lib/harness-timeline";
+import { HARNESS_PAGE } from "@/lib/harness-paging";
 import { getHarnessEvents, type HarnessKind, type HarnessRun } from "@/lib/harness-events";
 
 /**
