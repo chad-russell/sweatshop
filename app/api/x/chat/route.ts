@@ -11,10 +11,12 @@ import {
   getActiveRun,
   getConversation,
   listMessageTexts,
+  listMessageTextsPage,
   setActiveRun,
   setConversationSkill,
   setConversationRoute,
 } from "@/db/chat";
+import { deriveChatContext, rowsToUIMessages } from "@/lib/chat-ui";
 import { disableConversationSandbox, getConversationBinding } from "@/db/sandboxes";
 import { getProject } from "@/db/projects";
 import { getProjectModels } from "@/db/providers";
@@ -209,15 +211,45 @@ function isValidSandboxChoice(value: string): boolean {
   return value === "none" || /^attached:sbx_[\w-]+$/.test(value);
 }
 
-/** Conversation state for the chat surface (reload/initial render). */
+/** Conversation state for the chat surface (reload/initial render).
+ *  0075: `tail` pages newest-first (with an `olderCursor` rowid for the
+ *  previous page and `olderRemaining` for the load-earlier count);
+ *  `context=1` adds the server-derived header facts over the whole
+ *  transcript so a tail-hydrated page still shows them. Without
+ *  params, today's exact shape and content. */
 export async function GET(request: Request) {
-  const conversationId = new URL(request.url).searchParams.get("conversationId");
+  const params = new URL(request.url).searchParams;
+  const conversationId = params.get("conversationId");
   if (!conversationId) {
     return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
   }
+  const tailRaw = params.get("tail");
+  const beforeRaw = params.get("before");
+  const wantsContext = params.get("context") === "1";
+  const MAX_TAIL = 1000;
+  let tail: number | undefined;
+  if (tailRaw != null) {
+    tail = Number(tailRaw);
+    if (!Number.isInteger(tail) || tail < 1 || tail > MAX_TAIL) {
+      return NextResponse.json({ error: `tail must be an integer between 1 and ${MAX_TAIL}` }, { status: 400 });
+    }
+  }
+  let before: number | undefined;
+  if (beforeRaw != null) {
+    before = Number(beforeRaw);
+    if (!Number.isInteger(before) || before < 1) {
+      return NextResponse.json({ error: "before must be a positive integer rowid" }, { status: 400 });
+    }
+  }
+  const paged = tailRaw != null || beforeRaw != null;
+  const page = listMessageTextsPage(db(), conversationId, paged ? { tail, before } : {});
   const conversation = getConversation(db(), conversationId);
   return NextResponse.json({
-    messages: listMessageTexts(db(), conversationId),
+    messages: page.rows,
+    ...(paged ? { olderCursor: page.olderCursor, olderRemaining: page.olderRemaining } : {}),
+    ...(wantsContext
+      ? { context: deriveChatContext(rowsToUIMessages(listMessageTexts(db(), conversationId))) }
+      : {}),
     activeRunId: getActiveRun(db(), conversationId),
     route: conversation?.route ?? null,
     sandbox: getConversationBinding(db(), conversationId),

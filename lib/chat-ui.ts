@@ -1,6 +1,8 @@
 import { parseAttachmentRef } from "@/lib/attachment-ref";
 import type { ModelMessage, UIMessage } from "ai";
 import type { MessageRowMetadata } from "@/db/chat";
+import { isPlanSnapshot, phaseFromMessages, planHistory, type Phase } from "@/lib/plan";
+import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
 
 /**
  * Rebuild the UI transcript from persisted rows (reload / initial render).
@@ -59,8 +61,7 @@ export function untilLiveTurn(rows: StoredRow[]): StoredRow[] {
   return rows;
 }
 
-export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {
-  const out: UIMessage[] = [];
+export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {  const out: UIMessage[] = [];
   const toolParts = new Map<string, ToolPart>();
   let current: UIMessage | null = null; // the open assistant message
 
@@ -167,7 +168,7 @@ const BACKGROUND_TOOLS = new Set(["start_machine", "pi", "claude", "cursor", "co
 /** Whether the transcript shows background work that has not yet woken
  *  it: a started child (run or harness handle) after the latest wake. A
  *  wake for an earlier child is fine — this only gates a cheap poll. */
-export function hasBackgroundChild(messages: UIMessage[]): boolean {
+export function hasBackgroundChild(messages: readonly UIMessage[]): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role === "user" && (m.metadata as { runEvent?: unknown } | undefined)?.runEvent) return false;
@@ -229,4 +230,93 @@ export function liveBackgroundChildIds(messages: UIMessage[]): string[] {
     }
   }
   return backgroundChildIds(messages).filter((id) => !woken.has(id));
+}
+
+// ── Lazy transcript window (0075) ──────────────────────────────────────
+// Pages of rows fold in isolation; these pure merges knit a window and a
+// fetched page back into one transcript without duplicates. Fold ids are
+// the first row id of each fold (user rows always open a fold), so id
+// equality is row-level alignment.
+
+/** Prepend older messages (a page fetched backwards) to the current
+ *  window, dropping any the window already shows. Pure — returns a new
+ *  array, oldest-first, never mutating its inputs. */
+export function mergeOlder(current: readonly UIMessage[], older: readonly UIMessage[]): UIMessage[] {
+  if (older.length === 0) return [...current];
+  const known = new Set(current.map((m) => m.id));
+  return [...older.filter((m) => !known.has(m.id)), ...current];
+}
+
+/**
+ * Append newer messages (a tail page fetched for a wake) to the current
+ * window. The page may start anywhere — mid-fold, even — so append is
+ * gated: when the page's first message is one the window already has,
+ * alignment is exact and only unknown messages append. Otherwise the
+ * window is stale past recognition and the only safe append point is a
+ * turn boundary this window has never seen (`t_…` id, always a fold
+ * opener — a partial older fold would duplicate text already shown);
+ * with no such boundary, nothing changes. New turns always open with a
+ * `t_` row, so a finished wake turn is never missed — it just may take
+ * until the boundary is fully inside the page.
+ */
+export function appendNewer(current: readonly UIMessage[], newer: readonly UIMessage[]): UIMessage[] {
+  if (newer.length === 0) return [...current];
+  const known = new Set(current.map((m) => m.id));
+  if (known.has(newer[0]!.id)) {
+    return [...current, ...newer.filter((m) => !known.has(m.id))];
+  }
+  const firstNewTurn = newer.findIndex((m) => !known.has(m.id) && m.id.startsWith("t_"));
+  return firstNewTurn === -1 ? [...current] : [...current, ...newer.slice(firstNewTurn)];
+}
+
+/**
+ * The server-derived context block (`GET /api/x/chat?context=1`): the
+ * header chrome facts (phase chip, plan review, diff breakdown, wake
+ * watch) computed over the WHOLE transcript, so a page that only
+ * hydrated a tail window shows exactly what a full render would. Pure —
+ * takes the folded transcript, never the db.
+ */
+export interface ChatContextBlock {
+  phase: Phase | null;
+  plan: {
+    latestId: string | null;
+    latest: { version: number; markdown: string; status: string } | null;
+    previousOfLatest: { version: number; markdown: string } | null;
+    openReviewId: string | null;
+  };
+  diffBreakdown: DiffBreakdown | null;
+  hasBackgroundChild: boolean;
+}
+
+export function deriveChatContext(messages: readonly UIMessage[]): ChatContextBlock {
+  const history = planHistory(messages);
+  let latest: { version: number; markdown: string; status: string } | null = null;
+  if (history.latestId) {
+    const id = history.latestId;
+    for (let i = messages.length - 1; i >= 0 && !latest; i -= 1) {
+      for (const raw of messages[i]!.parts) {
+        const part = raw as {
+          type?: string;
+          state?: string;
+          toolCallId?: string;
+          output?: unknown;
+        };
+        if (part.type !== "tool-present_plan" || part.state !== "output-available") continue;
+        if (part.toolCallId !== id || !isPlanSnapshot(part.output)) continue;
+        latest = { version: part.output.version, markdown: part.output.markdown, status: part.output.status };
+        break;
+      }
+    }
+  }
+  return {
+    phase: phaseFromMessages(messages),
+    plan: {
+      latestId: history.latestId,
+      latest,
+      previousOfLatest: history.latestId ? history.previous.get(history.latestId) ?? null : null,
+      openReviewId: history.openReviewId,
+    },
+    diffBreakdown: latestDiffBreakdown(messages),
+    hasBackgroundChild: hasBackgroundChild(messages),
+  };
 }

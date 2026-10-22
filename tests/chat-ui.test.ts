@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ModelMessage } from "ai";
-import { backgroundChildIds, hasBackgroundChild, liveBackgroundChildIds, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
+import type { ModelMessage, UIMessage } from "ai";
+import { appendNewer, backgroundChildIds, hasBackgroundChild, liveBackgroundChildIds, mergeOlder, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
 import { parseViewingContext, viewingNote } from "../lib/page-context";
 
 let n = 0;
@@ -233,5 +233,65 @@ describe("untilLiveTurn (0037 incremental persistence)", () => {
     ];
     expect(untilLiveTurn(rows).map((r) => r.id)).toEqual(["t_c_0", "m_c_1_0", "t_c_2"]);
     expect(untilLiveTurn([row("x", "user")])).toHaveLength(1);
+  });
+});
+
+// ── 0075 lazy transcript window merges ────────────────────────────────
+
+let k = 0;
+const msg = (id: string, role: "user" | "assistant" = "assistant"): UIMessage => {
+  k += 1;
+  return { id, role, parts: [{ type: "text", text: `body ${k}` }] };
+};
+
+describe("mergeOlder (load-earlier pages prepend, never duplicate)", () => {
+  it("prepends unknown older messages and keeps the window intact", () => {
+    const window = [msg("m3"), msg("m4")];
+    const older = [msg("m1"), msg("m2")];
+    expect(mergeOlder(window, older).map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
+  });
+
+  it("drops older messages the window already shows (overlap pages)", () => {
+    const window = [msg("m3"), msg("m4")];
+    const older = [msg("m2"), msg("m3")]; // partial overlap at the seam
+    expect(mergeOlder(window, older).map((m) => m.id)).toEqual(["m2", "m3", "m4"]);
+  });
+
+  it("never mutates its inputs and tolerates an empty page", () => {
+    const window = [msg("m1")];
+    const older: UIMessage[] = [];
+    expect(mergeOlder(window, older)).toEqual(window);
+    expect(mergeOlder(window, older)).not.toBe(window); // a fresh array
+    const before = window.length;
+    mergeOlder(window, [msg("m0")]);
+    expect(window.length).toBe(before);
+  });
+});
+
+describe("appendNewer (wake poll tail pages append, gated at turn boundaries)", () => {
+  it("aligned page: appends only unknown messages", () => {
+    const window = [msg("m1"), msg("m2")];
+    const page = [msg("m2"), msg("m3"), msg("m4")];
+    expect(appendNewer(window, page).map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
+  });
+
+  it("misaligned page: appends from the first unseen t_ turn opener", () => {
+    const window = [msg("t_c1_1"), msg("m2")];
+    // A tail page that starts mid-fold (m1) and contains the wake turn.
+    const page = [msg("m1"), msg("t_c1_2"), msg("m5")];
+    expect(appendNewer(window, page).map((m) => m.id)).toEqual(["t_c1_1", "m2", "t_c1_2", "m5"]);
+  });
+
+  it("misaligned page with no unseen turn opener changes nothing (partial folds never append)", () => {
+    const window = [msg("t_c1_1"), msg("m2")];
+    const page = [msg("m0"), msg("m2")]; // overlap, but the seam is mid-fold
+    expect(appendNewer(window, page).map((m) => m.id)).toEqual(["t_c1_1", "m2"]);
+  });
+
+  it("an empty page or empty window are no-ops / straight appends", () => {
+    const window = [msg("m1")];
+    expect(appendNewer(window, [])).toEqual(window);
+    const page = [msg("t_c1_1")];
+    expect(appendNewer([], page).map((m) => m.id)).toEqual(["t_c1_1"]);
   });
 });
