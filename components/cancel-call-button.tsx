@@ -56,7 +56,7 @@ function useCancelCall(callId: string, label: string) {
   return { state, error, cancel };
 }
 
-/** The compact chip — the chat's HarnessCard. */
+/** The compact chip — the chat's HarnessCard. A failed cancel re-arms it. */
 export function CancelCallButton({
   callId,
   label,
@@ -72,7 +72,7 @@ export function CancelCallButton({
       <button
         type="button"
         onClick={() => void cancel()}
-        disabled={state !== "idle"}
+        disabled={state === "pending" || state === "done"}
         className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-60"
       >
         {state === "pending" ? "Stopping…" : "Stop"}
@@ -104,7 +104,7 @@ export function CancelCallBar({ callId, label }: { callId: string; label: string
           onClick={() => void cancel()}
           disabled={state === "pending" || state === "done"}
         >
-          {state === "pending" ? <Spinner /> : <SquareIcon className="size-4" />}
+          {state === "pending" ? <Spinner aria-hidden /> : <SquareIcon className="size-4" />}
         </Button>
       </div>
     </div>
