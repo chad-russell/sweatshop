@@ -11,7 +11,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
     "sandbox:gc": "node scripts/sandbox-gc.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "journal:gc": "node scripts/journal-gc.mjs"
   },
   "dependencies": {
     "@ai-sdk/harness": "1.0.141",
