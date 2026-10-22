@@ -104,6 +104,69 @@ describe("groupStatus", () => {
   });
 });
 
+describe("harness read tools in a group", () => {
+  const read = (path: string) => done("read", { file_path: path }, "file contents");
+  const ls = (path = ".") => done("ls", { path }, "a.ts\nb.ts\n");
+  const grep = (pattern: string) => done("grep", { pattern }, "a.ts:1:match\n");
+
+  it("groups read/grep/glob/find/ls at ≥3 quiet calls, labelled by path/pattern", () => {
+    const segs = groupParts([read("a.ts"), read("b.ts"), ls()]);
+    expect(segs).toHaveLength(1);
+    const g = segs[0]!;
+    if (g.kind !== "group") throw new Error("expected group");
+    expect(g.summary).toBe("read 2 files · searched files");
+    expect(callLabel(read("a.ts"))).toBe("a.ts");
+    expect(callLabel(ls("src"))).toBe("src");
+    expect(callLabel(ls())).toBe(".");
+    expect(callLabel(grep("TODO"))).toBe("TODO");
+  });
+
+  it("folds grep/glob/find/ls into ONE 'searched files' phrase with their combined count", () => {
+    const g = groupParts([grep("TODO"), ls(), read("a.ts"), read("b.ts")])[0]!;
+    if (g.kind !== "group") throw new Error("expected group");
+    const occurrences = g.summary.split("searched files").length - 1;
+    expect(occurrences).toBe(1);
+    expect(g.summary).toContain("searched files ×2");
+    expect(g.summary).toContain("read 2 files");
+  });
+
+  it("a plain-text (non-object) output from a harness read tool counts as ok", () => {
+    expect(callState(read("a.ts"))).toBe("ok");
+    expect(callState(ls())).toBe("ok");
+    expect(callState(grep("TODO"))).toBe("ok");
+  });
+
+  it("an error state still marks a harness read tool as failed", () => {
+    expect(callState({ type: "tool-read", state: "output-error", input: { file_path: "a.ts" } })).toBe("failed");
+  });
+
+  it("a read whose file content happens to parse as a result envelope still counts as ok", () => {
+    const jsonFixture = done("read", { file_path: "error.json" }, '{"ok":false,"code":"boom"}');
+    const g = groupParts([read("a.ts"), jsonFixture, read("c.ts")])[0]!;
+    if (g.kind !== "group") throw new Error("expected group");
+    expect(g.failed).toBe(0);
+    expect(callState(jsonFixture)).toBe("ok");
+    expect(callState(done("read", { file_path: "k.json" }, '{"kind":"error","message":"x"}'))).toBe("ok");
+  });
+
+  it("write/edit stay loud (never fold even at ≥3)", () => {
+    const write = done("write", { path: "a.ts", content: "x" }, "ok");
+    const edit = done("edit", { path: "a.ts" }, "ok");
+    const segs = groupParts([write, edit, write]);
+    expect(segs.every((s) => s.kind === "part")).toBe(true);
+  });
+
+  it("a text part between read calls splits the run (a boundary, not a fold)", () => {
+    const segs = groupParts([read("a.ts"), read("b.ts"), text("found it"), read("c.ts"), read("d.ts"), read("e.ts")]);
+    expect(segs.map((s) => s.kind)).toEqual(["part", "part", "part", "group"]);
+  });
+
+  it("unwraps codex's bash -lc wrapper in the call label", () => {
+    const wrapped = done("bash", { command: '/bin/bash -lc "npm test"' }, { exitCode: 0, stdout: "", stderr: "" });
+    expect(callLabel(wrapped)).toBe("npm test");
+  });
+});
+
 describe("inspect in a group", () => {
   const chat = (busy: boolean) =>
     done("inspect", { id: "c_1" }, { kind: "chat", id: "c_1", title: null, busy, tail: [{ role: "user", text: "Review the diff", at: 1 }] });

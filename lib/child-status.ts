@@ -3,7 +3,7 @@ import type { Db } from "@/db";
 import { getHarnessCall } from "@/db/harness-calls";
 import { getChatChild } from "@/db/chat";
 import { renderPhaseContext } from "@/lib/chat/phase-context";
-import { deriveStatus, statusChipLabel } from "@/lib/status";
+import { deriveOutline, outlineChip } from "@/lib/outline";
 
 /**
  * The status of a chat's background child — a background harness call
@@ -104,14 +104,15 @@ function labelFromModelMessage(modelMessage: string): string | null {
   } catch {
     return null;
   }
-  const derived = deriveStatus([parsed]);
-  return derived.current ? (statusChipLabel(derived.current)?.label ?? null) : null;
+  const derived = deriveOutline([parsed]);
+  return outlineChip(derived)?.label ?? null;
 }
 
 /** The newest row per conversation whose stored message mentions
- *  `update_status`. The sidebar label is the current status only, so
- *  one row is enough — not the whole transcript, and not staleness.
- *  `liveOnly` drops trashed and archived chats (the sidebar). */
+ *  `update_outline` (or legacy `update_status`, 0064 decision 10). The
+ *  sidebar label is the current outline only, so one row is enough —
+ *  not the whole transcript, and not staleness. `liveOnly` drops
+ *  trashed and archived chats (the sidebar). */
 function newestStatusRows(db: Db, ids: readonly string[], liveOnly: boolean): { conversationId: string; modelMessage: string }[] {
   if (ids.length === 0) return [];
   const idList = sql.join(ids.map((id) => sql`${id}`), sql`, `);
@@ -123,7 +124,7 @@ function newestStatusRows(db: Db, ids: readonly string[], liveOnly: boolean): { 
       select conversation_id as cid, max(rowid) as rid
       from messages
       where conversation_id in (${idList})
-        and model_message like '%update_status%'
+        and (model_message like '%update_outline%' or model_message like '%update_status%')
       group by conversation_id
     ) newest on m.rowid = newest.rid
     join conversations c on c.id = m.conversation_id

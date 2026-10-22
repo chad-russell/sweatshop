@@ -7,8 +7,10 @@ import { Tool, ToolContent, ToolInput, ToolOutput } from "@/components/ai-elemen
 import { MessageResponse } from "@/components/ai-elements/message";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PlanDocument } from "@/components/plan-card";
+import { OutlineDocument } from "@/components/outline-card";
 import { DISMISS_ANSWER } from "@/lib/dismiss-answer";
 import { isPlanCard } from "@/lib/plan";
+import { isOutlineCard, type OutlineCard } from "@/lib/outline";
 import { usePRStates } from "@/lib/use-pr-states";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
@@ -351,6 +353,78 @@ export function AcceptPlanCard({ part }: { part: ToolUIPart }) {
         <details className="rounded-md border bg-background px-2 py-1.5">
           <summary className="cursor-pointer text-xs text-muted-foreground">Show plan v{card.version}</summary>
           <PlanDocument markdown={card.markdown} className="mt-2" />
+        </details>
+      )}
+      {answered ? (
+        <p className="text-xs text-muted-foreground">Answered — the agent continues.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(true)}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void post(false)}
+            className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+          >
+            Not yet
+          </button>
+          <span className="text-xs text-muted-foreground">or type below to say what to change</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 0064: accept_outline waiting on Chad — the outline version it would
+ *  approve, with Approve/Deny (typing below answers it as a deny, 0037's
+ *  rule) — same shape as AcceptPlanCard. */
+export function AcceptOutlineCard({ part }: { part: ToolUIPart }) {
+  const [card, setCard] = useState<OutlineCard | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    if (card) return;
+    let stop = false;
+    const load = async () => {
+      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(part.toolCallId)}`).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { evidence?: unknown } | null;
+      if (!stop && isOutlineCard(body?.evidence)) setCard(body.evidence);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [part.toolCallId, card]);
+  const post = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/x/input", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
+      });
+      if (res.ok) setAnswered(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
+      <p className="text-sm font-medium">{card ? `Approve outline v${card.version}?` : "Approve the outline?"}</p>
+      <p className="text-xs text-muted-foreground">You said so in chat — the agent is waiting for an explicit approval.</p>
+      {card && (
+        <details className="rounded-md border bg-background px-2 py-1.5">
+          <summary className="cursor-pointer text-xs text-muted-foreground">Show outline v{card.version}</summary>
+          <OutlineDocument outline={card.outline} className="mt-2" />
         </details>
       )}
       {answered ? (

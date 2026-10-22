@@ -1,6 +1,7 @@
+import { unwrapShell } from "@/lib/harness-timeline";
 import { descriptionOf, parseBash } from "./bash";
 import { inspectName, inspectOf, inspectState, oneLine } from "./inspect";
-import { objectOf } from "./fields";
+import { field, objectOf } from "./fields";
 
 /**
  * Folding a turn's quiet, read-only tool calls into one expandable group
@@ -29,6 +30,11 @@ export interface PartLike {
 const QUIET_TOOLS: Record<string, { one: string; many: string }> = {
   bash: { one: "ran 1 command", many: "ran {n} commands" },
   sandbox_exec: { one: "ran 1 command", many: "ran {n} commands" },
+  read: { one: "read 1 file", many: "read {n} files" },
+  grep: { one: "searched files", many: "searched files ×{n}" },
+  glob: { one: "searched files", many: "searched files ×{n}" },
+  find: { one: "searched files", many: "searched files ×{n}" },
+  ls: { one: "searched files", many: "searched files ×{n}" },
   gh: { one: "queried GitHub", many: "queried GitHub ×{n}" },
   forgejo: { one: "queried Forgejo", many: "queried Forgejo ×{n}" },
   inspect: { one: "checked 1 chat", many: "checked {n} times" },
@@ -65,13 +71,21 @@ export function isQuiet(part: PartLike): boolean {
 
 export type CallState = "running" | "ok" | "failed";
 
+/** These tools' output is the thing itself — file content, a directory
+ *  listing, matches — never a `{ok, ...}` / `{kind:"error"}` result
+ *  envelope. A file that happens to contain that shape (JSON fixtures,
+ *  error logs) must not read as a failed call. */
+const RAW_OUTPUT_TOOLS = new Set(["read", "grep", "glob", "find", "ls"]);
+
 export function callState(part: PartLike): CallState {
   if (part.state === "output-error" || part.state === "output-denied") return "failed";
   if (part.state === "output-available") {
-    const o = objectOf(part.output);
-    if (o?.ok === false || o?.kind === "error") return "failed";
-    // bash / sandbox_exec report failure as a non-zero exit code.
     const name = toolName(part);
+    if (!RAW_OUTPUT_TOOLS.has(name)) {
+      const o = objectOf(part.output);
+      if (o?.ok === false || o?.kind === "error") return "failed";
+    }
+    // bash / sandbox_exec report failure as a non-zero exit code.
     if ((name === "bash" || name === "sandbox_exec") && parseBash(part.input, part.output).exitCode) return "failed";
     return "ok";
   }
@@ -97,9 +111,22 @@ export function callLabel(part: PartLike): string {
   let label: string | undefined;
   switch (name) {
     case "bash":
-    case "sandbox_exec":
+    case "sandbox_exec": {
       // The caller's own "what this is for" beats the command's first line.
-      label = descriptionOf(part.input) ?? str(i?.command)?.split("\n").find((l) => l.trim());
+      const cmd = field(part.input, "command", "cmd")?.value;
+      label = descriptionOf(part.input) ?? (cmd ? unwrapShell(cmd).split("\n").find((l) => l.trim()) : undefined);
+      break;
+    }
+    case "read":
+      label = field(part.input, "file_path", "path", "filePath")?.value;
+      break;
+    case "ls":
+      label = field(part.input, "path")?.value ?? ".";
+      break;
+    case "grep":
+    case "glob":
+    case "find":
+      label = field(part.input, "pattern")?.value;
       break;
     case "inspect": {
       // What was inspected and where it stands — the id alone says nothing.
@@ -172,6 +199,16 @@ export interface ToolGroup {
 
 export type Segment = { kind: "part"; part: PartLike; index: number } | ToolGroup;
 
+/** Tools whose header phrase is identical to another's — fold into ONE
+ *  key so the summary says it once with a combined count, instead of
+ *  repeating "searched files" for every search tool used in a run. */
+const SUMMARY_ALIASES: Record<string, string> = {
+  sandbox_exec: "bash",
+  grep: "ls",
+  glob: "ls",
+  find: "ls",
+};
+
 function phrase(name: string, n: number, polled: boolean): string {
   const p = QUIET_TOOLS[name]!;
   const text = (n === 1 ? p.one : p.many).replace("{n}", String(n));
@@ -183,7 +220,8 @@ function summarize(entries: GroupEntry[]): string {
   const order: string[] = [];
   const counts = new Map<string, number>();
   for (const e of entries) {
-    const name = toolName(e.part) === "sandbox_exec" ? "bash" : toolName(e.part);
+    const raw = toolName(e.part);
+    const name = SUMMARY_ALIASES[raw] ?? raw;
     if (!counts.has(name)) order.push(name);
     counts.set(name, (counts.get(name) ?? 0) + e.count);
   }

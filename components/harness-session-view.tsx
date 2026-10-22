@@ -6,17 +6,20 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { TransitionCard } from "@/components/ai-elements/agent-cards";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
+import { CancelCallButton } from "@/components/cancel-call-button";
 import { FileCard } from "@/components/ai-elements/file-card";
 import { ListCard } from "@/components/ai-elements/list-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
+import { ToolGroupView } from "@/components/ai-elements/tool-group";
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
 import type { SandboxLink } from "@/lib/read-models/sandbox";
 import { TaskQuote } from "@/components/harness-card";
 import { HARNESS_LABEL, HarnessMark } from "@/components/harness-logo";
 import { topInScroller } from "@/lib/anchor-scroll";
-import { buildTimeline, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
+import { buildTimeline, timelineToParts, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
 import { shortSandboxId } from "@/lib/sandbox-id";
+import { groupParts } from "@/lib/tool-views/groups";
 import { cn } from "@/lib/utils";
 
 export interface HarnessEvent {
@@ -150,10 +153,59 @@ function HarnessToolCall({ item }: { item: Extract<TimelineItem, { type: "tool" 
   );
 }
 
+/** One timeline item, rendered the same whether it stands alone or is
+ *  opened from inside a quiet-calls group. */
+function HarnessTimelineEntry({ item }: { item: TimelineItem }) {
+  switch (item.type) {
+    case "turn-start":
+      return (
+        <div className="space-y-2">
+          <p className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+            — turn —
+          </p>
+          {/* What the harness was asked — the same quote as its chat card. */}
+          {item.task && (
+            <div className="flex justify-end">
+              <div className="max-w-[85%] rounded-lg bg-secondary px-3 py-2">
+                <TaskQuote className="border-l-0 pl-0 text-foreground">{item.task}</TaskQuote>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    case "turn-end":
+      return <p className="py-1 text-center font-mono text-[10px] text-muted-foreground">···</p>;
+    case "text":
+      return (
+        <div className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
+          <MessageResponse>{item.text}</MessageResponse>
+        </div>
+      );
+    case "tool":
+      return <HarnessToolCall item={item} />;
+    case "file-change":
+      return (
+        <div className="flex">
+          <FileChangeChip change={item.change} />
+        </div>
+      );
+    case "compaction":
+      return (
+        <p className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+          — context compacted —
+        </p>
+      );
+  }
+}
+
 /** A harness session's events, conversation-style (also the 0012 run
- *  view's side panel). Raw rows are folded into one item per tool call. */
+ *  view's side panel). Raw rows are folded into one item per tool call,
+ *  then quiet read-only runs are folded again into one collapsible group
+ *  (0056's `groupParts`/`ToolGroupView` — the same allow-list the chat
+ *  transcript uses, via `timelineToParts`). */
 export function HarnessEventLog({ events }: { events: readonly HarnessEvent[] }) {
   const items = useMemo(() => buildTimeline(events), [events]);
+  const segments = useMemo(() => groupParts(timelineToParts(items)), [items]);
   return (
     <>
       {items.length === 0 && (
@@ -162,58 +214,17 @@ export function HarnessEventLog({ events }: { events: readonly HarnessEvent[] })
         </p>
       )}
       <div className="space-y-3">
-        {items.map((item) => {
-          switch (item.type) {
-            case "turn-start":
-              return (
-                <div key={`s-${item.id}`} className="space-y-2">
-                  <p className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-                    — turn —
-                  </p>
-                  {/* What the harness was asked — the same quote as its chat card. */}
-                  {item.task && (
-                    <div className="flex justify-end">
-                      <div className="max-w-[85%] rounded-lg bg-secondary px-3 py-2">
-                        <TaskQuote className="border-l-0 pl-0 text-foreground">{item.task}</TaskQuote>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            case "turn-end":
-              return (
-                <p
-                  key={`e-${item.id}`}
-                  className="py-1 text-center font-mono text-[10px] text-muted-foreground"
-                >
-                  ···
-                </p>
-              );
-            case "text":
-              return (
-                <div key={`x-${item.id}`} className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
-                  <MessageResponse>{item.text}</MessageResponse>
-                </div>
-              );
-            case "tool":
-              return <HarnessToolCall key={`t-${item.id}`} item={item} />;
-            case "file-change":
-              return (
-                <div key={`f-${item.id}`} className="flex">
-                  <FileChangeChip change={item.change} />
-                </div>
-              );
-            case "compaction":
-              return (
-                <p
-                  key={`c-${item.id}`}
-                  className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
-                >
-                  — context compacted —
-                </p>
-              );
-          }
-        })}
+        {segments.map((seg) =>
+          seg.kind === "group" ? (
+            <ToolGroupView
+              key={`g-${items[seg.index]!.id}`}
+              group={seg}
+              render={(entry) => <HarnessTimelineEntry item={items[entry.index]!} />}
+            />
+          ) : (
+            <HarnessTimelineEntry key={`p-${items[seg.index]!.id}`} item={items[seg.index]!} />
+          ),
+        )}
       </div>
     </>
   );
@@ -234,11 +245,16 @@ export function HarnessSessionView({
   parent,
   sandbox,
   call,
+  callId,
 }: {
   initialRun: HarnessRun;
   /** 0046: set on the per-call page — scopes polling to the call's window
    *  so an old call never appends a later call's events. */
   call?: { id: string; task: string; status: string; createdAt: number; settledAt: number | null };
+  /** 0063: the hc_… call to cancel while it's running — the per-call
+   *  page's own call, or (on the session page) the session's newest
+   *  running call of this kind. Absent = no Cancel button. */
+  callId?: string;
   initialEvents: readonly HarnessEvent[];
   /** 0075: the tail page's before-cursor — the id an older page starts
    *  strictly below. Null (or absent) = the whole log is hydrated. */
@@ -429,9 +445,14 @@ export function HarnessSessionView({
             </Link>
           )}
           {running && <Loader2 className="size-3.5 animate-spin text-info" aria-hidden />}
-          <span className={cn(running ? "text-info" : failed ? "text-destructive" : "text-success")}>
+          <span
+            className={cn(
+              running ? "text-info" : failed ? "text-destructive" : status === "cancelled" ? "text-muted-foreground" : "text-success",
+            )}
+          >
             {status}
           </span>
+          {running && callId && <CancelCallButton callId={callId} label={HARNESS_LABEL[run.kind] ?? run.kind} />}
         </span>
       </AppHeader>
       {call?.task && (

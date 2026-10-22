@@ -4,6 +4,7 @@ import { ArrowUpRightIcon, ChevronDownIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { CancelCallButton } from "@/components/cancel-call-button";
 import { HARNESS_LABEL, HarnessLogo } from "@/components/harness-logo";
 import { SandboxChip } from "@/components/sandbox-view";
 import { ChildMeta } from "@/components/ai-elements/agent-cards";
@@ -250,6 +251,7 @@ export function HarnessCard({
                 label={!live ? "in background" : live.status === "running" ? "running" : live.status}
               />
               {live && <ChildMeta status={live} kind={kind} />}
+              {background && live?.live && <CancelCallButton callId={background.callId} label={label} />}
             </>
           ) : (
             <StatusPill

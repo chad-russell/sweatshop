@@ -51,9 +51,10 @@ export interface MessageRowMetadata {
  *  "thread" = a child chat started by start_thread settled; 0041:
  *  "plan" = Chad approved the plan under review; 0055: "mode" = the
  *  owner's send entered a mode — this row's TEXT is the mode's
- *  rendered intro + first-phase runbook, not a wake). */
+ *  rendered intro + first-phase runbook, not a wake; 0064: "outline" =
+ *  Chad approved the outline under review). */
 export interface RunEventMeta {
-  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode";
+  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode" | "outline";
   id: string;
   status: string;
 }
@@ -235,13 +236,13 @@ export function resolvePendingInput(
 }
 
 /**
- * Resolve every unresolved non-plan pending input of a conversation
- * whose turn can no longer resume: the hook died with its run
- * (cancelled, failed, expired — a resume is "Hook not found"), so the
+ * Resolve every unresolved non-plan/outline pending input of a
+ * conversation whose turn can no longer resume: the hook died with its
+ * run (cancelled, failed, expired — a resume is "Hook not found"), so the
  * inbox card must not outlive it (2026-10-13: two stuck PR approvals
- * had no working button). Plan reviews are hookless (0041) and stay.
- * `reason` lands in the row's answer for the record. Returns the ids
- * cleared — an empty list means nothing was orphaned.
+ * had no working button). Plan and outline reviews are hookless (0041,
+ * 0064) and stay. `reason` lands in the row's answer for the record.
+ * Returns the ids cleared — an empty list means nothing was orphaned.
  */
 export function resolveOrphanedPendingInputs(
   db: Db,
@@ -256,6 +257,7 @@ export function resolveOrphanedPendingInputs(
         eq(pendingInputs.conversationId, conversationId),
         isNull(pendingInputs.resolvedAt),
         ne(pendingInputs.kind, "plan"),
+        ne(pendingInputs.kind, "outline"),
       ),
     )
     .all();

@@ -5,6 +5,44 @@
  * markers instead of as calls of their own. Pure and client-safe — no db.
  */
 
+import type { PartLike } from "@/lib/tool-views/groups";
+
+/**
+ * Tool names are already lowercase across all four harnesses (2026-10-21
+ * evidence query) — this stays a thin trim+lowercase so an unrecognised
+ * or oddly-cased name still renders (a generic card), never worse. Names
+ * like `Skill`/`Agent`/`delete` canonicalise but stay generic — no
+ * specialised card claims them.
+ */
+export function canonicalTool(name: string | null | undefined): string {
+  if (typeof name !== "string") return "tool";
+  const trimmed = name.trim();
+  return trimmed ? trimmed.toLowerCase() : "tool";
+}
+
+// Anchored on BOTH ends so the whole string must be exactly one wrapped
+// invocation — a greedy `[\s\S]*` between the first and last quote of a
+// type (the earlier shape) backtracks across compounds like
+// `sh -c "ls" && echo "done"`, mangling a command that never ran.
+const DOUBLE_QUOTED = /^(?:\/bin\/)?(?:bash|sh)\s+-(?:lc|c)\s+"((?:[^"\\]|\\.)*)"$/;
+const SINGLE_QUOTED = /^(?:\/bin\/)?(?:bash|sh)\s+-(?:lc|c)\s+'([^']*)'$/;
+
+/**
+ * Strip codex's `/bin/bash -lc "<cmd>"` (also `bash -lc '<cmd>'`, `sh -c
+ * "<cmd>"`) wrapper so a label or terminal shows the command that
+ * actually ran. Display only — the stored event text is untouched; an
+ * unwrapped command, or anything that isn't EXACTLY one such wrapper
+ * (a compound like `sh -c "ls" && echo "done"`), passes through as-is.
+ */
+export function unwrapShell(command: string): string {
+  const trimmed = command.trim();
+  const double = DOUBLE_QUOTED.exec(trimmed);
+  if (double) return double[1]!.replace(/\\(["\\$`])/g, "$1");
+  const single = SINGLE_QUOTED.exec(trimmed);
+  if (single) return single[1]!;
+  return command;
+}
+
 export interface TimelineEvent {
   id: number;
   kind: string;
@@ -85,7 +123,7 @@ export function buildTimeline(events: readonly TimelineEvent[]): TimelineItem[] 
   const openLegacy: ToolItem[] = [];
 
   const settle = (event: TimelineEvent, state: "completed" | "error") => {
-    const name = event.toolName ?? "tool";
+    const name = canonicalTool(event.toolName);
     let target: ToolItem | undefined;
     if (event.toolCallId) {
       target = byCallId.get(event.toolCallId);
@@ -146,7 +184,7 @@ export function buildTimeline(events: readonly TimelineEvent[]): TimelineItem[] 
         const item: ToolItem = {
           type: "tool",
           id: event.id,
-          toolName: name,
+          toolName: canonicalTool(name),
           toolCallId: event.toolCallId ?? null,
           state: "running",
           input: event.input ?? null,
@@ -178,6 +216,45 @@ export function buildTimeline(events: readonly TimelineEvent[]): TimelineItem[] 
 
 export function isSyntheticTool(name: string | null | undefined): boolean {
   return !!name && SYNTHETIC.has(name);
+}
+
+/**
+ * A timeline as `PartLike[]` so the chat's own `groupParts`/`ToolGroupView`
+ * (0056) can fold a harness session's quiet calls exactly like a chat
+ * transcript does. `items[i]` is `parts[i]` — a group's `entry.index`
+ * maps straight back to the TimelineItem that produced it, no separate
+ * lookup needed. Every non-tool item (turn boundary, text, compaction,
+ * file-change) becomes a non-empty `text` part so it ends a run the same
+ * way prose does in chat.
+ */
+export function timelineToParts(items: readonly TimelineItem[]): PartLike[] {
+  return items.map((item): PartLike => {
+    switch (item.type) {
+      case "tool":
+        return {
+          type: `tool-${item.toolName}`,
+          state:
+            item.state === "completed"
+              ? "output-available"
+              : item.state === "error"
+                ? "output-error"
+                : "input-available",
+          input: item.input ?? undefined,
+          output: item.output ?? undefined,
+          toolCallId: item.toolCallId ?? undefined,
+        };
+      case "turn-start":
+        return { type: "text", text: item.task ? `— turn —\n${item.task}` : "— turn —" };
+      case "turn-end":
+        return { type: "text", text: "···" };
+      case "text":
+        return { type: "text", text: item.text };
+      case "file-change":
+        return { type: "text", text: `${item.change.event} ${item.change.path}` };
+      case "compaction":
+        return { type: "text", text: item.detail ? `context compacted: ${item.detail}` : "context compacted" };
+    }
+  });
 }
 
 /**

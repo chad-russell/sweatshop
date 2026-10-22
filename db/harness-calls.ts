@@ -32,6 +32,34 @@ export function listHarnessCalls(
     .all();
 }
 
+/**
+ * 0063: the newest still-running call for one conversation+kind — a SQL
+ * status filter, not `listHarnessCalls`' 50-newest-of-any-kind cap, so a
+ * long-running call sitting behind 50+ later settled calls (of any kind)
+ * is still found (the Cancel button on the session page).
+ */
+export function getRunningHarnessCall(
+  db: Db,
+  conversationId: string,
+  kind: "pi" | "claude" | "cursor" | "codex",
+): HarnessCall | null {
+  return (
+    db
+      .select()
+      .from(harnessCalls)
+      .where(
+        and(
+          eq(harnessCalls.conversationId, conversationId),
+          eq(harnessCalls.kind, kind),
+          eq(harnessCalls.status, "running"),
+        ),
+      )
+      .orderBy(desc(harnessCalls.createdAt))
+      .limit(1)
+      .get() ?? null
+  );
+}
+
 export function createHarnessCall(
   db: Db,
   input: {
@@ -75,9 +103,14 @@ export function setCallWorkflowRun(db: Db, id: string, workflowRunId: string): v
 }
 
 /**
- * Settle a call (final for completed/failed; cancelled never wakes).
- * Only a running call settles — a racing cancel wins and a late natural
- * settle is dropped, mirroring markRunCancelled's finality.
+ * Settle a call (final for completed/failed/cancelled). Only a running
+ * call settles — a racing cancel wins and a late natural settle is
+ * dropped, mirroring markRunCancelled's finality. `settledAt` is stamped
+ * for every status, cancelled included — it closes the per-call page's
+ * event window and feeds `recordHarnessRunEnd`'s `lastAt`; cancelled
+ * rows still never wake (`CALL_SETTLED_STATUSES` excludes "cancelled",
+ * which gates both `listWakableCalls` and `wakeCallIfDue`), and
+ * `childStatus.live` reads `status === "running"`, not `settledAt`.
  */
 export function settleHarnessCall(
   db: Db,
@@ -93,7 +126,6 @@ export function settleHarnessCall(
   },
   now = Date.now(),
 ): boolean {
-  const settled = set.status !== "cancelled";
   const changes = db
     .update(harnessCalls)
     .set({
@@ -101,7 +133,7 @@ export function settleHarnessCall(
       result: set.result ?? null,
       error: set.error ?? null,
       resultFile: set.resultFile ?? null,
-      ...(settled ? { settledAt: now } : {}),
+      settledAt: now,
       updatedAt: now,
     })
     .where(and(eq(harnessCalls.id, id), eq(harnessCalls.status, "running")))
