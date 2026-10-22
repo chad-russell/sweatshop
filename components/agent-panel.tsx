@@ -222,8 +222,8 @@ export function AgentPanel() {
     store(CONVERSATION_KEY, id);
     // The sidebar gains the conversation (server-rendered shell).
     router.refresh();
-    // Best-effort title for the header.
-    void fetch(`/api/x/chat?conversationId=${id}`, { cache: "no-store" })
+    // Best-effort title for the header (tail=1 — only the title is read).
+    void fetch(`/api/x/chat?conversationId=${encodeURIComponent(id)}&tail=1`, { cache: "no-store" })
       .then((res) => (res.ok ? (res.json() as Promise<{ title: string | null }>) : null))
       .then((body) => {
         if (body) setLiveTitle(body.title);
