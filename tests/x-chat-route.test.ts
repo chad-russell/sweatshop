@@ -139,13 +139,15 @@ describe("GET /api/x/chat context", () => {
     const body = (await res.json()) as {
       context: {
         phase: { label: string } | null;
-        plan: { latestId: string | null; latest: { version: number; markdown: string; status: string } | null; openReviewId: string | null };
+        plan: { latest: { version: number; status: string } | null; openReviewId: string | null };
         diffBreakdown: unknown;
         hasBackgroundChild: boolean;
       };
     };
-    expect(body.context.plan.latestId).toBe("pc1");
-    expect(body.context.plan.latest).toEqual({ version: 1, markdown: "# Plan", status: "review" });
+    // 0075 fixup: the wire carries only what the client reads — no plan
+    // markdown (the plan card reads the transcript's own tool result).
+    expect(Object.keys(body.context.plan)).toEqual(["latest", "openReviewId"]);
+    expect(body.context.plan.latest).toEqual({ version: 1, status: "review" });
     expect(body.context.plan.openReviewId).toBe("pc1");
     expect(body.context.phase?.label).toBe("Plan v1 · needs you");
     expect(body.context.diffBreakdown).toBeNull();
@@ -177,8 +179,8 @@ describe("GET /api/x/chat context", () => {
       { role: "assistant", text: "hello", modelMessage: { role: "assistant", content: "hello" } },
     ]);
     const res = await get("conversationId=c_ctx4&context=1");
-    const body = (await res.json()) as { context: { plan: { latestId: string | null; openReviewId: string | null }; phase: unknown } };
-    expect(body.context.plan).toEqual({ latestId: null, latest: null, previousOfLatest: null, openReviewId: null });
+    const body = (await res.json()) as { context: { plan: { latest: unknown; openReviewId: string | null }; phase: unknown } };
+    expect(body.context.plan).toEqual({ latest: null, openReviewId: null });
     expect(body.context.phase).toBeNull();
   });
 

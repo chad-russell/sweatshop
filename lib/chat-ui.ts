@@ -290,14 +290,15 @@ export function appendNewer(current: readonly UIMessage[], newer: readonly UIMes
  * header chrome facts (phase chip, plan review, diff breakdown, wake
  * watch) computed over the WHOLE transcript, so a page that only
  * hydrated a tail window shows exactly what a full render would. Pure —
- * takes the folded transcript, never the db.
+ * takes the folded transcript, never the db. Deliberately tiny: only
+ * what the client reads (grep before adding a field — the plan card
+ * reads the transcript's own tool result, so no plan markdown ships).
  */
 export interface ChatContextBlock {
   phase: Phase | null;
   plan: {
-    latestId: string | null;
-    latest: { version: number; markdown: string; status: string } | null;
-    previousOfLatest: { version: number; markdown: string } | null;
+    /** The latest plan snapshot's version + review status. */
+    latest: { version: number; status: string } | null;
     openReviewId: string | null;
   };
   diffBreakdown: DiffBreakdown | null;
@@ -306,7 +307,7 @@ export interface ChatContextBlock {
 
 export function deriveChatContext(messages: readonly UIMessage[]): ChatContextBlock {
   const history = planHistory(messages);
-  let latest: { version: number; markdown: string; status: string } | null = null;
+  let latest: { version: number; status: string } | null = null;
   if (history.latestId) {
     const id = history.latestId;
     for (let i = messages.length - 1; i >= 0 && !latest; i -= 1) {
@@ -319,19 +320,15 @@ export function deriveChatContext(messages: readonly UIMessage[]): ChatContextBl
         };
         if (part.type !== "tool-present_plan" || part.state !== "output-available") continue;
         if (part.toolCallId !== id || !isPlanSnapshot(part.output)) continue;
-        latest = { version: part.output.version, markdown: part.output.markdown, status: part.output.status };
+        const snapshot = part.output;
+        latest = { version: snapshot.version, status: snapshot.status };
         break;
       }
     }
   }
   return {
     phase: phaseFromMessages(messages),
-    plan: {
-      latestId: history.latestId,
-      latest,
-      previousOfLatest: history.latestId ? history.previous.get(history.latestId) ?? null : null,
-      openReviewId: history.openReviewId,
-    },
+    plan: { latest, openReviewId: history.openReviewId },
     diffBreakdown: latestDiffBreakdown(messages),
     hasBackgroundChild: hasBackgroundChild(messages),
   };
