@@ -144,7 +144,7 @@ export async function startHarnessCall(
     }
     route = checked.route as HarnessRoute;
   } else {
-    route = requireRoute(db(), input.kind, { conversation: conversation?.route ?? null }, projectId) as unknown as HarnessRoute;
+    route = requireRoute(db(), input.kind, { conversation: conversation?.route ?? null }, projectId).route as HarnessRoute;
   }
 
   // 0038 amendment: up to MAX_CONCURRENT_HARNESSES may run at once per
