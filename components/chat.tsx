@@ -336,6 +336,8 @@ export function ChatSurface({
   projectOptions,
   hasHosts,
   initialHostAutoApprove,
+  olderCursor,
+  olderRemaining,
 }: {
   conversationId?: string;
   initialMessages?: import("ai").UIMessage[];
@@ -354,6 +356,10 @@ export function ChatSurface({
    *  the auto-approve toggle once the chat exists. */
   hasHosts?: boolean;
   initialHostAutoApprove?: boolean;
+  /** 0075: the tail window's older-page cursor and remaining count —
+   *  init-only, straight through to ChatSession's load-earlier control. */
+  olderCursor?: number | null;
+  olderRemaining?: number;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -474,6 +480,8 @@ export function ChatSurface({
       projectId={activeProjectId ?? undefined}
       skill={activeSkillId}
       initialRoute={initialRoute}
+      olderCursor={olderCursor}
+      olderRemaining={olderRemaining}
       className="mx-auto h-full max-w-(--content-max)"
       onAdopted={handleAdopted}
       onAddressable={handleAddressable}

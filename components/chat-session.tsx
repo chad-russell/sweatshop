@@ -5,6 +5,7 @@ import type { ChatStatus, FileUIPart, ToolUIPart, UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { nanoid } from "nanoid";
 import { RotateCcw } from "lucide-react";
+import { useStickToBottomContext } from "use-stick-to-bottom";
 import {
   useEffect,
   useImperativeHandle,
@@ -12,6 +13,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type MutableRefObject,
   type ReactNode,
   type Ref,
 } from "react";
@@ -39,7 +41,15 @@ import { Spinner } from "@/components/ui/spinner";
 import { SweatshopLogo } from "@/components/sweatshop-logo";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ViewingContext } from "@/lib/page-context";
-import { hasBackgroundChild, rowsToUIMessages, untilLiveTurn, type StoredRow } from "@/lib/chat-ui";
+import {
+  appendNewer,
+  hasBackgroundChild,
+  mergeOlder,
+  rowsToUIMessages,
+  untilLiveTurn,
+  type ChatContextBlock,
+} from "@/lib/chat-ui";
+import { extendChatPageBack, fetchChatPage } from "@/lib/chat-fetch";
 import { CHAT_STREAM_THROTTLE_MS } from "@/lib/chat-stream-throttle";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { cn } from "@/lib/utils";
@@ -74,6 +84,68 @@ const DRAFT_PREFIX = "sweatshop.draft.";
 
 /** How often an idle chat with background work out checks for its wake. */
 const WAKE_POLL_MS = 5000;
+
+/** 0075: rows fetched per page (hydration window, wake-poll tail, and
+ *  the load-earlier step — one screenful of turns each). */
+const PAGE_TAIL = 150;
+
+/** Elements the scroll anchor needs: the sentinel row and the scroll
+ *  container it lives in (use-stick-to-bottom's own scrollRef, read at
+ *  measure time so a not-yet-attached ref never yields null). */
+interface OlderAnchor {
+  sentinel: HTMLElement | null;
+  scrollRef: MutableRefObject<HTMLElement | null> | null;
+}
+
+/**
+ * 0075: the load-earlier control at the top of a windowed transcript.
+ * Must render inside <ConversationContent> — it takes the scroll
+ * container from use-stick-to-bottom's context (the sanctioned API for
+ * children of the scroller).
+ */
+function OlderMessagesControl({
+  remaining,
+  loading,
+  atStart,
+  onLoad,
+  anchorRef,
+}: {
+  /** How many older rows remain (the "~N more" hint). */
+  remaining: number;
+  loading: boolean;
+  /** True once a page reached the start of the conversation. */
+  atStart: boolean;
+  onLoad: () => void;
+  anchorRef: MutableRefObject<OlderAnchor>;
+}) {
+  const { scrollRef } = useStickToBottomContext();
+  return (
+    <div
+      ref={(el) => {
+        anchorRef.current.sentinel = el;
+        anchorRef.current.scrollRef = scrollRef;
+      }}
+      className="flex min-h-8 items-center justify-center py-2"
+    >
+      {atStart ? (
+        <span className="text-xs text-muted-foreground">Start of conversation</span>
+      ) : loading ? (
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+          <Spinner className="size-3.5" aria-hidden />
+          Loading…
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onLoad}
+          className="rounded text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          Load earlier messages{remaining > 0 ? ` (~${remaining} more)` : ""}
+        </button>
+      )}
+    </div>
+  );
+}
 
 
 /** A running sandbox the composer can attach to (0013 picker). */
@@ -162,6 +234,11 @@ function isThinking(status: ChatStatus, messages: readonly UIMessage[]) {
   );
 }
 
+/** A live turn owns the transcript — history merges wait for it. (A
+ *  helper, not inline compares: TS narrowing of `c.status` survives
+ *  `await`, and the status may genuinely change mid-fetch.) */
+const busyNow = (c: { status: ChatStatus }) => c.status === "submitted" || c.status === "streaming";
+
 /** The AI SDK's send shape requires `text`, yet its runtime adds a text part
  *  only when one is given — so an image-only send omits it (an empty-string
  *  text would become an empty text part). */
@@ -183,6 +260,8 @@ export function ChatSession({
   activeRunId,
   projectId,
   initialRoute,
+  olderCursor: initialOlderCursor,
+  olderRemaining: initialOlderRemaining,
   frameId,
   header,
   freshComposer,
@@ -200,6 +279,11 @@ export function ChatSession({
   projectId?: string;
   /** 0021: the stored conversation route (init-only). */
   initialRoute?: ChatRoute | null;
+  /** 0075: the hydrated tail window's older-page cursor and remaining
+   *  count — init-only; the sentinel starts from these and owns them
+   *  from the first Load earlier messages on. */
+  olderCursor?: number | null;
+  olderRemaining?: number;
   /** Names this frame's drafts (e.g. "panel") so two frames never share one. */
   frameId?: string;
   /** The frame's chrome, rendered above the transcript with the knobs. */
@@ -350,9 +434,20 @@ export function ChatSession({
   // turn streams in like any other.
   // 0041: an open plan review also wakes this chat (on Approve), so the
   // page watches for it the same way.
+  //
+  // 0075: the transcript is a WINDOW now. The header facts (phase, plan
+  // review, diff breakdown, wake watch) are derived from the whole
+  // transcript server-side (`context=1`, fetched on mount and whenever
+  // a turn settles) and preferred over what the visible window derives
+  // — a tail window may not contain the plan or PR that set the phase.
+  const [serverContext, setServerContext] = useState<ChatContextBlock | null>(null);
   const plans = useMemo(() => planHistory(messages), [messages]);
-  const phase = useMemo(() => phaseFromMessages(messages), [messages]);
-  const diffBreakdown = useMemo(() => latestDiffBreakdown(messages), [messages]);
+  const derivedPhase = useMemo(() => phaseFromMessages(messages), [messages]);
+  const derivedDiffBreakdown = useMemo(() => latestDiffBreakdown(messages), [messages]);
+  const phase = serverContext?.phase ?? derivedPhase;
+  const diffBreakdown = serverContext?.diffBreakdown ?? derivedDiffBreakdown;
+  const backgroundOut = serverContext ? serverContext.hasBackgroundChild : hasBackgroundChild(messages);
+  const openReviewId = serverContext ? serverContext.plan.openReviewId : plans.openReviewId;
   // 0052: while the derived phase is an open PR, ask the host what it
   // says now (visible-tab poll; stops once merged/closed) — merged/
   // closed relabels the chip, unknown keeps the derived label. The
@@ -363,34 +458,79 @@ export function ChatSession({
   );
   const prStates = usePRStates(prUrls);
   const shownPhase = prUrls ? applyPRState(phase, prStates[prUrls[0]] ?? null) : phase;
-  const awaitingWake =
-    (adopted || selfAdopted) && !isBusy && (hasBackgroundChild(messages) || plans.openReviewId !== null);
+  const awaitingWake = (adopted || selfAdopted) && !isBusy && (backgroundOut || openReviewId !== null);
   const chatRef = useRef(chat);
   useEffect(() => {
     chatRef.current = chat;
   });
+  // The context refetch runs once per settled transcript state: on
+  // mount (initialMessages are ready), after each turn settles, and
+  // after window appends (a settled wake turn grows the window). While
+  // a turn runs there is nothing new to derive.
+  const settledTick = status === "ready" ? messages.length : null;
+  useEffect(() => {
+    if (!adoptedNow || settledTick == null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/x/chat?conversationId=${encodeURIComponent(conversationId)}&context=1&tail=1`,
+          { cache: "no-store" },
+        );
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as { context?: ChatContextBlock };
+        if (!cancelled && body.context) setServerContext(body.context);
+      } catch {
+        /* transient — the next settled tick retries */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [adoptedNow, conversationId, settledTick]);
   useEffect(() => {
     if (!awaitingWake) return;
     let stop = false;
     const check = async () => {
       if (stop || document.visibilityState !== "visible") return;
       try {
-        const res = await fetch(`/api/x/chat?conversationId=${encodeURIComponent(conversationId)}`, { cache: "no-store" });
-        if (!res.ok || stop) return;
-        const body = (await res.json()) as { messages: StoredRow[]; activeRunId: string | null };
         const c = chatRef.current;
-        if (stop || c.status === "submitted" || c.status === "streaming") return;
+        if (busyNow(c)) return;
+        // The newest tail page, walked back until it ALIGNS with the
+        // window: its first row is one we show, or a turn opener we
+        // don't. Alignment is what appendNewer needs — a page starting
+        // mid-fold could otherwise duplicate text already on screen.
+        const known = new Set(c.messages.map((m) => m.id));
+        let page = await fetchChatPage(conversationId, { tail: PAGE_TAIL });
+        if (!page || stop) return;
+        if (page.rows[0] != null && !known.has(page.rows[0].id)) {
+          page = await extendChatPageBack(conversationId, page, PAGE_TAIL, (rows) => {
+            const first = rows[0];
+            return first != null && (known.has(first.id) || first.id.startsWith("t_"));
+          });
+        }
+        // A send may have started while the fetches were out — appending
+        // stored history under an optimistic send would misorder the turn.
+        if (stop || busyNow(c)) return;
         // A live turn replays from index 0 — its persisted slices must
         // not render twice (0037 incremental persistence).
-        const rows = body.messages ?? [];
-        const stored = rowsToUIMessages(body.activeRunId ? untilLiveTurn(rows) : rows);
-        const known = new Set(c.messages.map((m) => m.id));
-        // Only act on something new: a turn in flight, or rows this
+        const rows = page.activeRunId ? untilLiveTurn(page.rows) : page.rows;
+        const stored = rowsToUIMessages(rows);
+        // Only act on something new: a turn in flight, or messages this
         // session has not seen (a wake turn that already finished).
-        if (!body.activeRunId && stored.every((m) => known.has(m.id))) return;
-        c.setMessages(stored);
-        if (body.activeRunId) {
-          resumeRunRef.current = body.activeRunId;
+        if (!page.activeRunId && stored.every((m) => known.has(m.id))) return;
+        const firstRow = page.rows[0];
+        const aligned = firstRow != null && (known.has(firstRow.id) || firstRow.id.startsWith("t_"));
+        if (aligned) {
+          // Merge into the window (keeps any older pages loaded).
+          c.setMessages((prev) => appendNewer(prev, stored));
+        } else {
+          // The extension could not align (transient failures): fall
+          // back to today's full swap rather than resume over a gap.
+          c.setMessages(stored);
+        }
+        if (page.activeRunId) {
+          resumeRunRef.current = page.activeRunId;
           void c.resumeStream();
         }
       } catch {
@@ -405,6 +545,61 @@ export function ChatSession({
       document.removeEventListener("visibilitychange", check);
     };
   }, [awaitingWake, conversationId]);
+
+  // ── 0075: the lazy window's older-pages control ────────────────────────
+  // Init-only from the frame's hydration; owned here from the first load.
+  const [olderCursor, setOlderCursor] = useState<number | null>(initialOlderCursor ?? null);
+  const [olderRemaining, setOlderRemaining] = useState(initialOlderRemaining ?? 0);
+  const [olderLoading, setOlderLoading] = useState(false);
+  // Whether any Load-earlier fetch has happened — the sentinel shows for
+  // a windowed transcript even at the start (the muted "Start of
+  // conversation" line), but never on a transcript that fully hydrated.
+  const [pagedOnce, setPagedOnce] = useState(false);
+  const anchorRef = useRef<OlderAnchor>({ sentinel: null, scrollRef: null });
+  const pendingAnchorRef = useRef<{ sentinelTop: number; scrollTop: number } | null>(null);
+
+  /** Load the previous page: extend backwards to the oldest turn
+   *  boundary in it (rows fold by turn there — a page cut mid-turn
+   *  would render one turn as two messages), prepend, and keep the
+   *  viewport pinned: the scroll top moves down by exactly the height
+   *  the prepended content added above it. */
+  const loadOlder = async () => {
+    if (olderLoading || olderCursor == null) return;
+    setOlderLoading(true);
+    setPagedOnce(true);
+    const anchor = anchorRef.current;
+    const sentinel = anchor.sentinel;
+    const scroll = anchor.scrollRef?.current ?? null;
+    if (sentinel && scroll) {
+      pendingAnchorRef.current = { sentinelTop: sentinel.offsetTop, scrollTop: scroll.scrollTop };
+    }
+    try {
+      const first = await fetchChatPage(conversationId, { tail: PAGE_TAIL, before: olderCursor });
+      if (!first) return; // transient — the cursor stays for a retry
+      const page = await extendChatPageBack(conversationId, first, PAGE_TAIL, (rows) => {
+        const oldest = rows[0];
+        return oldest != null && oldest.id.startsWith("t_");
+      });
+      setOlderCursor(page.olderCursor);
+      setOlderRemaining(page.olderRemaining);
+      const older = rowsToUIMessages(page.rows);
+      chatRef.current.setMessages((prev) => mergeOlder(prev, older));
+    } finally {
+      setOlderLoading(false);
+    }
+  };
+  // The anchor restores after the prepended messages commit to the DOM:
+  // the sentinel moved down by the prepended height, so the scroll top
+  // follows it (scrollTop_after = scrollTop_before + ΔsentinelTop).
+  useEffect(() => {
+    const pending = pendingAnchorRef.current;
+    if (!pending) return;
+    pendingAnchorRef.current = null;
+    const sentinel = anchorRef.current.sentinel;
+    const scroll = anchorRef.current.scrollRef?.current ?? null;
+    if (!sentinel || !scroll) return;
+    scroll.scrollTop = pending.scrollTop + (sentinel.offsetTop - pending.sentinelTop);
+  }, [messages]);
 
   // 0011: the sandbox read-model — which sandbox each sandboxed call ran
   // in and where the next one would. The call rows are written by the
@@ -668,6 +863,19 @@ export function ChatSession({
 
       <Conversation className="min-h-0 flex-1">
         <ConversationContent>
+          {/* 0075: the window's older-pages control — only for a
+              transcript that hydrated as a tail window (or already
+              paged once). Must sit inside the scroller's content for
+              the scroll anchor to measure it. */}
+          {adoptedNow && started && (olderCursor != null || pagedOnce) && (
+            <OlderMessagesControl
+              remaining={olderRemaining}
+              loading={olderLoading}
+              atStart={olderCursor == null && !olderLoading}
+              onLoad={() => void loadOlder()}
+              anchorRef={anchorRef}
+            />
+          )}
           {messages.length === 0 && status === "ready" && !chat.error && (
             freshMode?.emptyState ?? (
               <ConversationEmptyState
