@@ -247,18 +247,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   current status compactly plus "if this changed, call update_status",
   or a seed line of the declared phases when a mode is entered and no
   status exists yet. A plain chat and a legacy null `mode_phase` get no
-  note. `update_status` (every chat; `lib/agent/tools/status.ts`, thin
-  step `workflows/chat/steps/status.ts`) rewrites the whole status —
-  `{steps: [{label, state, detail?, children?}], note?}`. The current
-  status is the last such result in the transcript (`lib/status.ts`,
-  pure); history is all of them. A wake (harness, thread, or plan)
-  followed by a completed assistant turn with no `update_status` flags
-  the status stale. `skills/ticket/SKILL.md` is the reference mode:
-  Plan (owner approves via `present_plan`/`accept_plan`) → Implement →
-  Review (fresh-eyes `start_thread` child) → Fixup → Ship (orchestrator
-  does Ship itself — workers lack `create_pr`/`present_plan`); progress
-  is `update_status`, not boxes ticked in `PLAN.md`. Settings' skill
-  editor previews phases from `parseModeSkill(draft.body)`.
+  note. `update_status` is GONE as of 0064 (see the Outline bullet
+  below) — `lib/status.ts` stays only as the read-only half this mode
+  machinery (and `components/mode-chip.tsx`) still uses against
+  historical transcripts, ahead of its removal in a later PR.
+  `skills/ticket/SKILL.md` is the reference mode: Plan (owner approves
+  via `present_plan`/`accept_plan`) → Implement → Review (fresh-eyes
+  `start_thread` child) → Fixup → Ship (orchestrator does Ship itself —
+  workers lack `create_pr`/`present_plan`); progress was `update_status`,
+  not boxes ticked in `PLAN.md` — not yet rewritten for the outline.
+  Settings' skill editor previews phases from `parseModeSkill(draft.body)`.
 - Phase handoff (0055 v7 part B, 0059): a harness call (`pi`/`claude`/
   `cursor`/`codex`) or `start_thread` child started from a moded chat
   gets the handoff block (`renderPhaseHandoff`,
@@ -332,14 +330,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `accept_plan` (itself approval-gated) when Chad approves in chat.
   After approval `present_plan` is a progress snapshot (`reapprove:
   true` reopens review). The header PHASE chip (`lib/plan.ts` +
-  `lib/status.ts`, pure, derived from the transcript, never stored):
+  `lib/outline.ts`, pure, derived from the transcript, never stored):
   PR states win; a plan still in review is "Plan vN · needs you";
-  otherwise the label is the thread status — "<active step> · d/n"
-  (the active step's children, or the top-level count; done-only in
-  the numerator) or "<step> · needs you" when any step is blocked. A
-  chat that never called `update_status` shows no status chip. The
-  checklist-count "Building N/M" derivation is gone. A stale status
-  (a wake followed by a completed turn with no `update_status`) is
+  otherwise the label is the thread outline (0064) — "<active step> ·
+  d/n" (the active step's children, or the top-level count; done-only
+  in the numerator) or "<step> · needs you" when any step is blocked. A
+  chat that never called `update_outline` shows no outline chip. The
+  checklist-count "Building N/M" derivation is gone. A stale outline
+  (a wake followed by a completed turn with no `update_outline`) is
   marked on the chip. While the chip shows an open PR, the client
   polls `GET /api/x/prs` (`GitHost.getPRState`, 0052) and
   `applyPRState` relabels it merged/closed — derived purity holds,
@@ -349,6 +347,34 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   popover with the branch's change sorted into fixed categories
   (Generated/Tests/Docs/Migrations/Config/Code). The review skill treats
   `PLAN.md` as the agreed spec. No plan table, no hard gate on `create_pr`.
+  (0064 supersedes this whole mechanism — PR 3 deletes PLAN.md, the
+  checklist/diff, and the plan card; see the Outline bullet below.)
+- Outline (0064 PR1): `update_outline` (every chat, replacing
+  `update_status`) rewrites the whole step tree in one call —
+  `{goal, steps: [{id, label, state, detail?, children?, runner?}],
+  note?}` — any depth (cap 4, 200 nodes total), unique ids kept across
+  rewrites, a `runner` (`"auto"|"self"|"thread"`, or a pinned
+  `HarnessRoute`) on top-level steps only (shape-validated here; PR 2
+  enforces it on the harness tools and `start_thread`). `lib/outline.ts`
+  is the pure core (no db import): `validateOutline`, `deriveOutline`
+  (current/history/stale, reading both `update_outline` and legacy
+  `update_status` results — the latter adapt with no goal, ids slugged
+  from labels, runner `"auto"`), `outlineChip`, `diffOutlineSteps`, and
+  `renderThreadStateNote` (goal, active step + runner + open children,
+  next step + runner, "if this changed, call update_outline" — replaces
+  0059's note). `propose: true` opens a hookless `pending_inputs` review
+  row of kind `outline` (`db/outlines.ts`, 0041's mechanism reused under
+  a new kind; a newer proposal supersedes the open one) without
+  suspending the turn; `accept_outline` (approval-gated, mirrors
+  `accept_plan`) and the card's Approve (`/api/x/input`
+  `{toolCallId, approveOutline, note?}`) resolve the review and WAKE the
+  conversation (`[outline vN approved]`). `components/outline-card.tsx`
+  (grown from 0059's status-card.tsx) renders the goal, a recursive
+  collapsible tree with runner badges (read-only in PR 1), a "changes
+  since vN" toggle, and Approve while in review — also rendering a
+  historical `update_status` row read-only. PR 2 adds editing and
+  runner enforcement; PR 3 deletes modes, phase handoff, PLAN.md, and
+  this whole paragraph folds into whatever remains.
 - PR dashboard (0053): a top-level `/prs` page lists every PR by the
   repo's own credential account across ALL project repos (hand-opened
   and agent-opened alike) — asked LIVE through `GitHost.listPRs` on
