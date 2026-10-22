@@ -17,10 +17,14 @@ export function renderHarnessSession(
   run: HarnessRun,
   call?: HarnessCall,
 ) {
+  // 0075: hydrate from the END — the newest 500 events, windowed to the
+  // call on a per-call page — with a cursor for older pages on demand.
   const page = getHarnessEvents(
     sessionId,
     harness,
-    call ? { fromAt: call.createdAt, toAt: call.settledAt ?? undefined } : {},
+    call
+      ? { fromAt: call.createdAt, toAt: call.settledAt ?? undefined, tail: true }
+      : { tail: true },
   );
   // The parent conversation anchors the breadcrumb (the session id IS
   // the conversation id); it may be gone, so everything degrades.
@@ -34,6 +38,8 @@ export function renderHarnessSession(
     <HarnessSessionView
       initialRun={run}
       initialEvents={page.events}
+      initialOlderCursor={page.cursor}
+      initialRemaining={page.remaining}
       sandbox={sandboxForHarnessSession(db(), sessionId)}
       call={
         call

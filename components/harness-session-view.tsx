@@ -2,7 +2,7 @@
 
 import { Box, FileText, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { TransitionCard } from "@/components/ai-elements/agent-cards";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
@@ -228,6 +228,8 @@ export function HarnessEventLog({ events }: { events: readonly HarnessEvent[] })
 export function HarnessSessionView({
   initialRun,
   initialEvents,
+  initialOlderCursor,
+  initialRemaining,
   parent,
   sandbox,
   call,
@@ -237,6 +239,11 @@ export function HarnessSessionView({
    *  so an old call never appends a later call's events. */
   call?: { id: string; task: string; status: string; createdAt: number; settledAt: number | null };
   initialEvents: readonly HarnessEvent[];
+  /** 0075: the tail page's before-cursor — the id an older page starts
+   *  strictly below. Null (or absent) = the whole log is hydrated. */
+  initialOlderCursor?: number | null;
+  /** How many older events sit before the tail page (the "~N more"). */
+  initialRemaining?: number;
   /** Where this session works: its chat's recorded sandbox or the run's. */
   sandbox: SandboxLink | null;
   /** The conversation that spawned this session (session id = its id). */
@@ -250,6 +257,66 @@ export function HarnessSessionView({
 }) {
   const [run, setRun] = useState(initialRun);
   const [events, setEvents] = useState(initialEvents);
+  // 0075 load-earlier: the current before-cursor and the older count the
+  // control hints at; the anchor keeps the viewport pinned across a
+  // prepend (measured off the log's first element, plain DOM).
+  const [olderCursor, setOlderCursor] = useState<number | null>(initialOlderCursor ?? null);
+  const [remaining, setRemaining] = useState(initialRemaining ?? 0);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const logRef = useRef<HTMLDivElement | null>(null);
+  const pendingAnchorRef = useRef<{ firstTop: number; scrollTop: number } | null>(null);
+
+  const loadOlder = async () => {
+    if (olderCursor === null || loadingOlder) return;
+    const scroll = scrollRef.current;
+    const log = logRef.current;
+    if (scroll && log) {
+      pendingAnchorRef.current = { firstTop: log.offsetTop, scrollTop: scroll.scrollTop };
+    }
+    setLoadingOlder(true);
+    try {
+      const params = new URLSearchParams({ harness: run.kind, before: String(olderCursor) });
+      if (call) {
+        params.set("from", String(call.createdAt));
+        if (call.settledAt !== null) params.set("to", String(call.settledAt));
+      }
+      const res = await fetch(`/api/harness/${run.sessionId}?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return; // transient — the control shows again for a retry
+      const body = (await res.json()) as {
+        events: HarnessEvent[];
+        cursor: number | null;
+        remaining: number;
+      };
+      setOlderCursor(body.cursor);
+      setRemaining(body.remaining);
+      if (body.events.length > 0) {
+        // Prepend deduped by id — a page's ids are strictly below the
+        // window, so ascending order holds; the dedup guards a poll/page
+        // race around the window's edge.
+        setEvents((prev) => {
+          const known = new Set(prev.map((e) => e.id));
+          return [...body.events.filter((e) => !known.has(e.id)), ...prev];
+        });
+      }
+      // After the commit, restore the anchor: the first event moved down
+      // by exactly the prepended height, so the scroll top follows it.
+      requestAnimationFrame(() => {
+        const pending = pendingAnchorRef.current;
+        const scrollNow = scrollRef.current;
+        const logNow = logRef.current;
+        if (!pending || !scrollNow || !logNow) return;
+        pendingAnchorRef.current = null;
+        scrollNow.scrollTop = pending.scrollTop + (logNow.offsetTop - pending.firstTop);
+      });
+    } catch {
+      /* transient — the control shows again for a retry */
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   useEffect(() => {
     if (run.status !== "running") return;
@@ -339,8 +406,33 @@ export function HarnessSessionView({
         </p>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <HarnessEventLog events={events} />
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {/* 0075: the load-earlier control — only when older events remain
+            under the current cursor (hidden once the log is exhausted). */}
+        {olderCursor !== null && (
+          <div className="flex min-h-8 items-center justify-center py-2">
+            {loadingOlder ? (
+              <span
+                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                role="status"
+              >
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                Loading…
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void loadOlder()}
+                className="rounded text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+              >
+                Load earlier events{remaining > 0 ? ` (~${remaining} more)` : ""}
+              </button>
+            )}
+          </div>
+        )}
+        <div ref={logRef}>
+          <HarnessEventLog events={events} />
+        </div>
       </div>
     </div>
   );
