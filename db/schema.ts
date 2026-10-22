@@ -67,6 +67,12 @@ export const conversations = sqliteTable(
      *  runtime), null when idle. Route-set, cleared by the turn's
      *  persist step (or cancel). */
     activeRunId: text("active_run_id"),
+    /** 0077: raw journal chunks already durably written for the live
+     *  run (`getRun(id).getReadable().getTailIndex() + 1`) — where the
+     *  `/from/<cursor>/stream` reconnect route starts reading. Written
+     *  by each non-final `persistTurn` slice; cleared alongside
+     *  `activeRunId` everywhere that is cleared. */
+    activeStreamCursor: integer("active_stream_cursor"),
     /** "chat" (0012's "run"/"stage" values went with the machine purge,
      *  0048 — no such rows remain; the column keeps its history). */
     kind: text("kind").notNull().default("chat"),
