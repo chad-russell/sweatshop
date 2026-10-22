@@ -42,6 +42,7 @@ import { SweatshopLogo } from "@/components/sweatshop-logo";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ViewingContext } from "@/lib/page-context";
 import {
+  alignPageHead,
   appendNewer,
   hasBackgroundChild,
   mergeOlder,
@@ -512,27 +513,33 @@ export function ChatSession({
         // A send may have started while the fetches were out — appending
         // stored history under an optimistic send would misorder the turn.
         if (stop || busyNow(c)) return;
-        // A live turn replays from index 0 — its persisted slices must
-        // not render twice (0037 incremental persistence).
-        const rows = page.activeRunId ? untilLiveTurn(page.rows) : page.rows;
-        const stored = rowsToUIMessages(rows);
-        // Only act on something new: a turn in flight, or messages this
-        // session has not seen (a wake turn that already finished).
-        if (!page.activeRunId && stored.every((m) => known.has(m.id))) return;
         const firstRow = page.rows[0];
         const aligned = firstRow != null && (known.has(firstRow.id) || firstRow.id.startsWith("t_"));
-        if (aligned) {
-          // Merge into the window (keeps any older pages loaded).
+        if (!page.activeRunId) {
+          // Idle: merge, never replace — appendNewer is gated at turn
+          // boundaries, so even a tail the failed extension left
+          // unaligned can only append whole turns the window has never
+          // seen; the older pages the user already loaded stay put.
+          const stored = rowsToUIMessages(page.rows);
+          if (stored.every((m) => known.has(m.id))) return;
           c.setMessages((prev) => appendNewer(prev, stored));
-        } else {
-          // The extension could not align (transient failures): fall
-          // back to today's full swap rather than resume over a gap.
-          c.setMessages(stored);
+          return;
         }
-        if (page.activeRunId) {
-          resumeRunRef.current = page.activeRunId;
-          void c.resumeStream();
-        }
+        // A live turn to attach: the replay resupplies it from index 0,
+        // so the stored view must be aligned at the turn's opener or
+        // the turn's persisted slices render twice (0037). Aligned:
+        // merge like the idle path, the turn's stream lands on top.
+        // Unaligned (the extension failed): the ONE case where the
+        // window may be replaced — resumeStream renders the live turn
+        // over whatever this window shows, so keeping pages that
+        // predate the seam would double-render; cut to the page's
+        // oldest opener (empty when it holds none — the replay renders
+        // the whole turn).
+        const rows = aligned ? page.rows : alignPageHead(page.rows) ?? [];
+        const stored = rowsToUIMessages(untilLiveTurn(rows));
+        c.setMessages((prev) => (aligned ? appendNewer(prev, stored) : stored));
+        resumeRunRef.current = page.activeRunId;
+        void c.resumeStream();
       } catch {
         /* transient — the next tick retries */
       }
