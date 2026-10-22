@@ -18,9 +18,12 @@ import {
   diffOutlineSteps,
   isOutline,
   outlineChipLabel,
+  prependOutlineHandoff,
   renderThreadStateNote,
+  runnerGate,
   validateOutline,
   type Outline,
+  type Step,
 } from "../lib/outline";
 
 /**
@@ -291,6 +294,38 @@ describe("diffOutlineSteps", () => {
         { id: "c", label: "C", kind: "added", toState: "pending" },
         { id: "b", label: "B", kind: "removed", fromState: "pending" },
       ]),
+    );
+  });
+});
+
+describe("outline runner decisions and worker handoff", () => {
+  const active = (runner?: Step["runner"]): Outline => outline("Ship it", [
+    {
+      id: "build",
+      label: "Build",
+      state: "active",
+      ...(runner ? { runner } : {}),
+      children: [{ id: "tests", label: "Tests", state: "pending", detail: "run all" }],
+    },
+  ]);
+  const pi = { harness: "pi" as const, provider: "glm" as const, model: "glm-5.3-flash" };
+
+  it("allows auto/no outline, restricts self and thread, and pins an exact harness route", () => {
+    expect(runnerGate(null, { kind: "thread" })).toMatchObject({ ok: true, active: null });
+    expect(runnerGate(active("auto"), { kind: "harness", route: pi })).toMatchObject({ ok: true, route: null });
+    expect(runnerGate(active("self"), { kind: "thread" })).toMatchObject({ ok: false, message: expect.stringContaining("self") });
+    expect(runnerGate(active("thread"), { kind: "thread" })).toMatchObject({ ok: true });
+    expect(runnerGate(active("thread"), { kind: "harness", route: pi })).toMatchObject({ ok: false, message: expect.stringContaining("thread") });
+    expect(runnerGate(active(pi), { kind: "thread" })).toMatchObject({ ok: false, message: expect.stringContaining("pinned") });
+    expect(runnerGate(active(pi), { kind: "harness", route: { ...pi, model: "other" } })).toMatchObject({ ok: false, message: expect.stringContaining("different") });
+    expect(runnerGate(active(pi), { kind: "harness", route: pi })).toMatchObject({ ok: true, route: pi });
+  });
+
+  it("prepends the goal and active subtree compactly", () => {
+    const wrapped = prependOutlineHandoff("Do the work", active("thread"));
+    expect(wrapped.step).toBe("Build");
+    expect(wrapped.task).toBe(
+      "[outline context]\nGoal: Ship it\n- Build [active]\n  - Tests [pending] — run all\n[/outline context]\n\nDo the work",
     );
   });
 });

@@ -37,6 +37,7 @@ export const OUTLINE_MAX_DEPTH = 4;
 export const OUTLINE_MAX_NODES = 200;
 
 export type Runner = "auto" | "self" | "thread" | HarnessRoute;
+export type RunnerTool = { kind: "thread" } | { kind: "harness"; route: HarnessRoute };
 
 export interface Step {
   /** Stable agent-chosen slug, kept across rewrites. */
@@ -55,6 +56,69 @@ export interface Outline {
   goal: string;
   steps: Step[];
   note?: string;
+}
+
+export type RunnerGate =
+  | { ok: true; active: Step | null; route: HarnessRoute | null }
+  | { ok: false; active: Step; message: string };
+
+function sameRoute(a: HarnessRoute, b: HarnessRoute): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Pure runner decision. Callers perform route availability/restriction
+ * checks after this gate and before claiming a slot or creating a child. */
+export function runnerGate(outline: Outline | null | undefined, tool: RunnerTool): RunnerGate {
+  const active = outline?.steps.find((step) => step.state === "active") ?? null;
+  if (!active || active.runner === undefined || active.runner === "auto") {
+    return { ok: true, active, route: null };
+  }
+  const change = "call update_outline to change the active step's runner";
+  if (active.runner === "self") {
+    return { ok: false, active, message: `active step "${active.label}" is assigned to self; delegation is refused — ${change}` };
+  }
+  if (active.runner === "thread") {
+    return tool.kind === "thread"
+      ? { ok: true, active, route: null }
+      : { ok: false, active, message: `active step "${active.label}" is assigned to thread; harness calls are refused — ${change}` };
+  }
+  if (tool.kind === "thread") {
+    return {
+      ok: false,
+      active,
+      message: `active step "${active.label}" is pinned to ${runnerLabel(active.runner)}; start_thread is refused — ${change}`,
+    };
+  }
+  if (!sameRoute(active.runner, tool.route)) {
+    return {
+      ok: false,
+      active,
+      message: `active step "${active.label}" is pinned to ${runnerLabel(active.runner)}; a different harness route is refused — ${change}`,
+    };
+  }
+  return { ok: true, active, route: active.runner };
+}
+
+function handoffStep(step: Step, depth: number): string[] {
+  const indent = "  ".repeat(depth);
+  const detail = step.detail ? ` — ${step.detail}` : "";
+  const lines = [`${indent}- ${step.label} [${step.state}]${detail}`];
+  for (const child of step.children ?? []) lines.push(...handoffStep(child, depth + 1));
+  return lines;
+}
+
+export const OUTLINE_HANDOFF_START = "[outline context]";
+export const OUTLINE_HANDOFF_END = "[/outline context]";
+
+/** Compact worker context for the active top-level step. */
+export function renderOutlineHandoff(outline: Outline, step: Step): string {
+  return [OUTLINE_HANDOFF_START, `Goal: ${outline.goal}`, ...handoffStep(step, 0), OUTLINE_HANDOFF_END].join("\n");
+}
+
+export function prependOutlineHandoff(task: string, outline: Outline | null | undefined): { task: string; step: string | null } {
+  const active = outline?.steps.find((step) => step.state === "active") ?? null;
+  if (!outline || !active) return { task, step: null };
+  return { task: `${renderOutlineHandoff(outline, active)}\n\n${task}`, step: active.label };
 }
 
 function isRunnerValue(value: unknown): value is Runner {
