@@ -48,6 +48,7 @@ import {
   alignPageHead,
   appendNewer,
   hasBackgroundChild,
+  liveTurnChanged,
   mergeOlder,
   replaceLiveTurn,
   rowsToUIMessages,
@@ -559,7 +560,9 @@ export function ChatSession({
         // re-extends from the known set; nothing is replaced.)
         if (!aligned) return;
         const stored = rowsToUIMessages(page.rows);
-        if (stored.every((m) => known.has(m.id))) return;
+        // 0076 followup to #19/#20: a live fold keeps its id while it
+        // grows — compare content, not ids, or the window freezes.
+        if (!liveTurnChanged(c.messages, stored)) return;
         // The turn is live: its fold re-ids and grows every poll, so
         // replace it (keep history up to its opener) rather than append.
         c.setMessages((prev) => replaceLiveTurn(prev, stored));
@@ -609,7 +612,13 @@ export function ChatSession({
         const aligned = firstRow != null && (known.has(firstRow.id) || firstRow.id.startsWith("t_"));
         if (!aligned) return;
         const stored = rowsToUIMessages(page.rows);
-        if (stored.every((m) => known.has(m.id))) return;
+        // 0076 followup to #19/#20: content growth, not new ids (see
+        // liveTurnChanged); a settled run with nothing new still stops
+        // the poll (and the foreign-turn indicator).
+        if (!liveTurnChanged(c.messages, stored)) {
+          if (!page.activeRunId) setForeignLive(false);
+          return;
+        }
         // Growing live fold: replace, never append (see wake poll).
         c.setMessages((prev) => replaceLiveTurn(prev, stored));
         setForeignLive(Boolean(page.activeRunId));
@@ -1012,10 +1021,12 @@ export function ChatSession({
           ))}
           </OutlineViewProvider>
           </SandboxViewProvider>
-          {isThinking(status, messages) && (
+          {/* 0076 followup to #19/#20: a watching tab (turn live in another
+              tab or a wake) shows the indicator too. */}
+          {(isThinking(status, messages) || liveElsewhere) && (
             <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground" role="status">
               <Spinner className="size-4" />
-              {isBusy && messages.some((m) => m.parts.some((p) => p.type.startsWith("tool-")))
+              {(isBusy || liveElsewhere) && messages.some((m) => m.parts.some((p) => p.type.startsWith("tool-")))
                 ? "Working…"
                 : "Thinking…"}
             </div>

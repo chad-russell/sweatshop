@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage, UIMessage } from "ai";
-import { appendNewer, backgroundChildIds, replaceLiveTurn, hasBackgroundChild, liveBackgroundChildIds, mergeOlder, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
+import { appendNewer, backgroundChildIds, replaceLiveTurn, hasBackgroundChild, liveBackgroundChildIds, liveTurnChanged, mergeOlder, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
 import { parseViewingContext, viewingNote } from "../lib/page-context";
 
 let n = 0;
@@ -415,5 +415,49 @@ describe("appendNewer (span-safe)", () => {
     expect(appendNewer([msg("m1")], [msg("m1"), msg("m2")]).map((m) => m.id)).toEqual(["m1", "m2"]);
     const midFold = [msg("mX")]; // no t_ anywhere
     expect(appendNewer(midFold, [msg("mY")]).map((m) => m.id)).toEqual(["mX"]);
+  });
+});
+
+// ── 0076 followup to #19/#20: live folds froze in watching tabs ──
+
+describe("liveTurnChanged", () => {
+  const msg = (id: string, ...texts: string[]): UIMessage => ({
+    id,
+    role: "assistant",
+    parts: texts.map((text) => ({ type: "text" as const, text })),
+  });
+
+  it("is true when a KNOWN fold id grew parts (the freeze regression)", () => {
+    const windowMsgs = [msg("t_1", "go"), msg("m_a", "one")];
+    expect(liveTurnChanged(windowMsgs, [msg("t_1", "go"), msg("m_a", "one", "two")])).toBe(true);
+  });
+
+  it("is true when a known part's text grew", () => {
+    expect(liveTurnChanged([msg("m_a", "on")], [msg("m_a", "one")])).toBe(true);
+  });
+
+  it("is false for identical copies", () => {
+    const windowMsgs = [msg("t_1", "go"), msg("m_a", "one")];
+    expect(liveTurnChanged(windowMsgs, [msg("t_1", "go"), msg("m_a", "one")])).toBe(false);
+  });
+
+  it("is true for a new id", () => {
+    expect(liveTurnChanged([msg("m_a", "one")], [msg("m_a", "one"), msg("m_b", "x")])).toBe(true);
+  });
+});
+
+describe("replaceLiveTurn: grown fold + new message", () => {
+  it("keeps the opener, replaces the fold with its fuller copy, appends the new message once", () => {
+    const opener: UIMessage = { id: "t_1", role: "user", parts: [{ type: "text", text: "go" }] };
+    const fold1: UIMessage = { id: "m_a", role: "assistant", parts: [{ type: "text", text: "one" }] };
+    const fold2: UIMessage = { ...fold1, parts: [...fold1.parts, { type: "text", text: "two" }] };
+    const toolMsg = {
+      id: "m_b",
+      role: "assistant",
+      parts: [{ type: "tool-bash", toolCallId: "c1", state: "input-available", input: {} }],
+    } as unknown as UIMessage;
+    const merged = replaceLiveTurn([opener, fold1], [opener, fold2, toolMsg]);
+    expect(merged.map((m) => m.id)).toEqual(["t_1", "m_a", "m_b"]);
+    expect(merged[1]!.parts).toHaveLength(2);
   });
 });
