@@ -119,7 +119,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   slice as a percentage of the model's catalog window, and cost;
   hidden until metered, ring-only below `sm`; clicking opens the same
   stats breakdown (context first) as a popover. The header itself just
-  holds crumbs · the outline chip (0064) · the preview pill.
+  holds crumbs · the status chip · the preview pill. The status chip
+  (`lib/thread-phase.ts` `phaseFromMessages`, `components/status-chip.tsx`)
+  shows an open PR when `create_pr` succeeded (0052 — while it does, the
+  client polls `GET /api/x/prs` and `applyPRState` relabels it
+  merged/closed at render time), else the outline chip (0064). Once a
+  PR is open, a diff breakdown chip beside it (0059,
+  `lib/diff-breakdown.ts` `latestDiffBreakdown`, read off the
+  transcript) opens a popover with the branch's change sorted into
+  fixed categories (Generated/Tests/Docs/Migrations/Config/Code).
 - Quiet tool groups (0056) keep their full-width collapsible box and
   render calls with shadcn Trace (`components/ui/trace.tsx`): action
   first, expandable specialized cards, repeated polls still folded.
@@ -190,8 +198,8 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   versioned: active, disabled, deleted (tombstone); existing bound
   threads still read the current body even if disabled/deleted, but
   only active thread skills can be newly bound. A thread runs one via
-  `conversations.skill` — chosen by the creating send (the picker,
-  `?skill=<id>`; unknown ids rejected before creating anything) or by
+  `conversations.skill` — chosen by the creating send (`?skill=<id>`;
+  unknown ids rejected before creating anything) or by
   `start_thread` for a child. `use_skill` with no id lists the catalog;
   `use_skill({id})` loads that active skill's body as the tool result,
   any number of times, and never binds. A bound skill's body joins the
