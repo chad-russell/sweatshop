@@ -42,11 +42,13 @@ describe("skill files", () => {
     expect((await listSkills()).map((b) => b.id)).toContain("ship");
   });
 
-  it("ticket and review parse and carry their phase-3 shape", async () => {
+  it("ticket and review parse as plain outline runbooks", async () => {
     const ticket = await readSkill("ticket");
     expect(ticket?.title).toMatch(/^Ticket/);
-    expect(ticket?.body).toContain("present_plan");
-    expect(ticket?.body).toContain("accept_plan");
+    expect(ticket?.body).toContain("update_outline({ propose: true })");
+    expect(ticket?.body).toContain("accept_outline");
+    expect(ticket?.body).not.toContain("## Phase:");
+    expect(ticket?.body).not.toContain("PLAN.md");
     expect(ticket?.body).toContain("start_thread");
     expect(ticket?.body).toContain("create_pr");
     const review = await readSkill("review");
