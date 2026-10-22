@@ -1,0 +1,1 @@
+ALTER TABLE `conversations` ADD `active_stream_cursor` integer;

@@ -11,6 +11,9 @@ import type { StoredRow } from "./chat-ui";
 export interface ChatPage {
   rows: StoredRow[];
   activeRunId: string | null;
+  /** 0077: the live run's resume cursor (null when idle, or before its
+   *  first slice persisted) — paired with `activeRunId` everywhere. */
+  activeStreamCursor: number | null;
   /** rowid of `rows[0]` when older rows remain; null = start reached. */
   olderCursor: number | null;
   olderRemaining: number;
@@ -32,6 +35,7 @@ export async function fetchChatPage(
     return {
       rows: body.messages ?? body.rows ?? [],
       activeRunId: body.activeRunId ?? null,
+      activeStreamCursor: body.activeStreamCursor ?? null,
       olderCursor: body.olderCursor ?? null,
       olderRemaining: body.olderRemaining ?? 0,
     };
@@ -61,6 +65,7 @@ export async function extendChatPageBack(
     current = {
       rows: [...older.rows, ...current.rows],
       activeRunId: current.activeRunId,
+      activeStreamCursor: current.activeStreamCursor,
       olderCursor: older.olderCursor,
       olderRemaining: older.olderRemaining,
     };

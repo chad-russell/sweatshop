@@ -51,9 +51,19 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   finished slice is persisted as it lands (`persistTurn` `{from,
   final:false}` per slice, `final` clears the active run; row ids
   `m_<conv>_<skip>_<i>` are deterministic — retried steps never
-  duplicate). A reload or wake-attach of a LIVE turn hydrates rows only
-  up to the turn's opening `t_…` row (`untilLiveTurn`,
-  `lib/chat-ui.ts`) — the stream replay supplies the rest. ONE durable
+  duplicate). A reload, wake, or steered send onto a LIVE turn hydrates
+  every slice persisted so far, then resumes the AI SDK's own durable
+  stream (`chat.resumeStream()` via `WorkflowChatTransport`'s
+  `prepareReconnectToStreamRequest`) from `conversations.
+  active_stream_cursor` — the raw journal index `persistTurn` records
+  after each non-final slice (`getRun(id).getReadable().getTailIndex()
+  + 1`); `GET /api/x/chat/<runId>/from/<cursor>/stream` is that
+  reconnect route, `[runId]/stream` (cursor 0) stays only for a tab
+  reconnecting to its own dropped send. The cursor is cleared alongside
+  `active_run_id` everywhere that is. No homemade slice poll and no
+  from-chunk-0 journal replay on reload (0077, superseding 0076's
+  #19-#21); the 5 s wake poll only discovers a server-started turn
+  while idle, handing off to resume. ONE durable
   stream per turn (`preventClose` + `sendFinish: false`;
   `finishTurnStream` emits the single `finish` and closes AFTER
   `persistTurn`). A fresh page stays on `/` while its creating turn is
