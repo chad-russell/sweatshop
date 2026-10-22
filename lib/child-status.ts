@@ -53,7 +53,7 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       startedAt: call.createdAt,
       settledAt: call.settledAt,
       where: null,
-      phase: call.phase,
+      phase: call.step ?? call.phase,
       statusLabel: null,
       phaseContext:
         call.phaseSkillId && call.phaseSkillVersion != null && call.phaseId
@@ -88,7 +88,7 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       startedAt: child.createdAt,
       settledAt: live ? null : child.updatedAt,
       where: child.skill,
-      phase: child.workPhase,
+      phase: child.workStep ?? child.workPhase,
       statusLabel: threadStatusLabel(db, id),
       phaseContext: null,
       error: null,

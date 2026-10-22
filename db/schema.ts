@@ -90,6 +90,8 @@ export const conversations = sqliteTable(
      *  creation by `startThread`; null when the parent wasn't moded, the
      *  phase had no declared phases, or this isn't a child. */
     workPhase: text("work_phase"),
+    /** 0064 PR2: active outline step this child was spawned to do. */
+    workStep: text("work_step"),
     /** 0037 phase 3: the chat whose start_thread created this thread —
      *  the wake target when this one settles. Null = not a child. A
      *  deleted parent goes null and wakes stop. */
@@ -555,6 +557,8 @@ export const harnessCalls = sqliteTable(
      *  Set once at creation (`startHarnessCall`); `task` above stays the
      *  orchestrator's original, readable text. */
     phase: text("phase"),
+    /** 0064 PR2: active outline step this call was started for. */
+    step: text("step"),
     /** 0059: the mode skill id + version and phase id the handoff was
      *  rendered from, so the card can re-render that exact block.
      *  Null when the call had no phase handoff. */

@@ -142,6 +142,11 @@ export function setConversationWorkPhase(db: Db, id: string, phase: string): voi
   db.update(conversations).set({ workPhase: phase }).where(eq(conversations.id, id)).run();
 }
 
+/** 0064 PR2: record the active outline step assigned to a child. */
+export function setConversationWorkStep(db: Db, id: string, step: string): void {
+  db.update(conversations).set({ workStep: step }).where(eq(conversations.id, id)).run();
+}
+
 /** 0021: set (or clear, with null) the conversation's route — the chat
  *  picker's choice. The sandbox binding is set once, through
  *  db/sandboxes.ts. Caller validates. */
@@ -509,6 +514,8 @@ export interface ChatChild {
   /** 0055 v7 part B: the phase (display name) this child was spawned
    *  to do — null when the parent wasn't moded or had no phases. */
   workPhase: string | null;
+  /** 0064 PR2: active outline step this child was spawned to do. */
+  workStep: string | null;
   activeRunId: string | null;
   trashedAt: number | null;
   createdAt: number;
@@ -523,6 +530,7 @@ const chatChildColumns = {
   /** 0055 v7 part B: the phase (display name) this child was spawned
    *  to do — null when the parent wasn't moded or had no phases. */
   workPhase: conversations.workPhase,
+  workStep: conversations.workStep,
   activeRunId: conversations.activeRunId,
   trashedAt: conversations.trashedAt,
   createdAt: conversations.createdAt,
