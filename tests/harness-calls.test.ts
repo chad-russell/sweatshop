@@ -483,6 +483,23 @@ describe("startHarnessCall: outline runners and handoff (0064 PR2)", () => {
     expect(result).toMatchObject({ ok: true });
   });
 
+  it("refuses a pinned route whose provider key is absent before claiming a slot", async () => {
+    // Availability, not restriction: the pin's provider has no API key in
+    // this environment (setup.ts sets only ZAI), so validateRoute refuses
+    // the pinned route itself — value-shaped, and never a claimed slot.
+    const prevKey = process.env.GLOO_API_KEY;
+    delete process.env.GLOO_API_KEY;
+    try {
+      const conv = newConv();
+      setOutline(conv, outlined({ harness: "pi" as const, provider: "gloo" as const, model: "gloo-anthropic-claude-opus-5.5" }));
+      const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", start: async () => ({ runId: "never" }) });
+      expect(result).toMatchObject({ ok: false, code: "route-refused", message: expect.stringContaining("is not configured") });
+      expect(listActiveHarnessRuns(conv)).toHaveLength(0);
+    } finally {
+      if (prevKey !== undefined) process.env.GLOO_API_KEY = prevKey;
+    }
+  });
+
   it("refuses a pinned route forbidden by the project before claiming a slot", async () => {
     const projectId = `p_hc_restricted_${++n}`;
     tdb.insert(projects).values({
