@@ -22,6 +22,12 @@ export interface PrependAnchorTarget {
   scrollRef: MutableRefObject<HTMLElement | null> | null;
 }
 
+/** A DOM write outside the hook body (the scroller is reached through a
+ *  ref, which the React compiler would otherwise treat as hook state). */
+function setScrollTop(scroll: HTMLElement, top: number): void {
+  scroll.scrollTop = top;
+}
+
 export function usePrependAnchor(deps: unknown) {
   const targetRef = useRef<PrependAnchorTarget>({ sentinel: null, scrollRef: null });
   const [tick, setTick] = useState(0);
@@ -47,7 +53,7 @@ export function usePrependAnchor(deps: unknown) {
     const { sentinel, scrollRef } = targetRef.current;
     const scroll = scrollRef?.current ?? null;
     if (!sentinel || !scroll) return;
-    scroll.scrollTop = pending.scrollTop + (topInScroller(scroll, sentinel) - pending.sentinelTop);
+    setScrollTop(scroll, pending.scrollTop + (topInScroller(scroll, sentinel) - pending.sentinelTop));
   }, [tick, deps]);
 
   return { targetRef, capture, commit, cancel };
