@@ -222,13 +222,19 @@ function replaceSiblings(outline: Outline, parent: readonly number[], steps: Ste
   return { ...outline, steps: updateAt(outline.steps, parent, (step) => ({ ...step, children: steps })) };
 }
 
+interface EditOutlineResponse {
+  version: number;
+  rowId: string;
+  approved: boolean;
+}
+
 async function editOutlineRequest(input: {
   conversationId: string;
   outline: Outline;
   baseVersion: number;
   approve?: boolean;
   note?: string;
-}): Promise<string | null> {
+}): Promise<{ failure: string | null; saved: EditOutlineResponse | null }> {
   try {
     const res = await fetch("/api/x/input", {
       method: "POST",
@@ -242,9 +248,10 @@ async function editOutlineRequest(input: {
       }),
     });
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return res.ok ? null : (body?.error ?? `save failed (${res.status})`);
+    if (res.ok) return { failure: null, saved: body as EditOutlineResponse | null };
+    return { failure: body?.error ?? `save failed (${res.status})`, saved: null };
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return { failure: error instanceof Error ? error.message : String(error), saved: null };
   }
 }
 
@@ -254,7 +261,7 @@ function OutlineEditor({ initial, version, conversationId, projectId, review, on
   conversationId: string;
   projectId: string | null;
   review: boolean;
-  onSaved: (outline: Outline, approved: boolean) => void;
+  onSaved: (outline: Outline, saved: EditOutlineResponse) => void;
 }) {
   const [draft, setDraft] = useState(initial);
   const [note, setNote] = useState("");
@@ -264,10 +271,10 @@ function OutlineEditor({ initial, version, conversationId, projectId, review, on
   const save = async (approve: boolean) => {
     setBusy(true);
     setError(null);
-    const failure = await editOutlineRequest({ conversationId, outline: draft, baseVersion: version, approve, note: note.trim() || undefined });
+    const { failure, saved } = await editOutlineRequest({ conversationId, outline: draft, baseVersion: version, approve, note: note.trim() || undefined });
     setBusy(false);
-    if (failure) setError(failure);
-    else onSaved(draft, approve);
+    if (failure || !saved) setError(failure ?? "save failed");
+    else onSaved(draft, saved);
   };
   const changeStep = (path: number[], update: (step: Step) => Step) => setDraft((value) => ({ ...value, steps: updateAt(value.steps, path, update) }));
   const remove = (path: number[]) => setDraft((value) => {
@@ -457,8 +464,7 @@ export function OutlineToolCard({
 }) {
   const view = useContext(OutlineContext);
   const [editing, setEditing] = useState(false);
-  const [savedOutline, setSavedOutline] = useState<Outline | null>(null);
-  const [savedStatus, setSavedStatus] = useState<string | null>(null);
+  const [saved, setSaved] = useState<{ outline: Outline; version: number; reviewId: string; approved: boolean } | null>(null);
   const running = state === "input-streaming" || state === "input-available";
   if (running) return null; // no card while the rewrite streams in — nothing to show yet
   let outline: Outline | null = null;
@@ -484,13 +490,22 @@ export function OutlineToolCard({
     version = current.version;
     proposed = current.proposed;
   }
+  // An owner edit in this session replaced the stream's snapshot: the
+  // card shows the edited tree, the new version, and (until approved)
+  // the new review row.
+  const savedActive = saved !== null && saved.version >= (version ?? 0);
+  if (savedActive) {
+    outline = saved.outline;
+    version = saved.version;
+    proposed = !saved.approved;
+  }
   const latest = anchored;
-  const open = Boolean(anchored && view?.history.openReviewId);
+  const open = Boolean(anchored && view && (savedActive ? !saved!.approved : view.history.openReviewId));
   const previous = view?.history.previous.get(toolCallId) ?? null;
-  const reviewId = view?.history.openReviewId ?? toolCallId;
+  const reviewId = savedActive ? saved!.reviewId : (view?.history.openReviewId ?? toolCallId);
   const pill = open ? "needs you" : proposed ? (latest ? "approved" : "superseded") : "recorded";
   const tone = open ? "warn" : proposed && !latest ? "neutral" : "ok";
-  const shown = savedOutline ?? outline;
+  const shown = savedActive ? saved!.outline : outline;
   const canEditReview = Boolean(open && view && version);
   const canEditApprovedRunners = Boolean(latest && view?.history.approved && shown.steps.some((step) => step.state === "pending"));
   return (
@@ -505,7 +520,7 @@ export function OutlineToolCard({
     >
       <div className="flex flex-col gap-3 p-3">
         <OutlineDocument outline={shown} previous={previous} quote={view?.quote} />
-        {(canEditReview || canEditApprovedRunners) && !editing && !savedStatus && (
+        {(canEditReview || canEditApprovedRunners) && !editing && !saved && (
           <button type="button" className="inline-flex items-center gap-1 self-start rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground" onClick={() => setEditing(true)}>
             <Pencil className="size-3" aria-hidden /> {canEditReview ? "Edit outline" : "Edit pending runners"}
           </button>
@@ -517,15 +532,14 @@ export function OutlineToolCard({
             conversationId={view.conversationId}
             projectId={view.projectId}
             review={canEditReview}
-            onSaved={(next, approved) => {
-              setSavedOutline(next);
+            onSaved={(next, savedResponse) => {
+              setSaved({ outline: next, version: savedResponse.version, reviewId: savedResponse.rowId, approved: savedResponse.approved });
               setEditing(false);
-              setSavedStatus(approved ? `Saved and approved as v${version + 1}.` : `Saved as v${version + 1}.`);
             }}
           />
         )}
-        {savedStatus && <p className="text-xs text-muted-foreground">{savedStatus}</p>}
-        {open && !editing && !savedStatus && (
+        {saved && <p className="text-xs text-muted-foreground">{saved.approved ? `Saved and approved as v${saved.version}.` : `Saved as v${saved.version}.`}</p>}
+        {open && !editing && (
           <OutlineApprove
             toolCallId={reviewId}
             version={version ?? 0}
