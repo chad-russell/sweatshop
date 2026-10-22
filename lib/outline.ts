@@ -32,9 +32,15 @@ export type OutlineState = StatusState;
 export const OUTLINE_STATES = STATUS_STATES;
 const STATE_SET: ReadonlySet<string> = new Set(OUTLINE_STATES);
 
-/** Caps (0064 decision 1): an outline is a skimmable tree, not a dump. */
+/** Caps (0064 decision 1): an outline is a skimmable tree, not a dump.
+ * Same numbers the tool's zod schema carries, enforced here too so the
+ * owner-edit path (which bypasses the schema) is equally bounded. */
 export const OUTLINE_MAX_DEPTH = 4;
 export const OUTLINE_MAX_NODES = 200;
+export const OUTLINE_GOAL_MAX = 300;
+export const OUTLINE_LABEL_MAX = 200;
+export const OUTLINE_DETAIL_MAX = 500;
+export const OUTLINE_NOTE_MAX = 500;
 
 export type Runner = "auto" | "self" | "thread" | HarnessRoute;
 export type RunnerTool = { kind: "thread" } | { kind: "harness"; harness: HarnessRoute["harness"] };
@@ -194,10 +200,14 @@ function parseStep(value: unknown, depth: number, ids: Set<string>, topLevel: bo
   if (ids.has(id)) return `duplicate step id "${id}"`;
   ids.add(id);
   if (typeof raw.label !== "string" || raw.label.trim() === "") return `step "${id}" needs a label`;
+  if (raw.label.length > OUTLINE_LABEL_MAX) return `step "${id}"'s label is longer than ${OUTLINE_LABEL_MAX} characters`;
   if (typeof raw.state !== "string" || !STATE_SET.has(raw.state)) {
     return `step "${id}" needs a state (pending, active, done, skipped, blocked)`;
   }
   if (raw.detail !== undefined && typeof raw.detail !== "string") return `step "${id}"'s detail must be text`;
+  if (typeof raw.detail === "string" && raw.detail.length > OUTLINE_DETAIL_MAX) {
+    return `step "${id}"'s detail is longer than ${OUTLINE_DETAIL_MAX} characters`;
+  }
   if (raw.runner !== undefined && !topLevel) return `step "${id}": runner only applies to top-level steps`;
   if (raw.runner !== undefined && !isRunnerValue(raw.runner)) return `step "${id}": invalid runner`;
   const step: Step = { id, label: raw.label.trim(), state: raw.state as OutlineState };
@@ -226,6 +236,7 @@ export function validateOutline(input: unknown): Outline | OutlineFail {
   if (!input || typeof input !== "object") return fail("outline needs a goal and steps");
   const raw = input as { goal?: unknown; steps?: unknown; note?: unknown };
   if (typeof raw.goal !== "string" || raw.goal.trim() === "") return fail("outline needs a one-line goal");
+  if (raw.goal.length > OUTLINE_GOAL_MAX) return fail(`the goal is longer than ${OUTLINE_GOAL_MAX} characters`);
   if (!Array.isArray(raw.steps) || raw.steps.length === 0) return fail("outline needs at least one step");
   const ids = new Set<string>();
   const steps: Step[] = [];
@@ -238,6 +249,9 @@ export function validateOutline(input: unknown): Outline | OutlineFail {
   }
   if (total > OUTLINE_MAX_NODES) return fail(`at most ${OUTLINE_MAX_NODES} steps total`);
   if (raw.note !== undefined && typeof raw.note !== "string") return fail("note must be text");
+  if (typeof raw.note === "string" && raw.note.length > OUTLINE_NOTE_MAX) {
+    return fail(`the note is longer than ${OUTLINE_NOTE_MAX} characters`);
+  }
   const note = typeof raw.note === "string" ? raw.note.trim() : "";
   const goal = raw.goal.trim();
   return note ? { goal, steps, note } : { goal, steps };

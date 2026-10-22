@@ -96,6 +96,17 @@ describe("validateOutline", () => {
     expect(res).toMatchObject({ ok: false, message: expect.stringContaining("runner") });
   });
 
+  it("caps text lengths on the write paths (goal, label, detail, note)", () => {
+    const over = (n: number) => "x".repeat(n + 1);
+    const step = (extra: Record<string, string>) => ({ id: "a", label: "A", state: "active" as const, ...extra });
+    expect(validateOutline({ goal: over(300), steps: [step({})] })).toMatchObject({ ok: false, message: expect.stringContaining("goal") });
+    expect(validateOutline({ goal: "x", steps: [step({ label: over(200) })] })).toMatchObject({ ok: false, message: expect.stringContaining("label") });
+    expect(validateOutline({ goal: "x", steps: [step({ detail: over(500) })] })).toMatchObject({ ok: false, message: expect.stringContaining("detail") });
+    expect(validateOutline({ goal: "x", steps: [step({})], note: over(500) })).toMatchObject({ ok: false, message: expect.stringContaining("note") });
+    // At the cap itself everything passes (same numbers as the tool schema).
+    expect(validateOutline({ goal: "x".repeat(300), steps: [step({ detail: "d".repeat(500) })], note: "n".repeat(500) })).not.toHaveProperty("ok");
+  });
+
   it("caps depth at 4", () => {
     // depth 1 (top) -> 2 -> 3 -> 4 is fine; a 5th level is refused.
     const fine = validateOutline({
