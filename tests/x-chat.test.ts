@@ -409,6 +409,61 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "thread state (cache stability): an outlined chat gets the [thread state] note, and turn N's model input is a byte-identical prefix of turn N+1's rebuilt history with viewing + runEvent + threadState on one row",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      const { appendMessages, listTurnMessages, listMessageTexts } = await import("../db/chat");
+      const id = conv("thread-state-cache");
+      const outline = { goal: "Ship it", steps: [{ id: "build", label: "Build", state: "active" as const, runner: "auto" as const }, { id: "ship", label: "Ship", state: "pending" as const }] };
+      appendMessages(db(), id, [{
+        id: `${id}_outline_1`,
+        role: "tool",
+        text: "",
+        modelMessage: {
+          role: "tool",
+          content: [{ type: "tool-result", toolCallId: "outline_1", toolName: "update_outline", output: { type: "json", value: { ok: true, version: 1, outline, proposed: false, next: "recorded" } as never } }],
+        },
+      }]);
+
+      const viewing: import("../lib/page-context").ViewingContext = { kind: "chat", id };
+      const runEvent: import("../db/chat").RunEventMeta = { kind: "budget", id: "x", status: "continuing" };
+      const first = await start(chatTurn, [{ conversationId: id, userText: "first", viewing, runEvent }]);
+      await first.returnValue;
+
+      const afterFirst = listTurnMessages(db(), id);
+      const sendAt = afterFirst.findIndex((m) => m.role === "user" && (m as { content: unknown }).content === "first");
+      expect(sendAt).toBeGreaterThan(0);
+      const turn1Input = afterFirst.slice(0, sendAt + 1);
+      const note = turn1Input.find((m) => typeof (m as { content: unknown }).content === "string" && ((m as { content: string }).content).startsWith("[thread state]")) as { content: string } | undefined;
+      expect(note?.content).toContain("goal: Ship it");
+      expect(note?.content).toContain("Build");
+      expect(note?.content).toContain("if this changed, call update_outline");
+      expect(turn1Input.some((m) => String((m as { content: unknown }).content).includes("[viewing]"))).toBe(true);
+
+      const userRow = listMessageTexts(db(), id).find((r) => r.text === "first");
+      expect(userRow?.metadata).toMatchObject({ viewing: { kind: "chat", id }, runEvent, threadState: note?.content });
+
+      const second = await start(chatTurn, [{ conversationId: id, userText: "second" }]);
+      await second.returnValue;
+      expect(listTurnMessages(db(), id).slice(0, turn1Input.length)).toEqual(turn1Input);
+    },
+  );
+
+  it(
+    "thread state: a chat with no outline gets no [thread state] note",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "plain";
+      const { listTurnMessages } = await import("../db/chat");
+      const id = conv("thread-state-none");
+      const run = await start(chatTurn, [{ conversationId: id, userText: "hi" }]);
+      await run.returnValue;
+      expect(listTurnMessages(db(), id).some((m) => String((m as { content: unknown }).content).startsWith("[thread state]"))).toBe(false);
+    },
+  );
+
+  it(
     "background harness call: the worker advances the harness, settles with its text, and wakes the chat (0022)",
     { timeout: 30_000 },
     async () => {
