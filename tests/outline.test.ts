@@ -615,6 +615,26 @@ describe("0064 outline reviews (store + cores)", () => {
     expect(deriveOutline(listModelMessages(db(), id)).current).toMatchObject({ version: 2, outline: { steps: [{ label: "Renamed" }] } });
   });
 
+  it("with no review ever opened, an edit is still runner-only (matching the UI)", async () => {
+    const id = conv();
+    // A plain (never-proposed) rewrite: outlineState is kind "none".
+    const plain = updateOutline(id, "no_review_base", { goal: "Ship", steps: [{ id: "a", label: "A", state: "pending", runner: "auto" }] });
+    appendMessages(db(), id, [{ id: `${id}_no_review_base`, role: "tool", text: "", modelMessage: resultRow("no_review_base", plain) }]);
+    const wakes: unknown[] = [];
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Changed", [{ id: "a", label: "A", state: "pending", runner: "auto" }]),
+    }, editDeps(wakes))).toMatchObject({ ok: false, status: 409, code: "approved" });
+    // A runner-only edit still goes through and wakes.
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Ship", [{ id: "a", label: "A", state: "pending", runner: "self" }]),
+    }, editDeps(wakes))).toMatchObject({ ok: true, version: 2, woke: true });
+    expect(wakes).toHaveLength(1);
+  });
+
   it("after approval only a pending top-level runner edit is accepted and wakes", async () => {
     const id = conv();
     persistProposal(id, "runner_edit_base", outline("Ship", [{ id: "a", label: "A", state: "pending", runner: "auto" }]));

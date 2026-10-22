@@ -53,8 +53,10 @@ export async function editOutline(
   }
 
   const state = outlineState(db(), input.conversationId);
-  if (state.kind === "approved" && !isPendingRunnerEdit(derived.current.outline, parsed)) {
-    return refuse(409, "approved", "after approval, only pending top-level step runners may be changed");
+  // Outside an open review (approved, or never proposed — the UI hides
+  // the edit button in both), only pending top-level step runners may change.
+  if (state.kind !== "review" && !isPendingRunnerEdit(derived.current.outline, parsed)) {
+    return refuse(409, "approved", "outside a review, only pending top-level step runners may be changed");
   }
   if (state.kind !== "review" && input.approve) {
     return refuse(409, "not-in-review", "only an outline in review can be approved with an edit");
