@@ -96,6 +96,22 @@ describe("validateOutline", () => {
     expect(res).toMatchObject({ ok: false, message: expect.stringContaining("runner") });
   });
 
+  it("refuses two active top-level steps on write (the runner gate is unambiguous)", () => {
+    const twoActive = validateOutline({
+      goal: "x",
+      steps: [
+        { id: "a", label: "A", state: "active" },
+        { id: "b", label: "B", state: "active", runner: "self" },
+      ],
+    });
+    expect(twoActive).toMatchObject({ ok: false, message: expect.stringContaining("at most one top-level step may be active") });
+    // One active top-level step is fine; several active CHILDREN still are.
+    expect(validateOutline({ goal: "x", steps: [{ id: "a", label: "A", state: "active", children: [
+      { id: "c1", label: "C1", state: "active" },
+      { id: "c2", label: "C2", state: "active" },
+    ] }] })).not.toHaveProperty("ok");
+  });
+
   it("caps text lengths on the write paths (goal, label, detail, note)", () => {
     const over = (n: number) => "x".repeat(n + 1);
     const step = (extra: Record<string, string>) => ({ id: "a", label: "A", state: "active" as const, ...extra });
@@ -216,6 +232,17 @@ describe("deriveOutline", () => {
     expect(derived.current?.outline.goal).toBe("");
     expect(derived.current?.outline.steps.map((s) => s.id)).toEqual(["plan", "plan-2"]);
     expect(derived.current?.outline.steps.every((s) => s.runner === "auto")).toBe(true);
+  });
+
+  it("still derives a legacy update_status snapshot with two active steps (write-time rule only)", () => {
+    const derived = deriveOutline([
+      legacyUi([
+        { label: "Plan", state: "active" },
+        { label: "Implement", state: "active" },
+      ]),
+    ]);
+    expect(derived.current?.outline.steps).toHaveLength(2);
+    expect(derived.current?.outline.steps.filter((s) => s.state === "active")).toHaveLength(2);
   });
 
   it("a propose:true result opens review; approval (by wake text or accept_outline) clears it", () => {

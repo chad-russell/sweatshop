@@ -248,6 +248,10 @@ export function validateOutline(input: unknown): Outline | OutlineFail {
     total += parsed.count;
   }
   if (total > OUTLINE_MAX_NODES) return fail(`at most ${OUTLINE_MAX_NODES} steps total`);
+  const activeCount = steps.filter((step) => step.state === "active").length;
+  if (activeCount > 1) {
+    return fail("at most one top-level step may be active at a time — finish or restate the others before rewriting");
+  }
   if (raw.note !== undefined && typeof raw.note !== "string") return fail("note must be text");
   if (typeof raw.note === "string" && raw.note.length > OUTLINE_NOTE_MAX) {
     return fail(`the note is longer than ${OUTLINE_NOTE_MAX} characters`);
