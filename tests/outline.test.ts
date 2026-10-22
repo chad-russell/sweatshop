@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
 import { db } from "../db";
-import { appendMessages, ensureConversation, listPendingInputs } from "../db/chat";
+import { appendMessages, ensureConversation, listModelMessages, listPendingInputs } from "../db/chat";
 import { getOutlineRow, outlineState } from "../db/outlines";
 import { projects } from "../db/schema";
 import { derivePhase, phaseFromMessages } from "../lib/plan";
 import { renderWake } from "../lib/chat/wake";
+import { editOutline } from "../lib/chat/outline-edit";
 import {
   acceptOutlineApproved,
   acceptOutlinePreview,
@@ -13,14 +14,21 @@ import {
   updateOutline,
   type ApproveOutlineDeps,
 } from "../lib/agent/tools/outline";
+import { renderPhaseHandoff, splitPhaseHandoff } from "../lib/agent/mode-ids";
 import {
   deriveOutline,
   diffOutlineSteps,
   isOutline,
   outlineChipLabel,
+  prependOutlineHandoff,
+  renderOutlineEdit,
+  renderOutlineHandoff,
   renderThreadStateNote,
+  runnerGate,
+  splitOutlineContext,
   validateOutline,
   type Outline,
+  type Step,
 } from "../lib/outline";
 
 /**
@@ -86,6 +94,33 @@ describe("validateOutline", () => {
   it("refuses an invalid runner shape", () => {
     const res = validateOutline({ goal: "x", steps: [{ id: "a", label: "A", state: "active", runner: { harness: "nope" } }] });
     expect(res).toMatchObject({ ok: false, message: expect.stringContaining("runner") });
+  });
+
+  it("refuses two active top-level steps on write (the runner gate is unambiguous)", () => {
+    const twoActive = validateOutline({
+      goal: "x",
+      steps: [
+        { id: "a", label: "A", state: "active" },
+        { id: "b", label: "B", state: "active", runner: "self" },
+      ],
+    });
+    expect(twoActive).toMatchObject({ ok: false, message: expect.stringContaining("at most one top-level step may be active") });
+    // One active top-level step is fine; several active CHILDREN still are.
+    expect(validateOutline({ goal: "x", steps: [{ id: "a", label: "A", state: "active", children: [
+      { id: "c1", label: "C1", state: "active" },
+      { id: "c2", label: "C2", state: "active" },
+    ] }] })).not.toHaveProperty("ok");
+  });
+
+  it("caps text lengths on the write paths (goal, label, detail, note)", () => {
+    const over = (n: number) => "x".repeat(n + 1);
+    const step = (extra: Record<string, string>) => ({ id: "a", label: "A", state: "active" as const, ...extra });
+    expect(validateOutline({ goal: over(300), steps: [step({})] })).toMatchObject({ ok: false, message: expect.stringContaining("goal") });
+    expect(validateOutline({ goal: "x", steps: [step({ label: over(200) })] })).toMatchObject({ ok: false, message: expect.stringContaining("label") });
+    expect(validateOutline({ goal: "x", steps: [step({ detail: over(500) })] })).toMatchObject({ ok: false, message: expect.stringContaining("detail") });
+    expect(validateOutline({ goal: "x", steps: [step({})], note: over(500) })).toMatchObject({ ok: false, message: expect.stringContaining("note") });
+    // At the cap itself everything passes (same numbers as the tool schema).
+    expect(validateOutline({ goal: "x".repeat(300), steps: [step({ detail: "d".repeat(500) })], note: "n".repeat(500) })).not.toHaveProperty("ok");
   });
 
   it("caps depth at 4", () => {
@@ -176,6 +211,17 @@ describe("deriveOutline", () => {
     expect(derived.review).toBeNull();
   });
 
+  it("treats an owner edit row as the next snapshot", () => {
+    const edited = outline("edited", [{ id: "a", label: "Renamed", state: "active" }]);
+    const derived = deriveOutline([
+      ui(1, implement, true),
+      { role: "user", content: renderOutlineEdit({ version: 2, outline: edited, proposed: true }) },
+    ]);
+    expect(derived.current).toMatchObject({ version: 2, outline: edited, proposed: true });
+    expect(derived.history).toHaveLength(2);
+    expect(derived.review?.version).toBe(2);
+  });
+
   it("reads a legacy update_status result as an outline with no goal and slugged, unique ids", () => {
     const derived = deriveOutline([
       legacyUi([
@@ -186,6 +232,17 @@ describe("deriveOutline", () => {
     expect(derived.current?.outline.goal).toBe("");
     expect(derived.current?.outline.steps.map((s) => s.id)).toEqual(["plan", "plan-2"]);
     expect(derived.current?.outline.steps.every((s) => s.runner === "auto")).toBe(true);
+  });
+
+  it("still derives a legacy update_status snapshot with two active steps (write-time rule only)", () => {
+    const derived = deriveOutline([
+      legacyUi([
+        { label: "Plan", state: "active" },
+        { label: "Implement", state: "active" },
+      ]),
+    ]);
+    expect(derived.current?.outline.steps).toHaveLength(2);
+    expect(derived.current?.outline.steps.filter((s) => s.state === "active")).toHaveLength(2);
   });
 
   it("a propose:true result opens review; approval (by wake text or accept_outline) clears it", () => {
@@ -295,6 +352,61 @@ describe("diffOutlineSteps", () => {
   });
 });
 
+describe("outline runner decisions and worker handoff", () => {
+  const active = (runner?: Step["runner"]): Outline => outline("Ship it", [
+    {
+      id: "build",
+      label: "Build",
+      state: "active",
+      ...(runner ? { runner } : {}),
+      children: [{ id: "tests", label: "Tests", state: "pending", detail: "run all" }],
+    },
+  ]);
+  const pi = { harness: "pi" as const, provider: "glm" as const, model: "glm-5.3-flash" };
+
+  it("allows auto/no outline, restricts self and thread, and pins an exact harness route", () => {
+    expect(runnerGate(null, { kind: "thread" })).toMatchObject({ ok: true, active: null });
+    expect(runnerGate(active("auto"), { kind: "harness", harness: "pi" })).toMatchObject({ ok: true, route: null });
+    expect(runnerGate(active("self"), { kind: "thread" })).toMatchObject({ ok: false, message: expect.stringContaining("self") });
+    expect(runnerGate(active("thread"), { kind: "thread" })).toMatchObject({ ok: true });
+    expect(runnerGate(active("thread"), { kind: "harness", harness: "pi" })).toMatchObject({ ok: false, message: expect.stringContaining("thread") });
+    expect(runnerGate(active(pi), { kind: "thread" })).toMatchObject({ ok: false, message: expect.stringContaining("pinned") });
+    expect(runnerGate(active(pi), { kind: "harness", harness: "claude" })).toMatchObject({ ok: false, message: expect.stringContaining("different") });
+    expect(runnerGate(active(pi), { kind: "harness", harness: "pi" })).toMatchObject({ ok: true, route: pi });
+  });
+
+  it("splitOutlineContext peels the block wherever it sits, so the anchored phase split still matches", () => {
+    const phaseTask = renderPhaseHandoff({
+      modeName: "Ticket",
+      phase: { id: "implement", name: "Implement", body: "Make it so." },
+      shared: null,
+      task: "fix the bug",
+    });
+    // What start_thread sends when an outline is active in a moded chat:
+    // outline context FIRST, then the 0055 phase handoff.
+    const withPhase = prependOutlineHandoff(phaseTask, active("thread")).task;
+    const phase = splitOutlineContext(withPhase)!;
+    expect(phase.context).toBe("Goal: Ship it\n- Build [active]\n  - Tests [pending] — run all");
+    // The phase split (anchored at the text's start) still matches on the rest.
+    const handoff = splitPhaseHandoff(phase.rest);
+    expect(handoff).toMatchObject({ phase: "Implement", task: "fix the bug" });
+    // Order-independent: the outline block also splits when it trails.
+    const outline = active("auto");
+    const trailing = `do the work\n\n${renderOutlineHandoff(outline, outline.steps[0]!)}`;
+    const after = splitOutlineContext(trailing)!;
+    expect(after.rest).toBe("do the work");
+    expect(splitOutlineContext("just a message")).toBeNull();
+  });
+
+  it("prepends the goal and active subtree compactly", () => {
+    const wrapped = prependOutlineHandoff("Do the work", active("thread"));
+    expect(wrapped.step).toBe("Build");
+    expect(wrapped.task).toBe(
+      "[outline context]\nGoal: Ship it\n- Build [active]\n  - Tests [pending] — run all\n[/outline context]\n\nDo the work",
+    );
+  });
+});
+
 describe("derivePhase reads the outline (0064)", () => {
   it("fills the chip only when no PR and no open plan review is waiting", () => {
     const status = deriveOutline([{ role: "assistant", parts: [{ type: "tool-update_outline", state: "output-available", output: { ok: true, version: 1, outline: implement, proposed: false, next: "ok" } }] }]);
@@ -326,6 +438,18 @@ describe("0064 outline reviews (store + cores)", () => {
   };
 
   db().insert(projects).values({ id: "p_outline", name: "Outline", createdAt: 0 }).onConflictDoNothing().run();
+
+  const persistProposal = (id: string, callId: string, value: Outline) => {
+    const proposed = updateOutline(id, callId, { ...value, propose: true });
+    appendMessages(db(), id, [{ id: `${id}_${callId}`, role: "tool", text: "", modelMessage: resultRow(callId, proposed) }]);
+    return proposed;
+  };
+
+  const editDeps = (wakes: unknown[]) => ({
+    wake: async (...args: unknown[]) => {
+      wakes.push(args);
+    },
+  });
 
   it("a plain rewrite (no propose) never opens a review — it returns synchronously, never suspending", () => {
     const id = conv();
@@ -442,6 +566,115 @@ describe("0064 outline reviews (store + cores)", () => {
   it("accept_outline refuses without an open review", () => {
     const id = conv();
     expect(acceptOutlinePreview(id)).toMatchObject({ ok: false, code: "no-review" });
+  });
+
+  it("owner edits reject a stale base and supersede the open review", async () => {
+    const id = conv();
+    persistProposal(id, "edit_base", outline("Ship", [{ id: "a", label: "A", state: "active" }]));
+    const wakes: unknown[] = [];
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 0,
+      outline: outline("Ship", [{ id: "a", label: "B", state: "active" }]),
+    }, editDeps(wakes))).toMatchObject({ ok: false, status: 400, code: "invalid-version" });
+
+    const edited = await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Ship", [{ id: "a", label: "B", state: "active" }]),
+    }, editDeps(wakes));
+    expect(edited).toMatchObject({ ok: true, version: 2, approved: false, woke: false });
+    expect(getOutlineRow(db(), "edit_base")?.answer).toMatchObject({ superseded: true });
+    expect(outlineState(db(), id)).toMatchObject({ kind: "review", row: { card: { version: 2 } } });
+    expect(wakes).toEqual([]);
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Ship", [{ id: "a", label: "C", state: "active" }]),
+    }, editDeps(wakes))).toMatchObject({ ok: false, status: 409, code: "stale" });
+    expect(updateOutline(id, "after_owner_edit", {
+      goal: "Ship",
+      steps: [{ id: "a", label: "Agent rewrite", state: "active" }],
+    })).toMatchObject({ ok: true, version: 3 });
+  });
+
+  it("edit plus approve appends one edit snapshot and wakes once", async () => {
+    const id = conv();
+    persistProposal(id, "approve_edit_base", outline("Ship", [{ id: "a", label: "A", state: "active" }]));
+    const wakes: unknown[] = [];
+    const result = await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Ship", [{ id: "a", label: "Renamed", state: "active" }]),
+      approve: true,
+      note: "go",
+    }, editDeps(wakes));
+    expect(result).toMatchObject({ ok: true, version: 2, approved: true, woke: true });
+    expect(wakes).toHaveLength(1);
+    expect(outlineState(db(), id)).toMatchObject({ kind: "approved", row: { card: { version: 2 } } });
+    expect(deriveOutline(listModelMessages(db(), id)).current).toMatchObject({ version: 2, outline: { steps: [{ label: "Renamed" }] } });
+  });
+
+  it("with no review ever opened, an edit is still runner-only (matching the UI)", async () => {
+    const id = conv();
+    // A plain (never-proposed) rewrite: outlineState is kind "none".
+    const plain = updateOutline(id, "no_review_base", { goal: "Ship", steps: [{ id: "a", label: "A", state: "pending", runner: "auto" }] });
+    appendMessages(db(), id, [{ id: `${id}_no_review_base`, role: "tool", text: "", modelMessage: resultRow("no_review_base", plain) }]);
+    const wakes: unknown[] = [];
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Changed", [{ id: "a", label: "A", state: "pending", runner: "auto" }]),
+    }, editDeps(wakes))).toMatchObject({ ok: false, status: 409, code: "approved" });
+    // A runner-only edit still goes through and wakes.
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Ship", [{ id: "a", label: "A", state: "pending", runner: "self" }]),
+    }, editDeps(wakes))).toMatchObject({ ok: true, version: 2, woke: true });
+    expect(wakes).toHaveLength(1);
+  });
+
+  it("after approval only a pending top-level runner edit is accepted and wakes", async () => {
+    const id = conv();
+    persistProposal(id, "runner_edit_base", outline("Ship", [{ id: "a", label: "A", state: "pending", runner: "auto" }]));
+    const firstWakes: unknown[] = [];
+    await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Ship", [{ id: "a", label: "A", state: "pending", runner: "thread" }]),
+      approve: true,
+    }, editDeps(firstWakes));
+    const wakes: unknown[] = [];
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 2,
+      outline: outline("Ship", [{ id: "a", label: "A", state: "pending", runner: "self" }]),
+    }, editDeps(wakes))).toMatchObject({ ok: true, version: 3, woke: true });
+    expect(wakes).toHaveLength(1);
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 3,
+      outline: outline("Changed", [{ id: "a", label: "A", state: "pending", runner: "self" }]),
+    }, editDeps(wakes))).toMatchObject({ ok: false, code: "approved" });
+  });
+
+  it("refuses an edited runner forbidden by project restrictions", async () => {
+    const projectId = `p_outline_restricted_${Math.random().toString(36).slice(2, 7)}`;
+    db().insert(projects).values({
+      id: projectId,
+      name: "Restricted",
+      allowedHarnesses: JSON.stringify(["pi"]),
+      createdAt: 0,
+    }).run();
+    const id = `c_outline_restricted_${Math.random().toString(36).slice(2, 7)}`;
+    ensureConversation(db(), id, projectId);
+    persistProposal(id, "restricted_base", outline("Ship", [{ id: "a", label: "A", state: "pending" }]));
+    expect(await editOutline({
+      conversationId: id,
+      baseVersion: 1,
+      outline: outline("Ship", [{ id: "a", label: "A", state: "pending", runner: { harness: "claude" } }]),
+    }, editDeps([]))).toMatchObject({ ok: false, status: 400, code: "invalid-runner", error: expect.stringContaining("does not allow") });
   });
 });
 

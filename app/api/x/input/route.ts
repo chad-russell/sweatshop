@@ -19,8 +19,46 @@ export async function POST(request: Request) {
     answer?: string;
     approvePlan?: boolean;
     approveOutline?: boolean;
+    conversationId?: string;
+    editOutline?: unknown;
+    baseVersion?: number;
+    approve?: boolean;
     note?: string;
   };
+  if (body.editOutline !== undefined) {
+    if (!body.conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+    const [{ editOutline }, { wakeConversation }] = await Promise.all([
+      import("@/lib/chat/outline-edit"),
+      import("@/lib/chat/wake"),
+    ]);
+    const result = await editOutline(
+      {
+        conversationId: body.conversationId,
+        outline: body.editOutline,
+        baseVersion: body.baseVersion,
+        approve: body.approve,
+        note: body.note?.trim() || undefined,
+      },
+      {
+        wake: (conversationId, version, id, approved, note) =>
+          wakeConversation(conversationId, {
+            kind: "outline",
+            id,
+            name: `outline v${version}`,
+            status: approved ? "approved" : "edited",
+            detail: approved
+              ? `${ownerName()} edited and approved outline v${version}${note ? `: ${note}` : ""}.`
+              : `${ownerName()} edited outline v${version}.`,
+            url: `/c/${conversationId}`,
+          }),
+      },
+    );
+    return result.ok
+      ? NextResponse.json(result)
+      : NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
+  }
   if (!body.toolCallId) {
     return NextResponse.json({ error: "toolCallId is required" }, { status: 400 });
   }

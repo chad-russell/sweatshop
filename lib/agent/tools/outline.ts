@@ -10,7 +10,7 @@ import {
   pendingAcceptOutlineIds,
   type OutlineCard,
 } from "@/db/outlines";
-import { isOutlineSnapshot, validateOutline, type Outline, type OutlineSnapshot } from "@/lib/outline";
+import { deriveOutline, isOutlineSnapshot, validateOutline, type Outline, type OutlineSnapshot } from "@/lib/outline";
 import { isStatusSnapshot } from "@/lib/status";
 
 /**
@@ -68,9 +68,12 @@ export function updateOutline(
   const outline: Outline = parsed;
   const propose = input.propose === true;
   const persisted = listModelMessages(db(), conversationId);
-  const prior = new Set([...outlineCallIds(persisted), ...outlineCallIds(live)]);
+  const persistedCalls = new Set(outlineCallIds(persisted));
+  const prior = new Set([...persistedCalls, ...outlineCallIds(live)]);
   prior.delete(toolCallId);
-  const version = prior.size + 1;
+  const persistedVersion = deriveOutline(persisted).current?.version ?? 0;
+  const liveOnly = [...prior].filter((id) => !persistedCalls.has(id)).length;
+  const version = persistedVersion + liveOnly + 1;
   if (propose) {
     const card: OutlineCard = { kind: "outline", version, outline, ...(outline.note ? { note: outline.note } : {}) };
     openOutlineReview(db(), { id: toolCallId, conversationId, card });

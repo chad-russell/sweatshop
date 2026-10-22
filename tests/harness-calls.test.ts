@@ -14,7 +14,7 @@ import {
   settleHarnessCall,
   setCallWorkflowRun,
 } from "../db/harness-calls";
-import { ensureConversation, setConversationMode } from "../db/chat";
+import { appendMessages, ensureConversation, setConversationMode } from "../db/chat";
 import { claimHarnessRun, listActiveHarnessRuns, getHarnessEvents, getHarnessRun } from "../lib/harness-events";
 import { conversations, harnessRuns, projects } from "../db/schema";
 import { wakeCallIfDue, sweepWakes } from "../lib/chat/wake";
@@ -23,6 +23,7 @@ import { startHarnessCall, withResultInstruction } from "../lib/chat/harness-cal
 import { getTarget } from "../db/prompt-settings";
 import { applyApprovedPromptChangeStep } from "../workflows/chat/steps/prompt-change";
 import { explainBridgeStartupFailure } from "../workflows/chat/harness-step";
+import type { Outline } from "../lib/outline";
 
 /**
  * 0022 cut 2 — background harness calls: the store's settle-once
@@ -41,6 +42,19 @@ const newConv = () => {
   ensureConversation(tdb, id, "p_hc");
   return id;
 };
+
+function setOutline(conversationId: string, outline: Outline, version = 1) {
+  const output = { ok: true as const, version, outline, proposed: false, next: "recorded" };
+  appendMessages(tdb, conversationId, [{
+    id: `${conversationId}_outline_${version}`,
+    role: "tool",
+    text: "",
+    modelMessage: {
+      role: "tool",
+      content: [{ type: "tool-result", toolCallId: `outline_${version}`, toolName: "update_outline", output: { type: "json", value: output as never } }],
+    },
+  }]);
+}
 
 /** 0055 v7 part B: a mode skill with two phases, created fresh per
  *  call so tests never collide on id. */
@@ -317,6 +331,7 @@ describe("startHarnessCall: phase handoff (0055 v7 part B)", () => {
   it("wraps the WORKFLOW prompt with the handoff, keeping the stored task original and recording the phase name", async () => {
     await createPhaseMode("handoff-mode-1");
     const conv = modedConv("handoff-mode-1", "plan");
+    setOutline(conv, { goal: "Combined", steps: [{ id: "plan", label: "Plan", state: "active", runner: "auto" }] });
     const seen: { task: string }[] = [];
     const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "do the thing", start: captureStart(seen) });
     expect(result).toMatchObject({ ok: true });
@@ -328,10 +343,12 @@ describe("startHarnessCall: phase handoff (0055 v7 part B)", () => {
     expect(seen[0]!.task).not.toContain("Implement phase body.");
     expect(seen[0]!.task).not.toContain("Brief, orchestrator-only.");
     expect(seen[0]!.task).toContain("Task from the orchestrator:\ndo the thing");
+    expect(seen[0]!.task.indexOf("[outline context]")).toBeLessThan(seen[0]!.task.indexOf('You are doing the "Plan" phase'));
 
     const call = getHarnessCall(tdb, result.callId)!;
     expect(call.task).toBe("do the thing");
     expect(call.phase).toBe("Plan");
+    expect(call.step).toBe("Plan");
     // The events-page start input stays the original ask too.
     const start = getHarnessEvents(conv, "pi").events.find((e) => e.kind === "start");
     expect(start?.input).toBe("do the thing");
@@ -409,6 +426,94 @@ describe("startHarnessCall: phase handoff (0055 v7 part B)", () => {
     expect(seen[0]!.task).toBe(withResultInstruction("fix it"));
     const call = getHarnessCall(tdb, listHarnessCalls(tdb, { conversationId: conv })[0]!.id)!;
     expect(call.phase).toBeNull();
+  });
+});
+
+describe("startHarnessCall: outline runners and handoff (0064 PR2)", () => {
+  const pi = { harness: "pi" as const, provider: "glm" as const, model: "glm-5.3-flash" };
+  const outlined = (runner: Outline["steps"][number]["runner"]): Outline => ({
+    goal: "Ship it",
+    steps: [{
+      id: "build",
+      label: "Build",
+      state: "active",
+      runner,
+      children: [{ id: "tests", label: "Tests", state: "pending", detail: "run all" }],
+    }],
+  });
+
+  it("refuses self, thread, and a different pinned harness before claiming a slot", async () => {
+    for (const [runner, kind] of [
+      ["self", "pi"],
+      ["thread", "pi"],
+      [pi, "claude"],
+    ] as const) {
+      const conv = newConv();
+      setOutline(conv, outlined(runner));
+      const result = await startHarnessCall({ conversationId: conv, kind, task: "x", start: async () => ({ runId: "never" }) });
+      expect(result).toMatchObject({ ok: false, code: "runner-refused" });
+      expect(listActiveHarnessRuns(conv)).toHaveLength(0);
+    }
+  });
+
+  it("uses the exact pinned route, records the step, and prepends outline context", async () => {
+    const conv = newConv();
+    setOutline(conv, outlined(pi));
+    const seen: { route: unknown; task: string }[] = [];
+    const result = await startHarnessCall({
+      conversationId: conv,
+      kind: "pi",
+      task: "do it",
+      start: async (input) => {
+        seen.push({ route: input.route, task: input.task });
+        return { runId: "wr_outline" };
+      },
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(seen[0]?.route).toEqual(pi);
+    expect(seen[0]?.task).toContain("[outline context]\nGoal: Ship it\n- Build [active]\n  - Tests [pending] — run all");
+    const call = getHarnessCall(tdb, (result as { callId: string }).callId)!;
+    expect(call.step).toBe("Build");
+  });
+
+  it("leaves auto behavior unrestricted", async () => {
+    const conv = newConv();
+    setOutline(conv, outlined("auto"));
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", start: async () => ({ runId: "wr_auto" }) });
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it("refuses a pinned route whose provider key is absent before claiming a slot", async () => {
+    // Availability, not restriction: the pin's provider has no API key in
+    // this environment (setup.ts sets only ZAI), so validateRoute refuses
+    // the pinned route itself — value-shaped, and never a claimed slot.
+    const prevKey = process.env.GLOO_API_KEY;
+    delete process.env.GLOO_API_KEY;
+    try {
+      const conv = newConv();
+      setOutline(conv, outlined({ harness: "pi" as const, provider: "gloo" as const, model: "gloo-anthropic-claude-opus-5.5" }));
+      const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", start: async () => ({ runId: "never" }) });
+      expect(result).toMatchObject({ ok: false, code: "route-refused", message: expect.stringContaining("is not configured") });
+      expect(listActiveHarnessRuns(conv)).toHaveLength(0);
+    } finally {
+      if (prevKey !== undefined) process.env.GLOO_API_KEY = prevKey;
+    }
+  });
+
+  it("refuses a pinned route forbidden by the project before claiming a slot", async () => {
+    const projectId = `p_hc_restricted_${++n}`;
+    tdb.insert(projects).values({
+      id: projectId,
+      name: "Restricted",
+      allowedHarnesses: JSON.stringify(["claude"]),
+      createdAt: 0,
+    }).run();
+    const conv = `c_hc_restricted_${n}`;
+    ensureConversation(tdb, conv, projectId);
+    setOutline(conv, outlined(pi));
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", start: async () => ({ runId: "never" }) });
+    expect(result).toMatchObject({ ok: false, code: "route-refused", message: expect.stringContaining("does not allow") });
+    expect(listActiveHarnessRuns(conv)).toHaveLength(0);
   });
 });
 

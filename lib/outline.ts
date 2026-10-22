@@ -32,11 +32,18 @@ export type OutlineState = StatusState;
 export const OUTLINE_STATES = STATUS_STATES;
 const STATE_SET: ReadonlySet<string> = new Set(OUTLINE_STATES);
 
-/** Caps (0064 decision 1): an outline is a skimmable tree, not a dump. */
+/** Caps (0064 decision 1): an outline is a skimmable tree, not a dump.
+ * Same numbers the tool's zod schema carries, enforced here too so the
+ * owner-edit path (which bypasses the schema) is equally bounded. */
 export const OUTLINE_MAX_DEPTH = 4;
 export const OUTLINE_MAX_NODES = 200;
+export const OUTLINE_GOAL_MAX = 300;
+export const OUTLINE_LABEL_MAX = 200;
+export const OUTLINE_DETAIL_MAX = 500;
+export const OUTLINE_NOTE_MAX = 500;
 
 export type Runner = "auto" | "self" | "thread" | HarnessRoute;
+export type RunnerTool = { kind: "thread" } | { kind: "harness"; harness: HarnessRoute["harness"] };
 
 export interface Step {
   /** Stable agent-chosen slug, kept across rewrites. */
@@ -55,6 +62,96 @@ export interface Outline {
   goal: string;
   steps: Step[];
   note?: string;
+}
+
+export type RunnerGate =
+  | { ok: true; active: Step | null; route: HarnessRoute | null }
+  | { ok: false; active: Step; message: string };
+
+/** Pure runner decision. Callers perform route availability/restriction
+ * checks after this gate and before claiming a slot or creating a child. */
+export function runnerGate(outline: Outline | null | undefined, tool: RunnerTool): RunnerGate {
+  const active = outline?.steps.find((step) => step.state === "active") ?? null;
+  if (!active || active.runner === undefined || active.runner === "auto") {
+    return { ok: true, active, route: null };
+  }
+  const change = "call update_outline to change the active step's runner";
+  if (active.runner === "self") {
+    return { ok: false, active, message: `active step "${active.label}" is assigned to self; delegation is refused — ${change}` };
+  }
+  if (active.runner === "thread") {
+    return tool.kind === "thread"
+      ? { ok: true, active, route: null }
+      : { ok: false, active, message: `active step "${active.label}" is assigned to thread; harness calls are refused — ${change}` };
+  }
+  if (tool.kind === "thread") {
+    return {
+      ok: false,
+      active,
+      message: `active step "${active.label}" is pinned to ${runnerLabel(active.runner)}; start_thread is refused — ${change}`,
+    };
+  }
+  if (active.runner.harness !== tool.harness) {
+    return {
+      ok: false,
+      active,
+      message: `active step "${active.label}" is pinned to ${runnerLabel(active.runner)}; a different harness route is refused — ${change}`,
+    };
+  }
+  return { ok: true, active, route: active.runner };
+}
+
+function handoffStep(step: Step, depth: number): string[] {
+  const indent = "  ".repeat(depth);
+  const detail = step.detail ? ` — ${step.detail}` : "";
+  const lines = [`${indent}- ${step.label} [${step.state}]${detail}`];
+  for (const child of step.children ?? []) lines.push(...handoffStep(child, depth + 1));
+  return lines;
+}
+
+export const OUTLINE_HANDOFF_START = "[outline context]";
+export const OUTLINE_HANDOFF_END = "[/outline context]";
+
+/** Compact worker context for the active top-level step. */
+export function renderOutlineHandoff(outline: Outline, step: Step): string {
+  return [OUTLINE_HANDOFF_START, `Goal: ${outline.goal}`, ...handoffStep(step, 0), OUTLINE_HANDOFF_END].join("\n");
+}
+
+/** Split the `[outline context]` block out of a worker's prompt,
+ * wherever it sits, so the UI can collapse it instead of rendering it as
+ * the owner's words — and so an anchored split AFTER it (0055's phase
+ * handoff) still matches on the remaining text. Null when absent. */
+export function splitOutlineContext(text: string): { context: string; rest: string } | null {
+  const start = text.indexOf(OUTLINE_HANDOFF_START);
+  if (start < 0) return null;
+  const afterStart = start + OUTLINE_HANDOFF_START.length;
+  const end = text.indexOf(OUTLINE_HANDOFF_END, afterStart);
+  if (end < 0) return null;
+  const context = text.slice(afterStart, end).trim();
+  const rest = `${text.slice(0, start)}${text.slice(end + OUTLINE_HANDOFF_END.length)}`
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { context, rest };
+}
+
+export function prependOutlineHandoff(task: string, outline: Outline | null | undefined): { task: string; step: string | null } {
+  const active = outline?.steps.find((step) => step.state === "active") ?? null;
+  if (!outline || !active) return { task, step: null };
+  return { task: `${renderOutlineHandoff(outline, active)}\n\n${task}`, step: active.label };
+}
+
+/** After approval the owner may only change runners on pending top-level
+ * steps. Labels, order, state, details, children, goal, and note freeze. */
+export function isPendingRunnerEdit(before: Outline, after: Outline): boolean {
+  if (before.goal !== after.goal || before.note !== after.note || before.steps.length !== after.steps.length) return false;
+  return before.steps.every((step, index) => {
+    const next = after.steps[index];
+    if (!next) return false;
+    const { runner: beforeRunner, ...beforeRest } = step;
+    const { runner: afterRunner, ...afterRest } = next;
+    if (JSON.stringify(beforeRest) !== JSON.stringify(afterRest)) return false;
+    return beforeRunner === afterRunner || step.state === "pending";
+  });
 }
 
 function isRunnerValue(value: unknown): value is Runner {
@@ -103,10 +200,14 @@ function parseStep(value: unknown, depth: number, ids: Set<string>, topLevel: bo
   if (ids.has(id)) return `duplicate step id "${id}"`;
   ids.add(id);
   if (typeof raw.label !== "string" || raw.label.trim() === "") return `step "${id}" needs a label`;
+  if (raw.label.length > OUTLINE_LABEL_MAX) return `step "${id}"'s label is longer than ${OUTLINE_LABEL_MAX} characters`;
   if (typeof raw.state !== "string" || !STATE_SET.has(raw.state)) {
     return `step "${id}" needs a state (pending, active, done, skipped, blocked)`;
   }
   if (raw.detail !== undefined && typeof raw.detail !== "string") return `step "${id}"'s detail must be text`;
+  if (typeof raw.detail === "string" && raw.detail.length > OUTLINE_DETAIL_MAX) {
+    return `step "${id}"'s detail is longer than ${OUTLINE_DETAIL_MAX} characters`;
+  }
   if (raw.runner !== undefined && !topLevel) return `step "${id}": runner only applies to top-level steps`;
   if (raw.runner !== undefined && !isRunnerValue(raw.runner)) return `step "${id}": invalid runner`;
   const step: Step = { id, label: raw.label.trim(), state: raw.state as OutlineState };
@@ -135,6 +236,7 @@ export function validateOutline(input: unknown): Outline | OutlineFail {
   if (!input || typeof input !== "object") return fail("outline needs a goal and steps");
   const raw = input as { goal?: unknown; steps?: unknown; note?: unknown };
   if (typeof raw.goal !== "string" || raw.goal.trim() === "") return fail("outline needs a one-line goal");
+  if (raw.goal.length > OUTLINE_GOAL_MAX) return fail(`the goal is longer than ${OUTLINE_GOAL_MAX} characters`);
   if (!Array.isArray(raw.steps) || raw.steps.length === 0) return fail("outline needs at least one step");
   const ids = new Set<string>();
   const steps: Step[] = [];
@@ -146,7 +248,14 @@ export function validateOutline(input: unknown): Outline | OutlineFail {
     total += parsed.count;
   }
   if (total > OUTLINE_MAX_NODES) return fail(`at most ${OUTLINE_MAX_NODES} steps total`);
+  const activeCount = steps.filter((step) => step.state === "active").length;
+  if (activeCount > 1) {
+    return fail("at most one top-level step may be active at a time — finish or restate the others before rewriting");
+  }
   if (raw.note !== undefined && typeof raw.note !== "string") return fail("note must be text");
+  if (typeof raw.note === "string" && raw.note.length > OUTLINE_NOTE_MAX) {
+    return fail(`the note is longer than ${OUTLINE_NOTE_MAX} characters`);
+  }
   const note = typeof raw.note === "string" ? raw.note.trim() : "";
   const goal = raw.goal.trim();
   return note ? { goal, steps, note } : { goal, steps };
@@ -200,6 +309,34 @@ export interface OutlineSnapshot {
   /** This call opened a review (`propose: true`). */
   proposed: boolean;
   next: string;
+}
+
+export interface OutlineEditSnapshot {
+  version: number;
+  outline: Outline;
+  proposed: boolean;
+}
+
+export const OUTLINE_EDIT_PREFIX = "[outline edited by owner] ";
+
+/** Model-visible form of an owner edit. Metadata renders the transcript
+ * chip; this compact payload makes the snapshot derivable from history. */
+export function renderOutlineEdit(snapshot: OutlineEditSnapshot): string {
+  return `${OUTLINE_EDIT_PREFIX}${JSON.stringify(snapshot)}`;
+}
+
+export function parseOutlineEdit(message: unknown): OutlineEditSnapshot | null {
+  if (!message || typeof message !== "object" || (message as { role?: unknown }).role !== "user") return null;
+  const text = textOf(message).trim();
+  if (!text.startsWith(OUTLINE_EDIT_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(text.slice(OUTLINE_EDIT_PREFIX.length)) as Partial<OutlineEditSnapshot>;
+    return typeof parsed.version === "number" && typeof parsed.proposed === "boolean" && isOutline(parsed.outline)
+      ? { version: parsed.version, proposed: parsed.proposed, outline: parsed.outline }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function isOutlineSnapshot(value: unknown): value is OutlineSnapshot {
@@ -257,6 +394,8 @@ interface RawEntry {
 /** `update_outline` and legacy `update_status` results in one message, in order. */
 function entriesFromMessage(message: unknown): RawEntry[] {
   const out: RawEntry[] = [];
+  const edit = parseOutlineEdit(message);
+  if (edit) out.push(edit);
   for (const part of partsOf(message)) {
     const name = toolNameOf(part);
     if (name !== "update_outline" && name !== "update_status") continue;
@@ -524,14 +663,27 @@ export interface OutlineTranscriptHistory {
   previous: Map<string, { version: number; outline: Outline }>;
   latestId: string | null;
   openReviewId: string | null;
+  /** Latest snapshot is covered by an approval (runner-only edits keep it). */
+  approved: boolean;
+  /** Last tool card anchors later owner-edit snapshots in the transcript. */
+  cardAnchorId: string | null;
+  current: { version: number; outline: Outline; proposed: boolean } | null;
 }
 
 export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscriptHistory {
   const previous = new Map<string, { version: number; outline: Outline }>();
   let last: { id: string; version: number; outline: Outline; proposed: boolean } | null = null;
   let approvedAfterLast = false;
+  let cardAnchorId: string | null = null;
   for (const message of messages) {
     if (isApprovalMessage(message)) approvedAfterLast = true;
+    const edit = parseOutlineEdit(message);
+    if (edit) {
+      const id = message.id;
+      if (last) previous.set(id, { version: last.version, outline: last.outline });
+      last = { id, version: edit.version, outline: edit.outline, proposed: edit.proposed };
+      approvedAfterLast = !edit.proposed;
+    }
     for (const raw of message.parts) {
       const part = raw as LoosePart;
       if (part.type === "tool-accept_outline" && part.state === "output-available") {
@@ -546,6 +698,7 @@ export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscrip
       }
       if (!entry) continue;
       const id = part.toolCallId ?? "";
+      cardAnchorId = id;
       if (last) previous.set(id, { version: last.version, outline: last.outline });
       last = { id, version: entry.version, outline: entry.outline, proposed: entry.proposed };
       if (entry.proposed) approvedAfterLast = false;
@@ -555,5 +708,8 @@ export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscrip
     previous,
     latestId: last?.id ?? null,
     openReviewId: last && last.proposed && !approvedAfterLast ? last.id : null,
+    approved: Boolean(last && approvedAfterLast),
+    cardAnchorId,
+    current: last ? { version: last.version, outline: last.outline, proposed: last.proposed } : null,
   };
 }

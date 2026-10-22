@@ -525,6 +525,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
       parentConversationId: conversations.parentConversationId,
       activeRunId: conversations.activeRunId,
       workPhase: conversations.workPhase,
+      workStep: conversations.workStep,
     })
     .from(conversations)
     .where(ne(conversations.kind, "stage"))
@@ -544,6 +545,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
       createdAt: harnessCalls.createdAt,
       updatedAt: harnessCalls.updatedAt,
       phase: harnessCalls.phase,
+      step: harnessCalls.step,
     })
     .from(harnessCalls)
     .all()) {
@@ -559,7 +561,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
       unread: false,
       needsYou: false,
       harness: call.kind,
-      phase: call.phase,
+      phase: call.step ?? call.phase,
     };
     const list = harnessByConversation.get(call.conversationId);
     if (list) list.push(item);
@@ -628,7 +630,7 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
     unread: flags.unread.has(r.id),
     needsYou: flags.needsYou.has(r.id),
     threadStatus: exhaustedChildren.has(r.id) ? "exhausted" : null,
-    phase: childStatusLabels.get(r.id) ?? r.workPhase,
+    phase: childStatusLabels.get(r.id) ?? r.workStep ?? r.workPhase,
   });
 
   // 0046: append a conversation's synthetic harness rows to its own
