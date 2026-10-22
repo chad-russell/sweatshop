@@ -450,7 +450,8 @@ export function HarnessSessionView({
         </p>
       )}
 
-      <Conversation className="min-h-0 flex-1">
+      {/* Open AT the bottom — no visible scroll animation on load. */}
+      <Conversation className="min-h-0 flex-1" initial="instant">
         <ConversationContent className="gap-3">
           {(hasOlder || pagedOnce) && (
             <OlderEventsControl
