@@ -199,6 +199,16 @@ export interface ToolGroup {
 
 export type Segment = { kind: "part"; part: PartLike; index: number } | ToolGroup;
 
+/** Tools whose header phrase is identical to another's — fold into ONE
+ *  key so the summary says it once with a combined count, instead of
+ *  repeating "searched files" for every search tool used in a run. */
+const SUMMARY_ALIASES: Record<string, string> = {
+  sandbox_exec: "bash",
+  grep: "ls",
+  glob: "ls",
+  find: "ls",
+};
+
 function phrase(name: string, n: number, polled: boolean): string {
   const p = QUIET_TOOLS[name]!;
   const text = (n === 1 ? p.one : p.many).replace("{n}", String(n));
@@ -210,7 +220,8 @@ function summarize(entries: GroupEntry[]): string {
   const order: string[] = [];
   const counts = new Map<string, number>();
   for (const e of entries) {
-    const name = toolName(e.part) === "sandbox_exec" ? "bash" : toolName(e.part);
+    const raw = toolName(e.part);
+    const name = SUMMARY_ALIASES[raw] ?? raw;
     if (!counts.has(name)) order.push(name);
     counts.set(name, (counts.get(name) ?? 0) + e.count);
   }

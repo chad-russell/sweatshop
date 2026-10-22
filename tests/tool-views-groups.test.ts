@@ -121,6 +121,15 @@ describe("harness read tools in a group", () => {
     expect(callLabel(grep("TODO"))).toBe("TODO");
   });
 
+  it("folds grep/glob/find/ls into ONE 'searched files' phrase with their combined count", () => {
+    const g = groupParts([grep("TODO"), ls(), read("a.ts"), read("b.ts")])[0]!;
+    if (g.kind !== "group") throw new Error("expected group");
+    const occurrences = g.summary.split("searched files").length - 1;
+    expect(occurrences).toBe(1);
+    expect(g.summary).toContain("searched files ×2");
+    expect(g.summary).toContain("read 2 files");
+  });
+
   it("a plain-text (non-object) output from a harness read tool counts as ok", () => {
     expect(callState(read("a.ts"))).toBe("ok");
     expect(callState(ls())).toBe("ok");
