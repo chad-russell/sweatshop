@@ -44,8 +44,10 @@ function RunnerBadge({ runner }: { runner: Step["runner"] }) {
   );
 }
 
-function diffFor(id: string, diff: readonly OutlineStepDiff[] | null): OutlineStepDiff | undefined {
-  return diff?.find((d) => d.id === id);
+type PresentStepDiff = OutlineStepDiff & { kind: "added" | "state-changed" };
+
+function diffFor(id: string, diff: readonly OutlineStepDiff[] | null): PresentStepDiff | undefined {
+  return diff?.find((entry): entry is PresentStepDiff => entry.id === id && entry.kind !== "removed");
 }
 
 function StepRow({
@@ -89,17 +91,10 @@ function StepRow({
               className={cn(
                 "ml-1.5 font-mono text-[10px]",
                 mine.kind === "added" && "text-success",
-                mine.kind === "removed" && "text-destructive",
                 mine.kind === "state-changed" && "text-info",
               )}
             >
-              {mine.kind === "added" ? (
-                <Plus className="inline size-3" aria-hidden />
-              ) : mine.kind === "removed" ? (
-                "removed"
-              ) : (
-                `${mine.fromState} → ${mine.toState}`
-              )}
+              {mine.kind === "added" ? <Plus className="inline size-3" aria-hidden /> : `${mine.fromState} → ${mine.toState}`}
             </span>
           )}
         </span>
@@ -134,6 +129,7 @@ export function OutlineDocument({
     [showDiff, previous, outline],
   );
   const changed = diff ? diff.length : 0;
+  const removed = diff?.filter((entry) => entry.kind === "removed") ?? [];
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
@@ -171,6 +167,18 @@ export function OutlineDocument({
           <StepRow key={step.id} step={step} topLevel diff={showDiff ? diff : null} />
         ))}
       </ul>
+      {showDiff && previous && removed.length > 0 && (
+        <div className="text-xs text-muted-foreground">
+          <p className="font-medium">Removed since v{previous.version}</p>
+          <ul className="mt-1 list-disc pl-5">
+            {removed.map((entry) => (
+              <li key={entry.id} className="line-through">
+                {entry.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {outline.note && <p className="text-xs text-muted-foreground">{outline.note}</p>}
     </div>
   );
