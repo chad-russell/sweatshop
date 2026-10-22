@@ -9,7 +9,7 @@ import { PhaseChip } from "@/components/plan-card";
 import { ChatSession } from "@/components/chat-session";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { usePageContextReader } from "@/components/page-context";
-import { rowsToUIMessages, untilLiveTurn, type StoredRow } from "@/lib/chat-ui";
+import { alignPageHead, rowsToUIMessages, untilLiveTurn, type StoredRow } from "@/lib/chat-ui";
 import { extendChatPageBack } from "@/lib/chat-fetch";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -159,9 +159,9 @@ export function AgentPanel() {
   // Fetch the stored conversation before its session mounts. "hydrating"
   // is only ever entered with a conversation id (init, closePanel), so
   // no id here means nothing to do. 0075: the tail window hydrates like
-  // the page frame's — newest HYDRATE_TAIL rows, paged back to the live
-  // turn's opening t_ row when a turn is live (the stream replay
-  // supplies the turn itself).
+  // the page frame's — newest HYDRATE_TAIL rows, walked back to a turn
+  // opener (`t_…`) or the conversation's start, cut at the live turn's
+  // opener when one runs (the stream replay supplies the turn itself).
   useEffect(() => {
     if (!open || mode !== "hydrating" || !conversationId) return;
     let cancelled = false;
@@ -188,13 +188,29 @@ export function AgentPanel() {
           olderCursor: body.olderCursor ?? null,
           olderRemaining: body.olderRemaining ?? 0,
         };
-        if (body.activeRunId && !page.rows.some((row) => row.id.startsWith("t_"))) {
-          page = await extendChatPageBack(conversationId, page, HYDRATE_TAIL, (rows) =>
-            rows.some((row) => row.id.startsWith("t_")),
-          );
+        // 0075 fixup: align the window's OLDEST row to a turn opener
+        // (`t_…`) or the conversation's start — never merely "contains
+        // one". A window that opens mid-fold renders a partial first
+        // turn, which the first Load-earlier page (aligned by
+        // construction) re-splits into two bubbles; a seam inside the
+        // live turn's fold stops the walk at exactly that turn's
+        // opener, the row untilLiveTurn cuts at. Live run or not.
+        const aligned = (rows: StoredRow[]) => rows.length === 0 || rows[0].id.startsWith("t_");
+        // extendChatPageBack gives up on a transient fetch failure —
+        // retry a couple of times before falling back to the cut.
+        for (let attempt = 0; !aligned(page.rows) && page.olderCursor != null && attempt < 3; attempt += 1) {
+          page = await extendChatPageBack(conversationId, page, HYDRATE_TAIL, aligned);
         }
+        // Still unaligned: the conversation's start is aligned by
+        // definition; otherwise drop the partial head (alignPageHead)
+        // — losing the head of the window beats a split turn, and for a
+        // live turn beats double-rendering its persisted slices when
+        // the stream replays them (0037). When the page holds no opener
+        // at all, hydrate empty: Load-earlier reaches the turns whole.
+        const alignedRows =
+          page.olderCursor == null || aligned(page.rows) ? page.rows : (alignPageHead(page.rows) ?? []);
+        const rows = body.activeRunId ? untilLiveTurn(alignedRows) : alignedRows;
         if (cancelled) return;
-        const rows = body.activeRunId ? untilLiveTurn(page.rows) : page.rows;
         setHydration({
           id: conversationId,
           messages: rowsToUIMessages(rows),

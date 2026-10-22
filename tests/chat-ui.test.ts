@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage, UIMessage } from "ai";
-import { appendNewer, backgroundChildIds, hasBackgroundChild, liveBackgroundChildIds, mergeOlder, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
+import { alignPageHead, appendNewer, backgroundChildIds, hasBackgroundChild, liveBackgroundChildIds, mergeOlder, rowsToUIMessages, untilLiveTurn, type StoredRow } from "../lib/chat-ui";
 import { parseViewingContext, viewingNote } from "../lib/page-context";
 
 let n = 0;
@@ -233,6 +233,24 @@ describe("untilLiveTurn (0037 incremental persistence)", () => {
     ];
     expect(untilLiveTurn(rows).map((r) => r.id)).toEqual(["t_c_0", "m_c_1_0", "t_c_2"]);
     expect(untilLiveTurn([row("x", "user")])).toHaveLength(1);
+  });
+});
+
+describe("alignPageHead (0075 fixup: a page the walk could not align)", () => {
+  const row = (id: string, role: string): StoredRow => ({ id, role, text: "", at: 0, modelMessage: null });
+  it("drops the partial turn before the page's oldest opener", () => {
+    const rows = [row("m_c_3_2", "assistant"), row("m_c_3_3", "tool"), row("t_c_4", "user"), row("m_c_4_1", "assistant")];
+    expect(alignPageHead(rows)?.map((r) => r.id)).toEqual(["t_c_4", "m_c_4_1"]);
+  });
+  it("keeps an already-aligned page as is", () => {
+    const rows = [row("t_c_4", "user"), row("m_c_4_1", "assistant")];
+    expect(alignPageHead(rows)).toBe(rows);
+  });
+  it("returns null when the page holds no opener — nothing may render", () => {
+    // One fold spans the whole page: rendering part of it would split
+    // the turn the moment an aligned page joins it.
+    expect(alignPageHead([row("m_c_3_2", "assistant"), row("m_c_3_3", "tool")])).toBeNull();
+    expect(alignPageHead([])).toBeNull();
   });
 });
 

@@ -61,6 +61,21 @@ export function untilLiveTurn(rows: StoredRow[]): StoredRow[] {
   return rows;
 }
 
+/**
+ * 0075 fixup: the aligned head of a page that could NOT be walked back
+ * to a turn opener (a transient fetch failure on a client path): rows
+ * before the page's oldest `t_` row are a partial turn — drop them;
+ * they stay reachable below the page's older cursor. A page holding no
+ * `t_` row at all is one fold the walk never escaped: return null so
+ * the caller can decline to render (or prepend) any of it — a partial
+ * fold splits its turn the moment an aligned page joins it.
+ */
+export function alignPageHead(rows: StoredRow[]): StoredRow[] | null {
+  const first = rows.findIndex((row) => row.id.startsWith("t_"));
+  if (first === -1) return null;
+  return first === 0 ? rows : rows.slice(first);
+}
+
 export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {  const out: UIMessage[] = [];
   const toolParts = new Map<string, ToolPart>();
   let current: UIMessage | null = null; // the open assistant message
