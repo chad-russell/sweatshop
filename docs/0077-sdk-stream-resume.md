@@ -35,18 +35,22 @@ mid-stream and nobody used it:
    metadata scan — no payloads). Cleared with `active_run_id`. One
    nullable integer column, one migration.
 
-2. **One index space: raw journal chunks.** The reconnect route reads
-   `getReadable({ startIndex })` and pipes `createModelCallToUIChunkTransform()`
-   (no `uiStartIndex`). The client never computes UI chunk offsets; it
-   passes the server-supplied cursor through `reconnectToStream({ startIndex })`.
-   The transport's own mid-stream retry counts UI chunks, so the route
-   ALSO accepts the transport's retry: it answers with
-   `x-workflow-stream-tail-index` and the client retry path restarts
-   from the stored cursor (bounded replay — one slice), never from 0.
+2. **Cursor in the path, SDK index on the query.** The transport always
+   appends `?startIndex=<UI chunks received>` itself, so the raw-journal
+   cursor rides a PATH segment set in `prepareReconnectToStreamRequest`:
+   `/api/x/chat/<runId>/from/<cursor>/stream`. The route reads
+   `getReadable({ startIndex: cursor })` (skips every earlier chunk file)
+   and pipes `createModelCallToUIChunkTransform({ uiStartIndex: startIndex })`.
+   That is the SDK's own reconnect contract, offset to the last slice
+   boundary: the transport's mid-stream retries resume with no duplicates
+   or gaps, and nothing replays from chunk 0. The existing
+   `[runId]/stream` route (cursor 0) stays for a tab reconnecting to its
+   own send.
 
 3. **Hydrate rows, then resume.** `/c/<id>` and the agent panel hydrate
    the tail window INCLUDING the live turn's persisted slices (as today),
-   then the session calls `chat.resumeStream()` with the cursor. The
+   then the session calls `chat.resumeStream()`; the reconnect URL carries
+   the cursor (decision 2). The
    resumed stream begins at a slice boundary (`start`/`start-step`),
    so the first assistant chunk carries the in-progress slice only.
    If the SDK renders it as a new assistant message rather than
