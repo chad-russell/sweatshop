@@ -36,8 +36,8 @@ export interface MessageRowMetadata {
    *  already computed when this row was written). `listTurnMessages`
    *  replays it verbatim right before this row on every later turn, so
    *  history byte-matches what this turn actually saw (the prompt-cache
-   *  prefix holds instead of invalidating every turn) without needing
-   *  to re-parse the skill body or even import lib/agent/mode-ids here. */
+   *  prefix holds instead of invalidating every turn) without
+   *  re-deriving the outline (lib/outline.ts `renderThreadStateNote`). */
   threadState?: string;
   /** 0040 phase 3: on the turn's LAST assistant row — the turn ended by
    *  hitting its step budget, not by the model choosing to stop (so that

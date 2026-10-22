@@ -577,13 +577,9 @@ export const THREAD_STATE_PREFIX = "[thread state]";
  * The per-turn `[thread state]` note. The rendered string is stored on
  * the user row and replayed verbatim (`metadata.threadState`). Null when
  * there is nothing to say — a plain chat that has never called
- * `update_outline`. A mode with declared phases and no outline yet still
- * gets a seed line so the agent knows which steps to write.
+ * `update_outline`. Null for a chat with no outline.
  */
-export function renderThreadStateNote(
-  derived: DerivedOutline,
-  seedPhases?: readonly { name: string }[] | null,
-): string | null {
+export function renderThreadStateNote(derived: DerivedOutline): string | null {
   if (derived.current) {
     const { goal, steps, note } = derived.current.outline;
     const chip = outlineChip(derived);
@@ -596,10 +592,6 @@ export function renderThreadStateNote(
     if (note) parts.push(`note: ${note}`);
     parts.push("if this changed, call update_outline");
     return parts.join(" — ");
-  }
-  if (seedPhases && seedPhases.length > 0) {
-    const names = seedPhases.map((phase) => phase.name).join(" → ");
-    return `${THREAD_STATE_PREFIX} no outline yet — seed update_outline from: ${names} — if this changed, call update_outline`;
   }
   return null;
 }

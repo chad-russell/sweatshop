@@ -36,10 +36,11 @@ export interface SidebarItem {
    *  `metadata.exhausted` (its last turn ran out of steps) — the ⚠ glyph.
    *  Null otherwise and for every non-child row. */
   threadStatus?: "exhausted" | null;
-  /** 0055 v7 part B: the phase (display name) a harness row or child
-   *  thread was started to do — null when the parent wasn't moded, had
-   *  no phases, or for every non-child/non-harness row. */
-  phase?: string | null;
+  /** 0064: the outline step label a harness row or child thread was
+   *  started for (`harness_calls.step` / `conversations.work_step`) —
+   *  null when its parent had no active outline step, or for every
+   *  non-child/non-harness row. */
+  step?: string | null;
 }
 
 /** Rolled-up attention counts for a collapsible container. */

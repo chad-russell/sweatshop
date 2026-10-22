@@ -147,12 +147,12 @@ export function ConversationRow({
                     <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>
                   )}
                 </span>
-                {item.phase && (
+                {item.step && (
                   <span
-                    title={`Phase: ${item.phase}`}
+                    title={`Step: ${item.step}`}
                     className="shrink-0 truncate rounded bg-sidebar-accent px-1 py-0 text-[10px] text-sidebar-foreground/60"
                   >
-                    {item.phase}
+                    {item.step}
                   </span>
                 )}
                 {collapsedAttention && (

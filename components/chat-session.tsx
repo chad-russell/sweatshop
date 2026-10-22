@@ -242,10 +242,6 @@ export function ChatSession({
     setRouteTouched(true);
   };
 
-  // 0055 PR2: a mode the Mode chip picked for an EXISTING chat's NEXT
-  // send (fresh chats reuse `skill` instead — see ChatSessionState's
-  // doc comment). Cleared the moment that send fires.
-
   // 0013: the fresh composer's one-time sandbox choice ("auto" = own).
   const [sandboxChoice, setSandboxChoice] = useState("auto");
   const [sandboxes, setSandboxes] = useState<SandboxOption[]>([]);

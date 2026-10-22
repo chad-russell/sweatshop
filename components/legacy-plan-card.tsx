@@ -5,7 +5,8 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { isLegacyPlanSnapshot } from "@/lib/legacy-plan";
 
 /** Historical present_plan output. Plans can no longer be changed or approved. */
-export function LegacyPlanCard({ output }: { output: unknown }) {
+export function LegacyPlanCard({ output, failed }: { output: unknown; failed?: boolean }) {
+  if (failed) return <p className="my-2 text-xs text-destructive">Plan (legacy): present_plan failed.</p>;
   if (!isLegacyPlanSnapshot(output)) return null;
   return (
     <section className="my-2 rounded-lg border border-border bg-card p-3 text-card-foreground">

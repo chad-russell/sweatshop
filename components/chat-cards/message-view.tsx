@@ -19,7 +19,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { HarnessCard } from "@/components/harness-card";
-import { OutlineContextBlock } from "@/components/phase-context";
+import { OutlineContextBlock } from "@/components/outline-context";
 import { LegacyPlanCard } from "@/components/legacy-plan-card";
 import { OutlineToolCard } from "@/components/outline-card";
 import { splitOutlineContext } from "@/lib/outline";
@@ -226,7 +226,7 @@ export const ChatMessageView = memo(function ChatMessageView({
             }
             if (toolPart.type === "tool-present_plan") {
               return (
-                <LegacyPlanCard key={i} output={toolPart.state === "output-available" ? toolPart.output : undefined} />
+                <LegacyPlanCard key={i} output={toolPart.state === "output-available" ? toolPart.output : undefined} failed={toolPart.state === "output-error"} />
               );
             }
             // 0043: exec approves inline — the buttons live in the

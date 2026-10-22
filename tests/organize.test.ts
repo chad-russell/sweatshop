@@ -401,8 +401,8 @@ describe("loadSidebar", () => {
       harness: "pi",
       parentConversationId: c,
       title: "review the diff",
-      // 0055 v7 part B: the phase this call was started for.
-      phase: "QA",
+      // 0064: the outline step this call was started for.
+      step: "QA",
     });
     // buildSidebarTree nests it, and a running call rolls up to the parent.
     const tree = buildSidebarTree(g.unfiled).find((t) => t.id === c)!;
@@ -464,8 +464,8 @@ describe("loadSidebar", () => {
     const child = convo("org-side");
     tdb.update(conversations).set({ parentConversationId: top, workStep: "Review" }).where(eq(conversations.id, child)).run();
     const items = loadSidebar(tdb).groups.find((g) => g.project?.id === "org-side")!.unfiled;
-    expect(items.find((i) => i.id === child)?.phase).toBe("Review");
-    expect(items.find((i) => i.id === top)?.phase).toBeNull();
+    expect(items.find((i) => i.id === child)?.step).toBe("Review");
+    expect(items.find((i) => i.id === top)?.step).toBeNull();
   });
 
   it("two calls of one harness under one conversation get distinct hrefs (0046)", () => {

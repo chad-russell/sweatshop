@@ -14,9 +14,9 @@ import { cn } from "@/lib/utils";
 /**
  * The fresh composer's target picker (0012 → 0037 phase 5 → 0055 PR2):
  * what a new chat is — a plain chat, or a chat in a project (0018). The
- * machine-run axis died with machines; the skill axis (0039) moved to
- * the composer; thread skills are agent/child-only, so this picker is
- * project scope only.
+ * machine-run axis died with machines and the skill axis with modes
+ * (0064 — a skill binds only via `?skill=` or `start_thread`), so this
+ * picker is project scope only.
  */
 
 /** 0018: a pickable chat-in-project target. */

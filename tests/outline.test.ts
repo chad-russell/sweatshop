@@ -319,7 +319,6 @@ describe("renderThreadStateNote", () => {
 
   it("seeds from declared phases when there is no outline yet, and returns null with neither", () => {
     const empty = deriveOutline([]);
-    expect(renderThreadStateNote(empty, [{ name: "Plan" }, { name: "Ship" }])).toContain("seed update_outline from: Plan → Ship");
     expect(renderThreadStateNote(empty)).toBeNull();
   });
 
