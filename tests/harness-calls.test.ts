@@ -476,6 +476,30 @@ describe("startHarnessCall: outline runners and handoff (0064 PR2)", () => {
     expect(call.step).toBe("Build");
   });
 
+  it("passes a bare HarnessRoute (not the resolver's {route, layer} wrapper) when no runner is pinned", async () => {
+    // Regression: requireRoute returns {route, layer}; passing the wrapper
+    // made the bridge build the wrong adapter ("Lifecycle state was
+    // produced by harness 'codex' but this agent uses 'claude-code'").
+    for (const outline of [null, outlined("auto")]) {
+      const conv = newConv();
+      if (outline) setOutline(conv, outline);
+      const seen: unknown[] = [];
+      const result = await startHarnessCall({
+        conversationId: conv,
+        kind: "pi",
+        task: "x",
+        start: async (input) => {
+          seen.push(input.route);
+          return { runId: "wr_bare" };
+        },
+      });
+      expect(result).toMatchObject({ ok: true });
+      expect(seen[0]).toMatchObject({ harness: "pi" });
+      expect(seen[0]).not.toHaveProperty("layer");
+      expect(seen[0]).not.toHaveProperty("route");
+    }
+  });
+
   it("leaves auto behavior unrestricted", async () => {
     const conv = newConv();
     setOutline(conv, outlined("auto"));
