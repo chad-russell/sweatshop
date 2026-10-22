@@ -10,7 +10,8 @@ import {
   pendingAcceptOutlineIds,
   type OutlineCard,
 } from "@/db/outlines";
-import { deriveOutline, validateOutline, type Outline, type OutlineSnapshot } from "@/lib/outline";
+import { isOutlineSnapshot, validateOutline, type Outline, type OutlineSnapshot } from "@/lib/outline";
+import { isStatusSnapshot } from "@/lib/status";
 
 /**
  * 0064: the outline tools' cores. `update_outline` rewrites the whole
@@ -32,6 +33,26 @@ export interface UpdateOutlineInput {
   propose?: unknown;
 }
 
+type ToolPart = { type?: string; toolName?: string; toolCallId?: string; output?: unknown };
+
+/** Successful outline rewrite call ids in a message list (pure). */
+export function outlineCallIds(list: readonly ModelMessage[]): string[] {
+  const ids: string[] = [];
+  for (const message of list) {
+    if (message.role !== "tool" || !Array.isArray(message.content)) continue;
+    for (const part of message.content as ToolPart[]) {
+      if (part.type !== "tool-result" || !part.toolCallId) continue;
+      const out = part.output as { type?: string; value?: unknown } | undefined;
+      const value = out?.type === "json" ? out.value : out;
+      if (
+        (part.toolName === "update_outline" && isOutlineSnapshot(value)) ||
+        (part.toolName === "update_status" && isStatusSnapshot(value))
+      ) ids.push(part.toolCallId);
+    }
+  }
+  return ids;
+}
+
 /** Rewrite the outline (the version is the count of every prior landed
  *  rewrite — legacy update_status results included, since this picks up
  *  numbering where a thread's status left off). `live` carries this
@@ -46,8 +67,10 @@ export function updateOutline(
   if ("ok" in parsed) return fail(parsed.code, parsed.message);
   const outline: Outline = parsed;
   const propose = input.propose === true;
-  const priorHistory = deriveOutline([...listModelMessages(db(), conversationId), ...live]).history.length;
-  const version = priorHistory + 1;
+  const persisted = listModelMessages(db(), conversationId);
+  const prior = new Set([...outlineCallIds(persisted), ...outlineCallIds(live)]);
+  prior.delete(toolCallId);
+  const version = prior.size + 1;
   if (propose) {
     const card: OutlineCard = { kind: "outline", version, outline, ...(outline.note ? { note: outline.note } : {}) };
     openOutlineReview(db(), { id: toolCallId, conversationId, card });

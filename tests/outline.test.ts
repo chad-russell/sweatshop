@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ModelMessage } from "ai";
 import { db } from "../db";
-import { ensureConversation, listPendingInputs } from "../db/chat";
+import { appendMessages, ensureConversation, listPendingInputs } from "../db/chat";
 import { getOutlineRow, outlineState } from "../db/outlines";
 import { projects } from "../db/schema";
 import { derivePhase, phaseFromMessages } from "../lib/plan";
@@ -122,6 +122,12 @@ const implement = outline("Ship the widget", [
   },
   { id: "ship", label: "Ship", state: "pending" },
 ]);
+
+const resultRow = (toolCallId: string, output: unknown): ModelMessage =>
+  ({
+    role: "tool",
+    content: [{ type: "tool-result", toolCallId, toolName: "update_outline", output: { type: "json", value: output as never } }],
+  }) as ModelMessage;
 
 describe("outlineChipLabel", () => {
   it("uses the active step's children as the fraction", () => {
@@ -322,15 +328,50 @@ describe("0064 outline reviews (store + cores)", () => {
     expect(v1).toMatchObject({ ok: true, version: 1, proposed: true });
     expect(outlineState(db(), id)).toMatchObject({ kind: "review", row: { id: "t1" } });
 
-    const resultRow = (toolCallId: string, output: unknown): ModelMessage =>
-      ({
-        role: "tool",
-        content: [{ type: "tool-result", toolCallId, toolName: "update_outline", output: { type: "json", value: output as never } }],
-      }) as ModelMessage;
     const v2 = updateOutline(id, "t2", { goal: "Ship it", steps: [{ id: "a", label: "A", state: "done" }], propose: true }, [resultRow("t1", v1)]);
     expect(v2).toMatchObject({ ok: true, version: 2, proposed: true });
     expect(listPendingInputs(db(), id).map((p) => p.id)).toEqual(["t2"]);
     expect(getOutlineRow(db(), "t1")?.answer).toMatchObject({ superseded: true });
+  });
+
+  it("counts a persisted result that is also live only once", () => {
+    const id = conv();
+    const v1 = updateOutline(id, "dedupe1", {
+      goal: "Ship it",
+      steps: [{ id: "a", label: "A", state: "active" }],
+      propose: true,
+    });
+    const row = resultRow("dedupe1", v1);
+    appendMessages(db(), id, [{ id: `${id}_dedupe1`, role: "tool", text: "", modelMessage: row }]);
+
+    const v2 = updateOutline(
+      id,
+      "dedupe2",
+      { goal: "Ship it", steps: [{ id: "a", label: "A", state: "done" }] },
+      [row],
+    );
+    expect(v2).toMatchObject({ ok: true, version: 2 });
+  });
+
+  it("a plain rewrite leaves an earlier proposed review open", () => {
+    const id = conv();
+    const proposed = updateOutline(id, "open1", {
+      goal: "Ship it",
+      steps: [{ id: "a", label: "A", state: "active" }],
+      propose: true,
+    });
+    const row = resultRow("open1", proposed);
+    appendMessages(db(), id, [{ id: `${id}_open1`, role: "tool", text: "", modelMessage: row }]);
+
+    const plain = updateOutline(
+      id,
+      "plain2",
+      { goal: "Ship it", steps: [{ id: "a", label: "A", state: "done" }] },
+      [row],
+    );
+    expect(plain).toMatchObject({ ok: true, version: 2, proposed: false });
+    expect(outlineState(db(), id)).toMatchObject({ kind: "review", row: { id: "open1" } });
+    expect(deriveOutline([row, resultRow("plain2", plain)]).review).toMatchObject({ version: 1 });
   });
 
   it("the card approves the open review once and wakes; stale or repeated approvals are refused", async () => {
