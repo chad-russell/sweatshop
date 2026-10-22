@@ -12,6 +12,8 @@ export const dynamic = "force-dynamic";
  * input, and output as it happened (events land live; poll
  * incrementally with ?after=<lastEventId>). ?from=/&to= (Unix ms,
  * inclusive) scope it to one call's window (0046 per-call view).
+ * ?before=<id> pages the window's older events (0075 load-earlier);
+ * ?tail=<n> returns the newest n events instead of the oldest.
  */
 export async function GET(
   request: Request,
@@ -23,31 +25,27 @@ export async function GET(
   if (!isHarnessKind(harness)) {
     return Response.json({ error: "unknown harness" }, { status: 400 });
   }
-  const afterRaw = url.searchParams.get("after");
-  const afterId =
-    afterRaw !== null && /^\d+$/.test(afterRaw) ? Number(afterRaw) : undefined;
-
-  // ?tail=<n>: the newest n events (live activity peeks), not the oldest.
-  const tailRaw = url.searchParams.get("tail");
-  const tail = tailRaw !== null && /^\d+$/.test(tailRaw) ? Number(tailRaw) : undefined;
-
   const num = (key: string): number | undefined => {
     const raw = url.searchParams.get(key);
     return raw !== null && /^\d+$/.test(raw) ? Number(raw) : undefined;
   };
+  const afterId = num("after");
+  const beforeId = num("before");
+  const tail = num("tail");
   const window = { fromAt: num("from"), toAt: num("to") };
 
   const run = getHarnessRun(sessionId, harness);
   const page =
-    tail !== undefined && afterId === undefined
+    tail !== undefined && afterId === undefined && beforeId === undefined
       ? getHarnessEvents(sessionId, harness, { limit: tail, tail: true, ...window })
-      : getHarnessEvents(sessionId, harness, { afterId, ...window });
+      : getHarnessEvents(sessionId, harness, { afterId, beforeId, ...window });
   return Response.json({
     sessionId,
     harness,
     run,
     count: page.events.length,
     cursor: page.cursor,
+    remaining: page.remaining,
     events: page.events,
   });
 }

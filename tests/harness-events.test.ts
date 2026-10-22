@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GET as getHarnessSession } from "../app/api/harness/[sessionId]/route";
 import {
   claimHarnessRun,
   countToolCalls,
@@ -59,6 +60,89 @@ describe("harness event store (0006)", () => {
     }
     const page = getHarnessEvents("wrun_h4", "pi", { limit: 3, tail: true });
     expect(page.events.map((e) => e.text)).toEqual(["t3", "t4", "t5"]);
+  });
+
+  it("tail reports the older rows left and the cursor for them (0075)", () => {
+    for (let i = 0; i < 6; i += 1) {
+      recordHarnessEvent("wrun_ht2", "pi", { kind: "step-end", text: `t${i}` });
+    }
+    const page = getHarnessEvents("wrun_ht2", "pi", { limit: 3, tail: true });
+    expect(page.events.map((e) => e.text)).toEqual(["t3", "t4", "t5"]);
+    expect(page.remaining).toBe(3);
+    expect(page.cursor).toBe(page.events[0].id);
+    // A window that holds every row: no older rows, no cursor.
+    const all = getHarnessEvents("wrun_ht2", "pi", { limit: 10, tail: true });
+    expect(all.remaining).toBe(0);
+    expect(all.cursor).toBeNull();
+  });
+
+  it("beforeId pages older events oldest-first, exhausting to a null cursor (0075)", () => {
+    for (let i = 0; i < 7; i += 1) {
+      recordHarnessEvent("wrun_hb", "pi", { kind: "step-end", text: `t${i}` });
+    }
+    const tail = getHarnessEvents("wrun_hb", "pi", { limit: 3, tail: true });
+    expect(tail.events.map((e) => e.text)).toEqual(["t4", "t5", "t6"]);
+
+    const page1 = getHarnessEvents("wrun_hb", "pi", { beforeId: tail.cursor!, limit: 3 });
+    expect(page1.events.map((e) => e.text)).toEqual(["t1", "t2", "t3"]);
+    expect(page1.remaining).toBe(1);
+    expect(page1.cursor).toBe(page1.events[0].id);
+
+    const page2 = getHarnessEvents("wrun_hb", "pi", { beforeId: page1.cursor!, limit: 3 });
+    expect(page2.events.map((e) => e.text)).toEqual(["t0"]);
+    expect(page2.cursor).toBeNull();
+    expect(page2.remaining).toBe(0);
+
+    // Strictly below the very first row: an empty page, still exhausted.
+    const page3 = getHarnessEvents("wrun_hb", "pi", { beforeId: page2.events[0].id, limit: 3 });
+    expect(page3.events).toHaveLength(0);
+    expect(page3.cursor).toBeNull();
+    expect(page3.remaining).toBe(0);
+  });
+
+  it("tail and beforeId compose with fromAt/toAt windows (0075)", async () => {
+    const { db } = await import("../db");
+    const { harnessEvents } = await import("../db/schema");
+    for (const at of [100, 200, 300, 400, 500, 600, 700, 800]) {
+      db()
+        .insert(harnessEvents)
+        .values({ sessionId: "wrun_htw", harness: "pi", at, kind: "step-end", text: `a${at}` })
+        .run();
+    }
+    const page = getHarnessEvents("wrun_htw", "pi", {
+      limit: 2,
+      tail: true,
+      fromAt: 300,
+      toAt: 600,
+    });
+    expect(page.events.map((e) => e.text)).toEqual(["a500", "a600"]);
+    expect(page.remaining).toBe(2);
+    expect(page.cursor).toBe(page.events[0].id);
+
+    const older = getHarnessEvents("wrun_htw", "pi", {
+      limit: 2,
+      beforeId: page.cursor!,
+      fromAt: 300,
+      toAt: 600,
+    });
+    expect(older.events.map((e) => e.text)).toEqual(["a300", "a400"]);
+    expect(older.cursor).toBeNull();
+    expect(older.remaining).toBe(0);
+  });
+
+  it("forward pages keep their cursor semantics and report newer rows remaining", () => {
+    for (let i = 0; i < 5; i += 1) {
+      recordHarnessEvent("wrun_hf", "pi", { kind: "step-start" });
+    }
+    const first = getHarnessEvents("wrun_hf", "pi", { limit: 2 });
+    expect(first.cursor).toBe(first.events[1].id);
+    expect(first.remaining).toBe(3);
+    const rest = getHarnessEvents("wrun_hf", "pi", { afterId: first.cursor!, limit: 2 });
+    expect(rest.remaining).toBe(1);
+    const last = getHarnessEvents("wrun_hf", "pi", { afterId: rest.cursor!, limit: 2 });
+    expect(last.events).toHaveLength(1);
+    expect(last.cursor).toBeNull();
+    expect(last.remaining).toBe(0);
   });
 
   it("pages events with an id cursor", () => {
@@ -163,5 +247,43 @@ describe("countToolCalls (machine-stage settle)", () => {
     expect(countToolCalls("mr_cnt_0", "pi")).toBe(3);
     recordHarnessRunEnd("mr_cnt_0", "pi", countToolCalls("mr_cnt_0", "pi"), "completed");
     expect(getHarnessRun("mr_cnt_0", "pi")?.toolCalls).toBe(3);
+  });
+});
+
+describe("GET /api/harness/[sessionId] ?before paging (0075)", () => {
+  it("tail and before pages carry cursor + remaining end to end", async () => {
+    const { db } = await import("../db");
+    const { harnessEvents } = await import("../db/schema");
+    for (let i = 0; i < 5; i += 1) {
+      db()
+        .insert(harnessEvents)
+        .values({ sessionId: "wrun_hr", harness: "pi", at: 100 + i, kind: "step-end", text: `r${i}` })
+        .run();
+    }
+    const get = (query: string) =>
+      getHarnessSession(new Request(`http://x/api/harness/wrun_hr?${query}`), {
+        params: Promise.resolve({ sessionId: "wrun_hr" }),
+      });
+
+    const tailRes = await get("harness=pi&tail=2");
+    expect(tailRes.status).toBe(200);
+    const tail = (await tailRes.json()) as {
+      events: { text: string }[];
+      cursor: number;
+      remaining: number;
+    };
+    expect(tail.events.map((e) => e.text)).toEqual(["r3", "r4"]);
+    expect(tail.remaining).toBe(3);
+
+    const prevRes = await get(`harness=pi&before=${tail.cursor}`);
+    expect(prevRes.status).toBe(200);
+    const prev = (await prevRes.json()) as {
+      events: { text: string }[];
+      cursor: number | null;
+      remaining: number;
+    };
+    expect(prev.events.map((e) => e.text)).toEqual(["r0", "r1", "r2"]);
+    expect(prev.cursor).toBeNull();
+    expect(prev.remaining).toBe(0);
   });
 });
