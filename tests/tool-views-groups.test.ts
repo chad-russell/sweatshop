@@ -131,6 +131,15 @@ describe("harness read tools in a group", () => {
     expect(callState({ type: "tool-read", state: "output-error", input: { file_path: "a.ts" } })).toBe("failed");
   });
 
+  it("a read whose file content happens to parse as a result envelope still counts as ok", () => {
+    const jsonFixture = done("read", { file_path: "error.json" }, '{"ok":false,"code":"boom"}');
+    const g = groupParts([read("a.ts"), jsonFixture, read("c.ts")])[0]!;
+    if (g.kind !== "group") throw new Error("expected group");
+    expect(g.failed).toBe(0);
+    expect(callState(jsonFixture)).toBe("ok");
+    expect(callState(done("read", { file_path: "k.json" }, '{"kind":"error","message":"x"}'))).toBe("ok");
+  });
+
   it("write/edit stay loud (never fold even at ≥3)", () => {
     const write = done("write", { path: "a.ts", content: "x" }, "ok");
     const edit = done("edit", { path: "a.ts" }, "ok");

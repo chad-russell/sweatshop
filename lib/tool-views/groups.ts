@@ -71,13 +71,21 @@ export function isQuiet(part: PartLike): boolean {
 
 export type CallState = "running" | "ok" | "failed";
 
+/** These tools' output is the thing itself — file content, a directory
+ *  listing, matches — never a `{ok, ...}` / `{kind:"error"}` result
+ *  envelope. A file that happens to contain that shape (JSON fixtures,
+ *  error logs) must not read as a failed call. */
+const RAW_OUTPUT_TOOLS = new Set(["read", "grep", "glob", "find", "ls"]);
+
 export function callState(part: PartLike): CallState {
   if (part.state === "output-error" || part.state === "output-denied") return "failed";
   if (part.state === "output-available") {
-    const o = objectOf(part.output);
-    if (o?.ok === false || o?.kind === "error") return "failed";
-    // bash / sandbox_exec report failure as a non-zero exit code.
     const name = toolName(part);
+    if (!RAW_OUTPUT_TOOLS.has(name)) {
+      const o = objectOf(part.output);
+      if (o?.ok === false || o?.kind === "error") return "failed";
+    }
+    // bash / sandbox_exec report failure as a non-zero exit code.
     if ((name === "bash" || name === "sandbox_exec") && parseBash(part.input, part.output).exitCode) return "failed";
     return "ok";
   }
