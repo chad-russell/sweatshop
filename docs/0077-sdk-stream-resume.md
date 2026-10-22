@@ -59,6 +59,31 @@ mid-stream and nobody used it:
    settled refetch), which re-folds the turn. Verified empirically in
    implementation; whichever happens is documented here.
 
+   **Finding (read from `ai`'s `Chat.makeRequest`, dist/index.js
+   ~L19863-19960):** a resumed stream renders as a NEW assistant
+   message, never a continuation of the hydrated fold. `resumeStream()`
+   carries no `messageId`, so `responseMessageIndex` always lands on
+   `state.messages.length - 1` and `usesEarlierAssistantMessage` is
+   always false; `resumableResponseMessage` (the one case that *would*
+   reuse `lastMessage`) only applies when that last message is an
+   assistant message with a tool part stuck `input-streaming` or
+   `approval-responded` — not our case, since the hydrated last row
+   before a live turn is its opening `t_` user row or a settled
+   assistant slice. `createStreamingUIMessageState` is therefore given
+   no `lastMessage` and mints a fresh id. On top of that,
+   `processUIMessageStream`'s `"start"` case runs with
+   `resetStateOnMessageIdChange: true` for `trigger === "resume-stream"`
+   (L19932, L7071-7074): the resumed stream's first chunk is a `start`
+   carrying its OWN `messageId` (the slice boundary decision 2
+   describes), which never matches the freshly-minted state id, so the
+   state resets to an entirely new empty message before any parts
+   arrive. The `write()` callback's `response.state.message.id ===
+   this.lastMessage?.id` check then fails too, so `pushMessage` runs,
+   not `replaceMessage`. Net effect: the in-progress slice always
+   streams in as its own assistant `UIMessage`, appended after the
+   hydrated transcript — exactly the "cosmetic, bounded" case above,
+   fixed up by the post-`finish` tail reload.
+
 4. **Wakes and steers reattach the same way.** A wake turn (started
    server-side) or a send that steered into a live turn: the existing
    settled context fetch (`context=1&tail=1`, which already returns
