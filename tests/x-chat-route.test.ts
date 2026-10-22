@@ -108,7 +108,15 @@ describe("GET /api/x/chat paging", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     // Shape: exactly the keys the chat surface has always consumed.
-    expect(Object.keys(body).sort()).toEqual(["activeRunId", "messages", "projectId", "route", "sandbox", "title"]);
+    expect(Object.keys(body).sort()).toEqual([
+      "activeRunId",
+      "activeStreamCursor",
+      "messages",
+      "projectId",
+      "route",
+      "sandbox",
+      "title",
+    ]);
     const messages = body.messages as { id: string }[];
     expect(messages.map((m) => m.id)).toEqual(["c_page1_1", "c_page1_2", "c_page1_3"]);
   });

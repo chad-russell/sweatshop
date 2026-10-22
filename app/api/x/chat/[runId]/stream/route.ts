@@ -10,11 +10,13 @@ export const dynamic = "force-dynamic";
  * apply the client's UI cursor, so a reconnected browser neither misses
  * nor duplicates chunks.
  *
- * 0076: this route now serves exactly one caller — a tab RECONNECTING to
- * a run IT started (a dropped connection mid-send). Page loads never
- * attach it anymore (they hydrate persisted slices + poll), so the
- * full-journal replay below only ever covers the few chunks the sending
- * tab itself already showed.
+ * 0076/0077: this route serves exactly one caller — a tab RECONNECTING
+ * to a run IT STARTED (a dropped connection mid-send); it already
+ * streamed from chunk 0 itself, so the full-journal replay below only
+ * ever covers the few chunks it already showed. Every other resume
+ * (page load onto a live turn, a wake, a steered send) uses
+ * `[runId]/from/[cursor]/stream` instead, which skips straight to the
+ * turn's current slice — never a from-chunk-0 replay.
  */
 export async function GET(
   request: Request,
