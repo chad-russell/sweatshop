@@ -397,6 +397,10 @@ export function ChatSession({
           const runId = response.headers.get("x-workflow-run-id");
           resumeRunRef.current = runId ?? null;
         },
+        // 0077: the own-send reconnect is only for the send in flight.
+        onChatEnd: () => {
+          resumeRunRef.current = null;
+        },
         prepareSendMessagesRequest: ({ messages, trigger, messageId }) => {
           // 0015: read the page context at send time; each send's note
           // is what the page showed when Chad hit send. A panel
@@ -430,12 +434,15 @@ export function ChatSession({
         // SDK's own reconnect contract (it appends `?startIndex=` itself)
         // picks up exactly the in-progress slice, nothing replayed.
         prepareReconnectToStreamRequest: ({ api }) => {
-          if (resumeRunRef.current) {
-            return { api: `/api/x/chat/${encodeURIComponent(resumeRunRef.current)}/stream` };
-          }
+          // A known live run (mount, wake, steer) wins: resumeRunRef may
+          // still name an OLDER run this tab sent earlier, and replaying
+          // that from chunk 0 would duplicate a finished turn.
           const pending = pendingResumeRef.current;
-          return pending
-            ? { api: `/api/x/chat/${encodeURIComponent(pending.runId)}/from/${pending.cursor}/stream` }
+          if (pending) {
+            return { api: `/api/x/chat/${encodeURIComponent(pending.runId)}/from/${pending.cursor}/stream` };
+          }
+          return resumeRunRef.current
+            ? { api: `/api/x/chat/${encodeURIComponent(resumeRunRef.current)}/stream` }
             : { api };
         },
       }),
