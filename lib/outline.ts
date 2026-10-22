@@ -7,16 +7,21 @@
  * lib/status.ts and lib/plan.ts).
  *
  * Legacy compat (0064 decision 10): a transcript's `update_status`
- * results still derive, as outlines with no goal, ids slugged from
- * labels, and runner "auto" — `lib/status.ts` stays the owner of that
- * shape (mode machinery still reads it directly) and this module adapts
- * it rather than duplicating the parsing.
+ * results still derive as outlines with no goal, ids slugged from labels,
+ * and runner "auto". Shared transcript walkers live in `lib/status.ts`
+ * while the legacy mode machinery remains there ahead of its removal.
  */
 
 import type { UIMessage } from "ai";
 import {
   STATUS_STATES,
+  hasUnresolvedTools,
+  isWake,
   isStatusSnapshot,
+  partsOf,
+  textOf,
+  toolNameOf,
+  unwrapOutput,
   type StatusSnapshot,
   type StatusState,
   type StatusStep,
@@ -215,13 +220,11 @@ export function isOutlineCard(value: unknown): value is OutlineCard {
   return !!v && v.kind === "outline" && typeof v.version === "number" && isOutline(v.outline);
 }
 
-/** One landed rewrite in the transcript — legacy `update_status` results
- *  carry no `next` and are never `proposed`. */
+/** One landed rewrite in the transcript. */
 export interface OutlineEntry {
   version: number;
   outline: Outline;
   proposed: boolean;
-  next?: string;
 }
 
 export interface DerivedOutline {
@@ -235,77 +238,16 @@ export interface DerivedOutline {
   review: OutlineEntry | null;
 }
 
-const WAKE_KINDS = new Set(["harness", "thread", "plan", "outline"]);
-/** `renderWake`'s first line (`[name word] — url`). */
-const WAKE_TEXT = /^\[[^\]]+\] — /;
 const OUTLINE_APPROVAL_TEXT = /^\[outline v\d+ approved\]/;
-
-function unwrapOutput(output: unknown): unknown {
-  if (!output || typeof output !== "object") return output;
-  const boxed = output as { type?: unknown; value?: unknown };
-  if (boxed.type === "json" && "value" in boxed) return boxed.value;
-  return output;
-}
-
-function partsOf(message: unknown): unknown[] {
-  if (!message || typeof message !== "object") return [];
-  const record = message as { parts?: unknown; content?: unknown };
-  if (Array.isArray(record.parts)) return record.parts;
-  if (Array.isArray(record.content)) return record.content;
-  return [];
-}
-
-function textOf(message: unknown): string {
-  if (!message || typeof message !== "object") return "";
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  return partsOf(message)
-    .map((part) => {
-      const text = (part as { text?: unknown }).text;
-      return typeof text === "string" ? text : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-function toolNameOf(part: unknown): string | null {
-  if (!part || typeof part !== "object") return null;
-  const record = part as { toolName?: unknown; type?: unknown };
-  if (typeof record.toolName === "string") return record.toolName;
-  if (typeof record.type === "string" && record.type.startsWith("tool-")) return record.type.slice("tool-".length);
-  return null;
-}
 
 function toolOutput(part: unknown): unknown {
   const record = part as { output?: unknown; result?: unknown };
   return unwrapOutput(record.output ?? record.result);
 }
 
-function isWake(message: unknown): boolean {
-  if (!message || typeof message !== "object") return false;
-  if ((message as { role?: unknown }).role !== "user") return false;
-  const kind = (message as { metadata?: { runEvent?: { kind?: unknown } } }).metadata?.runEvent?.kind;
-  if (typeof kind === "string" && WAKE_KINDS.has(kind)) return true;
-  return WAKE_TEXT.test(textOf(message).trim());
-}
-
-function hasUnresolvedTools(message: unknown): boolean {
-  for (const part of partsOf(message)) {
-    if (!part || typeof part !== "object") continue;
-    const record = part as { type?: unknown; state?: unknown };
-    if (record.type === "tool-call") return true;
-    if (typeof record.type === "string" && record.type.startsWith("tool-") && record.type !== "tool-result") {
-      const state = record.state;
-      if (state !== "output-available" && state !== "output-error" && state !== "output-denied") return true;
-    }
-  }
-  return false;
-}
-
 interface RawEntry {
   outline: Outline;
   proposed: boolean;
-  next?: string;
   /** Set for a live `update_outline` result (the version it recorded at
    *  write time); undefined for a legacy `update_status` result, whose
    *  version the caller counts from its position instead. */
@@ -322,7 +264,7 @@ function entriesFromMessage(message: unknown): RawEntry[] {
     if (typeof state === "string" && state !== "output-available") continue;
     const output = toolOutput(part);
     if (name === "update_outline" && isOutlineSnapshot(output)) {
-      out.push({ outline: output.outline, proposed: output.proposed, next: output.next, version: output.version });
+      out.push({ outline: output.outline, proposed: output.proposed, version: output.version });
     } else if (name === "update_status" && isStatusSnapshot(output)) {
       out.push({ outline: legacyOutlineFromStatus(output), proposed: false });
     }
@@ -399,7 +341,7 @@ export function deriveOutline(messages: readonly unknown[]): DerivedOutline {
   for (const message of messages) {
     for (const raw of entriesFromMessage(message)) {
       version = raw.version ?? version + 1;
-      const entry: OutlineEntry = { version, outline: raw.outline, proposed: raw.proposed, ...(raw.next !== undefined ? { next: raw.next } : {}) };
+      const entry: OutlineEntry = { version, outline: raw.outline, proposed: raw.proposed };
       history.push(entry);
       current = entry;
       if (raw.proposed) review = entry;

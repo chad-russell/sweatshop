@@ -78,18 +78,18 @@ export function activeStepHistory(history: readonly StatusSnapshot[]): string[] 
   return out;
 }
 
-const WAKE_KINDS = new Set(["harness", "thread", "plan"]);
+const WAKE_KINDS = new Set(["harness", "thread", "plan", "outline"]);
 /** `renderWake`'s first line (`[name word] — url`). */
 const WAKE_TEXT = /^\[[^\]]+\] — /;
 
-function unwrapOutput(output: unknown): unknown {
+export function unwrapOutput(output: unknown): unknown {
   if (!output || typeof output !== "object") return output;
   const boxed = output as { type?: unknown; value?: unknown };
   if (boxed.type === "json" && "value" in boxed) return boxed.value;
   return output;
 }
 
-function partsOf(message: unknown): unknown[] {
+export function partsOf(message: unknown): unknown[] {
   if (!message || typeof message !== "object") return [];
   const record = message as { parts?: unknown; content?: unknown };
   if (Array.isArray(record.parts)) return record.parts;
@@ -97,7 +97,7 @@ function partsOf(message: unknown): unknown[] {
   return [];
 }
 
-function textOf(message: unknown): string {
+export function textOf(message: unknown): string {
   if (!message || typeof message !== "object") return "";
   const content = (message as { content?: unknown }).content;
   if (typeof content === "string") return content;
@@ -110,7 +110,7 @@ function textOf(message: unknown): string {
     .join("\n");
 }
 
-function toolNameOf(part: unknown): string | null {
+export function toolNameOf(part: unknown): string | null {
   if (!part || typeof part !== "object") return null;
   const record = part as { toolName?: unknown; type?: unknown };
   if (typeof record.toolName === "string") return record.toolName;
@@ -130,7 +130,7 @@ function statusSnapshots(message: unknown): StatusSnapshot[] {
   return out;
 }
 
-function isWake(message: unknown): boolean {
+export function isWake(message: unknown): boolean {
   if (!message || typeof message !== "object") return false;
   if ((message as { role?: unknown }).role !== "user") return false;
   const kind = (message as { metadata?: { runEvent?: { kind?: unknown } } }).metadata?.runEvent?.kind;
@@ -138,7 +138,7 @@ function isWake(message: unknown): boolean {
   return WAKE_TEXT.test(textOf(message).trim());
 }
 
-function hasUnresolvedTools(message: unknown): boolean {
+export function hasUnresolvedTools(message: unknown): boolean {
   for (const part of partsOf(message)) {
     if (!part || typeof part !== "object") continue;
     const record = part as { type?: unknown; state?: unknown };
