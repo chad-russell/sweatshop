@@ -158,9 +158,21 @@ describe("unwrapShell", () => {
   it("unescapes a double-quoted interior", () => {
     expect(unwrapShell('/bin/bash -lc "echo \\"hi\\""')).toBe('echo "hi"');
   });
+  it("unescapes an escaped $ inside the wrapper (a real codex shape)", () => {
+    expect(unwrapShell('/bin/bash -lc "echo \\$HOME"')).toBe("echo $HOME");
+  });
   it("leaves an unwrapped command untouched", () => {
     expect(unwrapShell("ls -la")).toBe("ls -la");
     expect(unwrapShell("npm test")).toBe("npm test");
+  });
+  it("does not backtrack across a compound of two wrapped-looking invocations", () => {
+    // A greedy (["'])([\s\S]*)\1 backtracks to the LAST matching quote,
+    // mangling a command that never ran. The whole string must be
+    // exactly one wrapper now — anything else passes through untouched.
+    expect(unwrapShell('sh -c "ls" && echo "done"')).toBe('sh -c "ls" && echo "done"');
+    expect(unwrapShell('bash -lc "echo hi"; bash -lc "echo bye"')).toBe(
+      'bash -lc "echo hi"; bash -lc "echo bye"',
+    );
   });
 });
 

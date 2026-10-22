@@ -20,19 +20,27 @@ export function canonicalTool(name: string | null | undefined): string {
   return trimmed ? trimmed.toLowerCase() : "tool";
 }
 
-const SHELL_WRAP = /^(?:\/bin\/)?(?:bash|sh)\s+-(?:lc|c)\s+(["'])([\s\S]*)\1$/;
+// Anchored on BOTH ends so the whole string must be exactly one wrapped
+// invocation — a greedy `[\s\S]*` between the first and last quote of a
+// type (the earlier shape) backtracks across compounds like
+// `sh -c "ls" && echo "done"`, mangling a command that never ran.
+const DOUBLE_QUOTED = /^(?:\/bin\/)?(?:bash|sh)\s+-(?:lc|c)\s+"((?:[^"\\]|\\.)*)"$/;
+const SINGLE_QUOTED = /^(?:\/bin\/)?(?:bash|sh)\s+-(?:lc|c)\s+'([^']*)'$/;
 
 /**
  * Strip codex's `/bin/bash -lc "<cmd>"` (also `bash -lc '<cmd>'`, `sh -c
  * "<cmd>"`) wrapper so a label or terminal shows the command that
  * actually ran. Display only — the stored event text is untouched; an
- * unwrapped command (or a wrap this doesn't recognise) passes through.
+ * unwrapped command, or anything that isn't EXACTLY one such wrapper
+ * (a compound like `sh -c "ls" && echo "done"`), passes through as-is.
  */
 export function unwrapShell(command: string): string {
-  const m = SHELL_WRAP.exec(command.trim());
-  if (!m) return command;
-  const [, quote, inner] = m;
-  return quote === '"' ? inner.replace(/\\(["\\$`])/g, "$1") : inner;
+  const trimmed = command.trim();
+  const double = DOUBLE_QUOTED.exec(trimmed);
+  if (double) return double[1]!.replace(/\\(["\\$`])/g, "$1");
+  const single = SINGLE_QUOTED.exec(trimmed);
+  if (single) return single[1]!;
+  return command;
 }
 
 export interface TimelineEvent {
