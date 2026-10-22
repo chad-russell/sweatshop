@@ -564,6 +564,8 @@ export function ChatSession({
   // 0064: Quote for the outline card, same mechanism.
   const outlineView = useMemo<OutlineView>(() => ({
     history: outlines,
+    conversationId,
+    projectId: projectId ?? null,
     quote: (selection) => {
       const el = textareaRef.current;
       if (!el) return;
@@ -573,7 +575,7 @@ export function ChatSession({
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     },
-  }), [outlines, draftKey]);
+  }), [outlines, draftKey, conversationId, projectId]);
   const freshMode = fresh ? freshComposer?.(state) : undefined;
 
   // 0042: images upload first (each becomes an attachment id), then the

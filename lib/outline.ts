@@ -628,12 +628,18 @@ export interface OutlineTranscriptHistory {
   previous: Map<string, { version: number; outline: Outline }>;
   latestId: string | null;
   openReviewId: string | null;
+  /** Latest snapshot is covered by an approval (runner-only edits keep it). */
+  approved: boolean;
+  /** Last tool card anchors later owner-edit snapshots in the transcript. */
+  cardAnchorId: string | null;
+  current: { version: number; outline: Outline; proposed: boolean } | null;
 }
 
 export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscriptHistory {
   const previous = new Map<string, { version: number; outline: Outline }>();
   let last: { id: string; version: number; outline: Outline; proposed: boolean } | null = null;
   let approvedAfterLast = false;
+  let cardAnchorId: string | null = null;
   for (const message of messages) {
     if (isApprovalMessage(message)) approvedAfterLast = true;
     const edit = parseOutlineEdit(message);
@@ -657,6 +663,7 @@ export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscrip
       }
       if (!entry) continue;
       const id = part.toolCallId ?? "";
+      cardAnchorId = id;
       if (last) previous.set(id, { version: last.version, outline: last.outline });
       last = { id, version: entry.version, outline: entry.outline, proposed: entry.proposed };
       if (entry.proposed) approvedAfterLast = false;
@@ -666,5 +673,8 @@ export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscrip
     previous,
     latestId: last?.id ?? null,
     openReviewId: last && last.proposed && !approvedAfterLast ? last.id : null,
+    approved: Boolean(last && approvedAfterLast),
+    cardAnchorId,
+    current: last ? { version: last.version, outline: last.outline, proposed: last.proposed } : null,
   };
 }

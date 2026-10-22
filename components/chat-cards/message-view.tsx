@@ -150,6 +150,7 @@ export const ChatMessageView = memo(function ChatMessageView({
 
   const renderPart = (part: (typeof message.parts)[number], i: number): ReactNode => {
           if (part.type === "text") {
+            if (runEvent?.kind === "outline-edit") return null;
             if (message.role === "user") {
               const handoff = splitPhaseHandoff(part.text);
               if (handoff) {
