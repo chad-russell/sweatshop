@@ -262,19 +262,19 @@ describe("renderPhaseHandoff (0055 v7 part B)", () => {
   });
 });
 
-describe("ticket skill progress is update_status", () => {
+describe("ticket skill progress is update_outline", () => {
   const raw = readFileSync(path.join(process.cwd(), "skills", "ticket", "SKILL.md"), "utf8").replace(
     /^---\n[\s\S]*?\n---\n/,
     "",
   );
   const parsed = parseModeSkill(raw);
 
-  it("every phase tells the agent to call update_status and never advance_phase", () => {
+  it("every phase tells the agent to call update_outline and never advance_phase", () => {
     expect(parsed.phases.map((phase) => phase.name)).toEqual(["Plan", "Implement", "Review", "Fixup", "Ship"]);
     expect(raw).not.toContain("advance_phase");
-    expect(parsed.brief).toContain("update_status");
+    expect(parsed.brief).toContain("update_outline");
     for (const phase of parsed.phases) {
-      expect(phase.body, phase.name).toContain("update_status");
+      expect(phase.body, phase.name).toContain("update_outline");
     }
   });
 });

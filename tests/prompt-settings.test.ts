@@ -565,7 +565,7 @@ describe("0055: skill catalog repairs — ship retired, ticket upgraded, only wh
     expect(repaired?.version).toBe(2);
     expect(repaired?.editedBy).toBe("git");
     expect(repaired?.note).toBe("0059 thread status");
-    expect(repaired?.body).toContain("update_status");
+    expect(repaired?.body).toContain("update_outline");
     expect(repaired?.body).not.toContain("advance_phase");
     expect(repaired?.body).not.toBe(PRE_0059_TICKET_BODY);
   });

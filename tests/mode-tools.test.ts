@@ -36,7 +36,7 @@ describe("use_skill loads a mode", () => {
         { label: "Ship", state: "pending" },
       ],
     });
-    expect((result as { skill: string }).skill).toContain("update_status");
+    expect((result as { skill: string }).skill).toContain("update_outline");
     expect((result as { skill: string }).skill).not.toContain("{{owner");
     expect(getConversation(db(), id)).toMatchObject({ skill: "ticket", modePhase: "plan" });
   });
@@ -71,7 +71,7 @@ describe("use_skill loads a mode", () => {
       bound: false,
       reason: "modes need a project",
     });
-    expect((result as { skill: string }).skill).toContain("update_status");
+    expect((result as { skill: string }).skill).toContain("update_outline");
     expect(getConversation(db(), id)).toMatchObject({ skill: null, modePhase: null });
   });
 });
