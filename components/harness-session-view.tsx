@@ -14,6 +14,7 @@ import { SandboxStatus } from "@/components/sandbox-status";
 import type { SandboxLink } from "@/lib/read-models/sandbox";
 import { TaskQuote } from "@/components/harness-card";
 import { HARNESS_LABEL, HarnessMark } from "@/components/harness-logo";
+import { topInScroller } from "@/lib/anchor-scroll";
 import { buildTimeline, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { cn } from "@/lib/utils";
@@ -281,11 +282,9 @@ export function HarnessSessionView({
     height: number;
   } | null>(null);
 
-  // Position within the scroller's content space: rect deltas are
-  // independent of the offsetParent, and + scrollTop makes the value
-  // invariant to where the container itself is scrolled or sits.
-  const firstTopIn = (scroll: HTMLElement, el: Element): number =>
-    el.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
+  // Position within the scroller's content space: shared rect-delta math
+// (lib/anchor-scroll.ts, invariant to the container's own scroll/page
+// position).
 
   // The first rendered ITEM, not a wrapper: HarnessEventLog nests its
   // items in one list container (div.space-y-3) whose top edge never
@@ -300,7 +299,7 @@ export function HarnessSessionView({
     if (scroll && first) {
       pendingAnchorRef.current = {
         first,
-        firstTop: firstTopIn(scroll, first),
+        firstTop: topInScroller(scroll, first),
         scrollTop: scroll.scrollTop,
         height: scroll.scrollHeight,
       };
@@ -353,7 +352,7 @@ export function HarnessSessionView({
     if (!pending || !scroll) return;
     pendingAnchorRef.current = null;
     const delta = pending.first.isConnected
-      ? firstTopIn(scroll, pending.first) - pending.firstTop
+      ? topInScroller(scroll, pending.first) - pending.firstTop
       : scroll.scrollHeight - pending.height; // anchor folded away by the merge
     scroll.scrollTop = pending.scrollTop + delta;
   }, [anchorTick]);

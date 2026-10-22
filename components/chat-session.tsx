@@ -9,6 +9,7 @@ import { useStickToBottomContext } from "use-stick-to-bottom";
 import {
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -41,6 +42,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { SweatshopLogo } from "@/components/sweatshop-logo";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ViewingContext } from "@/lib/page-context";
+import { topInScroller } from "@/lib/anchor-scroll";
 import {
   alignPageHead,
   appendNewer,
@@ -563,7 +565,11 @@ export function ChatSession({
   // conversation" line), but never on a transcript that fully hydrated.
   const [pagedOnce, setPagedOnce] = useState(false);
   const anchorRef = useRef<OlderAnchor>({ sentinel: null, scrollRef: null });
-  const pendingAnchorRef = useRef<{ sentinelTop: number; scrollTop: number } | null>(null);
+  // The pending anchor is tagged with the tick it was captured under;
+  // the restore effect consumes it only on the bump that follows its
+  // own prepend (see loadOlder).
+  const [anchorTick, setAnchorTick] = useState(0);
+  const pendingAnchorRef = useRef<{ sentinelTop: number; scrollTop: number; tick: number } | null>(null);
 
   /** Load the previous page: extend backwards to the oldest turn
    *  boundary in it (rows fold by turn there — a page cut mid-turn
@@ -578,19 +584,49 @@ export function ChatSession({
     const sentinel = anchor.sentinel;
     const scroll = anchor.scrollRef?.current ?? null;
     if (sentinel && scroll) {
-      pendingAnchorRef.current = { sentinelTop: sentinel.offsetTop, scrollTop: scroll.scrollTop };
+      pendingAnchorRef.current = {
+        sentinelTop: topInScroller(scroll, sentinel),
+        scrollTop: scroll.scrollTop,
+        tick: anchorTick,
+      };
     }
     try {
       const first = await fetchChatPage(conversationId, { tail: PAGE_TAIL, before: olderCursor });
-      if (!first) return; // transient — the cursor stays for a retry
+      if (!first) {
+        // Transient — the cursor stays for a retry; just because the
+        // fetch failed does not mean a resize stopped being pending.
+        pendingAnchorRef.current = null;
+        return;
+      }
       const page = await extendChatPageBack(conversationId, first, PAGE_TAIL, (rows) => {
         const oldest = rows[0];
         return oldest != null && oldest.id.startsWith("t_");
       });
       setOlderCursor(page.olderCursor);
       setOlderRemaining(page.olderRemaining);
-      const older = rowsToUIMessages(page.rows);
+      // The extension can still be unaligned when its fetch failed
+      // twice: trim the head back to the page's oldest opener so the
+      // prepend never splits its first turn; a page holding none at
+      // all is declined (the cursor stays for a retry). A null cursor
+      // is the conversation's start — aligned by definition.
+      let rows = page.rows;
+      if (page.olderCursor != null && rows.length > 0 && !rows[0].id.startsWith("t_")) {
+        const aligned = alignPageHead(rows);
+        if (aligned == null) {
+          setOlderCursor(first.olderCursor);
+          setOlderRemaining(first.olderRemaining);
+          pendingAnchorRef.current = null;
+          return;
+        }
+        rows = aligned;
+      }
+      const older = rowsToUIMessages(rows);
       chatRef.current.setMessages((prev) => mergeOlder(prev, older));
+      // The prepend and the anchor bump land in the SAME commit batch
+      // (React 18 auto-batching): the restore effect below runs after
+      // that DOM commit, never against the old layout — the race where
+      // a messages-effect beat the prepend is gone.
+      setAnchorTick((t) => t + 1);
     } finally {
       setOlderLoading(false);
     }
@@ -598,15 +634,20 @@ export function ChatSession({
   // The anchor restores after the prepended messages commit to the DOM:
   // the sentinel moved down by the prepended height, so the scroll top
   // follows it (scrollTop_after = scrollTop_before + ΔsentinelTop).
-  useEffect(() => {
+  // Keyed on anchorTick (bumped in the same batch as the prepend) and
+  // consumed only for the bump that follows its own capture — a
+  // messages change alone (slices streaming in) never consumes an
+  // anchor. useLayoutEffect: restore before paint, so the pinned
+  // viewport is what the user sees.
+  useLayoutEffect(() => {
     const pending = pendingAnchorRef.current;
-    if (!pending) return;
+    if (!pending || pending.tick + 1 !== anchorTick) return;
     pendingAnchorRef.current = null;
     const sentinel = anchorRef.current.sentinel;
     const scroll = anchorRef.current.scrollRef?.current ?? null;
     if (!sentinel || !scroll) return;
-    scroll.scrollTop = pending.scrollTop + (sentinel.offsetTop - pending.sentinelTop);
-  }, [messages]);
+    scroll.scrollTop = pending.scrollTop + (topInScroller(scroll, sentinel) - pending.sentinelTop);
+  }, [anchorTick, messages]);
 
   // 0011: the sandbox read-model — which sandbox each sandboxed call ran
   // in and where the next one would. The call rows are written by the
