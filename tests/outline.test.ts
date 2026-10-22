@@ -5,6 +5,7 @@ import { appendMessages, ensureConversation, listPendingInputs } from "../db/cha
 import { getOutlineRow, outlineState } from "../db/outlines";
 import { projects } from "../db/schema";
 import { derivePhase, phaseFromMessages } from "../lib/plan";
+import { renderWake } from "../lib/chat/wake";
 import {
   acceptOutlineApproved,
   acceptOutlinePreview,
@@ -200,6 +201,18 @@ describe("deriveOutline", () => {
       { role: "assistant", parts: [{ type: "tool-accept_outline", state: "output-available", output: { approved: true } }] },
     ]);
     expect(approvedByTool.review).toBeNull();
+  });
+
+  it("recognizes the approval wake text produced by the wake renderer", () => {
+    const text = renderWake({
+      kind: "outline",
+      id: "outline2",
+      name: "outline v2",
+      status: "approved",
+      detail: "go",
+      url: "/c/x",
+    });
+    expect(deriveOutline([ui(2, implement, true), { role: "user", content: text }]).review).toBeNull();
   });
 
   it("a newer proposal supersedes the open one", () => {

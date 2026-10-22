@@ -208,6 +208,22 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "outline proposal opens a review without suspending the turn",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "outline-propose";
+      const id = conv("outline-propose");
+
+      const run = await turn(id, "propose an outline");
+      expect((await run.returnValue).finishReason).toBe("stop");
+      expect(serialized(id)).toContain("mock-outline-continued");
+      expect(listPendingInputs(db(), id)).toEqual([
+        expect.objectContaining({ kind: "outline" }),
+      ]);
+    },
+  );
+
+  it(
     "steer: a message queued while the turn runs is drained between slices",
     { timeout: 30_000 },
     async () => {
