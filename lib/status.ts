@@ -1,11 +1,9 @@
 /**
- * 0059: thread status — the pure half. 0064 replaced the live
- * `update_status` tool with `update_outline` (lib/outline.ts, which reads
- * these same shapes for legacy compat); this module stays only for mode
- * machinery (lib/agent/mode-ids.ts, lib/chat/phase-handoff.ts,
- * components/mode-chip.tsx) still being read, untouched, ahead of its
- * removal. No db import (client- and workflow-safe, same rule as
- * lib/plan.ts).
+ * 0064: legacy read-compat for 0059 `update_status` results, plus the
+ * transcript walkers the outline derivation (lib/outline.ts) shares.
+ * `update_status` no longer exists as a tool; old transcripts still
+ * carry its results and lib/outline.ts adapts them. No db import
+ * (client- and workflow-safe).
  */
 
 export const STATUS_STATES = ["pending", "active", "done", "skipped", "blocked"] as const;
@@ -28,15 +26,6 @@ export interface StatusSnapshot {
   note?: string;
 }
 
-export interface DerivedStatus {
-  current: StatusSnapshot | null;
-  history: StatusSnapshot[];
-  /** A wake followed by a completed assistant turn that did not call
-   *  update_status. The chip says so instead of pretending the count
-   *  is still right. */
-  stale: boolean;
-}
-
 function isStep(value: unknown, allowChildren: boolean): value is StatusStep {
   if (!value || typeof value !== "object") return false;
   const step = value as Partial<StatusStep>;
@@ -55,27 +44,6 @@ export function isStatusSnapshot(value: unknown): value is StatusSnapshot {
   if (!snapshot.steps.every((step) => isStep(step, true))) return false;
   if (snapshot.note !== undefined && typeof snapshot.note !== "string") return false;
   return true;
-}
-
-/** The first top-level step in `state`, else the first matching child. */
-export function findStep(steps: readonly StatusStep[], state: StatusState): StatusStep | null {
-  const top = steps.find((step) => step.state === state);
-  if (top) return top;
-  for (const step of steps) {
-    const child = step.children?.find((item) => item.state === state);
-    if (child) return child;
-  }
-  return null;
-}
-
-/** Active top-level labels in order, collapsing consecutive repeats. */
-export function activeStepHistory(history: readonly StatusSnapshot[]): string[] {
-  const out: string[] = [];
-  for (const snapshot of history) {
-    const label = snapshot.steps.find((step) => step.state === "active")?.label;
-    if (label && out[out.length - 1] !== label) out.push(label);
-  }
-  return out;
 }
 
 const WAKE_KINDS = new Set(["harness", "thread", "plan", "outline"]);
@@ -118,18 +86,6 @@ export function toolNameOf(part: unknown): string | null {
   return null;
 }
 
-function statusSnapshots(message: unknown): StatusSnapshot[] {
-  const out: StatusSnapshot[] = [];
-  for (const part of partsOf(message)) {
-    if (toolNameOf(part) !== "update_status") continue;
-    const state = (part as { state?: unknown }).state;
-    if (typeof state === "string" && state !== "output-available") continue;
-    const output = unwrapOutput((part as { output?: unknown; result?: unknown }).output ?? (part as { result?: unknown }).result);
-    if (isStatusSnapshot(output)) out.push(output);
-  }
-  return out;
-}
-
 export function isWake(message: unknown): boolean {
   if (!message || typeof message !== "object") return false;
   if ((message as { role?: unknown }).role !== "user") return false;
@@ -149,97 +105,4 @@ export function hasUnresolvedTools(message: unknown): boolean {
     }
   }
   return false;
-}
-
-/**
- * Current status, every prior rewrite, and the stale bit. Accepts UI
- * messages (`parts`) and model messages (`content`) so the chip, the
- * per-turn note, and phase handoff share one walk.
- */
-export function deriveStatus(messages: readonly unknown[]): DerivedStatus {
-  const history: StatusSnapshot[] = [];
-  let current: StatusSnapshot | null = null;
-  let stale = false;
-  let buffer: unknown[] = [];
-  let bufferWake = false;
-
-  const applySnapshots = (snapshots: StatusSnapshot[]) => {
-    if (snapshots.length === 0) return false;
-    history.push(...snapshots);
-    current = snapshots[snapshots.length - 1]!;
-    stale = false;
-    return true;
-  };
-
-  const flush = (ended: boolean) => {
-    const snapshots = buffer.flatMap(statusSnapshots);
-    if (bufferWake) {
-      if (!applySnapshots(snapshots)) {
-        const assistants = buffer.filter((message) => (message as { role?: unknown }).role === "assistant");
-        if (assistants.length > 0) {
-          const unresolved = hasUnresolvedTools(assistants[assistants.length - 1]);
-          if ((ended || !unresolved) && current) stale = true;
-        }
-      }
-    } else {
-      applySnapshots(snapshots);
-    }
-    buffer = [];
-    bufferWake = false;
-  };
-
-  for (const message of messages) {
-    if (message && typeof message === "object" && (message as { role?: unknown }).role === "user") {
-      flush(true);
-      bufferWake = isWake(message);
-      continue;
-    }
-    buffer.push(message);
-  }
-  flush(false);
-  return { current, history, stale };
-}
-
-/** Skill ids loaded in this transcript: owner mode entry, then each
- *  `use_skill({id})` that returned a body. First-seen order. */
-export function skillsUsed(messages: readonly unknown[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const add = (id: string) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    out.push(id);
-  };
-  for (const message of messages) {
-    if (!message || typeof message !== "object") continue;
-    const runEvent = (message as { metadata?: { runEvent?: { kind?: unknown; id?: unknown } } }).metadata?.runEvent;
-    if (runEvent?.kind === "mode" && typeof runEvent.id === "string" && runEvent.id) add(runEvent.id);
-    for (const part of partsOf(message)) {
-      if (toolNameOf(part) !== "use_skill") continue;
-      const state = (part as { state?: unknown }).state;
-      if (typeof state === "string" && state !== "output-available") continue;
-      const output = unwrapOutput((part as { output?: unknown }).output);
-      if (!output || typeof output !== "object") continue;
-      const record = output as { ok?: unknown; id?: unknown };
-      if (record.ok === true && typeof record.id === "string" && record.id) add(record.id);
-    }
-  }
-  return out;
-}
-
-/** The latest `use_skill` result that loaded a mode, if the transcript has one. */
-export function lastLoadedModeId(messages: readonly unknown[]): string | null {
-  let id: string | null = null;
-  for (const message of messages) {
-    for (const part of partsOf(message)) {
-      if (toolNameOf(part) !== "use_skill") continue;
-      const state = (part as { state?: unknown }).state;
-      if (typeof state === "string" && state !== "output-available") continue;
-      const output = unwrapOutput((part as { output?: unknown }).output);
-      if (!output || typeof output !== "object") continue;
-      const record = output as { ok?: unknown; mode?: unknown; id?: unknown };
-      if (record.ok === true && record.mode === true && typeof record.id === "string" && record.id) id = record.id;
-    }
-  }
-  return id;
 }

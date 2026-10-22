@@ -426,7 +426,7 @@ function isOutlineApproval(message: unknown): boolean {
   return false;
 }
 
-/** The stale bit — mirrors `lib/status.ts`'s `deriveStatus` buffering:
+/** The stale bit — 0059 stale-after-wake buffering:
  *  a wake not followed (before the turn ends) by any rewrite is stale. */
 function computeStale(messages: readonly unknown[]): boolean {
   let stale = false;
