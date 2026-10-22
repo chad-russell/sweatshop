@@ -8,6 +8,7 @@ import {
   CALL_SETTLED_STATUSES,
   createHarnessCall,
   getHarnessCall,
+  getRunningHarnessCall,
   listHarnessCalls,
   listWakableCalls,
   settleHarnessCall,
@@ -99,6 +100,39 @@ describe("harness_calls store", () => {
     expect(wakable).toContain(lost.id);
     expect(wakable).not.toContain(cancelled.id);
     expect(CALL_SETTLED_STATUSES.has("cancelled")).toBe(false);
+  });
+});
+
+describe("getRunningHarnessCall", () => {
+  it("finds a running call even behind 60 newer settled calls of mixed kinds", () => {
+    const conversationId = newConv();
+    const running = createHarnessCall(tdb, { conversationId, kind: "pi", task: "long running" }, 1000);
+    const kinds: ("pi" | "claude" | "cursor" | "codex")[] = ["pi", "claude", "cursor", "codex"];
+    for (let i = 0; i < 60; i++) {
+      const call = createHarnessCall(
+        tdb,
+        { conversationId, kind: kinds[i % kinds.length]!, task: `done ${i}` },
+        2000 + i,
+      );
+      // cancelled (not completed): settling 60 rows here must not also
+      // feed listWakableCalls's own global, unscoped 50-cap and break
+      // other tests sharing this db — the point under test is
+      // listHarnessCalls's createdAt-ordered cap, unaffected by status.
+      settleHarnessCall(tdb, call.id, { status: "cancelled" });
+    }
+    // The 50-cap, client-side-filtered lookup this replaces loses it —
+    // the running call is older than all 60 settled rows above it.
+    const capped = listHarnessCalls(tdb, { conversationId }).find(
+      (c) => c.kind === "pi" && c.status === "running",
+    );
+    expect(capped).toBeUndefined();
+    expect(getRunningHarnessCall(tdb, conversationId, "pi")?.id).toBe(running.id);
+  });
+
+  it("returns null when there is no running call of that kind", () => {
+    const conversationId = newConv();
+    createHarnessCall(tdb, { conversationId, kind: "claude", task: "other kind" });
+    expect(getRunningHarnessCall(tdb, conversationId, "pi")).toBeNull();
   });
 });
 
@@ -389,6 +423,18 @@ describe("cancel_run on hc_", () => {
     expect(listActiveHarnessRuns(conv)).toHaveLength(0);
     // A cancelled call never wakes.
     expect(listWakableCalls(tdb).map((c) => c.id)).not.toContain(call.id);
+  });
+
+  it("stamps settledAt on cancel too — the per-call page window closes — and it still never wakes", async () => {
+    const { call } = runningCall();
+    await cancelRunTool(call.id);
+    const row = getHarnessCall(tdb, call.id)!;
+    expect(row.status).toBe("cancelled");
+    expect(row.settledAt).toBeTruthy();
+    // CALL_SETTLED_STATUSES excludes "cancelled" regardless of settledAt,
+    // which is what both listWakableCalls and wakeCallIfDue gate on.
+    expect(listWakableCalls(tdb).map((c) => c.id)).not.toContain(call.id);
+    expect(await wakeCallIfDue(row, {})).toBe("none");
   });
 
   it("value-shapes not-found and not-live", async () => {

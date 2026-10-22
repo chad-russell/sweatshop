@@ -125,6 +125,18 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   first, expandable specialized cards, repeated polls still folded.
   Individual failures stay red; group status describes activity
   (running/completed) with a failed-call count, not task success.
+- Harness session view (0063): `/h/<harness>/<session>[/<call>]` folds
+  events with `buildTimeline`, converts them with `timelineToParts`
+  (1:1 with the items; non-tool items become text parts so they end a
+  run) and renders `groupParts` + `ToolGroupView` — the SAME grouping
+  path and `QUIET_TOOLS` allow-list as chat, for every harness. Tool
+  names are lowercased by `canonicalTool` (stored rows untouched);
+  codex's `/bin/bash -lc "<cmd>"` wrapper is stripped for display by
+  `unwrapShell`. Cancel: `POST /api/x/harness-calls/<hc_…>/cancel` →
+  `cancelRunTool` (cooperative — settles `cancelled` now, the workflow
+  tears the bridge down at its next step boundary; never
+  `workflow.cancel()`); `CancelCallButton` sits on the session header
+  and the chat's `HarnessCard` while a call runs.
 - Models: providers and routes (0021). Providers are code, keys are env:
   `lib/providers/registry.ts` — GLM (Z.AI coding plan, `ZAI_API_KEY`),
   Gloo (`GLOO_API_KEY`) and OpenRouter (`OPENROUTER_API_KEY`) via
