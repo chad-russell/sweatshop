@@ -14,6 +14,7 @@ import {
   updateOutline,
   type ApproveOutlineDeps,
 } from "../lib/agent/tools/outline";
+import { renderPhaseHandoff, splitPhaseHandoff } from "../lib/agent/mode-ids";
 import {
   deriveOutline,
   diffOutlineSteps,
@@ -21,8 +22,10 @@ import {
   outlineChipLabel,
   prependOutlineHandoff,
   renderOutlineEdit,
+  renderOutlineHandoff,
   renderThreadStateNote,
   runnerGate,
+  splitOutlineContext,
   validateOutline,
   type Outline,
   type Step,
@@ -332,6 +335,29 @@ describe("outline runner decisions and worker handoff", () => {
     expect(runnerGate(active(pi), { kind: "thread" })).toMatchObject({ ok: false, message: expect.stringContaining("pinned") });
     expect(runnerGate(active(pi), { kind: "harness", harness: "claude" })).toMatchObject({ ok: false, message: expect.stringContaining("different") });
     expect(runnerGate(active(pi), { kind: "harness", harness: "pi" })).toMatchObject({ ok: true, route: pi });
+  });
+
+  it("splitOutlineContext peels the block wherever it sits, so the anchored phase split still matches", () => {
+    const phaseTask = renderPhaseHandoff({
+      modeName: "Ticket",
+      phase: { id: "implement", name: "Implement", body: "Make it so." },
+      shared: null,
+      task: "fix the bug",
+    });
+    // What start_thread sends when an outline is active in a moded chat:
+    // outline context FIRST, then the 0055 phase handoff.
+    const withPhase = prependOutlineHandoff(phaseTask, active("thread")).task;
+    const phase = splitOutlineContext(withPhase)!;
+    expect(phase.context).toBe("Goal: Ship it\n- Build [active]\n  - Tests [pending] — run all");
+    // The phase split (anchored at the text's start) still matches on the rest.
+    const handoff = splitPhaseHandoff(phase.rest);
+    expect(handoff).toMatchObject({ phase: "Implement", task: "fix the bug" });
+    // Order-independent: the outline block also splits when it trails.
+    const outline = active("auto");
+    const trailing = `do the work\n\n${renderOutlineHandoff(outline, outline.steps[0]!)}`;
+    const after = splitOutlineContext(trailing)!;
+    expect(after.rest).toBe("do the work");
+    expect(splitOutlineContext("just a message")).toBeNull();
   });
 
   it("prepends the goal and active subtree compactly", () => {

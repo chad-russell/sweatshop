@@ -19,10 +19,11 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { HarnessCard } from "@/components/harness-card";
-import { PhaseContextBlock } from "@/components/phase-context";
+import { OutlineContextBlock, PhaseContextBlock } from "@/components/phase-context";
 import { PlanToolCard } from "@/components/plan-card";
 import { OutlineToolCard } from "@/components/outline-card";
 import { splitPhaseHandoff } from "@/lib/agent/mode-ids";
+import { splitOutlineContext } from "@/lib/outline";
 import { ScreenshotCard } from "@/components/ai-elements/screenshot-card";
 import { WebFetchCard, WebSearchCard } from "@/components/ai-elements/web-cards";
 import {
@@ -152,12 +153,18 @@ export const ChatMessageView = memo(function ChatMessageView({
           if (part.type === "text") {
             if (runEvent?.kind === "outline-edit") return null;
             if (message.role === "user") {
-              const handoff = splitPhaseHandoff(part.text);
-              if (handoff) {
+              // 0064: strip the outline context first (wherever it sits),
+              // so the anchored phase split below matches on what is left.
+              const outlineContext = splitOutlineContext(part.text);
+              const body = outlineContext ? outlineContext.rest : part.text;
+              const handoff = splitPhaseHandoff(body);
+              if (outlineContext || handoff) {
                 return (
                   <div key={i}>
-                    <PhaseContextBlock phase={handoff.phase} text={handoff.context} className="mb-2 rounded-lg border border-border" />
-                    {handoff.task.trim() && <MessageResponse>{handoff.task}</MessageResponse>}
+                    {outlineContext && <OutlineContextBlock text={outlineContext.context} className="mb-2 rounded-lg border border-border" />}
+                    {handoff && <PhaseContextBlock phase={handoff.phase} text={handoff.context} className="mb-2 rounded-lg border border-border" />}
+                    {handoff?.task.trim() && <MessageResponse>{handoff.task}</MessageResponse>}
+                    {!handoff && body.trim() && <MessageResponse>{body}</MessageResponse>}
                   </div>
                 );
               }

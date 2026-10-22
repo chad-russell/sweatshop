@@ -111,6 +111,23 @@ export function renderOutlineHandoff(outline: Outline, step: Step): string {
   return [OUTLINE_HANDOFF_START, `Goal: ${outline.goal}`, ...handoffStep(step, 0), OUTLINE_HANDOFF_END].join("\n");
 }
 
+/** Split the `[outline context]` block out of a worker's prompt,
+ * wherever it sits, so the UI can collapse it instead of rendering it as
+ * the owner's words — and so an anchored split AFTER it (0055's phase
+ * handoff) still matches on the remaining text. Null when absent. */
+export function splitOutlineContext(text: string): { context: string; rest: string } | null {
+  const start = text.indexOf(OUTLINE_HANDOFF_START);
+  if (start < 0) return null;
+  const afterStart = start + OUTLINE_HANDOFF_START.length;
+  const end = text.indexOf(OUTLINE_HANDOFF_END, afterStart);
+  if (end < 0) return null;
+  const context = text.slice(afterStart, end).trim();
+  const rest = `${text.slice(0, start)}${text.slice(end + OUTLINE_HANDOFF_END.length)}`
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { context, rest };
+}
+
 export function prependOutlineHandoff(task: string, outline: Outline | null | undefined): { task: string; step: string | null } {
   const active = outline?.steps.find((step) => step.state === "active") ?? null;
   if (!outline || !active) return { task, step: null };
