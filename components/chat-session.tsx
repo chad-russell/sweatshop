@@ -492,8 +492,15 @@ export function ChatSession({
           { cache: "no-store" },
         );
         if (!res.ok || cancelled) return;
-        const body = (await res.json()) as { context?: ChatContextBlock };
-        if (!cancelled && body.context) setServerContext(body.context);
+        const body = (await res.json()) as { context?: ChatContextBlock; activeRunId?: string | null };
+        if (cancelled) return;
+        if (body.context) setServerContext(body.context);
+        // 0076 followup: the same response reports whether a run is live,
+        // which is how a live turn becomes discoverable WITHOUT a reload
+        // (a steered send's empty stream just settled this tab, or the
+        // tab sat idle while a wake started a turn) — it feeds the slice
+        // poll below.
+        setForeignLive(Boolean(body.activeRunId));
       } catch {
         /* transient — the next settled tick retries */
       }
