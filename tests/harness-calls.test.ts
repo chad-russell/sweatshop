@@ -425,6 +425,18 @@ describe("cancel_run on hc_", () => {
     expect(listWakableCalls(tdb).map((c) => c.id)).not.toContain(call.id);
   });
 
+  it("stamps settledAt on cancel too — the per-call page window closes — and it still never wakes", async () => {
+    const { call } = runningCall();
+    await cancelRunTool(call.id);
+    const row = getHarnessCall(tdb, call.id)!;
+    expect(row.status).toBe("cancelled");
+    expect(row.settledAt).toBeTruthy();
+    // CALL_SETTLED_STATUSES excludes "cancelled" regardless of settledAt,
+    // which is what both listWakableCalls and wakeCallIfDue gate on.
+    expect(listWakableCalls(tdb).map((c) => c.id)).not.toContain(call.id);
+    expect(await wakeCallIfDue(row, {})).toBe("none");
+  });
+
   it("value-shapes not-found and not-live", async () => {
     expect(await cancelRunTool("hc_missing")).toMatchObject({ ok: false, code: "not-found" });
     const { call: done } = runningCall();

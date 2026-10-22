@@ -33,6 +33,16 @@ describe("childStatus", () => {
     expect(childStatus(tdb, call.id)).toMatchObject({ status: "failed", live: false, error: "boom" });
   });
 
+  it("a cancelled call is never live, even though settledAt is now stamped too", () => {
+    const call = createHarnessCall(tdb, { conversationId: "c_cs", kind: "pi", task: "t" });
+    settleHarnessCall(tdb, call.id, { status: "cancelled" });
+    expect(childStatus(tdb, call.id)).toMatchObject({
+      status: "cancelled",
+      live: false,
+      settledAt: expect.any(Number),
+    });
+  });
+
   it("a child thread is live while its turn is (0037 phase 3)", () => {
     ensureConversation(tdb, "c_cs_parent", "p_cs");
     ensureConversation(tdb, "c_cs_child", "p_cs");
