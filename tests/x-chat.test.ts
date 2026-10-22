@@ -495,9 +495,9 @@ describe("0010 spike: chat turn workflow", () => {
       expect((turn1Input[0] as { content: string }).content).toContain("[viewing]");
       const threadStateContent = (turn1Input[1] as { content: string }).content;
       expect(threadStateContent).toContain("[thread state]");
-      expect(threadStateContent).toContain("seed update_status from:");
+      expect(threadStateContent).toContain("seed update_outline from:");
       expect(threadStateContent).toContain("Plan");
-      expect(threadStateContent).toContain("if this changed, call update_status");
+      expect(threadStateContent).toContain("if this changed, call update_outline");
       expect(turn1Input[2]).toMatchObject({ role: "user", content: "first" });
 
       // None of the three metadata fields clobbered another on the row.

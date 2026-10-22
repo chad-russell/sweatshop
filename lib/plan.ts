@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { deriveStatus, statusChipLabel, type DerivedStatus } from "./status";
+import { deriveOutline, outlineChip, type DerivedOutline } from "./outline";
 
 /**
  * 0041: plan files — the pure half. The plan is a scratch PLAN.md in the
@@ -157,11 +157,11 @@ export function applyPRState(phase: Phase | null, live: PRState | null): Phase |
 
 /**
  * The phase chip, derived — never stored (0041). PR states win, then a
- * plan still in review. Otherwise the label is the thread status
- * (0059). A chat that never called `update_status` has no chip — the
+ * plan still in review. Otherwise the label is the thread outline
+ * (0064). A chat that never called `update_outline` has no chip — the
  * checklist count ("Building N/M") is gone.
  */
-export function derivePhase(events: readonly PhaseEvent[], status?: DerivedStatus | null): Phase | null {
+export function derivePhase(events: readonly PhaseEvent[], outline?: DerivedOutline | null): Phase | null {
   let plan: { version: number; open: boolean } | null = null;
   let approved = false;
   let pr: { state: "pending" | "open"; url?: string } | null = null;
@@ -190,16 +190,16 @@ export function derivePhase(events: readonly PhaseEvent[], status?: DerivedStatu
   if (pr?.state === "pending") return { label: "PR · needs you", tone: "warn" };
   if (pr?.state === "open") return { label: "PR open", tone: "ok", kind: "pr-open", ...(pr.url ? { url: pr.url } : {}) };
   if (plan?.open && !approved) return { label: `Plan v${plan.version} · needs you`, tone: "warn" };
-  if (status?.current) {
-    const chip = statusChipLabel(status.current);
-    if (chip) return { ...chip, ...(status.stale ? { stale: true } : {}) };
+  if (outline?.current) {
+    const chip = outlineChip(outline);
+    if (chip) return { ...chip, ...(outline.stale ? { stale: true } : {}) };
   }
   return null;
 }
 
-/** Header chip from one transcript: plan/PR events plus the derived status. */
+/** Header chip from one transcript: plan/PR events plus the derived outline. */
 export function phaseFromMessages(messages: readonly UIMessage[]): Phase | null {
-  return derivePhase(phaseEvents(messages), deriveStatus(messages));
+  return derivePhase(phaseEvents(messages), deriveOutline(messages));
 }
 
 type LoosePart = { type: string; state?: string; output?: unknown; toolCallId?: string; text?: string };

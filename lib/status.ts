@@ -1,8 +1,11 @@
 /**
- * 0059: thread status — the pure half. The agent rewrites the whole status
- * with `update_status`; the current status is the last such result in
- * the transcript and the history is all of them. Nothing is stored.
- * No db import (client- and workflow-safe, same rule as lib/plan.ts).
+ * 0059: thread status — the pure half. 0064 replaced the live
+ * `update_status` tool with `update_outline` (lib/outline.ts, which reads
+ * these same shapes for legacy compat); this module stays only for mode
+ * machinery (lib/agent/mode-ids.ts, lib/chat/phase-handoff.ts,
+ * components/mode-chip.tsx) still being read, untouched, ahead of its
+ * removal. No db import (client- and workflow-safe, same rule as
+ * lib/plan.ts).
  */
 
 export const STATUS_STATES = ["pending", "active", "done", "skipped", "blocked"] as const;
@@ -34,11 +37,6 @@ export interface DerivedStatus {
   stale: boolean;
 }
 
-export interface StatusChip {
-  label: string;
-  tone: "warn" | "running" | "ok";
-}
-
 function isStep(value: unknown, allowChildren: boolean): value is StatusStep {
   if (!value || typeof value !== "object") return false;
   const step = value as Partial<StatusStep>;
@@ -68,38 +66,6 @@ export function findStep(steps: readonly StatusStep[], state: StatusState): Stat
     if (child) return child;
   }
   return null;
-}
-
-export function progressCount(steps: readonly StatusStep[]): { done: number; total: number } {
-  return { done: steps.filter((step) => step.state === "done").length, total: steps.length };
-}
-
-/**
- * Header-chip text for a snapshot. A blocked step wins (`<step> · needs
- * you`). Otherwise the active step's children are the fraction, or the
- * top-level steps when that step has no children (`Implement · 2/6`).
- */
-export function statusChipLabel(snapshot: StatusSnapshot): StatusChip | null {
-  const steps = snapshot.steps;
-  if (steps.length === 0) return null;
-  const blocked = findStep(steps, "blocked");
-  if (blocked) return { label: `${blocked.label} · needs you`, tone: "warn" };
-  const active = steps.find((step) => step.state === "active");
-  if (active) {
-    const basis = active.children && active.children.length > 0 ? active.children : steps;
-    const { done, total } = progressCount(basis);
-    return { label: total > 0 ? `${active.label} · ${done}/${total}` : active.label, tone: "running" };
-  }
-  const { done, total } = progressCount(steps);
-  const doneStep = [...steps].reverse().find((step) => step.state === "done");
-  const named = doneStep ?? steps.find((step) => step.state === "pending") ?? steps[0]!;
-  return { label: total > 0 ? `${named.label} · ${done}/${total}` : named.label, tone: "ok" };
-}
-
-/** The active top-level step's label, for wakes and the mode chip. */
-export function activeStepLabel(status: DerivedStatus): string | null {
-  const active = status.current?.steps.find((step) => step.state === "active");
-  return active?.label ?? null;
 }
 
 /** Active top-level labels in order, collapsing consecutive repeats. */
@@ -276,41 +242,4 @@ export function lastLoadedModeId(messages: readonly unknown[]): string | null {
     }
   }
   return id;
-}
-
-export const THREAD_STATE_PREFIX = "[thread state]";
-
-function compactSteps(steps: readonly StatusStep[]): string {
-  return steps
-    .map((step) => {
-      const children = step.children?.length
-        ? ` (${step.children.map((child) => `${child.label} ${child.state}`).join(", ")})`
-        : "";
-      return `${step.label} ${step.state}${children}`;
-    })
-    .join(" · ");
-}
-
-/**
- * The per-turn `[thread state]` note. The rendered string is stored on
- * the user row and replayed verbatim (`metadata.threadState`). Null when
- * there is nothing to say — a plain chat that has never called
- * `update_status`. A mode with no status yet still gets a seed line so
- * the agent knows which steps to write.
- */
-export function renderThreadStateNote(
-  status: DerivedStatus,
-  seedPhases?: readonly { name: string }[] | null,
-): string | null {
-  if (status.current) {
-    const chip = statusChipLabel(status.current);
-    const head = `${chip?.label ?? "status"}${status.stale ? " (stale)" : ""}`;
-    const note = status.current.note ? ` — note: ${status.current.note}` : "";
-    return `${THREAD_STATE_PREFIX} ${head} — ${compactSteps(status.current.steps)}${note} — if this changed, call update_status`;
-  }
-  if (seedPhases && seedPhases.length > 0) {
-    const names = seedPhases.map((phase) => phase.name).join(" → ");
-    return `${THREAD_STATE_PREFIX} no status yet — seed update_status from: ${names} — if this changed, call update_status`;
-  }
-  return null;
 }

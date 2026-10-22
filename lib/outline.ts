@@ -13,6 +13,7 @@
  * it rather than duplicating the parsing.
  */
 
+import type { UIMessage } from "ai";
 import {
   STATUS_STATES,
   isStatusSnapshot,
@@ -109,7 +110,7 @@ function parseStep(value: unknown, depth: number, ids: Set<string>, topLevel: bo
   let count = 1;
   if (raw.children !== undefined) {
     if (!Array.isArray(raw.children)) return `step "${id}"'s children must be a list`;
-    if (raw.children.length > 0 && depth + 1 > OUTLINE_MAX_DEPTH) {
+    if (raw.children.length > 0 && depth + 1 >= OUTLINE_MAX_DEPTH) {
       return `step "${id}": outline is nested too deep (max depth ${OUTLINE_MAX_DEPTH})`;
     }
     const children: Step[] = [];
@@ -305,6 +306,10 @@ interface RawEntry {
   outline: Outline;
   proposed: boolean;
   next?: string;
+  /** Set for a live `update_outline` result (the version it recorded at
+   *  write time); undefined for a legacy `update_status` result, whose
+   *  version the caller counts from its position instead. */
+  version?: number;
 }
 
 /** `update_outline` and legacy `update_status` results in one message, in order. */
@@ -317,7 +322,7 @@ function entriesFromMessage(message: unknown): RawEntry[] {
     if (typeof state === "string" && state !== "output-available") continue;
     const output = toolOutput(part);
     if (name === "update_outline" && isOutlineSnapshot(output)) {
-      out.push({ outline: output.outline, proposed: output.proposed, next: output.next });
+      out.push({ outline: output.outline, proposed: output.proposed, next: output.next, version: output.version });
     } else if (name === "update_status" && isStatusSnapshot(output)) {
       out.push({ outline: legacyOutlineFromStatus(output), proposed: false });
     }
@@ -349,7 +354,7 @@ function computeStale(messages: readonly unknown[]): boolean {
   let bufferWake = false;
 
   const flush = (ended: boolean) => {
-    const got = buffer.reduce((n, m) => n + entriesFromMessage(m).length, 0);
+    const got = buffer.reduce<number>((n, m) => n + entriesFromMessage(m).length, 0);
     if (got > 0) haveCurrent = true;
     if (bufferWake) {
       if (got > 0) {
@@ -393,7 +398,7 @@ export function deriveOutline(messages: readonly unknown[]): DerivedOutline {
 
   for (const message of messages) {
     for (const raw of entriesFromMessage(message)) {
-      version += 1;
+      version = raw.version ?? version + 1;
       const entry: OutlineEntry = { version, outline: raw.outline, proposed: raw.proposed, ...(raw.next !== undefined ? { next: raw.next } : {}) };
       history.push(entry);
       current = entry;
@@ -462,7 +467,9 @@ export function activeStepLabel(derived: DerivedOutline): string | null {
   return active?.label ?? null;
 }
 
-function runnerLabel(runner: Runner | undefined): string {
+/** Display text for a runner badge or the thread-state note — "auto" by
+ *  default, "self"/"thread" verbatim, else the pinned harness route. */
+export function runnerLabel(runner: Runner | undefined): string {
   if (runner === undefined || runner === "auto") return "auto";
   if (runner === "self" || runner === "thread") return runner;
   return routeLabel(runner);
@@ -555,4 +562,56 @@ export function diffOutlineSteps(before: Outline, after: Outline): OutlineStepDi
     if (!next.has(id)) out.push({ id, label: step.label, kind: "removed", fromState: step.state });
   }
   return out;
+}
+
+// --- UI transcript history (card: "changes since vN", open-review hint) ---
+
+type LoosePart = { type: string; state?: string; output?: unknown; toolCallId?: string; text?: string };
+
+function isApprovalMessage(message: UIMessage): boolean {
+  if (message.role !== "user") return false;
+  const runEvent = (message.metadata as { runEvent?: { kind?: string; status?: string } } | undefined)?.runEvent;
+  if (runEvent?.kind === "outline" && runEvent.status === "approved") return true;
+  return message.parts.some((p) => p.type === "text" && OUTLINE_APPROVAL_TEXT.test((p as LoosePart).text ?? ""));
+}
+
+/** Per update_outline (or legacy update_status) call in a transcript: the
+ *  previous snapshot's outline (for "changes since"), the latest call,
+ *  and the open review (if the latest proposed version is unapproved). */
+export interface OutlineTranscriptHistory {
+  previous: Map<string, { version: number; outline: Outline }>;
+  latestId: string | null;
+  openReviewId: string | null;
+}
+
+export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscriptHistory {
+  const previous = new Map<string, { version: number; outline: Outline }>();
+  let last: { id: string; version: number; outline: Outline; proposed: boolean } | null = null;
+  let approvedAfterLast = false;
+  for (const message of messages) {
+    if (isApprovalMessage(message)) approvedAfterLast = true;
+    for (const raw of message.parts) {
+      const part = raw as LoosePart;
+      if (part.type === "tool-accept_outline" && part.state === "output-available") {
+        if ((part.output as { approved?: unknown } | undefined)?.approved === true) approvedAfterLast = true;
+      }
+      let entry: { outline: Outline; proposed: boolean; version: number } | null = null;
+      const priorVersion: number = last === null ? 0 : last.version;
+      if (part.type === "tool-update_outline" && part.state === "output-available" && isOutlineSnapshot(part.output)) {
+        entry = { outline: part.output.outline, proposed: part.output.proposed, version: part.output.version };
+      } else if (part.type === "tool-update_status" && part.state === "output-available" && isStatusSnapshot(part.output)) {
+        entry = { outline: legacyOutlineFromStatus(part.output), proposed: false, version: priorVersion + 1 };
+      }
+      if (!entry) continue;
+      const id = part.toolCallId ?? "";
+      if (last) previous.set(id, { version: last.version, outline: last.outline });
+      last = { id, version: entry.version, outline: entry.outline, proposed: entry.proposed };
+      if (entry.proposed) approvedAfterLast = false;
+    }
+  }
+  return {
+    previous,
+    latestId: last?.id ?? null,
+    openReviewId: last && last.proposed && !approvedAfterLast ? last.id : null,
+  };
 }
