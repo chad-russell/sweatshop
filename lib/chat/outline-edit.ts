@@ -82,7 +82,7 @@ export async function editOutline(
     role: "user",
     text,
     modelMessage: { role: "user", content: text },
-    metadata: { runEvent: { kind: "outline-edit", id: rowId, status: "edited", version } },
+    metadata: { runEvent: { kind: "outline-edit", id: rowId, status: "edited" } },
   }]);
 
   if (proposed) {
