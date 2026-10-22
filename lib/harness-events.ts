@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { harnessEvents, harnessRuns } from "@/db/schema";
 
@@ -65,8 +65,16 @@ export function recordHarnessEvent(
 
 export interface HarnessEventPage {
   readonly events: readonly HarnessEvent[];
-  /** Cursor for the next incremental fetch (null when up to date). */
+  /** Cursor for the next fetch in the page's direction: the id of the
+   *  page's last row for an oldest-first/`afterId` read (incremental
+   *  polling), or the id of the page's OLDEST row for a `tail`/`beforeId`
+   *  read — the `beforeId` for the next page back. Null = nothing more
+   *  in that direction. */
   readonly cursor: number | null;
+  /** How many matching rows sit past the page in the same direction:
+   *  older rows for `tail`/`beforeId` (the "~N more" a load-earlier
+   *  control shows), unfetched newer rows for `afterId`. */
+  readonly remaining: number;
 }
 
 /**
@@ -74,14 +82,17 @@ export interface HarnessEventPage {
  * returns only events appended after that id (incremental polling);
  * `limit` bounds each page so long sessions stream in windows instead
  * of truncating at a hard cap (0006). `tail` returns the newest `limit`
- * events instead of the oldest. `fromAt`/`toAt` (inclusive, Unix ms)
- * scope the log to one harness call's time window (0046 per-call view).
+ * events instead of the oldest; `beforeId` pages strictly older than
+ * that id — both load from the end (0075), composing with the
+ * `fromAt`/`toAt` window (inclusive, Unix ms) that scopes the log to
+ * one harness call (0046 per-call view).
  */
 export function getHarnessEvents(
   sessionId: string,
   harness: HarnessKind = "pi",
   options: {
     afterId?: number;
+    beforeId?: number;
     limit?: number;
     tail?: boolean;
     fromAt?: number;
@@ -89,26 +100,42 @@ export function getHarnessEvents(
   } = {},
 ): HarnessEventPage {
   const limit = Math.min(Math.max(options.limit ?? 500, 1), 1000);
-  const filters = [
+  // Window filters (no id bounds) — reused by the older-rows count so
+  // `remaining` always counts the same population the pages read.
+  const base = [
     eq(harnessEvents.sessionId, sessionId),
     eq(harnessEvents.harness, harness),
   ];
+  if (options.fromAt !== undefined) base.push(gte(harnessEvents.at, options.fromAt));
+  if (options.toAt !== undefined) base.push(lte(harnessEvents.at, options.toAt));
+  const filters = [...base];
   if (options.afterId !== undefined) {
     filters.push(gt(harnessEvents.id, options.afterId));
   }
-  if (options.fromAt !== undefined) filters.push(gte(harnessEvents.at, options.fromAt));
-  if (options.toAt !== undefined) filters.push(lte(harnessEvents.at, options.toAt));
-  if (options.tail) {
-    // The newest `limit` events, still returned oldest-first — what a live
-    // "what is it doing now" peek wants, without paging from the start.
+  const countOlder = (oldestId: number): number =>
+    db()
+      .select({ n: sql<number>`count(*)` })
+      .from(harnessEvents)
+      .where(and(...base, lt(harnessEvents.id, oldestId)))
+      .get()?.n ?? 0;
+  if (options.tail || options.beforeId !== undefined) {
+    // Load from the end (0075): the newest `limit` rows under the
+    // filters (`tail`), or the page strictly below `beforeId`. Read
+    // newest-first, return oldest-first — the cursor points BACK to the
+    // next older page, null when the window's start is reached.
+    const paged = [...filters];
+    if (options.beforeId !== undefined) paged.push(lt(harnessEvents.id, options.beforeId));
     const newest = db()
       .select()
       .from(harnessEvents)
-      .where(and(...filters))
+      .where(and(...paged))
       .orderBy(desc(harnessEvents.id))
       .limit(limit)
       .all() as HarnessEvent[];
-    return { events: newest.reverse(), cursor: null };
+    const page = newest.reverse();
+    if (page.length === 0) return { events: page, cursor: null, remaining: 0 };
+    const remaining = countOlder(page[0].id);
+    return { events: page, cursor: remaining > 0 ? page[0].id : null, remaining };
   }
   const rows = db()
     .select()
@@ -118,7 +145,16 @@ export function getHarnessEvents(
     .limit(limit)
     .all() as HarnessEvent[];
   const cursor = rows.length === limit ? rows[rows.length - 1].id : null;
-  return { events: rows, cursor };
+  // The cheap symmetric extra: how many newer rows a poll still owes.
+  const remaining =
+    cursor === null
+      ? 0
+      : (db()
+          .select({ n: sql<number>`count(*)` })
+          .from(harnessEvents)
+          .where(and(...base, gt(harnessEvents.id, cursor)))
+          .get()?.n ?? 0);
+  return { events: rows, cursor, remaining };
 }
 
 export const clipHarnessText = clip;
