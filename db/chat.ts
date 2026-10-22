@@ -397,42 +397,102 @@ export function listTurnMessages(db: Db, conversationId: string): ModelMessage[]
   return out;
 }
 
-/** Simple {role, text} view of every message row (reload/initial render). */
-export function listMessageTexts(
-  db: Db,
-  conversationId: string,
-): {
+/** Simple {role, text} view of a message row (reload/initial render). */
+export interface MessageTextRow {
   id: string;
   role: string;
   text: string;
   at: number;
   modelMessage: ModelMessage | null;
   metadata: MessageRowMetadata | null;
-}[] {
-  const rows = db
-    .select({
-      id: messages.id,
-      role: messages.role,
-      text: messages.text,
-      at: messages.at,
-      modelMessage: messages.modelMessage,
-      metadata: messages.metadata,
-    })
+}
+
+/** A page of message rows plus the cursor for the rows older than it. */
+export interface MessageTextsPage {
+  /** The page's rows, oldest-first (same shape listMessageTexts returns). */
+  rows: MessageTextRow[];
+  /** rowid of the page's first row, when older rows remain — the
+   *  `before` cursor for the previous page. Null = start of
+   *  conversation (or an empty page: nothing older to load either way). */
+  olderCursor: number | null;
+  /** How many qualifying rows sit before the cursor (the "~N more" the
+   *  load-earlier control shows). */
+  olderRemaining: number;
+}
+
+/**
+ * One lineage: once a conversation has model_message rows (new runtime
+ * or imported), older text-only rows are superseded. The filter must
+ * apply to page queries AND the older-rows count alike, or `tail`
+ * stranding pre-0010 rows at the bottom of the table.
+ */
+function messageTextsWhere(db: Db, conversationId: string, before?: number): ReturnType<typeof sql> {
+  const hasModelRows = db
+    .select({ one: sql`1` })
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(sql`rowid`))
-    .all()
-    .map((row) => ({
-      ...row,
-      modelMessage: row.modelMessage ? (JSON.parse(row.modelMessage) as ModelMessage) : null,
-      metadata: row.metadata ? (JSON.parse(row.metadata) as MessageRowMetadata) : null,
-    }));
-  // One lineage: once a conversation has model_message rows (new
-  // runtime or imported), older text-only rows are superseded.
-  if (rows.some((row) => row.modelMessage != null)) {
-    return rows.filter((row) => row.modelMessage != null);
-  }
-  return rows;
+    .where(sql`${messages.conversationId} = ${conversationId} and ${messages.modelMessage} is not null`)
+    .limit(1)
+    .get();
+  return sql`${messages.conversationId} = ${conversationId}
+      and ${hasModelRows ? sql`${messages.modelMessage} is not null` : sql`true`}
+      ${before != null ? sql`and rowid < ${before}` : sql``}`;
+}
+
+/**
+ * `listMessageTexts` with a tail/before cursor: `tail` = the newest N
+ * rows (oldest-first), `before` = start strictly below that rowid. No
+ * opts = every row, exactly what `listMessageTexts` has always
+ * returned. Rows order by rowid (insertion order) — the plan's cursor,
+ * with no schema change.
+ */
+export function listMessageTextsPage(
+  db: Db,
+  conversationId: string,
+  opts: { tail?: number; before?: number } = {},
+): MessageTextsPage {
+  const where = messageTextsWhere(db, conversationId, opts.before);
+  const select = {
+    id: messages.id,
+    role: messages.role,
+    text: messages.text,
+    at: messages.at,
+    modelMessage: messages.modelMessage,
+    metadata: messages.metadata,
+    rowid: sql<number>`rowid`,
+  };
+  // tail pages read the newest rows first, then reverse to oldest-first.
+  const raw =
+    opts.tail != null
+      ? db.select(select).from(messages).where(where).orderBy(sql`rowid desc`).limit(opts.tail).all()
+      : db.select(select).from(messages).where(where).orderBy(asc(sql`rowid`)).all();
+  if (opts.tail != null) raw.reverse();
+  const parse = (row: (typeof raw)[number]): MessageTextRow => ({
+    id: row.id,
+    role: row.role,
+    text: row.text,
+    at: row.at,
+    modelMessage: row.modelMessage ? (JSON.parse(row.modelMessage) as ModelMessage) : null,
+    metadata: row.metadata ? (JSON.parse(row.metadata) as MessageRowMetadata) : null,
+  });
+  if (raw.length === 0) return { rows: [], olderCursor: null, olderRemaining: 0 };
+  const first = raw[0]!.rowid;
+  const olderRemaining =
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(messages)
+      .where(messageTextsWhere(db, conversationId, first))
+      .get()?.n ?? 0;
+  return {
+    rows: raw.map(parse),
+    olderCursor: olderRemaining > 0 ? first : null,
+    olderRemaining,
+  };
+}
+
+/** Simple {role, text} view of every message row (reload/initial render;
+ *  full history — the model prompt path and inspect keep this shape). */
+export function listMessageTexts(db: Db, conversationId: string): MessageTextRow[] {
+  return listMessageTextsPage(db, conversationId).rows;
 }
 
 /** Queue a steer message for a conversation with a live turn. */
