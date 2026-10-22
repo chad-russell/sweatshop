@@ -19,6 +19,7 @@ import {
   PRE_GIT_LINKS_BASE,
   PRE_0059_BASE,
   PRE_0064_BASE,
+  PRE_0064_PR3_BASE,
   PRE_0055_TICKET_BODY,
   PRE_0059_TICKET_BODY,
   PRE_0064_TICKET_BODY,
@@ -472,6 +473,21 @@ describe("repairing a stale pre-placeholder base row", () => {
     expect(repaired?.body).not.toContain("update_status");
     expect(repaired?.body).not.toContain("present_plan");
     expect(repaired?.body).toContain("Top-level runners");
+  });
+  it("0064 PR3: a git row at main's 0064 PR1–2 base (still naming present_plan) upgrades", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0064_PR3_BASE, "git");
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0064 outline (modes and PLAN.md removed)" });
+    expect(repaired?.body).not.toContain("present_plan");
+    expect(repaired?.body).not.toContain("suggestedSteps");
+    expect(PRE_0064_PR3_BASE).toContain("present_plan");
+  });
+
+  it("0064 PR3: an owner-edited copy of that base is never upgraded", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0064_PR3_BASE, "user");
+    expect(getTarget(conn, { kind: "section", key: "base" })).toMatchObject({ version: 1, body: PRE_0064_PR3_BASE, editedBy: "user" });
   });
 });
 
