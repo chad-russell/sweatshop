@@ -113,6 +113,10 @@ function touches(item: ToolItem, path: string): boolean {
   return item.input.includes(path);
 }
 
+/** Harness session view page size: the hydration tail and each
+ *  Load-earlier step (shared by the server page and the client view). */
+export const HARNESS_PAGE = 500;
+
 /**
  * Pairing: by toolCallId when recorded (0025+); older rows carry none, so
  * a tool-end pairs with the earliest still-open start of the same tool.

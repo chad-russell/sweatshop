@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { getRunningHarnessCall } from "@/db/harness-calls";
 import { sandboxForHarnessSession } from "@/db/sandbox-view";
 import { conversations, projects, type HarnessCall } from "@/db/schema";
+import { HARNESS_PAGE } from "@/lib/harness-timeline";
 import { getHarnessEvents, type HarnessKind, type HarnessRun } from "@/lib/harness-events";
 
 /**
@@ -21,7 +22,13 @@ export function renderHarnessSession(
   const page = getHarnessEvents(
     sessionId,
     harness,
-    call ? { fromAt: call.createdAt, toAt: call.settledAt ?? undefined } : {},
+    // The newest page (still oldest-first) so the view opens at the
+    // bottom; older pages come from Load earlier, newer from the poll.
+    {
+      tail: true,
+      limit: HARNESS_PAGE,
+      ...(call ? { fromAt: call.createdAt, toAt: call.settledAt ?? undefined } : {}),
+    },
   );
   // The parent conversation anchors the breadcrumb (the session id IS
   // the conversation id); it may be gone, so everything degrades.
@@ -40,6 +47,7 @@ export function renderHarnessSession(
     <HarnessSessionView
       initialRun={run}
       initialEvents={page.events}
+      initialHasOlder={page.hasOlder ?? false}
       sandbox={sandboxForHarnessSession(db(), sessionId)}
       callId={callId}
       call={

@@ -1,22 +1,30 @@
 "use client";
 
-import { Box, FileText, Loader2 } from "lucide-react";
+import { Box, FileText } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useStickToBottomContext } from "use-stick-to-bottom";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { TransitionCard } from "@/components/ai-elements/agent-cards";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
-import { CancelCallButton } from "@/components/cancel-call-button";
+import { CancelCallBar } from "@/components/cancel-call-button";
 import { FileCard } from "@/components/ai-elements/file-card";
 import { ListCard } from "@/components/ai-elements/list-card";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { ToolGroupView } from "@/components/ai-elements/tool-group";
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
+import { Spinner } from "@/components/ui/spinner";
+import { topInScroller } from "@/lib/anchor-scroll";
 import type { SandboxLink } from "@/lib/read-models/sandbox";
 import { TaskQuote } from "@/components/harness-card";
 import { HARNESS_LABEL, HarnessMark } from "@/components/harness-logo";
-import { buildTimeline, timelineToParts, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
+import { buildTimeline, HARNESS_PAGE, timelineToParts, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { groupParts } from "@/lib/tool-views/groups";
 import { cn } from "@/lib/utils";
@@ -197,6 +205,54 @@ function HarnessTimelineEntry({ item }: { item: TimelineItem }) {
   }
 }
 
+/** The sentinel row + use-stick-to-bottom's scroller, for the prepend
+ *  anchor (the chat's 0075 pattern). */
+interface OlderAnchor {
+  sentinel: HTMLElement | null;
+  scrollRef: MutableRefObject<HTMLElement | null> | null;
+}
+
+/** Load-earlier control; must render inside <ConversationContent>. */
+function OlderEventsControl({
+  hasOlder,
+  loading,
+  onLoad,
+  anchorRef,
+}: {
+  hasOlder: boolean;
+  loading: boolean;
+  onLoad: () => void;
+  anchorRef: MutableRefObject<OlderAnchor>;
+}) {
+  const { scrollRef } = useStickToBottomContext();
+  return (
+    <div
+      ref={(el) => {
+        anchorRef.current.sentinel = el;
+        anchorRef.current.scrollRef = scrollRef;
+      }}
+      className="flex min-h-8 items-center justify-center py-2"
+    >
+      {!hasOlder ? (
+        <span className="text-xs text-muted-foreground">Start of session</span>
+      ) : loading ? (
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+          <Spinner className="size-3.5" aria-hidden />
+          Loading…
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onLoad}
+          className="rounded text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          Load earlier
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** A harness session's events, conversation-style (also the 0012 run
  *  view's side panel). Raw rows are folded into one item per tool call,
  *  then quiet read-only runs are folded again into one collapsible group
@@ -239,6 +295,7 @@ export function HarnessEventLog({ events }: { events: readonly HarnessEvent[] })
 export function HarnessSessionView({
   initialRun,
   initialEvents,
+  initialHasOlder = false,
   parent,
   sandbox,
   call,
@@ -253,6 +310,8 @@ export function HarnessSessionView({
    *  running call of this kind. Absent = no Cancel button. */
   callId?: string;
   initialEvents: readonly HarnessEvent[];
+  /** Whether events older than `initialEvents` exist (it's a tail window). */
+  initialHasOlder?: boolean;
   /** Where this session works: its chat's recorded sandbox or the run's. */
   sandbox: SandboxLink | null;
   /** The conversation that spawned this session (session id = its id). */
@@ -266,6 +325,70 @@ export function HarnessSessionView({
 }) {
   const [run, setRun] = useState(initialRun);
   const [events, setEvents] = useState(initialEvents);
+  const [hasOlder, setHasOlder] = useState(initialHasOlder);
+  const [olderLoading, setOlderLoading] = useState(false);
+  const [pagedOnce, setPagedOnce] = useState(false);
+  const anchorRef = useRef<OlderAnchor>({ sentinel: null, scrollRef: null });
+  const [anchorTick, setAnchorTick] = useState(0);
+  const pendingAnchorRef = useRef<{ sentinelTop: number; scrollTop: number; tick: number } | null>(null);
+
+  const windowParams = (params: URLSearchParams) => {
+    if (call) {
+      params.set("from", String(call.createdAt));
+      if (call.settledAt !== null) params.set("to", String(call.settledAt));
+    }
+  };
+
+  /** Prepend the previous page and keep the viewport pinned (the chat's
+   *  0075 anchor: scrollTop moves by exactly the height added above).
+   *  The timeline is rebuilt over the whole merged list, so a tool call
+   *  whose start lands in the new page re-pairs with its end. */
+  const loadOlder = async () => {
+    const oldest = events[0];
+    if (olderLoading || !hasOlder || !oldest) return;
+    setOlderLoading(true);
+    setPagedOnce(true);
+    const sentinel = anchorRef.current.sentinel;
+    const scroll = anchorRef.current.scrollRef?.current ?? null;
+    if (sentinel && scroll) {
+      pendingAnchorRef.current = {
+        sentinelTop: topInScroller(scroll, sentinel),
+        scrollTop: scroll.scrollTop,
+        tick: anchorTick,
+      };
+    }
+    try {
+      const params = new URLSearchParams({
+        harness: run.kind,
+        tail: String(HARNESS_PAGE),
+        before: String(oldest.id),
+      });
+      windowParams(params);
+      const res = await fetch(`/api/harness/${run.sessionId}?${params.toString()}`, { cache: "no-store" });
+      if (!res.ok) {
+        pendingAnchorRef.current = null;
+        return;
+      }
+      const body = (await res.json()) as { events: HarnessEvent[]; hasOlder?: boolean };
+      setEvents((prev) => [...body.events.filter((e) => e.id < (prev[0]?.id ?? Infinity)), ...prev]);
+      setHasOlder(body.hasOlder ?? false);
+      setAnchorTick((t) => t + 1);
+    } catch {
+      pendingAnchorRef.current = null; // transient — the button stays for a retry
+    } finally {
+      setOlderLoading(false);
+    }
+  };
+
+  useLayoutEffect(() => {
+    const pending = pendingAnchorRef.current;
+    if (!pending || pending.tick + 1 !== anchorTick) return;
+    pendingAnchorRef.current = null;
+    const sentinel = anchorRef.current.sentinel;
+    const scroll = anchorRef.current.scrollRef?.current ?? null;
+    if (!sentinel || !scroll) return;
+    scroll.scrollTop = pending.scrollTop + (topInScroller(scroll, sentinel) - pending.sentinelTop);
+  }, [anchorTick, events]);
 
   useEffect(() => {
     if (run.status !== "running") return;
@@ -274,10 +397,7 @@ export function HarnessSessionView({
         const after = events.length > 0 ? events[events.length - 1].id : 0;
         const params = new URLSearchParams({ harness: run.kind });
         if (after > 0) params.set("after", String(after));
-        if (call) {
-          params.set("from", String(call.createdAt));
-          if (call.settledAt !== null) params.set("to", String(call.settledAt));
-        }
+        windowParams(params);
         const res = await fetch(
           `/api/harness/${run.sessionId}?${params.toString()}`,
           { cache: "no-store" },
@@ -289,7 +409,10 @@ export function HarnessSessionView({
           };
           if (body.run) setRun(body.run);
           if (body.events.length > 0) {
-            setEvents((prev) => [...prev, ...body.events]);
+            setEvents((prev) => {
+              const last = prev[prev.length - 1]?.id ?? 0;
+              return [...prev, ...body.events.filter((e) => e.id > last)];
+            });
           }
         }
       } catch {
@@ -297,6 +420,8 @@ export function HarnessSessionView({
       }
     }, 2000);
     return () => clearInterval(timer);
+    // windowParams only reads `call`, already a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.status, run.sessionId, run.kind, events, call]);
 
   // On a per-call page a settled call shows its own status, not the
@@ -338,7 +463,6 @@ export function HarnessSessionView({
               <SandboxStatus status={sandbox.status} className="text-[10px]" />
             </Link>
           )}
-          {running && <Loader2 className="size-3.5 animate-spin text-info" aria-hidden />}
           <span
             className={cn(
               running ? "text-info" : failed ? "text-destructive" : status === "cancelled" ? "text-muted-foreground" : "text-success",
@@ -346,7 +470,6 @@ export function HarnessSessionView({
           >
             {status}
           </span>
-          {running && callId && <CancelCallButton callId={callId} label={HARNESS_LABEL[run.kind] ?? run.kind} />}
         </span>
       </AppHeader>
       {call?.task && (
@@ -360,9 +483,27 @@ export function HarnessSessionView({
         </p>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <HarnessEventLog events={events} />
-      </div>
+      <Conversation className="min-h-0 flex-1">
+        <ConversationContent className="gap-3">
+          {(hasOlder || pagedOnce) && (
+            <OlderEventsControl
+              hasOlder={hasOlder}
+              loading={olderLoading}
+              onLoad={() => void loadOlder()}
+              anchorRef={anchorRef}
+            />
+          )}
+          <HarnessEventLog events={events} />
+          {running && (
+            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground" role="status">
+              <Spinner className="size-4" />
+              Working…
+            </div>
+          )}
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
+      {running && callId && <CancelCallBar callId={callId} label={HARNESS_LABEL[run.kind] ?? run.kind} />}
     </div>
   );
 }
