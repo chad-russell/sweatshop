@@ -57,6 +57,8 @@ export interface RunEventMeta {
   kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode" | "outline" | "outline-edit";
   id: string;
   status: string;
+  /** 0064: outline snapshot version on owner edits/approvals. */
+  version?: number;
 }
 
 export interface NewMessageRow {

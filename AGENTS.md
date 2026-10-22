@@ -349,13 +349,17 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `PLAN.md` as the agreed spec. No plan table, no hard gate on `create_pr`.
   (0064 supersedes this whole mechanism — PR 3 deletes PLAN.md, the
   checklist/diff, and the plan card; see the Outline bullet below.)
-- Outline (0064 PR1): `update_outline` (every chat, replacing
+- Outline (0064 PR2): `update_outline` (every chat, replacing
   `update_status`) rewrites the whole step tree in one call —
   `{goal, steps: [{id, label, state, detail?, children?, runner?}],
   note?}` — any depth (cap 4, 200 nodes total), unique ids kept across
   rewrites, a `runner` (`"auto"|"self"|"thread"`, or a pinned
-  `HarnessRoute`) on top-level steps only (shape-validated here; PR 2
-  enforces it on the harness tools and `start_thread`). `lib/outline.ts`
+  `HarnessRoute`) on top-level steps only. `runnerGate` enforces the
+  active top-level runner before harness slots/children are created:
+  `self` forbids delegation, `thread` permits only `start_thread`, and a
+  pinned route permits exactly that harness and overrides normal route
+  resolution (still fully validated against availability and project
+  restrictions). `lib/outline.ts`
   is the pure core (no db import): `validateOutline`, `deriveOutline`
   (current/history/stale, reading both `update_outline` and legacy
   `update_status` results — the latter adapt with no goal, ids slugged
@@ -370,10 +374,15 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `{toolCallId, approveOutline, note?}`) resolve the review and WAKE the
   conversation (`[outline vN approved]`). `components/outline-card.tsx`
   (grown from 0059's status-card.tsx) renders the goal, a recursive
-  collapsible tree with runner badges (read-only in PR 1), a "changes
-  since vN" toggle, and Approve while in review — also rendering a
-  historical `update_status` row read-only. PR 2 adds editing and
-  runner enforcement; PR 3 deletes modes, phase handoff, PLAN.md, and
+  collapsible tree, a "changes since vN" toggle, and review editing:
+  labels/add/delete/reorder at any depth plus top-level runner routes;
+  after approval only pending top-level runners remain editable. Edits
+  append `outline-edit` user snapshots (never Chad-authored prose), with
+  stale/version and route validation in `lib/chat/outline-edit.ts`.
+  Workers receive the outline goal + active subtree before the legacy
+  phase handoff; `harness_calls.step` / `conversations.work_step` record
+  its label and display ahead of phase. Historical `update_status` rows
+  remain read-only. PR 3 deletes modes, phase handoff, PLAN.md, and
   this whole paragraph folds into whatever remains.
 - PR dashboard (0053): a top-level `/prs` page lists every PR by the
   repo's own credential account across ALL project repos (hand-opened
