@@ -2,7 +2,7 @@
 
 import { Box, FileText, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { TransitionCard } from "@/components/ai-elements/agent-cards";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
@@ -263,16 +263,47 @@ export function HarnessSessionView({
   const [olderCursor, setOlderCursor] = useState<number | null>(initialOlderCursor ?? null);
   const [remaining, setRemaining] = useState(initialRemaining ?? 0);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // Bumped with the events update so the layout effect below runs after
+  // exactly that commit (a rAF can fire before React flushes updates
+  // started from an async continuation — the layout effect cannot).
+  const [anchorTick, setAnchorTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
-  const pendingAnchorRef = useRef<{ firstTop: number; scrollTop: number } | null>(null);
+  // The first event element at click time + where it sat in the scroll
+  // container's content — after the prepend it (still in the DOM, its
+  // key stable) has moved down by exactly the prepended height. If the
+  // page boundary folded the anchor item away (a split tool pair joins
+  // its start), fall back to the content-height delta.
+  const pendingAnchorRef = useRef<{
+    first: Element;
+    firstTop: number;
+    scrollTop: number;
+    height: number;
+  } | null>(null);
+
+  // Position within the scroller's content space: rect deltas are
+  // independent of the offsetParent, and + scrollTop makes the value
+  // invariant to where the container itself is scrolled or sits.
+  const firstTopIn = (scroll: HTMLElement, el: Element): number =>
+    el.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
+
+  // The first rendered ITEM, not a wrapper: HarnessEventLog nests its
+  // items in one list container (div.space-y-3) whose top edge never
+  // moves — the first item inside it is what prepends push down.
+  const firstItem = (log: HTMLElement | null): Element | null =>
+    (log?.querySelector(":scope > .space-y-3") ?? log)?.firstElementChild ?? null;
 
   const loadOlder = async () => {
     if (olderCursor === null || loadingOlder) return;
     const scroll = scrollRef.current;
-    const log = logRef.current;
-    if (scroll && log) {
-      pendingAnchorRef.current = { firstTop: log.offsetTop, scrollTop: scroll.scrollTop };
+    const first = firstItem(logRef.current);
+    if (scroll && first) {
+      pendingAnchorRef.current = {
+        first,
+        firstTop: firstTopIn(scroll, first),
+        scrollTop: scroll.scrollTop,
+        height: scroll.scrollHeight,
+      };
     }
     setLoadingOlder(true);
     try {
@@ -284,7 +315,10 @@ export function HarnessSessionView({
       const res = await fetch(`/api/harness/${run.sessionId}?${params.toString()}`, {
         cache: "no-store",
       });
-      if (!res.ok) return; // transient — the control shows again for a retry
+      if (!res.ok) {
+        pendingAnchorRef.current = null; // transient — retry re-measures
+        return;
+      }
       const body = (await res.json()) as {
         events: HarnessEvent[];
         cursor: number | null;
@@ -300,23 +334,29 @@ export function HarnessSessionView({
           const known = new Set(prev.map((e) => e.id));
           return [...body.events.filter((e) => !known.has(e.id)), ...prev];
         });
+        setAnchorTick((t) => t + 1);
+      } else {
+        pendingAnchorRef.current = null; // nothing prepended — nothing to hold
       }
-      // After the commit, restore the anchor: the first event moved down
-      // by exactly the prepended height, so the scroll top follows it.
-      requestAnimationFrame(() => {
-        const pending = pendingAnchorRef.current;
-        const scrollNow = scrollRef.current;
-        const logNow = logRef.current;
-        if (!pending || !scrollNow || !logNow) return;
-        pendingAnchorRef.current = null;
-        scrollNow.scrollTop = pending.scrollTop + (logNow.offsetTop - pending.firstTop);
-      });
     } catch {
-      /* transient — the control shows again for a retry */
+      pendingAnchorRef.current = null; // transient — the control shows again
     } finally {
       setLoadingOlder(false);
     }
   };
+  // After the prepended events commit, restore the anchor: the same
+  // first event moved down by exactly the prepended height, so the
+  // scroll top follows it — the viewport never jumps.
+  useLayoutEffect(() => {
+    const pending = pendingAnchorRef.current;
+    const scroll = scrollRef.current;
+    if (!pending || !scroll) return;
+    pendingAnchorRef.current = null;
+    const delta = pending.first.isConnected
+      ? firstTopIn(scroll, pending.first) - pending.firstTop
+      : scroll.scrollHeight - pending.height; // anchor folded away by the merge
+    scroll.scrollTop = pending.scrollTop + delta;
+  }, [anchorTick]);
 
   useEffect(() => {
     if (run.status !== "running") return;
