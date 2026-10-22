@@ -2,8 +2,7 @@
 
 import { Box, FileText } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { useStickToBottomContext } from "use-stick-to-bottom";
+import { useEffect, useMemo, useState, type MutableRefObject } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -20,7 +19,8 @@ import { ToolGroupView } from "@/components/ai-elements/tool-group";
 import { AppHeader } from "@/components/app-header";
 import { SandboxStatus } from "@/components/sandbox-status";
 import { Spinner } from "@/components/ui/spinner";
-import { topInScroller } from "@/lib/anchor-scroll";
+import { PrependSentinel } from "@/components/prepend-sentinel";
+import { usePrependAnchor, type PrependAnchorTarget } from "@/lib/use-prepend-anchor";
 import { HARNESS_PAGE } from "@/lib/harness-paging";
 import type { SandboxLink } from "@/lib/read-models/sandbox";
 import { TaskQuote } from "@/components/harness-card";
@@ -206,13 +206,6 @@ function HarnessTimelineEntry({ item }: { item: TimelineItem }) {
   }
 }
 
-/** The sentinel row + use-stick-to-bottom's scroller, for the prepend
- *  anchor (the chat's 0075 pattern). */
-interface OlderAnchor {
-  sentinel: HTMLElement | null;
-  scrollRef: MutableRefObject<HTMLElement | null> | null;
-}
-
 /** Load-earlier control; must render inside <ConversationContent>. */
 function OlderEventsControl({
   hasOlder,
@@ -223,17 +216,10 @@ function OlderEventsControl({
   hasOlder: boolean;
   loading: boolean;
   onLoad: () => void;
-  anchorRef: MutableRefObject<OlderAnchor>;
+  anchorRef: MutableRefObject<PrependAnchorTarget>;
 }) {
-  const { scrollRef } = useStickToBottomContext();
   return (
-    <div
-      ref={(el) => {
-        anchorRef.current.sentinel = el;
-        anchorRef.current.scrollRef = scrollRef;
-      }}
-      className="flex min-h-8 items-center justify-center py-2"
-    >
+    <PrependSentinel targetRef={anchorRef}>
       {!hasOlder ? (
         <span className="text-xs text-muted-foreground">Start of session</span>
       ) : loading ? (
@@ -250,7 +236,7 @@ function OlderEventsControl({
           Load earlier
         </button>
       )}
-    </div>
+    </PrependSentinel>
   );
 }
 
@@ -329,9 +315,7 @@ export function HarnessSessionView({
   const [hasOlder, setHasOlder] = useState(initialHasOlder);
   const [olderLoading, setOlderLoading] = useState(false);
   const [pagedOnce, setPagedOnce] = useState(false);
-  const anchorRef = useRef<OlderAnchor>({ sentinel: null, scrollRef: null });
-  const [anchorTick, setAnchorTick] = useState(0);
-  const pendingAnchorRef = useRef<{ sentinelTop: number; scrollTop: number; tick: number } | null>(null);
+  const anchor = usePrependAnchor(events);
 
   const windowParams = (params: URLSearchParams) => {
     if (call) {
@@ -349,15 +333,7 @@ export function HarnessSessionView({
     if (olderLoading || !hasOlder || !oldest) return;
     setOlderLoading(true);
     setPagedOnce(true);
-    const sentinel = anchorRef.current.sentinel;
-    const scroll = anchorRef.current.scrollRef?.current ?? null;
-    if (sentinel && scroll) {
-      pendingAnchorRef.current = {
-        sentinelTop: topInScroller(scroll, sentinel),
-        scrollTop: scroll.scrollTop,
-        tick: anchorTick,
-      };
-    }
+    anchor.capture();
     try {
       const params = new URLSearchParams({
         harness: run.kind,
@@ -367,29 +343,19 @@ export function HarnessSessionView({
       windowParams(params);
       const res = await fetch(`/api/harness/${run.sessionId}?${params.toString()}`, { cache: "no-store" });
       if (!res.ok) {
-        pendingAnchorRef.current = null;
+        anchor.cancel();
         return;
       }
       const body = (await res.json()) as { events: HarnessEvent[]; hasOlder?: boolean };
       setEvents((prev) => [...body.events.filter((e) => e.id < (prev[0]?.id ?? Infinity)), ...prev]);
       setHasOlder(body.hasOlder ?? false);
-      setAnchorTick((t) => t + 1);
+      anchor.commit(); // same batch as the prepend
     } catch {
-      pendingAnchorRef.current = null; // transient — the button stays for a retry
+      anchor.cancel(); // transient — the button stays for a retry
     } finally {
       setOlderLoading(false);
     }
   };
-
-  useLayoutEffect(() => {
-    const pending = pendingAnchorRef.current;
-    if (!pending || pending.tick + 1 !== anchorTick) return;
-    pendingAnchorRef.current = null;
-    const sentinel = anchorRef.current.sentinel;
-    const scroll = anchorRef.current.scrollRef?.current ?? null;
-    if (!sentinel || !scroll) return;
-    scroll.scrollTop = pending.scrollTop + (topInScroller(scroll, sentinel) - pending.sentinelTop);
-  }, [anchorTick, events]);
 
   useEffect(() => {
     if (run.status !== "running") return;
@@ -491,7 +457,7 @@ export function HarnessSessionView({
               hasOlder={hasOlder}
               loading={olderLoading}
               onLoad={() => void loadOlder()}
-              anchorRef={anchorRef}
+              anchorRef={anchor.targetRef}
             />
           )}
           <HarnessEventLog events={events} />
