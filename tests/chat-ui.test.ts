@@ -296,7 +296,7 @@ describe("appendNewer (wake poll tail pages append, gated at turn boundaries)", 
   });
 });
 
-// ── 0076: replaceLiveTurn (live turns merge by REPLACING their fold) ────
+// ── 0076: replaceLiveTurn + span-safe appendNewer (review findings 1-2) ──
 
 describe("replaceLiveTurn", () => {
   const openerRow = (id: string, text: string): StoredRow => ({
@@ -317,9 +317,6 @@ describe("replaceLiveTurn", () => {
     msgs.flatMap((m) => m.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])));
 
   it("replaces a growing live turn's fold (stable fold id, fuller parts) without duplicating slices", () => {
-    // The turn's rows after the opener fold into ONE message whose id is
-    // the FIRST assistant row — stable as slices land; the fold's PARTS
-    // grow. appendNewer would see the known id and DROP the growth.
     const poll1 = rowsToUIMessages([openerRow("t_1", "go"), sliceRow("m_skip0_1", "slice one")]);
     const poll2 = rowsToUIMessages([
       openerRow("t_1", "go"),
@@ -351,24 +348,72 @@ describe("replaceLiveTurn", () => {
     expect(textsOf(merged)).toEqual(["first", "done", "second", "live", "more"]);
   });
 
-  it("falls back to appendNewer when the window holds no opener — appendNewer's own gates apply", () => {
-    // No t_ row in the window: the live fold opener is not rendered as
-    // itself, so replaceLiveTurn defers to appendNewer. Same-fold rows
-    // (m_y merges into the m_x fold) stay behind appendNewer's exact-
-    // alignment gate; whole new turns would append.
-    const windowMsgs = rowsToUIMessages([sliceRow("m_x", "a")]);
-    const page = rowsToUIMessages([sliceRow("m_x", "a"), sliceRow("m_y", "b")]);
+  it("finding 1: a page spanning BELOW the window never re-appends window content between opener and live fold", () => {
+    const windowMsgs = rowsToUIMessages([
+      openerRow("t_1", "w1"),
+      sliceRow("m_w1", "w1 body"),
+      openerRow("t_2", "w2"),
+      sliceRow("m_w2", "w2 live"),
+    ]);
+    const spanning = rowsToUIMessages([
+      openerRow("t_0", "below"),
+      sliceRow("m_b0", "below body"),
+      openerRow("t_1", "w1"),
+      sliceRow("m_w1", "w1 body"),
+      openerRow("t_2", "w2"),
+      sliceRow("m_w2", "w2 live"),
+      sliceRow("m_w3", "w3 new"),
+    ]);
+    const merged = replaceLiveTurn(windowMsgs, spanning);
+    // m_w3 is a later row of the live turn — it folds INTO the m_w2
+    // message (parts grow), it is not a message of its own.
+    expect(merged.map((m) => m.id)).toEqual(["t_1", "m_w1", "t_2", "m_w2"]);
+    expect(textsOf(merged)).toEqual(["w1", "w1 body", "w2", "w2 live", "w3 new"]);
+  });
+
+  it("finding 2: a no-opener window live-updates by replacing its last fold (never freezes)", () => {
+    const windowMsgs = rowsToUIMessages([sliceRow("m_9_0_0", "s1 s2")]);
+    const page = rowsToUIMessages([sliceRow("m_9_0_0", "s1 s2 s3")]);
+    expect(page.map((m) => m.id)).toEqual(["m_9_0_0"]);
     const merged = replaceLiveTurn(windowMsgs, page);
-    expect(merged.map((m) => m.id)).toEqual(["m_x"]); // fold already known, growth gated
-    const pageNewTurn = rowsToUIMessages([
-      sliceRow("m_x", "a"),
-      openerRow("t_9", "next"),
-      sliceRow("m_z", "c"),
-    ]);
-    expect(replaceLiveTurn(windowMsgs, pageNewTurn).map((m) => m.id)).toEqual([
-      "m_x",
+    expect(textsOf(merged)).toEqual(["s1 s2 s3"]); // growth LANDED
+    // A page that does not cover the window's tail is a no-op (waits).
+    const narrow = rowsToUIMessages([sliceRow("m_other", "x")]);
+    expect(replaceLiveTurn(merged, narrow).map((m) => m.id)).toEqual(["m_9_0_0"]);
+  });
+});
+
+describe("appendNewer (span-safe)", () => {
+  const msg = (id: string): UIMessage => ({ id, role: "assistant", parts: [{ type: "text", text: id }] });
+
+  it("finding 1: a wake page spanning below the window appends only rows after the window's last known row", () => {
+    const windowMsgs = [msg("t_1"), msg("m_1"), msg("t_2"), msg("m_2")];
+    const spanning = [msg("t_0"), msg("m_0"), msg("t_1"), msg("m_1"), msg("t_2"), msg("m_2"), msg("t_3"), msg("m_3")];
+    const merged = appendNewer(windowMsgs, spanning);
+    expect(merged.map((m) => m.id)).toEqual(["t_1", "m_1", "t_2", "m_2", "t_3", "m_3"]);
+  });
+
+  it("finding 1: fresh ids only BELOW the window head are older rows — an entirely-below page is not a poll shape; overlap is the guard", () => {
+    // Polls fetch the newest tail: a page of ONLY older rows than the
+    // window cannot occur while the window is current (it would mean
+    // the window shows rows newer than the store's newest). The unsafe
+    // shape is OVERLAP + fresh-below — covered above. This documents
+    // the disjoint-older case: unseen t_ rows WOULD append (a wake
+    // turn the window never saw, in a page disjoint by ids) — same
+    // branch as the legacy test "misaligned page appends from the
+    // first unseen t_".
+    const windowMsgs = [msg("m_2")]; // mid-fold head, no t_ in window
+    const disjointNewTurn = [msg("m_9"), msg("t_9"), msg("m_99")];
+    expect(appendNewer(windowMsgs, disjointNewTurn).map((m) => m.id)).toEqual([
+      "m_2",
       "t_9",
-      "m_z",
+      "m_99",
     ]);
+  });
+
+  it("exact-alignment fast path and no-overlap turn gate still hold", () => {
+    expect(appendNewer([msg("m1")], [msg("m1"), msg("m2")]).map((m) => m.id)).toEqual(["m1", "m2"]);
+    const midFold = [msg("mX")]; // no t_ anywhere
+    expect(appendNewer(midFold, [msg("mY")]).map((m) => m.id)).toEqual(["mX"]);
   });
 });

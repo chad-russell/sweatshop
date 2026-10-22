@@ -468,12 +468,14 @@ export function ChatSession({
   useEffect(() => {
     chatRef.current = chat;
   });
-  // A foreign live turn: either the page hydrated with one
-  // (activeRunId, mount-only) or the wake poll just appended one
-  // (foreignLive — a turn that started server-side while this page was
-  // open; the prop cannot see it). The slice poll itself clears the
-  // flag when the store says the run has settled.
-  const [foreignLive, setForeignLive] = useState(false);
+  // A foreign live turn. The mount prop (activeRunId) only EVER says
+  // "was live at hydration" — it never clears, so it may not gate a
+  // poll alone (0076 review finding 4: a settled run would be polled
+  // forever). foreignLive is set by either poll seeing a live run in
+  // the store and cleared the moment the store reports none; the prop
+  // merely seeds the FIRST poll so a page that hydrates mid-turn
+  // starts watching immediately.
+  const [foreignLive, setForeignLive] = useState(Boolean(activeRunId));
 
   // The context refetch runs once per settled transcript state: on
   // mount (initialMessages are ready), after each turn settles, and
@@ -513,12 +515,17 @@ export function ChatSession({
         // don't. Alignment is what appendNewer needs — a page starting
         // mid-fold could otherwise duplicate text already on screen.
         const known = new Set(c.messages.map((m) => m.id));
+        const windowHead = c.messages[0]?.id ?? null;
         let page = await fetchChatPage(conversationId, { tail: PAGE_TAIL });
         if (!page || stop) return;
         if (page.rows[0] != null && !known.has(page.rows[0].id)) {
+          // 0076 finding 1: the walk must stop at the WINDOW HEAD (by
+          // id) or a t_ row — a page that strides past the head without
+          // landing on it spans below the window and corrupts merges.
+          // Stopping AT the head yields a page whose first row is known.
           page = await extendChatPageBack(conversationId, page, PAGE_TAIL, (rows) => {
             const first = rows[0];
-            return first != null && (known.has(first.id) || first.id.startsWith("t_"));
+            return first != null && (first.id === windowHead || known.has(first.id) || first.id.startsWith("t_"));
           });
         }
         // A send may have started while the fetches were out — appending
@@ -570,7 +577,7 @@ export function ChatSession({
   // them. The poll stops the moment the run settles (the wake effect
   // and the settled context refetch take over) or this tab starts
   // streaming itself.
-  const liveElsewhere = (Boolean(activeRunId) || foreignLive) && !isBusy && status === "ready";
+  const liveElsewhere = foreignLive && !isBusy && status === "ready";
   useEffect(() => {
     if (!adoptedNow || !liveElsewhere) return;
     let stop = false;
@@ -580,12 +587,14 @@ export function ChatSession({
         const c = chatRef.current;
         if (busyNow(c)) return;
         const known = new Set(c.messages.map((m) => m.id));
+        const windowHead = c.messages[0]?.id ?? null;
         let page = await fetchChatPage(conversationId, { tail: PAGE_TAIL });
         if (!page || stop) return;
         if (page.rows[0] != null && !known.has(page.rows[0].id)) {
+          // 0076 finding 1: stop at the window head or a t_ row (above).
           page = await extendChatPageBack(conversationId, page, PAGE_TAIL, (rows) => {
             const first = rows[0];
-            return first != null && (known.has(first.id) || first.id.startsWith("t_"));
+            return first != null && (first.id === windowHead || known.has(first.id) || first.id.startsWith("t_"));
           });
         }
         if (stop || busyNow(c)) return;
@@ -596,7 +605,7 @@ export function ChatSession({
         if (stored.every((m) => known.has(m.id))) return;
         // Growing live fold: replace, never append (see wake poll).
         c.setMessages((prev) => replaceLiveTurn(prev, stored));
-        if (!page.activeRunId) setForeignLive(false);
+        setForeignLive(Boolean(page.activeRunId));
       } catch {
         /* transient — the next tick retries */
       }

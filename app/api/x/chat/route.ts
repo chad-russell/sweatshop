@@ -1,4 +1,3 @@
-import { createModelCallToUIChunkTransform } from "@ai-sdk/workflow";
 import { createUIMessageStreamResponse } from "ai";
 import { NextResponse } from "next/server";
 import { getRun } from "workflow/api";
@@ -80,12 +79,23 @@ export async function POST(request: Request) {
   // stream plus an `x-workflow-run-id` header; plain fetch callers (steer)
   // get JSON.
   const wantsStream = body.text === undefined && body.messages !== undefined;
+  // 0076: a steered send must NOT replay the run's stream. The caller's
+  // window already renders the turn by persisted slices (polls); a
+  // from-0 replay would land the whole turn a second time under the
+  // steer (duplicate + multi-second replay). Instead: enqueue the steer
+  // and return a finished empty stream — the slices (steer drain, the
+  // turn's continuation) arrive through the slice poll like every other
+  // slice. The sending tab's optimistic user row renders immediately.
   const respond = (runId: string, steered: boolean) =>
     wantsStream
       ? createUIMessageStreamResponse({
-          stream: getRun(runId)
-            .getReadable({ startIndex: 0 })
-            .pipeThrough(createModelCallToUIChunkTransform({ uiStartIndex: 0 })),
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "start" });
+              controller.enqueue({ type: "finish" });
+              controller.close();
+            },
+          }),
           headers: { "x-workflow-run-id": runId },
         })
       : NextResponse.json({ runId, steered });
@@ -185,8 +195,10 @@ export async function POST(request: Request) {
       }
       const answered = await answerPendingWithText(body.conversationId, text);
       if (answered) {
-        // Transport callers re-attach to the live turn's stream; plain
-        // fetch callers learn what their text answered.
+        // 0076: transport callers get the empty finished stream (the
+        // hook's answer drives the turn; its slices arrive by poll —
+        // never a from-0 replay). Plain fetch callers learn what their
+        // text answered.
         return wantsStream ? respond(active, true) : NextResponse.json({ runId: active, steered: false, answered });
       }
       enqueueSteer(db(), body.conversationId, text);

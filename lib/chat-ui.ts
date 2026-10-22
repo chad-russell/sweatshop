@@ -277,12 +277,18 @@ export function mergeOlder(current: readonly UIMessage[], older: readonly UIMess
 /**
  * 0076: merge a tail page while the turn it ends with is STILL LIVE.
  * The live turn re-folds every poll — rowsToUIMessages gives the fold
- * the id of its FIRST row, which changes as slices land, and the new
+ * the id of its first row, which changes as slices land, and the new
  * fold CONTAINS the old one's content. Appending would duplicate every
  * slice, so instead: keep the window up to and including the live
  * turn's `t_` opener (a stable row), drop the stale fold after it, and
- * append the page's messages from that opener onward. Settled turns
- * fold stably — appendNewer is correct for them.
+ * append the page's messages from that opener onward, SKIPPING ids the
+ * kept head already has (a page that spans below the window must not
+ * re-append it — 0076 review finding 1). With no `t_` opener in the
+ * window (mid-fold head), fall back to merging by position against the
+ * window's OWN last fold: the page's matching fold (same id) REPLACES
+ * it — its parts grew — and messages after it append; earlier page
+ * content is dropped (the window may not even show it). That keeps a
+ * no-opener window live-updating instead of frozen (finding 2).
  */
 export function replaceLiveTurn(current: readonly UIMessage[], newer: readonly UIMessage[]): UIMessage[] {
   let opener = -1;
@@ -292,19 +298,69 @@ export function replaceLiveTurn(current: readonly UIMessage[], newer: readonly U
       break;
     }
   }
-  if (opener === -1) return appendNewer(current, newer);
-  const head = current.slice(0, opener + 1);
-  const known = new Set(head.map((m) => m.id));
-  const tail = newer.filter((m) => !known.has(m.id));
-  return [...head, ...tail];
+  if (opener !== -1) {
+    const head = current.slice(0, opener + 1);
+    // Anchor the page at the opener's own message (the t_ row, which
+    // IS a UIMessage of its own) and take what follows it in the PAGE
+    // — a spanning page's below-window rows sit before the anchor and
+    // are dropped, never spliced between the opener and the live fold
+    // (review finding 1). If the page predates the opener entirely,
+    // wait for one that covers it.
+    const anchorId = current[opener]!.id;
+    const at = newer.findIndex((m) => m.id === anchorId);
+    if (at === -1) return [...current];
+    const known = new Set(head.map((m) => m.id));
+    const tail = newer.slice(at + 1).filter((m) => !known.has(m.id));
+    return [...head, ...tail];
+  }
+  // No opener in the window: merge against the window's last fold.
+  if (current.length === 0) return [...newer];
+  const last = current[current.length - 1]!;
+  const at = newer.findIndex((m) => m.id === last.id);
+  if (at === -1) return [...current]; // page doesn't cover the window's tail — wait for one that does
+  return [...current.slice(0, -1), ...newer.slice(at)]; // replace the last fold (it grew) + append after
 }
 
+/**
+ * 0076: append newer messages (a settled wake turn) — span-safe. The
+ * page may start BELOW the window head (the tail walk strides by
+ * whole pages and can overshoot; review finding 1): in that case trim
+ * the page to the window's head by id — rows the window already shows
+ * are dropped wherever they sit — and append what is genuinely new.
+ * A page whose first message is exactly known keeps the fast path.
+ * With no overlap at all, fall back to the turn-boundary gate (append
+ * only from an unseen `t_` opener): an unaligned page mid-fold
+ * would otherwise split a fold and duplicate text.
+ */
 export function appendNewer(current: readonly UIMessage[], newer: readonly UIMessage[]): UIMessage[] {
   if (newer.length === 0) return [...current];
+  if (current.length === 0) return [...newer];
   const known = new Set(current.map((m) => m.id));
   if (known.has(newer[0]!.id)) {
     return [...current, ...newer.filter((m) => !known.has(m.id))];
   }
+  // Spanning page: it overlaps the window. Append its unknown ids only
+  // when they sit strictly AFTER the window last known row (the usual
+  // shape — the page ends in new rows). Unknown ids BELOW the window
+  // head belong to a partial fold the window may not show; decline (a
+  // no-op) and let the next poll re-page from a wider walk.
+  let lastKnown = -1;
+  for (let i = newer.length - 1; i >= 0; i -= 1) {
+    if (known.has(newer[i]!.id)) {
+      lastKnown = i;
+      break;
+    }
+  }
+  if (lastKnown !== -1) {
+    const fresh = newer.slice(lastKnown + 1).filter((m) => !known.has(m.id));
+    return fresh.length > 0 ? [...current, ...fresh] : [...current];
+  }
+  // No overlap at all. Disjoint row ids mean nothing can duplicate,
+  // so a page holding an UNSEEN turn opener appends from it (the wake
+  // case: the newest tail starts mid-fold of an older turn the window
+  // shows under a different fold id). A page with no unseen t_ is
+  // entirely older/mid-fold content — no-op (review finding 1's
+  // below-window splice happens only WITH overlap, caught above).
   const firstNewTurn = newer.findIndex((m) => !known.has(m.id) && m.id.startsWith("t_"));
   return firstNewTurn === -1 ? [...current] : [...current, ...newer.slice(firstNewTurn)];
 }
