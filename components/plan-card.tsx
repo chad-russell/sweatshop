@@ -298,7 +298,7 @@ export function PhaseChip({
       <span aria-hidden className={cn("size-1.5 rounded-full bg-current", phase.tone === "running" && "animate-pulse")} />
       {phase.label}
       {phase.stale && (
-        <span className="font-normal text-muted-foreground" title="The last wake was not followed by update_status">
+        <span className="font-normal text-muted-foreground" title="The outline wasn't updated after the last wake">
           stale
         </span>
       )}

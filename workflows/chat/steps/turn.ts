@@ -181,12 +181,13 @@ export async function skillToolStep(conversationId: string, id?: string): Promis
   if (!skill.mode) return { ok: true, id: skill.id, mode: false, skill: body };
   const parsed = parseModeSkill(skill.body);
   const suggestedSteps = parsed.phases.map((item, index) => ({
+    id: item.id,
     label: item.name,
     state: index === 0 ? "active" : "pending",
   }));
   const note =
-    "Loaded. Seed update_status with suggestedSteps (adjust as the work requires). " +
-    "Call update_status again whenever the active step, a child, or a blocker changes.";
+    "Loaded. Seed update_outline's steps with suggestedSteps (adjust as the work requires; give it a one-line goal too). " +
+    "Call update_outline again whenever the active step, a child, or a blocker changes.";
   // Modes need a project, same as owner entry. Loading the body is fine;
   // binding is what raises the budget and enables phase handoff.
   if (!chat.getConversation(db, conversationId)?.projectId) {

@@ -233,7 +233,7 @@ export function ModeChip({
                 <DropdownMenuLabel className="flex flex-col gap-1 font-normal">
                   <span className="text-xs font-medium text-foreground">{mode.title}</span>
                   {derived.stale && derived.current && (
-                    <span className="text-xs text-muted-foreground">Status is stale — the last wake was not followed by update_status.</span>
+                    <span className="text-xs text-muted-foreground">Status is stale — the status was not updated after the last wake.</span>
                   )}
                 </DropdownMenuLabel>
                 {stepper.length > 0 && (

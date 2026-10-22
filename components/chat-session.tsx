@@ -32,7 +32,9 @@ import {
 import { ComposerAddButton, ComposerAttachments, attachmentErrorMessage } from "@/components/composer-attachments";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from "@/lib/attachment-ref";
 import { PlanViewProvider, quoteBlock, type PlanView } from "@/components/plan-card";
+import { OutlineViewProvider, type OutlineView } from "@/components/outline-card";
 import { applyPRState, phaseFromMessages, planHistory, type Phase } from "@/lib/plan";
+import { outlineHistory } from "@/lib/outline";
 import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
 import { usePRStates } from "@/lib/use-pr-states";
 import { Spinner } from "@/components/ui/spinner";
@@ -351,6 +353,8 @@ export function ChatSession({
   // 0041: an open plan review also wakes this chat (on Approve), so the
   // page watches for it the same way.
   const plans = useMemo(() => planHistory(messages), [messages]);
+  // 0064: an open outline review also wakes this chat (on Approve), same watch.
+  const outlines = useMemo(() => outlineHistory(messages), [messages]);
   const phase = useMemo(() => phaseFromMessages(messages), [messages]);
   const diffBreakdown = useMemo(() => latestDiffBreakdown(messages), [messages]);
   // 0052: while the derived phase is an open PR, ask the host what it
@@ -364,7 +368,9 @@ export function ChatSession({
   const prStates = usePRStates(prUrls);
   const shownPhase = prUrls ? applyPRState(phase, prStates[prUrls[0]] ?? null) : phase;
   const awaitingWake =
-    (adopted || selfAdopted) && !isBusy && (hasBackgroundChild(messages) || plans.openReviewId !== null);
+    (adopted || selfAdopted) &&
+    !isBusy &&
+    (hasBackgroundChild(messages) || plans.openReviewId !== null || outlines.openReviewId !== null);
   const chatRef = useRef(chat);
   useEffect(() => {
     chatRef.current = chat;
@@ -555,6 +561,19 @@ export function ChatSession({
       el.setSelectionRange(el.value.length, el.value.length);
     },
   }), [plans, draftKey]);
+  // 0064: Quote for the outline card, same mechanism.
+  const outlineView = useMemo<OutlineView>(() => ({
+    history: outlines,
+    quote: (selection) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const before = el.value.trimEnd();
+      el.value = `${before ? `${before}\n\n` : ""}${quoteBlock(selection)}`;
+      if (el.value.trim()) window.localStorage.setItem(draftKey, el.value);
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    },
+  }), [outlines, draftKey]);
   const freshMode = fresh ? freshComposer?.(state) : undefined;
 
   // 0042: images upload first (each becomes an attachment id), then the
@@ -679,6 +698,7 @@ export function ChatSession({
           )}
           <SandboxViewProvider value={sandboxView}>
           <PlanViewProvider value={planView}>
+          <OutlineViewProvider value={outlineView}>
           {messages.map((message) => (
             <ChatMessageView
               key={message.id}
@@ -686,6 +706,7 @@ export function ChatSession({
               conversationId={adoptedNow ? conversationId : null}
             />
           ))}
+          </OutlineViewProvider>
           </PlanViewProvider>
           </SandboxViewProvider>
           {isThinking(status, messages) && (

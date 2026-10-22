@@ -676,7 +676,7 @@ export const skills = sqliteTable("skills", {
   thread: integer("thread", { mode: "boolean" }).notNull().default(false),
   /** 0055 v7: this skill is a MODE — phased, freely defined in its own
    *  markdown (see lib/agent/mode-ids.ts's parseModeSkill). Implies
-   *  `thread`. Progress is update_status (0059), not a stored phase. */
+   *  `thread`. Progress is update_outline (0064), not a stored phase. */
   mode: integer("mode", { mode: "boolean" }).notNull().default(false),
   /** "active" | "disabled" | "deleted". */
   status: text("status").notNull().default("active"),

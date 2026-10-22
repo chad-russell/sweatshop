@@ -168,6 +168,31 @@ describe("needs you", () => {
     expect(loadAttention(tdb).needsYou.has(id)).toBe(false);
   });
 
+  it("loads an outline review as an Inbox outline request", () => {
+    const id = convId();
+    say(id, "assistant", "outline ready", 1000);
+    recordPendingInput(tdb, {
+      id: "outline_review1",
+      conversationId: id,
+      kind: "outline",
+      question: "Review outline v2",
+      card: {
+        kind: "outline",
+        version: 2,
+        outline: { goal: "Ship it", steps: [{ id: "build", label: "Build", state: "active" }] },
+      },
+    });
+
+    expect(loadPendingRequests(tdb, [id]).get(id)?.[0]).toMatchObject({
+      requestId: "outline_review1",
+      kind: "outline",
+      toolName: "update_outline",
+      toolInput: null,
+      outline: { kind: "outline", version: 2, outline: { goal: "Ship it" } },
+    });
+    resolvePendingInput(tdb, "outline_review1", { approved: true });
+  });
+
   it("appears once in the inbox: needs-you absorbs the same thread's unread", () => {
     const id = convId();
     say(id, "assistant", "needs a yes", 1000);

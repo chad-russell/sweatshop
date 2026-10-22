@@ -151,14 +151,14 @@ export function renderPhaseList(phases: readonly ModePhase[]): string {
   return `Phases: ${phases.map((p) => p.name).join(" → ")}`;
 }
 
-/** Suggested `update_status` steps for a mode's declared phases. Empty
+/** Suggested `update_outline` steps for a mode's declared phases. Empty
  *  when the mode declares none. */
 export function renderStatusSeed(phases: readonly ModePhase[]): string {
   if (phases.length === 0) return "";
   const steps = phases.map((phase, index) => `${phase.name} (${index === 0 ? "active" : "pending"})`).join(", ");
   return (
-    `Seed update_status with these steps — the active one is the current phase: ${steps}. ` +
-    "Call update_status again whenever the step changes."
+    `Seed update_outline with these steps — the active one is the current phase: ${steps}. ` +
+    "Call update_outline again whenever the step changes."
   );
 }
 

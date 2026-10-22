@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     comment?: string;
     answer?: string;
     approvePlan?: boolean;
+    approveOutline?: boolean;
     note?: string;
   };
   if (!body.toolCallId) {
@@ -27,6 +28,13 @@ export async function POST(request: Request) {
   // answers a waiting accept_plan or wakes the conversation.
   if (body.approvePlan === true) {
     const result = await approvePlanFromCard(body.toolCallId, body.note?.trim() || undefined);
+    return result.ok
+      ? NextResponse.json({ approved: true, version: result.version, delivered: result.delivered })
+      : NextResponse.json({ error: result.error }, { status: result.status });
+  }
+  // 0064: same mechanism for the outline card's Approve.
+  if (body.approveOutline === true) {
+    const result = await approveOutlineFromCard(body.toolCallId, body.note?.trim() || undefined);
     return result.ok
       ? NextResponse.json({ approved: true, version: result.version, delivered: result.delivered })
       : NextResponse.json({ error: result.error }, { status: result.status });
@@ -88,6 +96,25 @@ async function approvePlanFromCard(rowId: string, note: string | undefined) {
         name: `plan v${version}`,
         status: "approved",
         detail: `${ownerName()} approved plan v${version}${n ? `: ${n}` : ""}. Start building from PLAN.md.`,
+        url: `/c/${conversationId}`,
+      }),
+  });
+}
+
+async function approveOutlineFromCard(rowId: string, note: string | undefined) {
+  const [{ approveOutline }, { wakeConversation }] = await Promise.all([
+    import("@/lib/agent/tools/outline"),
+    import("@/lib/chat/wake"),
+  ]);
+  return approveOutline(rowId, note, {
+    resume: (token, payload) => chatApprovalHook.resume(token, payload),
+    wake: (conversationId, version, id, n) =>
+      wakeConversation(conversationId, {
+        kind: "outline",
+        id,
+        name: `outline v${version}`,
+        status: "approved",
+        detail: `${ownerName()} approved outline v${version}${n ? `: ${n}` : ""}.`,
         url: `/c/${conversationId}`,
       }),
   });

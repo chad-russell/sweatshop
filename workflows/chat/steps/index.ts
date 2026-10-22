@@ -54,7 +54,11 @@ export {
   acceptPlanPreviewStep,
   acceptPlanApprovedStep,
 } from "./plan";
-export { updateStatusStep } from "./status";
+export {
+  updateOutlineStep,
+  acceptOutlinePreviewStep,
+  acceptOutlineApprovedStep,
+} from "./outline";
 export {
   hostExecPreviewStep,
   hostExecStep,

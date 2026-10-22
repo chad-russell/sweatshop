@@ -14,6 +14,7 @@ import type {
 } from "@/lib/read-models/attention";
 import { ApprovalCard } from "./approval-card";
 import { PlanReviewCard } from "./plan-card";
+import { OutlineReviewCard } from "./outline-card";
 import { PreviewFailureCard } from "./preview-failure-card";
 import { QuestionCard } from "./question-card";
 import { UnreadCard } from "./unread-card";
@@ -137,6 +138,9 @@ export function InboxView({ data }: { data: InboxData }) {
             }
             if (n.request.kind === "plan") {
               return <PlanReviewCard key={n.key} thread={n.thread} request={n.request} onAnswered={answer} />;
+            }
+            if (n.request.kind === "outline") {
+              return <OutlineReviewCard key={n.key} thread={n.thread} request={n.request} onAnswered={answer} />;
             }
             return n.request.kind === "question" ? (
               <QuestionCard key={n.key} thread={n.thread} request={n.request} onAnswered={answer} />
