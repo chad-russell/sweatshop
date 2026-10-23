@@ -80,8 +80,6 @@ export type TimelineItem =
 
 type ToolItem = Extract<TimelineItem, { type: "tool" }>;
 
-const SYNTHETIC = new Set(["fileChange", "compaction"]);
-
 function parseJson(value: string | null | undefined): unknown {
   if (!value) return undefined;
   try {
@@ -212,10 +210,6 @@ export function buildTimeline(events: readonly TimelineEvent[]): TimelineItem[] 
     }
   }
   return items;
-}
-
-export function isSyntheticTool(name: string | null | undefined): boolean {
-  return !!name && SYNTHETIC.has(name);
 }
 
 /**

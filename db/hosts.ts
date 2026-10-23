@@ -1,6 +1,6 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Db } from "./index";
-import { conversations, hostCommands, projectHosts, type HostCommand, type ProjectHost } from "./schema";
+import { projectHosts, type ProjectHost } from "./schema";
 
 /**
  * 0043: the per-project host allow-list. All value-shaped; the app holds
@@ -108,27 +108,3 @@ export function setHostKeyFingerprint(db: Db, hostId: string, fingerprint: strin
   db.update(projectHosts).set({ hostKeyFp: fingerprint }).where(eq(projectHosts.id, hostId)).run();
 }
 
-export type HostCommandLite = Pick<
-  HostCommand,
-  "id" | "conversationId" | "hostName" | "command" | "exitCode" | "createdAt" | "resolvedAt"
->;
-
-/** A project's recent host commands, newest first (inspect's view). */
-export function listRecentProjectHostCommands(db: Db, projectId: string, limit = 10): HostCommandLite[] {
-  return db
-    .select({
-      id: hostCommands.id,
-      conversationId: hostCommands.conversationId,
-      hostName: hostCommands.hostName,
-      command: hostCommands.command,
-      exitCode: hostCommands.exitCode,
-      createdAt: hostCommands.createdAt,
-      resolvedAt: hostCommands.resolvedAt,
-    })
-    .from(hostCommands)
-    .innerJoin(conversations, eq(conversations.id, hostCommands.conversationId))
-    .where(eq(conversations.projectId, projectId))
-    .orderBy(desc(hostCommands.createdAt))
-    .limit(limit)
-    .all();
-}

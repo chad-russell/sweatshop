@@ -701,18 +701,3 @@ export function loadSidebar(db: Db, flags: AttentionFlags = NO_ATTENTION): Sideb
   return { groups, archived, trashed };
 }
 
-/** Count of conversations visible in the main tree (footer total). */
-export function countLive(db: Db): number {
-  const row = db
-    .select({ n: sql<number>`count(*)` })
-    .from(conversations)
-    .where(
-      and(
-        isNull(conversations.trashedAt),
-        isNull(conversations.archivedAt),
-        ne(conversations.kind, "stage"),
-      ),
-    )
-    .get();
-  return row?.n ?? 0;
-}
