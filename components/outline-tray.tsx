@@ -61,13 +61,11 @@ const SEGMENT_CLASS: Record<OutlineState, string> = {
 export function OutlineTray({
   conversationId,
   projectId,
-  quote,
   context,
   busy,
 }: {
   conversationId: string;
   projectId: string | null;
-  quote?: (text: string) => void;
   /** Null before any update_outline call — the tray renders nothing. */
   context: OutlineTrayContext | null;
   /** Gates the active segment's pulse — quiet while nothing is running. */
@@ -99,7 +97,7 @@ export function OutlineTray({
   const reviewId = savedActive ? saved.reviewId : (openReviewId ?? "");
   const canEditApprovedRunners = (savedActive ? saved.approved : approved) && outline.steps.some((step) => step.state === "pending");
   const summary = outlineTraySummary(outline, open);
-  const view: OutlineBodyView = { conversationId, projectId, quote };
+  const view: OutlineBodyView = { conversationId, projectId };
 
   return (
     <div

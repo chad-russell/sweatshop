@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Ban, Check, ChevronRight, Circle, CircleDot, Minus, Pencil, Plus, Quote, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Ban, Check, ChevronRight, Circle, CircleDot, Minus, Pencil, Plus, Trash2 } from "lucide-react";
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { Card } from "@/components/ai-elements/agent-cards";
 import { HarnessRoutePicker } from "@/components/harness-route-picker";
@@ -120,12 +120,10 @@ function StepRow({
 export function OutlineDocument({
   outline,
   previous,
-  quote,
   className,
 }: {
   outline: Outline;
   previous?: { version: number; outline: Outline } | null;
-  quote?: (text: string) => void;
   className?: string;
 }) {
   const [showDiff, setShowDiff] = useState(false);
@@ -139,7 +137,7 @@ export function OutlineDocument({
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {outline.goal && <p className="text-sm font-medium">{outline.goal}</p>}
-      {(previous || quote) && (
+      {previous && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {previous && (
             <button
@@ -151,17 +149,6 @@ export function OutlineDocument({
               )}
             >
               {showDiff ? "Hide changes" : `Changes since v${previous.version}`}
-            </button>
-          )}
-          {quote && (
-            <button
-              type="button"
-              onClick={() => quote(outline.goal || outline.steps.map((s) => s.label).join(", "))}
-              title="Quote the outline into your reply"
-              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium text-muted-foreground transition-colors hover:text-foreground pointer-coarse:px-3 pointer-coarse:py-2"
-            >
-              <Quote className="size-3" aria-hidden />
-              Quote
             </button>
           )}
         </div>
@@ -439,12 +426,11 @@ export function OutlineApprove({
 }
 
 /** What the session gives its outline cards: the transcript's outline
- *  history and the composer's quote hook (absent outside a chat). */
+ *  history. */
 export interface OutlineView {
   history: OutlineTranscriptHistory;
   conversationId: string;
   projectId: string | null;
-  quote?: (text: string) => void;
 }
 
 const OutlineContext = createContext<OutlineView | null>(null);
@@ -453,7 +439,7 @@ export const OutlineViewProvider = OutlineContext.Provider;
 /** The slice of `OutlineView` `OutlineBody` actually needs — the tray
  *  (0079) sits outside `OutlineViewProvider`'s subtree (the composer,
  *  not the transcript) and passes these as plain props instead. */
-export type OutlineBodyView = Pick<OutlineView, "conversationId" | "projectId" | "quote">;
+export type OutlineBodyView = Pick<OutlineView, "conversationId" | "projectId">;
 
 export interface OutlineSavedEdit {
   outline: Outline;
@@ -496,7 +482,7 @@ export function OutlineBody({
   const [savedNote, setSavedNote] = useState<{ version: number; approved: boolean } | null>(null);
   return (
     <div className="flex flex-col gap-3">
-      <OutlineDocument outline={outline} previous={previous} quote={view?.quote} />
+      <OutlineDocument outline={outline} previous={previous} />
       {(canEditReview || canEditApprovedRunners) && !editing && !savedNote && (
         <button type="button" className="inline-flex items-center gap-1 self-start rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground" onClick={() => setEditing(true)}>
           <Pencil className="size-3" aria-hidden /> {canEditReview ? "Edit outline" : "Edit pending runners"}
