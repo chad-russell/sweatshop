@@ -13,6 +13,7 @@ import {
   drainSteerStep,
   finishTurnStream,
   loadPromptSectionsStep,
+  loadProjectContextStep,
   loadRepoDocsStep,
   loadSkillStep,
   loadTurnHistory,
@@ -123,6 +124,11 @@ export async function chatTurn(input: ChatTurnInput) {
   // so plain chats skip the step call entirely (no extra round trip on
   // every turn for something that can never apply).
   const repoDocs = input.hasProject === true ? await loadRepoDocsStep(conversationId) : [];
+  // RCA: project chats never named their own project to the model, so it
+  // would call list_projects to find "the relevant project" it was
+  // already in — this names it directly. Same gate as repoDocs: only a
+  // project conversation can have a project at all.
+  const project = input.hasProject === true ? await loadProjectContextStep(conversationId) : null;
   const agent = new WorkflowAgent({
     model,
     instructions: buildInstructions({
@@ -130,6 +136,7 @@ export async function chatTurn(input: ChatTurnInput) {
       hosts: input.hosts ?? [],
       repoDocs,
       skill,
+      project,
       sections,
     }),
     // 0042: WorkflowAgent hard-codes supportedUrls: {}, so the SDK would try

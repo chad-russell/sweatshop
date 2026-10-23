@@ -18,7 +18,8 @@ export function projectTools(
     list_projects: tool({
       description:
         "List every project: id, name, repos, and work defaults (test command, branch prefix). " +
-        "Read-only — the starting point before creating or editing.",
+        "Read-only. A project chat already knows its own project from its instructions — use this " +
+        "for setup/controller chats or cross-project work, or before creating or editing a project.",
       inputSchema: z.object({}),
       execute: () => listProjectsStep(),
     }),
