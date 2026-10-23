@@ -118,6 +118,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`lib/child-status.ts`, both live kinds) polled by `useChildStatus`
   every 5 s while the child is live and the tab visible, never once
   settled.
+- Sandboxed commands (0082): `execSandbox` (`lib/sandboxes/provision.ts`,
+  the one non-streaming path for bash, `sandbox_exec` and the AI SDK
+  adapter's `run`) prepends `set -o pipefail` (`withPipefail`), so a
+  pipeline like `npm run test 2>&1 | tail` reports npm's failure instead
+  of `tail`'s 0. Streaming harness spawns are unaffected.
 - Child threads (0037 phase 3): `start_thread({prompt, skill?, fresh?})`
   — every chat tool — starts a fresh child chat with its own context on
   the parent's project, ATTACHED to the parent's sandbox by default

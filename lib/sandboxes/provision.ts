@@ -44,6 +44,18 @@ export function sandboxWorkRoot(ownerId: string): string {
   return `/work/${ownerId}`;
 }
 
+/**
+ * 0082: run every sandboxed command with `pipefail`, so a pipeline's
+ * status is its first failing stage, not its last. RCA: an agent ran
+ * `npm run test 2>&1 | tail -20` in a dir with no package.json ~200
+ * times — npm exited 254, `tail` exited 0, and bash reported 0, so the
+ * model never saw a failure. Prepended (not wrapped) so the command's
+ * own last status is still bash's exit code.
+ */
+export function withPipefail(command: string): string {
+  return `set -o pipefail\n${command}`;
+}
+
 export async function execSandbox(
   containerName: string,
   command: string,
@@ -68,7 +80,7 @@ export async function execSandbox(
         containerName,
         "bash",
         "-lc",
-        command,
+        withPipefail(command),
       ],
       { maxBuffer: 64 * 1024 * 1024 },
     );
