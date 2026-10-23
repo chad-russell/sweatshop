@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 import { RotateCcw } from "lucide-react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import {
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -35,8 +36,9 @@ import {
 import { ComposerAddButton, ComposerAttachments, attachmentErrorMessage } from "@/components/composer-attachments";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from "@/lib/attachment-ref";
 import { OutlineViewProvider, type OutlineView } from "@/components/outline-card";
+import { OutlineTray } from "@/components/outline-tray";
 import { phaseFromMessages, type Phase } from "@/lib/thread-phase";
-import { outlineHistory } from "@/lib/outline";
+import { deriveOutlineTrayContext, outlineHistory } from "@/lib/outline";
 import { applyLiveStates, workPRsFromMessages, type DisplayWorkPR } from "@/lib/work-prs";
 import { usePRStates } from "@/lib/use-pr-states";
 import { Spinner } from "@/components/ui/spinner";
@@ -482,6 +484,9 @@ export function ChatSession({
   const derivedWorkPRs = useMemo(() => workPRsFromMessages(messages), [messages]);
   const phase = serverContext?.phase ?? derivedPhase;
   const workPRs = serverContext?.prs ?? derivedWorkPRs;
+  // 0079: the composer tray's feed — same whole-transcript preference.
+  const derivedOutlineContext = useMemo(() => deriveOutlineTrayContext(messages), [messages]);
+  const outlineContext = serverContext?.outline ?? derivedOutlineContext;
   const backgroundOut = serverContext ? serverContext.hasBackgroundChild : hasBackgroundChild(messages);
   // 0064: an open outline review also wakes this chat (on Approve), same watch.
   const outlines = useMemo(() => outlineHistory(messages), [messages]);
@@ -868,22 +873,23 @@ export function ChatSession({
     messages,
   };
 
-  // 0064: Quote for the outline card, same mechanism.
+  // 0064: Quote for the outline card; 0079: the tray shares it too.
+  const quoteIntoComposer = useCallback((selection: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const before = el.value.trimEnd();
+    const quoted = `${selection.split("\n").map((line) => `> ${line}`.trimEnd()).join("\n")}\n\n`;
+    el.value = `${before ? `${before}\n\n` : ""}${quoted}`;
+    if (el.value.trim()) window.localStorage.setItem(draftKey, el.value);
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [draftKey]);
   const outlineView = useMemo<OutlineView>(() => ({
     history: outlines,
     conversationId,
     projectId: projectId ?? null,
-    quote: (selection) => {
-      const el = textareaRef.current;
-      if (!el) return;
-      const before = el.value.trimEnd();
-      const quoted = `${selection.split("\n").map((line) => `> ${line}`.trimEnd()).join("\n")}\n\n`;
-      el.value = `${before ? `${before}\n\n` : ""}${quoted}`;
-      if (el.value.trim()) window.localStorage.setItem(draftKey, el.value);
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    },
-  }), [outlines, draftKey, conversationId, projectId]);
+    quote: quoteIntoComposer,
+  }), [outlines, conversationId, projectId, quoteIntoComposer]);
   const freshMode = fresh ? freshComposer?.(state) : undefined;
 
   // 0042: images upload first (each becomes an attachment id), then the
@@ -1059,7 +1065,16 @@ export function ChatSession({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="w-full px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-4">
+      <div className="composer-dock w-full px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-4">
+        {/* 0079: docked directly above the composer, flush — no gap. */}
+        <OutlineTray
+          key={conversationId}
+          conversationId={conversationId}
+          projectId={projectId ?? null}
+          quote={quoteIntoComposer}
+          context={outlineContext}
+          busy={isBusy}
+        />
         <PromptInput
           onSubmit={handleSubmit}
           className="composer"

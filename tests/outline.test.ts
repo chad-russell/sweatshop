@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ModelMessage } from "ai";
+import type { ModelMessage, UIMessage } from "ai";
 import { db } from "../db";
 import { appendMessages, ensureConversation, listModelMessages, listPendingInputs } from "../db/chat";
 import { getOutlineRow, outlineState } from "../db/outlines";
@@ -16,9 +16,12 @@ import {
 } from "../lib/agent/tools/outline";
 import {
   deriveOutline,
+  deriveOutlineTrayContext,
   diffOutlineSteps,
   isOutline,
+  outlineChangeSummary,
   outlineChipLabel,
+  outlineTraySummary,
   prependOutlineHandoff,
   renderOutlineEdit,
   renderOutlineHandoff,
@@ -191,6 +194,48 @@ describe("outlineChipLabel", () => {
   });
 });
 
+describe("outlineTraySummary (0079: the composer tray's collapsed bar)", () => {
+  it("one segment per top-level step, the active step's label, and the outline's own d/n", () => {
+    expect(outlineTraySummary(implement, false)).toEqual({
+      segments: [
+        { id: "plan", state: "done" },
+        { id: "implement", state: "active" },
+        { id: "ship", state: "pending" },
+      ],
+      done: 1,
+      total: 3,
+      label: "Implement",
+      tone: "running",
+      needsYou: false,
+    });
+  });
+
+  it("a blocked step always needs you, regardless of the review flag", () => {
+    const o = outline("x", [
+      { id: "plan", label: "Plan", state: "done" },
+      { id: "implement", label: "Implement", state: "active", children: [{ id: "auth", label: "auth", state: "blocked" }] },
+    ]);
+    expect(outlineTraySummary(o, false)).toMatchObject({ label: "auth", tone: "warn", needsYou: true });
+  });
+
+  it("an open review needs you even with no active or blocked step", () => {
+    const done = outline("x", [
+      { id: "plan", label: "Plan", state: "done" },
+      { id: "ship", label: "Ship", state: "done" },
+    ]);
+    expect(outlineTraySummary(done, false)).toMatchObject({ label: "Ship", tone: "ok", needsYou: false });
+    expect(outlineTraySummary(done, true)).toMatchObject({ label: "Ship", tone: "ok", needsYou: true });
+  });
+
+  it("names the first step for an all-pending outline, same fallback as the chip", () => {
+    const pending = outline("x", [
+      { id: "plan", label: "Plan", state: "pending" },
+      { id: "ship", label: "Ship", state: "pending" },
+    ]);
+    expect(outlineTraySummary(pending, false)).toMatchObject({ label: "Plan", done: 0, total: 2 });
+  });
+});
+
 describe("deriveOutline", () => {
   const ui = (version: number, o: Outline, proposed = false) => ({
     role: "assistant",
@@ -292,6 +337,42 @@ describe("deriveOutline", () => {
   });
 });
 
+describe("deriveOutlineTrayContext (0079: the composer tray's whole-transcript feed)", () => {
+  const toolMsg = (id: string, output: unknown): UIMessage =>
+    ({
+      id,
+      role: "assistant",
+      parts: [{ type: "tool-update_outline", toolCallId: id, state: "output-available", input: {}, output }],
+    }) as unknown as UIMessage;
+
+  it("is null with no update_outline call", () => {
+    expect(deriveOutlineTrayContext([])).toBeNull();
+  });
+
+  it("carries the current outline, no previous, no open review", () => {
+    const msgs = [toolMsg("o1", { ok: true, version: 1, proposed: false, outline: implement, next: "ok" })];
+    expect(deriveOutlineTrayContext(msgs)).toEqual({
+      current: { version: 1, outline: implement, proposed: false },
+      previous: null,
+      openReviewId: null,
+      approved: false,
+      stale: false,
+    });
+  });
+
+  it("carries the previous snapshot and the open review id once a rewrite proposes", () => {
+    const second = outline("Ship the widget v2", implement.steps);
+    const msgs = [
+      toolMsg("o1", { ok: true, version: 1, proposed: false, outline: implement, next: "ok" }),
+      toolMsg("o2", { ok: true, version: 2, proposed: true, outline: second, next: "ok" }),
+    ];
+    const ctx = deriveOutlineTrayContext(msgs);
+    expect(ctx?.current).toEqual({ version: 2, outline: second, proposed: true });
+    expect(ctx?.previous).toEqual({ version: 1, outline: implement });
+    expect(ctx?.openReviewId).toBe("o2");
+  });
+});
+
 describe("renderThreadStateNote", () => {
   it("renders goal, active + runner + open children, next + runner, and the call-to-action", () => {
     const o = outline("Ship the widget", [
@@ -347,6 +428,38 @@ describe("diffOutlineSteps", () => {
         { id: "b", label: "B", kind: "removed", fromState: "pending" },
       ]),
     );
+  });
+});
+
+describe("outlineChangeSummary (0079: the slimmed card's one-liner)", () => {
+  it("summarizes when every change is a step finishing", () => {
+    const before = outline("x", [
+      { id: "a", label: "A", state: "active" },
+      { id: "b", label: "B", state: "pending" },
+    ]);
+    const after = outline("x", [
+      { id: "a", label: "A", state: "done" },
+      { id: "b", label: "B", state: "done" },
+    ]);
+    expect(outlineChangeSummary(diffOutlineSteps(before, after))).toBe("2 steps done");
+  });
+
+  it("singular for one finished step", () => {
+    const before = outline("x", [{ id: "a", label: "A", state: "active" }]);
+    const after = outline("x", [{ id: "a", label: "A", state: "done" }]);
+    expect(outlineChangeSummary(diffOutlineSteps(before, after))).toBe("1 step done");
+  });
+
+  it("omits anything that isn't purely steps finishing", () => {
+    const before = outline("x", [{ id: "a", label: "A", state: "pending" }]);
+    const addedOnly = outline("x", [
+      { id: "a", label: "A", state: "pending" },
+      { id: "b", label: "B", state: "pending" },
+    ]);
+    expect(outlineChangeSummary(diffOutlineSteps(before, addedOnly))).toBeNull();
+    const mixed = outline("x", [{ id: "a", label: "A", state: "blocked" }]);
+    expect(outlineChangeSummary(diffOutlineSteps(before, mixed))).toBeNull();
+    expect(outlineChangeSummary([])).toBeNull();
   });
 });
 

@@ -10,6 +10,7 @@ import {
   isOutline,
   isOutlineSnapshot,
   legacyOutlineFromStatus,
+  outlineChangeSummary,
   runnerLabel,
   type Outline,
   type OutlineState,
@@ -100,7 +101,9 @@ function StepRow({
             </span>
           )}
         </span>
-        {topLevel && <RunnerBadge runner={step.runner} />}
+        {/* 0079: "auto" is the default and the common case — the badge
+         *  is only worth showing when a runner is actually pinned. */}
+        {topLevel && step.runner !== undefined && step.runner !== "auto" && <RunnerBadge runner={step.runner} />}
       </div>
       {hasChildren && open && (
         <ul className="pl-5">
@@ -447,8 +450,89 @@ export interface OutlineView {
 const OutlineContext = createContext<OutlineView | null>(null);
 export const OutlineViewProvider = OutlineContext.Provider;
 
+/** The slice of `OutlineView` `OutlineBody` actually needs — the tray
+ *  (0079) sits outside `OutlineViewProvider`'s subtree (the composer,
+ *  not the transcript) and passes these as plain props instead. */
+export type OutlineBodyView = Pick<OutlineView, "conversationId" | "projectId" | "quote">;
+
+export interface OutlineSavedEdit {
+  outline: Outline;
+  version: number;
+  reviewId: string;
+  approved: boolean;
+}
+
+/**
+ * 0079: the document + edit/approve flow shared by the transcript card
+ * and the composer tray. Fully controlled — the caller owns which
+ * outline/version/reviewId is current (including after a save, via
+ * `onSaved`) so both consumers' own headers (the card's title/pill, the
+ * tray's collapsed bar) stay in sync with an edit instantly, the same
+ * way the card always has.
+ */
+export function OutlineBody({
+  outline,
+  version,
+  previous,
+  open,
+  reviewId,
+  canEditReview,
+  canEditApprovedRunners,
+  view,
+  onSaved,
+}: {
+  outline: Outline;
+  version: number;
+  previous?: { version: number; outline: Outline } | null;
+  /** An open review for this outline — shows OutlineApprove. */
+  open: boolean;
+  reviewId: string;
+  canEditReview: boolean;
+  canEditApprovedRunners: boolean;
+  view: OutlineBodyView | null;
+  onSaved?: (saved: OutlineSavedEdit) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [savedNote, setSavedNote] = useState<{ version: number; approved: boolean } | null>(null);
+  return (
+    <div className="flex flex-col gap-3">
+      <OutlineDocument outline={outline} previous={previous} quote={view?.quote} />
+      {(canEditReview || canEditApprovedRunners) && !editing && !savedNote && (
+        <button type="button" className="inline-flex items-center gap-1 self-start rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground" onClick={() => setEditing(true)}>
+          <Pencil className="size-3" aria-hidden /> {canEditReview ? "Edit outline" : "Edit pending runners"}
+        </button>
+      )}
+      {editing && view && (
+        <OutlineEditor
+          initial={outline}
+          version={version}
+          conversationId={view.conversationId}
+          projectId={view.projectId}
+          review={canEditReview}
+          onSaved={(next, savedResponse) => {
+            setSavedNote({ version: savedResponse.version, approved: savedResponse.approved });
+            setEditing(false);
+            onSaved?.({ outline: next, version: savedResponse.version, reviewId: savedResponse.rowId, approved: savedResponse.approved });
+          }}
+        />
+      )}
+      {savedNote && <p className="text-xs text-muted-foreground">{savedNote.approved ? `Saved and approved as v${savedNote.version}.` : `Saved as v${savedNote.version}.`}</p>}
+      {open && !editing && (
+        <OutlineApprove
+          toolCallId={reviewId}
+          version={version}
+          hint="Or just reply below — the agent revises and updates again. Typing never approves."
+        />
+      )}
+    </div>
+  );
+}
+
 /** The transcript's update_outline card — also renders a legacy
- *  update_status result (toolName tells us which). */
+ *  update_status result (toolName tells us which). 0079: slimmed —
+ *  only the latest card defaults open, and only while it's an open
+ *  review; every other card (including a settled latest one, since the
+ *  tray shows the live outline) defaults closed to one line. */
 export function OutlineToolCard({
   toolCallId,
   toolName,
@@ -463,8 +547,7 @@ export function OutlineToolCard({
   errorText?: string;
 }) {
   const view = useContext(OutlineContext);
-  const [editing, setEditing] = useState(false);
-  const [saved, setSaved] = useState<{ outline: Outline; version: number; reviewId: string; approved: boolean } | null>(null);
+  const [saved, setSaved] = useState<OutlineSavedEdit | null>(null);
   const running = state === "input-streaming" || state === "input-available";
   if (running) return null; // no card while the rewrite streams in — nothing to show yet
   let outline: Outline | null = null;
@@ -503,49 +586,33 @@ export function OutlineToolCard({
   const open = Boolean(anchored && view && (savedActive ? !saved!.approved : view.history.openReviewId));
   const previous = view?.history.previous.get(toolCallId) ?? null;
   const reviewId = savedActive ? saved!.reviewId : (view?.history.openReviewId ?? toolCallId);
-  const pill = open ? "needs you" : proposed ? (latest ? "approved" : "superseded") : "recorded";
   const tone = open ? "warn" : proposed && !latest ? "neutral" : "ok";
-  const shown = savedActive ? saved!.outline : outline;
+  const shown = outline;
   const canEditReview = Boolean(open && view && version);
   const canEditApprovedRunners = Boolean(latest && view?.history.approved && shown.steps.some((step) => step.state === "pending"));
+  const summary = !savedActive && previous ? outlineChangeSummary(diffOutlineSteps(previous.outline, shown)) : null;
   return (
     <Card
       icon={Check}
       title={version ? `Outline v${version}` : "Outline"}
-      subtitle={shown.goal || undefined}
+      subtitle={[shown.goal, summary].filter(Boolean).join(" · ") || undefined}
       tone={tone}
-      pill={pill}
-      defaultOpen={latest}
+      pill={open ? "needs you" : undefined}
+      defaultOpen={latest && open}
       className={cn(open && "border-warning/50")}
     >
-      <div className="flex flex-col gap-3 p-3">
-        <OutlineDocument outline={shown} previous={previous} quote={view?.quote} />
-        {(canEditReview || canEditApprovedRunners) && !editing && !saved && (
-          <button type="button" className="inline-flex items-center gap-1 self-start rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground" onClick={() => setEditing(true)}>
-            <Pencil className="size-3" aria-hidden /> {canEditReview ? "Edit outline" : "Edit pending runners"}
-          </button>
-        )}
-        {editing && view && version && (
-          <OutlineEditor
-            initial={shown}
-            version={version}
-            conversationId={view.conversationId}
-            projectId={view.projectId}
-            review={canEditReview}
-            onSaved={(next, savedResponse) => {
-              setSaved({ outline: next, version: savedResponse.version, reviewId: savedResponse.rowId, approved: savedResponse.approved });
-              setEditing(false);
-            }}
-          />
-        )}
-        {saved && <p className="text-xs text-muted-foreground">{saved.approved ? `Saved and approved as v${saved.version}.` : `Saved as v${saved.version}.`}</p>}
-        {open && !editing && (
-          <OutlineApprove
-            toolCallId={reviewId}
-            version={version ?? 0}
-            hint="Or just reply below — the agent revises and updates again. Typing never approves."
-          />
-        )}
+      <div className="p-3">
+        <OutlineBody
+          outline={shown}
+          version={version ?? 0}
+          previous={previous}
+          open={open}
+          reviewId={reviewId}
+          canEditReview={canEditReview}
+          canEditApprovedRunners={canEditApprovedRunners}
+          view={view}
+          onSaved={setSaved}
+        />
       </div>
     </Card>
   );
