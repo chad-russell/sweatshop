@@ -237,7 +237,7 @@ export async function chatTurn(input: ChatTurnInput) {
         // called again), and persisted as part of THIS slice's tail
         // below (tagged via loopRunEvents, same mechanism as route/
         // exhausted metadata).
-        messages = applyLoopGuard(messages, loopSeenToolCallIds, loopSignatureCounts, loopFiredSignatures, loopRunEvents);
+        messages = applyLoopGuard(messages, skip, loopSeenToolCallIds, loopSignatureCounts, loopFiredSignatures, loopRunEvents);
 
         // The turn ends when the latest assistant message asks for no tools.
         // Computed BEFORE persisting this slice (0040 phase 3): when this
@@ -343,12 +343,14 @@ function countToolCalls(messages: ModelMessage[], from: number): number {
  */
 function applyLoopGuard(
   messages: ModelMessage[],
+  /** Only THIS turn's calls count — loaded history (index < from) never does. */
+  from: number,
   seenCallIds: Set<string>,
   counts: Map<string, number>,
   fired: Set<string>,
   runEvents: Map<number, RunEventMeta>,
 ): ModelMessage[] {
-  for (let i = 0; i < messages.length; i += 1) {
+  for (let i = from; i < messages.length; i += 1) {
     const message = messages[i];
     if (!message || message.role !== "assistant" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
