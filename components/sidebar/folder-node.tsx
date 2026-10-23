@@ -111,7 +111,7 @@ export function FolderNodeView({
               )}
             />
             <Icon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-            {!renaming && <span className="truncate text-sm">{node.name}</span>}
+            {!renaming && <span className="min-w-0 truncate text-sm">{node.name}</span>}
             {/* Attention inside a collapsed folder would be invisible. */}
             {!open && !renaming && (
               <AttentionDot unread={node.attention.unread} needsYou={node.attention.needsYou} />
