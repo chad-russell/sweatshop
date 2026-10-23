@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import type { QuestionAnswer } from "@/lib/question-form";
 
 export interface InputAnswer {
   requestId: string;
   optionId?: string;
   text?: string;
+  /** 0081: a structured ask_owner card's Submit, keyed by question id. */
+  answers?: Record<string, QuestionAnswer>;
 }
 
 /**
@@ -27,16 +30,19 @@ export function useRespond() {
         const res = await fetch("/api/x/input", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          // A freeform reply answers a question-kind request; an
-          // option (or its absence) is an approve/deny.
+          // A structured Submit sends `answers`; a freeform reply
+          // answers a question-kind request; an option (or its
+          // absence) is an approve/deny.
           body: JSON.stringify(
-            freeform && !answer.optionId
-              ? { toolCallId: answer.requestId, answer: freeform }
-              : {
-                  toolCallId: answer.requestId,
-                  approved: answer.optionId !== "deny",
-                  ...(freeform ? { comment: freeform } : {}),
-                },
+            answer.answers
+              ? { toolCallId: answer.requestId, answers: answer.answers }
+              : freeform && !answer.optionId
+                ? { toolCallId: answer.requestId, answer: freeform }
+                : {
+                    toolCallId: answer.requestId,
+                    approved: answer.optionId !== "deny",
+                    ...(freeform ? { comment: freeform } : {}),
+                  },
           ),
         });
         if (!res.ok) {

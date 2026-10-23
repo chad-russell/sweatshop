@@ -264,3 +264,89 @@ describe("pending card + typing-revises", () => {
     expect(JSON.parse(row.answer!)).toMatchObject({ approved: false, orphaned: "hook-gone" });
   });
 });
+
+describe("0081: structured ask_owner card — pending/inbox shape and typed-text mapping", () => {
+  const singleCard = {
+    kind: "ask_owner" as const,
+    context: "reasoning",
+    questions: [
+      {
+        id: "scope",
+        header: "Scope",
+        type: "single" as const,
+        allowOther: true,
+        options: [
+          { id: "a", label: "Instructions block only" },
+          { id: "b", label: "Instructions + validation" },
+        ],
+      },
+    ],
+  };
+
+  it("surfaces an AskOwnerCard on the inbox request's askOwner field, not evidence", () => {
+    recordPendingInput(db(), { id: `sq_shape_${rand}`, conversationId: conv, kind: "question", question: "Which?", card: singleCard });
+    const request = loadPendingRequests(db(), [conv]).get(conv)?.find((r) => r.requestId === `sq_shape_${rand}`);
+    expect(request?.askOwner).toEqual(singleCard);
+    expect(request?.evidence).toBeNull();
+    recordPendingInput(db(), { id: `sq_shape2_${rand}`, conversationId: conv, kind: "question", question: "cleanup" });
+    // drain both rows so later tests in this describe see an empty queue
+    db().delete(pendingInputs).where(eq(pendingInputs.conversationId, conv)).run();
+  });
+
+  it("maps a typed number to the matching option", async () => {
+    recordPendingInput(db(), { id: `sq_num_${rand}`, conversationId: conv, kind: "question", question: "Which?", card: singleCard });
+    const calls: unknown[] = [];
+    const answered = await answerPendingWithText(conv, "2", { resume: async (_t, p) => void calls.push(p) });
+    expect(answered?.kind).toBe("question");
+    expect(calls).toEqual([{ kind: "question", answers: { scope: { selected: ["b"] } } }]);
+  });
+
+  it("maps a typed letter to the matching option", async () => {
+    recordPendingInput(db(), { id: `sq_letter_${rand}`, conversationId: conv, kind: "question", question: "Which?", card: singleCard });
+    const calls: unknown[] = [];
+    await answerPendingWithText(conv, "a", { resume: async (_t, p) => void calls.push(p) });
+    expect(calls).toEqual([{ kind: "question", answers: { scope: { selected: ["a"] } } }]);
+  });
+
+  it("maps a typed label (case-insensitive) to the matching option", async () => {
+    recordPendingInput(db(), { id: `sq_label_${rand}`, conversationId: conv, kind: "question", question: "Which?", card: singleCard });
+    const calls: unknown[] = [];
+    await answerPendingWithText(conv, "instructions + validation", { resume: async (_t, p) => void calls.push(p) });
+    expect(calls).toEqual([{ kind: "question", answers: { scope: { selected: ["b"] } } }]);
+  });
+
+  it('maps "you pick" to You pick', async () => {
+    recordPendingInput(db(), { id: `sq_pick_${rand}`, conversationId: conv, kind: "question", question: "Which?", card: singleCard });
+    const calls: unknown[] = [];
+    await answerPendingWithText(conv, "you pick", { resume: async (_t, p) => void calls.push(p) });
+    expect(calls).toEqual([{ kind: "question", answers: { scope: { youPick: true } } }]);
+  });
+
+  it("falls back to Other for unmatched text", async () => {
+    recordPendingInput(db(), { id: `sq_other_${rand}`, conversationId: conv, kind: "question", question: "Which?", card: singleCard });
+    const calls: unknown[] = [];
+    await answerPendingWithText(conv, "neither, do something else", { resume: async (_t, p) => void calls.push(p) });
+    expect(calls).toEqual([{ kind: "question", answers: { scope: { other: "neither, do something else" } } }]);
+  });
+
+  it("maps typed text to Other on the first question for a multi-question card", async () => {
+    const multiCard = {
+      kind: "ask_owner" as const,
+      questions: [
+        singleCard.questions[0]!,
+        { id: "name", header: "Name", type: "text" as const, allowOther: true },
+      ],
+    };
+    recordPendingInput(db(), { id: `sq_multi_${rand}`, conversationId: conv, kind: "question", question: "Which?", card: multiCard });
+    const calls: unknown[] = [];
+    await answerPendingWithText(conv, "2", { resume: async (_t, p) => void calls.push(p) });
+    expect(calls).toEqual([{ kind: "question", answers: { scope: { other: "2" } } }]);
+  });
+
+  it("a legacy (non-structured) pending keeps today's exact behavior", async () => {
+    recordPendingInput(db(), { id: `sq_legacy_${rand}`, conversationId: conv, kind: "question", question: "Which?" });
+    const calls: unknown[] = [];
+    await answerPendingWithText(conv, "sqlite", { resume: async (_t, p) => void calls.push(p) });
+    expect(calls).toEqual([{ kind: "question", answer: "sqlite" }]);
+  });
+});

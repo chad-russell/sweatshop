@@ -208,6 +208,61 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
+    "0081: a structured ask_owner card resolves evidence, stores an AskOwnerCard, and formats a readable + JSON answer",
+    { timeout: 30_000 },
+    async () => {
+      process.env.SWEATSHOP_CHAT_MOCK = "structured-question";
+      const id = conv("structured-question");
+
+      const run = await turn(id, "please ask me a question");
+      const returnValue = run.returnValue;
+
+      const ask = askId("please ask me a question").replace("call_ask_", "call_structured_");
+      await waitFor(async () => {
+        try {
+          return (await getHookByToken(ask)) != null;
+        } catch {
+          return false;
+        }
+      }, "hook " + ask + " to exist");
+
+      // The card is resolved and written BEFORE the hook — assert its
+      // shape (the recommended option's code evidence passed through
+      // untouched, no screenshot in this fixture) while the turn is
+      // still suspended.
+      const { getPendingInputCard } = await import("../db/chat");
+      const { isAskOwnerCard } = await import("../lib/question-form");
+      const card = getPendingInputCard(db(), ask);
+      if (!isAskOwnerCard(card)) throw new Error("expected an AskOwnerCard");
+      expect(card.context).toContain("sqlite is simpler");
+      expect(card.questions).toEqual([
+        expect.objectContaining({
+          id: "db",
+          header: "Database",
+          type: "single",
+          allowOther: true,
+          options: [
+            expect.objectContaining({ id: "sqlite", recommended: true, evidence: { type: "code", lang: "ts", text: expect.any(String) } }),
+            expect.objectContaining({ id: "postgres" }),
+          ],
+        }),
+      ]);
+
+      await chatApprovalHook.resume(ask, { kind: "question", answers: { db: { selected: ["sqlite"] } } });
+      resolvePendingInput(db(), ask, { kind: "question", answers: { db: { selected: ["sqlite"] } } });
+
+      const result = await returnValue;
+      expect(result.finishReason).toBe("stop");
+      const history = serialized(id);
+      // `serialized` is itself a JSON-stringified transcript, so the
+      // answer's own embedded quotes/braces come back escaped.
+      expect(history).toContain('Chad answered — Database: \\"sqlite\\"');
+      expect(history).toContain('{\\"db\\":{\\"selected\\":[\\"sqlite\\"]}}');
+      expect(listPendingInputs(db(), id)).toHaveLength(0);
+    },
+  );
+
+  it(
     "outline proposal opens a review without suspending the turn",
     { timeout: 30_000 },
     async () => {

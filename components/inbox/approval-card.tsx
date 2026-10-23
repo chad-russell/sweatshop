@@ -85,6 +85,12 @@ export function ApprovalCard({
           </p>
           {request.exec && <ExecAsk exec={request.exec} />}
           {request.promptChange && <PromptChangeDetails card={request.promptChange} />}
+          {!request.exec && !request.promptChange && request.askOwner?.context && (
+            <details className="rounded-md border bg-background px-2 py-1.5">
+              <summary className="cursor-pointer text-xs text-muted-foreground">Why they&apos;re asking</summary>
+              <div className="mt-1.5 text-sm">{request.askOwner.context}</div>
+            </details>
+          )}
           {!request.exec && !request.promptChange && input && (
             <pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap">
               {input}

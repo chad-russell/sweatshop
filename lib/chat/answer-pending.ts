@@ -1,6 +1,7 @@
 import { db } from "@/db";
-import { listPendingInputs, resolvePendingInput } from "@/db/chat";
+import { getPendingInputCard, listPendingInputs, resolvePendingInput } from "@/db/chat";
 import { chatApprovalHook } from "@/workflows/chat/hooks";
+import { isAskOwnerCard, mapTypedTextToAnswers } from "@/lib/question-form";
 
 /**
  * 0037 (Chad's decision): typing in a thread while it waits on him is a
@@ -51,9 +52,16 @@ export async function answerPendingWithText(
   const resume = deps.resume ?? ((token, p) => chatApprovalHook.resume(token, p));
   for (const pending of pendings) {
     const kind = pending.kind === "question" ? "question" : "approval";
+    // 0081: a structured ask_owner card maps the typed text onto its
+    // spec (option number/letter/label, "you pick", or Other) instead of
+    // the legacy bare `answer` string.
+    const card = kind === "question" ? getPendingInputCard(db(), pending.id) : null;
+    const structuredAnswers = isAskOwnerCard(card) ? mapTypedTextToAnswers(card, text) : null;
     const payload =
       kind === "question"
-        ? { kind: "question" as const, answer: text }
+        ? structuredAnswers
+          ? { kind: "question" as const, answers: structuredAnswers }
+          : { kind: "question" as const, answer: text }
         : { kind: "approval" as const, approved: false, comment: text };
     try {
       await resume(pending.id, payload);

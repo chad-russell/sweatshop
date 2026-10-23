@@ -65,5 +65,6 @@ export {
   applyApprovedPromptChangeStep,
 } from "./prompt-change";
 export type { PromptChangeCard } from "./prompt-change";
+export { resolveAskOwnerCardStep } from "./ask-owner";
 
 export type { CreateProjectToolInput } from "./projects";
