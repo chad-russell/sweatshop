@@ -112,3 +112,29 @@ export function splitCd(command: string): { cwd?: string; rest: string } {
   const rest = m[4]!.trimStart();
   return rest ? { cwd: m[1] ?? m[2] ?? m[3], rest } : { rest: command };
 }
+
+export type BashCallState =
+  | "input-streaming"
+  | "input-available"
+  | "approval-requested"
+  | "approval-responded"
+  | "output-available"
+  | "output-error"
+  | "output-denied";
+
+/**
+ * The status pill on a bash row's header, or null when there is nothing
+ * worth a pill. Success is the quiet default (exit 0, or finished with no
+ * reported exit) — only work in flight, a gate on Chad, and trouble mark
+ * the row. The output's line count lives in the expanded view instead.
+ */
+export function bashStatusPill(state: BashCallState, exitCode: number | undefined): { tone: "running" | "fail"; label: string } | null {
+  if (state === "output-denied") return { tone: "fail", label: "denied" };
+  if (state === "approval-requested") return { tone: "running", label: "awaiting approval" };
+  if (state === "input-available" || state === "input-streaming" || state === "approval-responded") {
+    return { tone: "running", label: "running" };
+  }
+  if (state === "output-error") return { tone: "fail", label: "error" };
+  if (exitCode !== undefined && exitCode !== 0) return { tone: "fail", label: `exit ${exitCode}` };
+  return null;
+}

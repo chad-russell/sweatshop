@@ -4,7 +4,7 @@ import { CheckIcon, ChevronDownIcon, CopyIcon, SquareTerminalIcon } from "lucide
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { luminance, parseAnsi, stripAnsi, type AnsiColor, type AnsiSegment, type NamedColor } from "@/lib/ansi";
-import { parseBash, splitCd } from "@/lib/tool-views/bash";
+import { bashStatusPill, parseBash, splitCd } from "@/lib/tool-views/bash";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
@@ -144,8 +144,8 @@ function StatusPill({ tone, label }: { tone: Tone; label: string }) {
 /**
  * A bash tool call drawn as a terminal session. Collapsed it is one
  * header row like the other agent cards — icon, the caller's description
- * (else the command's first line), the extra chip (sandbox / host), the
- * exit pill with the output's line count, a chevron. Open, it shows the
+ * (else the command's first line), the extra chip (host / target sandbox), a
+ * status pill only while running or on trouble (success is quiet), a chevron. Open, it shows the
  * command as typed at a `$` prompt and the output below it — stderr in
  * red, ANSI colours honoured.
  */
@@ -161,7 +161,7 @@ export function BashTerminal({
   input: unknown;
   output?: unknown;
   errorText?: string;
-  /** Extra header content (e.g. the sandbox chip). */
+  /** Extra header content (e.g. the exec host chip). */
   extra?: ReactNode;
   className?: string;
 }) {
@@ -171,18 +171,7 @@ export function BashTerminal({
   const errored = state === "output-error" || state === "output-denied";
   const failed = errored || (view.exitCode !== undefined && view.exitCode !== 0);
 
-  const tone: Tone = failed ? "fail" : running || awaiting ? "running" : "ok";
-  const label = state === "output-denied"
-    ? "denied"
-    : awaiting
-      ? "awaiting approval"
-      : running
-        ? "running"
-        : errored
-          ? "error"
-          : view.exitCode !== undefined
-            ? `exit ${view.exitCode}`
-            : "done";
+  const pill = bashStatusPill(state, view.exitCode);
 
   const stdoutLines = useMemo(() => (view.stdout.trim() ? parseAnsi(view.stdout.replace(/\n+$/, "")) : []), [view.stdout]);
   const stderrLines = useMemo(() => (view.stderr.trim() ? parseAnsi(view.stderr.replace(/\n+$/, "")) : []), [view.stderr]);
@@ -203,7 +192,6 @@ export function BashTerminal({
     if (failed || awaiting) setOpen(true);
   }, [failed, awaiting]);
   const headline = view.description ?? (rest.split("\n").find((l) => l.trim()) ?? "").trim();
-  const pillLabel = hasBody && !running && !awaiting ? `${label} · ${lineCount} ${lineCount === 1 ? "line" : "lines"}` : label;
 
   return (
     <Collapsible
@@ -236,7 +224,7 @@ export function BashTerminal({
           )}
         </div>
         {extra}
-        <StatusPill tone={tone} label={pillLabel} />
+        {pill && <StatusPill tone={pill.tone} label={pill.label} />}
         <CollapsibleTrigger
           aria-label={open ? "Hide command and output" : "Show command and output"}
           className="-mr-1 rounded p-1 text-terminal-muted transition-colors hover:bg-terminal-foreground/10 hover:text-terminal-foreground"
@@ -302,6 +290,12 @@ export function BashTerminal({
               label="Copy output"
               className="absolute right-2 top-1.5 opacity-0 focus-visible:opacity-100 group-hover/out:opacity-100"
             />
+            {!running && (
+              <p className="border-t border-terminal-border px-3 py-1 font-mono text-[10px] text-terminal-muted">
+                {lineCount} {lineCount === 1 ? "line" : "lines"}
+                {view.exitCode !== undefined && ` · exit ${view.exitCode}`}
+              </p>
+            )}
           </div>
         ) : view.hasOutput && !running ? (
           <p className="border-t border-terminal-border px-3 py-1.5 font-mono text-[11px] italic text-terminal-muted">

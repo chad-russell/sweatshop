@@ -25,7 +25,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { HarnessMark } from "@/components/harness-logo";
-import { SandboxChip } from "@/components/sandbox-view";
 import { objectOf } from "@/lib/tool-views/fields";
 import { execOf, failureOf, inspectName, inspectOf, inspectState, oneLine, transitionOf, type InspectView, type ToolState } from "@/lib/tool-views/inspect";
 import type { ChildStatus } from "@/lib/child-status";
@@ -502,4 +501,3 @@ export function TransitionCard({
   );
 }
 
-export { SandboxChip };

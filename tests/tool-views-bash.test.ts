@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { luminance, parseAnsi, stripAnsi } from "../lib/ansi";
-import { parseBash, splitCd } from "../lib/tool-views/bash";
+import { bashStatusPill, parseBash, splitCd } from "../lib/tool-views/bash";
 
 describe("parseBash", () => {
   it("reads the chat tool's {exitCode, stdout, stderr}", () => {
@@ -100,5 +100,24 @@ describe("splitCd", () => {
     for (const c of ["ls", "echo hi && cd x && ls", "cd $HOME && ls", "cd x", "cd x &&", 'cd "$X" && ls', "cd a b && ls"]) {
       expect(splitCd(c)).toEqual({ rest: c });
     }
+  });
+});
+
+describe("bashStatusPill", () => {
+  it("is quiet on success — exit 0 or no reported exit", () => {
+    expect(bashStatusPill("output-available", 0)).toBeNull();
+    expect(bashStatusPill("output-available", undefined)).toBeNull();
+  });
+
+  it("marks work in flight and gates on the owner", () => {
+    expect(bashStatusPill("input-available", undefined)).toEqual({ tone: "running", label: "running" });
+    expect(bashStatusPill("input-streaming", undefined)).toEqual({ tone: "running", label: "running" });
+    expect(bashStatusPill("approval-requested", undefined)).toEqual({ tone: "running", label: "awaiting approval" });
+  });
+
+  it("marks trouble: non-zero exit, error, denied", () => {
+    expect(bashStatusPill("output-available", 2)).toEqual({ tone: "fail", label: "exit 2" });
+    expect(bashStatusPill("output-error", undefined)).toEqual({ tone: "fail", label: "error" });
+    expect(bashStatusPill("output-denied", undefined)).toEqual({ tone: "fail", label: "denied" });
   });
 });
