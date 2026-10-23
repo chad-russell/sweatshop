@@ -94,7 +94,7 @@ jobs:
           set -eu
           target="${{ steps.target.outputs.sha }}"
           live=$(ssh -o IdentitiesOnly=yes -o ConnectTimeout=8 crussell@10.10.0.12 \
-            'git -C ~/ss/sweatshop rev-parse HEAD' 2>/dev/null || echo unreachable)
+            'git -C ~/sweatshop rev-parse HEAD' 2>/dev/null || echo unreachable)
           echo "live=$live"
           if [ "$live" = "$target" ]; then
             if ssh -o IdentitiesOnly=yes -o ConnectTimeout=8 crussell@10.10.0.12 \
@@ -116,7 +116,7 @@ jobs:
           set -eu
           ssh -o IdentitiesOnly=yes crussell@10.10.0.12 '
             set -eu
-            cd ~/ss/sweatshop
+            cd ~/sweatshop
             git cat-file -e "${{ steps.target.outputs.sha }}^{commit}" 2>/dev/null \
               || git fetch --quiet origin
             # Extract the deploy body FROM THE TARGET COMMIT: the deploy
