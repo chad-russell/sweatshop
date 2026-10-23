@@ -307,6 +307,29 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`components/legacy-plan-card.tsx`, `lib/legacy-plan.ts`) and open
   `plan` review rows are hidden from the Inbox and typed answers, never
   resolved by typing.
+- Structured questions (0081): `ask_owner`'s `kind: "question"` path takes
+  optional `context` (markdown reasoning, kept out of the short `question`
+  one-liner) and `questions` (1–4 structured sub-questions: `single`/
+  `multi`/`rank`/`text`, 2–8 options for choice types, at most one
+  `recommended` on a `single`). `kind: "approval"` only gains `context`
+  (no `questions`). Every choice question always offers "Other…" and
+  "You pick" (runtime-supplied — `allowOther` gates only "Other…"); per-
+  option `evidence` (`code`/`diff`/`markdown`/`link`/`screenshot`) is
+  resolved at ask time (`workflows/chat/steps/ask-owner.ts`'s
+  `resolveAskOwnerCardStep` — a `screenshot` path is attached through the
+  existing `attach_screenshot` core to an attachment id, never bytes in
+  workflow state) and stored as an `AskOwnerCard` in `pending_inputs.card`
+  (`lib/question-form.ts` — pure core: validation, formatting, the
+  composer's typed-text mapping, server-side answer validation; no db
+  import). The hook (`chatApprovalHook`) gained `answers?: Record<qid,
+  {selected?, other?, youPick?}>` beside the legacy `answer?: string`
+  (Dismiss and a plain freeform question still use `answer`);
+  `POST /api/x/input` validates `answers` against the stored card before
+  ever touching the hook. One shared `components/question-form.tsx`
+  (`QuestionForm`) renders a structured ask in both the transcript's
+  `AskOwnerCard` and the Inbox's `QuestionCard` — rank reorders with
+  up/down buttons (no drag-and-drop dependency), keyboard `1`-`9`
+  selects/toggles an option in the focused question, `Enter` submits.
 - Prompt sections (0054): three app-supplied instruction blocks in
   `workflows/chat/instructions.ts` ship as Git defaults; SQLite
   `prompt_sections` / `prompt_section_versions` own active text (lazy

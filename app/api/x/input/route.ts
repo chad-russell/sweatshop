@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { ownerName } from "@/lib/agent/owner";
 import { chatApprovalHook } from "@/workflows/chat/hooks";
+import { isAskOwnerCard, validateAnswers, type QuestionAnswer } from "@/lib/question-form";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,10 @@ export const dynamic = "force-dynamic";
  * 0010 human input: answer a pending approval/question hook. The
  * toolCallId doubles as the hook token (vendored HumanInTheLoop.md);
  * the inbox cards and the inline chat card both POST here. An approval
- * sends {approved, comment?}; a question sends {answer}.
+ * sends {approved, comment?}; a plain question sends {answer}; a 0081
+ * structured ask_owner card's Submit sends {answers} (validated against
+ * the stored card before the hook is ever touched) — Dismiss on a
+ * structured card still sends {answer: DISMISS_ANSWER}.
  */
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -17,6 +21,8 @@ export async function POST(request: Request) {
     approved?: boolean;
     comment?: string;
     answer?: string;
+    /** 0081: a structured ask_owner card's answers, keyed by question id. */
+    answers?: Record<string, QuestionAnswer>;
     approveOutline?: boolean;
     conversationId?: string;
     editOutline?: unknown;
@@ -70,20 +76,38 @@ export async function POST(request: Request) {
   }
   const isApproval = typeof body.approved === "boolean";
   const isQuestion = typeof body.answer === "string" && body.answer.trim().length > 0;
-  if (!isApproval && !isQuestion) {
+  const isStructured = body.answers !== undefined && typeof body.answers === "object";
+  if (!isApproval && !isQuestion && !isStructured) {
     return NextResponse.json(
-      { error: "either approved (boolean) or answer (non-empty string) is required" },
+      { error: "either approved (boolean), answer (non-empty string), or answers is required" },
       { status: 400 },
     );
   }
 
-  const payload = isApproval
-    ? {
-        kind: "approval" as const,
-        approved: body.approved,
-        ...(body.comment ? { comment: body.comment } : {}),
-      }
-    : { kind: "question" as const, answer: body.answer!.trim() };
+  // 0081: a structured ask_owner card's Submit — cross-checked against
+  // the stored spec BEFORE the hook ever sees it, since the valid option
+  // ids are per-ask and can't be expressed in the hook's static schema.
+  if (isStructured) {
+    const { getPendingInputCard } = await import("@/db/chat");
+    const card = getPendingInputCard(db(), body.toolCallId);
+    if (!isAskOwnerCard(card)) {
+      return NextResponse.json({ error: "no structured question is pending" }, { status: 400 });
+    }
+    const check = validateAnswers(card, body.answers!);
+    if (!check.ok) {
+      return NextResponse.json({ error: check.message }, { status: 400 });
+    }
+  }
+
+  const payload = isStructured
+    ? { kind: "question" as const, answers: body.answers! }
+    : isApproval
+      ? {
+          kind: "approval" as const,
+          approved: body.approved,
+          ...(body.comment ? { comment: body.comment } : {}),
+        }
+      : { kind: "question" as const, answer: body.answer!.trim() };
 
   try {
     await chatApprovalHook.resume(body.toolCallId, payload);

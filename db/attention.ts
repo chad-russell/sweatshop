@@ -11,6 +11,7 @@ import {
   projects,
 } from "./schema";
 import { isOutlineCard } from "./outlines";
+import { isAskOwnerCard } from "../lib/question-form";
 import type {
   AttentionState,
   InboxData,
@@ -91,14 +92,16 @@ function parseCard(card: string | null): {
   outline: PendingRequest["outline"];
   exec: PendingRequest["exec"];
   promptChange: PendingRequest["promptChange"];
+  askOwner: PendingRequest["askOwner"];
 } {
-  const empty = { evidence: null, outline: null, exec: null, promptChange: null };
+  const empty = { evidence: null, outline: null, exec: null, promptChange: null, askOwner: null };
   if (!card) return empty;
   try {
     const value = JSON.parse(card) as unknown;
     if (isOutlineCard(value)) return { ...empty, outline: value };
     if (isExecCard(value)) return { ...empty, exec: value };
     if (isPromptChangeCard(value)) return { ...empty, promptChange: value };
+    if (isAskOwnerCard(value)) return { ...empty, askOwner: value };
     return { ...empty, evidence: value as PendingRequest["evidence"] };
   } catch {
     return empty;
@@ -170,6 +173,7 @@ export function loadPendingRequests(
       outline: card.outline,
       exec: card.exec,
       promptChange: card.promptChange,
+      askOwner: card.askOwner,
       at: row.createdAt,
     });
     out.set(row.conversationId, list);

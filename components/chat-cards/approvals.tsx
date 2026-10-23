@@ -7,8 +7,10 @@ import { Tool, ToolContent, ToolInput, ToolOutput } from "@/components/ai-elemen
 import { MessageResponse } from "@/components/ai-elements/message";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { OutlineDocument } from "@/components/outline-card";
+import { QuestionForm } from "@/components/question-form";
 import { DISMISS_ANSWER } from "@/lib/dismiss-answer";
 import { isOutlineCard, type OutlineCard } from "@/lib/outline";
+import { isAskOwnerCard, type AskOwnerCard as AskOwnerCardData, type QuestionAnswer } from "@/lib/question-form";
 import { usePRStates } from "@/lib/use-pr-states";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
@@ -199,14 +201,40 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
   );
 }
 
-/** An ask_owner call awaiting the owner: approvals get Approve/Deny, questions *  get a freeform answer box — matching what the tool asked for. */
+/**
+ * An ask_owner call awaiting the owner. 0081: a structured ask (the tool
+ * call's own `questions` input — visible before the resolved card even
+ * loads) renders the shared QuestionForm once its resolved card (with
+ * screenshot evidence turned into attachment URLs) arrives from
+ * `/api/x/input`; a legacy/plain ask keeps the freeform box. Approvals
+ * are untouched (approve/deny + comment); Dismiss always posts the
+ * legacy `{answer: DISMISS_ANSWER}` shape, structured or not.
+ */
 export function AskOwnerCard({ part }: { part: ToolUIPart }) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
+  const [card, setCard] = useState<AskOwnerCardData | null>(null);
   const answered = part.state === "output-available" || part.state === "output-error";
-  const input = part.input as { kind?: unknown; question?: unknown } | undefined;
+  const input = part.input as { kind?: unknown; question?: unknown; questions?: unknown } | undefined;
   const kind = input?.kind === "question" ? "question" : "approval";
   const question = typeof input?.question === "string" ? input.question : undefined;
+  const structured = Array.isArray(input?.questions) && input.questions.length > 0;
+
+  useEffect(() => {
+    if (card || answered) return;
+    let stop = false;
+    const load = async () => {
+      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(part.toolCallId)}`).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { evidence?: unknown } | null;
+      if (!stop && isAskOwnerCard(body?.evidence)) setCard(body.evidence);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [part.toolCallId, card, answered]);
 
   const post = async (payload: Record<string, unknown>) => {
     setBusy(true);
@@ -221,33 +249,23 @@ export function AskOwnerCard({ part }: { part: ToolUIPart }) {
     }
   };
 
+  const contextBlock = !structured && card?.context && (
+    <details className="mt-1.5 rounded-md border border-border bg-background px-2 py-1.5">
+      <summary className="cursor-pointer text-xs text-muted-foreground">Why I&apos;m asking</summary>
+      <div className="mt-1.5 text-sm">{card.context}</div>
+    </details>
+  );
+
   return (
     <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
       <p className="text-sm font-medium">
         {kind === "question" ? "Question for you: " : "Approve? "}
         {question}
       </p>
-      {!answered ? (
-        kind === "question" ? (
-          <div className="mt-2 flex gap-2">
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Your answer…"
-              disabled={busy}
-              className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2.5 text-base pointer-coarse:h-10 md:text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && draft.trim()) void post({ answer: draft });
-              }}
-            />
-            <button
-              type="button"
-              disabled={busy || !draft.trim()}
-              onClick={() => void post({ answer: draft })}
-              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
-            >
-              Answer
-            </button>
+      {!answered && structured && (
+        card ? (
+          <div className="mt-2 space-y-2">
+            <QuestionForm card={card} busy={busy} onSubmit={(answers: Record<string, QuestionAnswer>) => void post({ answers })} />
             <button
               type="button"
               disabled={busy}
@@ -259,28 +277,70 @@ export function AskOwnerCard({ part }: { part: ToolUIPart }) {
             </button>
           </div>
         ) : (
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void post({ approved: true })}
-              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void post({ approved: false })}
-              className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
-            >
-              Deny
-            </button>
+          <p className="mt-2 text-xs text-muted-foreground">Loading the question…</p>
+        )
+      )}
+      {!answered && !structured && (
+        kind === "question" ? (
+          <div className="mt-2 flex flex-col gap-2">
+            {contextBlock}
+            <div className="flex gap-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Your answer…"
+                disabled={busy}
+                className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2.5 text-base pointer-coarse:h-10 md:text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && draft.trim()) void post({ answer: draft });
+                }}
+              />
+              <button
+                type="button"
+                disabled={busy || !draft.trim()}
+                onClick={() => void post({ answer: draft })}
+                className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+              >
+                Answer
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                title="Answer with 'carry on without me' — the agent stops waiting"
+                onClick={() => void post({ answer: DISMISS_ANSWER })}
+                className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-2 flex flex-col gap-2">
+            {contextBlock}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void post({ approved: true })}
+                className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void post({ approved: false })}
+                className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
+              >
+                Deny
+              </button>
+            </div>
           </div>
         )
-      ) : (
-        <p className="mt-1 text-xs text-muted-foreground">
-          {part.state === "output-available" ? String(part.output) : "no answer recorded"}
+      )}
+      {answered && (
+        <p className="mt-1 text-xs whitespace-pre-wrap text-muted-foreground">
+          {part.state === "output-available" ? answerText(part.output) : "no answer recorded"}
         </p>
       )}
     </div>

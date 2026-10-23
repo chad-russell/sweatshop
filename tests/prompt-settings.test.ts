@@ -20,6 +20,7 @@ import {
   PRE_0059_BASE,
   PRE_0064_BASE,
   PRE_0064_PR3_BASE,
+  PRE_0081_BASE,
   PRE_0055_TICKET_BODY,
   PRE_0059_TICKET_BODY,
   PRE_0064_TICKET_BODY,
@@ -488,6 +489,21 @@ describe("repairing a stale pre-placeholder base row", () => {
     const conn = freshDb();
     seedBaseDirectly(conn, PRE_0064_PR3_BASE, "user");
     expect(getTarget(conn, { kind: "section", key: "base" })).toMatchObject({ version: 1, body: PRE_0064_PR3_BASE, editedBy: "user" });
+  });
+
+  it("0081: a git row at the pre-structured-questions base upgrades to the current default", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0081_BASE, "git");
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0081 structured questions" });
+    expect(repaired?.body).toContain("put your reasoning in context");
+    expect(PRE_0081_BASE).not.toContain("put your reasoning in context");
+  });
+
+  it("0081: an owner-edited copy of that base is never upgraded", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0081_BASE, "user");
+    expect(getTarget(conn, { kind: "section", key: "base" })).toMatchObject({ version: 1, body: PRE_0081_BASE, editedBy: "user" });
   });
 });
 

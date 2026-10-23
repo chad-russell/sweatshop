@@ -11,6 +11,14 @@ import { harnessRouteSchema } from "../../../lib/providers/route";
 import { commandDescription } from "./shared";
 import type { DiffBreakdown } from "../../../lib/diff-breakdown";
 import {
+  EVIDENCE_TEXT_MAX,
+  MAX_OPTIONS,
+  MAX_QUESTIONS,
+  QUESTION_TYPES,
+  formatStructuredAnswers,
+  type StructuredQuestionInput,
+} from "../../../lib/question-form";
+import {
   acceptOutlineApprovedStep,
   acceptOutlinePreviewStep,
   applyApprovedPromptChangeStep,
@@ -19,6 +27,7 @@ import {
   inspectStep,
   pendingStep,
   promptChangePreviewStep,
+  resolveAskOwnerCardStep,
   sandboxExecStep,
   systemDocsStep,
   updateOutlineStep,
@@ -61,6 +70,40 @@ const topStepSchema = z.object({
   runner: runnerSchema.optional(),
 });
 
+/** 0081: structured ask_owner sub-questions. Evidence text is capped at
+ *  EVIDENCE_TEXT_MAX per option; option-count/uniqueness/recommended
+ *  rules that depend on the question's own `type` can't be expressed in
+ *  zod alone — validateStructuredQuestions checks those before anything
+ *  is written. */
+const questionEvidenceSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("code"), lang: z.string().max(40).optional(), text: z.string().max(EVIDENCE_TEXT_MAX) }),
+  z.object({ type: z.literal("diff"), text: z.string().max(EVIDENCE_TEXT_MAX) }),
+  z.object({ type: z.literal("markdown"), text: z.string().max(EVIDENCE_TEXT_MAX) }),
+  z.object({ type: z.literal("link"), url: z.string().max(2_000), label: z.string().max(200).optional() }),
+  z.object({
+    type: z.literal("screenshot"),
+    path: z.string().min(1).max(1_000).describe("PNG path inside this chat's sandbox (same rules as attach_screenshot)"),
+    label: z.string().max(200).optional(),
+  }),
+]);
+
+const questionOptionSchema = z.object({
+  id: z.string().min(1).max(100),
+  label: z.string().min(1).max(200),
+  description: z.string().max(1_000).optional(),
+  recommended: z.boolean().optional().describe("At most one per single-type question"),
+  evidence: questionEvidenceSchema.optional(),
+});
+
+const structuredQuestionSchema = z.object({
+  id: z.string().min(1).max(100),
+  header: z.string().min(1).max(60).describe("Short chip label, e.g. \"Scope\""),
+  type: z.enum(QUESTION_TYPES),
+  options: z.array(questionOptionSchema).max(MAX_OPTIONS).optional()
+    .describe("Required for single/multi/rank (2-8); omit for text"),
+  allowOther: z.boolean().optional().describe("Default true. Gates the freeform \"Other…\" alternative only — \"You pick\" is always offered"),
+});
+
 export function coreTools(
   conversationId: string,
 ) {
@@ -69,19 +112,37 @@ export function coreTools(
       description:
         `Ask ${ownerName()} for input. The turn waits for their answer. kind=approval when you want ` +
         "permission to do something (they can approve or deny, optionally with a comment); " +
-        "kind=question when you need information or a freeform decision from them.",
+        "kind=question when you need information or a decision from them. Keep `question` a short " +
+        "one-liner that stands alone; put your reasoning, tradeoffs, and why you're asking in `context` " +
+        "(markdown). When you're offering a choice, use `questions` with `options` — never \"(a)/(b)\" " +
+        `inside prose. ${ownerName()} can always type "you pick" or pick a listed "You pick" option to ` +
+        "defer to your recommendation instead — state which option you'd pick and why when that happens.",
       inputSchema: z.object({
-        kind: z.enum(["approval", "question"]).describe("approval = permission ask; question = freeform answer needed"),
-        question: z.string().max(2_000).describe("What you are asking, phrased so it stands alone."),
+        kind: z.enum(["approval", "question"]).describe("approval = permission ask; question = information or a decision needed"),
+        question: z.string().max(2_000).describe("A short question that stands alone — reasoning goes in `context`, not here."),
+        context: z.string().max(4_000).optional().describe("Markdown: your reasoning, tradeoffs, and relevant detail — not the question itself."),
+        questions: z.array(structuredQuestionSchema).min(1).max(MAX_QUESTIONS).optional()
+          .describe("Structured sub-questions, kind=question only. \"Other…\" and \"You pick\" are added automatically — never list them as options."),
       }),
-      execute: async ({ kind, question }, { toolCallId }) => {
+      execute: async ({ kind, question, context, questions }, { toolCallId }) => {
+        if (questions && questions.length > 0 && kind !== "question") {
+          return { ok: false as const, code: "invalid" as const, message: "questions is only valid for kind: question" };
+        }
+        const resolved = await resolveAskOwnerCardStep(conversationId, {
+          context,
+          questions: questions as StructuredQuestionInput[] | undefined,
+        });
+        if (!resolved.ok) return { ok: false as const, code: "invalid" as const, message: resolved.message };
         // The pending row is the inbox's view of this request (a step:
         // only steps may touch sqlite); the hook itself stays the
         // workflow-level suspension primitive.
-        await pendingStep(conversationId, toolCallId, question, kind);
+        await pendingStep(conversationId, toolCallId, question, kind, resolved.card);
         const hook = chatApprovalHook.create({ token: toolCallId });
         const answer = await hook;
         if (answer.kind === "question") {
+          if (answer.answers && resolved.card?.questions) {
+            return formatStructuredAnswers(resolved.card.questions, answer.answers, ownerName());
+          }
           if (typeof answer.answer !== "string" || !answer.answer.trim()) {
             return `${ownerName()} did not answer the question. Question was: ${question}`;
           }

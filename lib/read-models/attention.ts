@@ -4,6 +4,7 @@
  */
 import type { ApprovalEvidence } from "../agent/tools/evidence";
 import type { OutlineCard } from "../outline";
+import type { AskOwnerCard } from "../question-form";
 
 export interface PromptChangeCard {
   kind: "prompt_change";
@@ -62,6 +63,11 @@ export interface PendingRequest {
   } | null;
   /** 0054: exact snapshot of an agent-proposed prompt/catalog change. */
   promptChange: PromptChangeCard | null;
+  /** 0081: a structured ask_owner card (context + sub-questions),
+   *  resolved (screenshot evidence already an attachment id/url); null
+   *  for a legacy freeform ask_owner question or an approval with no
+   *  context. */
+  askOwner: AskOwnerCard | null;
   /** Unix ms the request was raised. */
   at: number;
 }

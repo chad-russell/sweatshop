@@ -11,10 +11,11 @@ import type { LanguageModel } from "ai";
  * Every script is STATELESS — keyed on prompt shape, not a call counter:
  * the workflow serializes the model across step boundaries, so instance
  * state resets between slices. (Real models are stateless the same way.)
- * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" | "steer" |
- * "hang" | "create-pr" | "viewing" | "thread-state" | "skill" | "loop" |
- * "accept-plan" | "outline-propose" | "enter-mode" | "cache") is read at call time so a test file can
- * switch scripts between turns.
+ * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" |
+ * "structured-question" | "steer" | "hang" | "create-pr" | "viewing" |
+ * "thread-state" | "skill" | "loop" | "accept-plan" | "outline-propose" |
+ * "enter-mode" | "cache") is read at call time so a test file can switch
+ * scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
  * (where doStream runs) forbids Node APIs. The TEST enqueues the steer
@@ -143,6 +144,36 @@ export function scriptedChatModel(): LanguageModel {
           );
         }
         // Echo the tool result back so the test can see it round-tripped.
+        const toolMessage = options.prompt.find((m) => m.role === "tool");
+        return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
+      }
+
+      // 0081: a structured ask_owner call — one single-type question,
+      // two options (one recommended), a context block, and a code
+      // evidence attachment on the recommended option.
+      if (script === "structured-question") {
+        const lastIsAskResult = options.prompt[options.prompt.length - 1]?.role === "tool";
+        const askId = askCallId(userTexts(options.prompt)).replace("call_ask_", "call_structured_");
+        if (!lastIsAskResult) {
+          return result(
+            toolCallPart(askId, "ask_owner", {
+              kind: "question",
+              question: "Which database should we use?",
+              context: "sqlite is simpler to operate; postgres scales further.",
+              questions: [
+                {
+                  id: "db",
+                  header: "Database",
+                  type: "single",
+                  options: [
+                    { id: "sqlite", label: "sqlite", description: "simplest to operate", recommended: true, evidence: { type: "code", lang: "ts", text: "export const db = () => new Database(path);" } },
+                    { id: "postgres", label: "postgres", description: "scales further" },
+                  ],
+                },
+              ],
+            }),
+          );
+        }
         const toolMessage = options.prompt.find((m) => m.role === "tool");
         return result(textPart(`mock-after:${toolMessage ? messageText(toolMessage) : "no-tool-message"}`));
       }
