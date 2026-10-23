@@ -86,7 +86,7 @@ describe("HarnessSessionView header tone", () => {
       callId: "hc_live",
     });
     expect(html).toMatch(/role="status"[^>]*>[\s\S]*Working…/);
-    expect(html).toContain("is running");
+    expect(html).toContain("is working — your chat hears back when it finishes");
     expect(html).toContain("aria-label=\"Stop ");
     expect(html).not.toContain("animate-spin text-info");
   });
@@ -98,7 +98,7 @@ describe("HarnessSessionView header tone", () => {
       callId: "hc_live",
     });
     expect(html).not.toContain("Working…");
-    expect(html).not.toContain("is running");
+    expect(html).not.toContain("hears back");
   });
 
   it("shows Load earlier only for a tail window with older events", () => {
@@ -111,7 +111,7 @@ describe("HarnessSessionView header tone", () => {
 describe("CancelCallBar", () => {
   it("renders the running text and a square stop icon button", () => {
     const html = renderToStaticMarkup(h(CancelCallBar, { callId: "hc_abc", label: "Claude Code" }));
-    expect(html).toContain("Claude Code is running");
+    expect(html).toContain("Claude Code is working — your chat hears back when it finishes");
     expect(html).toContain("aria-label=\"Stop Claude Code\"");
     expect(html).not.toContain("role=\"alert\"");
   });

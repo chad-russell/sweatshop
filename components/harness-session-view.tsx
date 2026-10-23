@@ -430,13 +430,11 @@ export function HarnessSessionView({
               <SandboxStatus status={sandbox.status} className="text-[10px]" />
             </Link>
           )}
-          <span
-            className={cn(
-              running ? "text-info" : failed ? "text-destructive" : status === "cancelled" ? "text-muted-foreground" : "text-success",
-            )}
-          >
-            {status}
-          </span>
+          {!running && (
+            <span className={cn(failed ? "text-destructive" : status === "cancelled" ? "text-muted-foreground" : "text-success")}>
+              {status}
+            </span>
+          )}
         </span>
       </AppHeader>
       {call?.task && (
