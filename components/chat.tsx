@@ -16,7 +16,6 @@ import { usePageContext } from "@/components/page-context";
 import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
-import { PhaseChip } from "@/components/status-chip";
 import { WorkPill } from "@/components/work-pill";
 import { WorkChip } from "@/components/work-chip";
 import { UsageControl } from "@/components/usage-control";
@@ -532,8 +531,6 @@ export function ChatSurface({
             { label: conversationTitle ?? "New chat" },
           ]}
         >
-          {/* 0064: the outline's active step, derived from the transcript. */}
-          <PhaseChip phase={s.phase} variant="header" />
           {/* 0078: every PR this thread opened, live state + aggregate diff. */}
           <WorkPill prs={s.workPRs} />
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
