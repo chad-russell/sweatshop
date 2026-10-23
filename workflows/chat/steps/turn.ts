@@ -195,6 +195,22 @@ export async function loadRepoDocsStep(
   return loadRepoDocs(conversationId);
 }
 
+/**
+ * The project this conversation is bound to, for the top-level agent's
+ * instructions appendix (workflows/chat/instructions.ts's
+ * buildProjectSection) — null for a plain chat or a project since
+ * deleted. Thin wrapper: the logic is
+ * lib/agent/tools/project-context.ts's loadProjectContext (a plain,
+ * synchronous db read, unit-testable without a workflow run).
+ */
+export async function loadProjectContextStep(
+  conversationId: string,
+): Promise<import("../instructions").ProjectContext | null> {
+  "use step";
+  const { loadProjectContext } = await import("../../../lib/agent/tools/project-context");
+  return loadProjectContext(conversationId);
+}
+
 /** 0037/0039: continue a thread-skill turn that hit its step budget. */
 export async function continueAfterBudgetStep(conversationId: string): Promise<string> {
   "use step";
