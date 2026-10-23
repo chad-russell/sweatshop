@@ -50,6 +50,14 @@ export function shortRouteLabel(route: ChatRoute | null, view: ModelsView | null
   return `${PROVIDER_LABELS[route.provider].split(" ")[0]} · ${model?.label ?? route.model}${thinking}`;
 }
 
+/** 0080: the trigger text `RoutePicker` shows — factored out so the
+ *  mobile settings chip can show the same label without a second copy
+ *  of the picker mounted. */
+export function routePickerLabel(value: ChatRoute | null, view: ModelsView | null, inheritLabel?: string): string {
+  if (value) return shortRouteLabel(value, view);
+  return inheritLabel ? `Default · ${inheritLabel}` : "Pick a model";
+}
+
 const sameRoute = (a: ChatRoute | null, b: ChatRoute | null) =>
   a?.provider === b?.provider && a?.model === b?.model;
 
@@ -71,7 +79,7 @@ export function RoutePicker({
 }) {
   const [open, setOpen] = useState(false);
   const providers = (view?.providers ?? []).filter((p) => p.available && p.allowed);
-  const label = value ? shortRouteLabel(value, view) : inheritLabel ? `Default · ${inheritLabel}` : "Pick a model";
+  const label = routePickerLabel(value, view, inheritLabel);
   // 0021 amendment: the thinking control appears only for models whose
   // catalog entry declares a reasoning knob.
   const modelInfo = value
