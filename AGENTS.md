@@ -128,7 +128,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   0047, merged 0055 PR2) shows a ring, the conversation's last metered
   slice as a percentage of the model's catalog window, and cost;
   hidden until metered, ring-only below `sm`; clicking opens the same
-  stats breakdown (context first) as a popover. The header itself just
+  stats breakdown (context first) as a popover. Below `sm` (0080) the
+  composer footer's model picker, sandbox picker, and host auto-approve
+  toggle collapse into one settings chip (`components/composer-settings.tsx`)
+  that opens a bottom sheet with the same three controls full-width — the
+  usage control stays ring-only as above. The header itself just
   holds crumbs · the work pill · the preview pill — the outline's own
   phase/progress chrome lives in the composer-docked outline tray (0079)
   instead, not the header. `lib/thread-phase.ts`'s `phaseFromMessages`
