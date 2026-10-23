@@ -3,6 +3,7 @@ import type { ModelMessage, UIMessage } from "ai";
 import type { MessageRowMetadata } from "@/db/chat";
 import { phaseFromMessages, type Phase } from "@/lib/thread-phase";
 import { workPRsFromMessages, type WorkPR } from "@/lib/work-prs";
+import { deriveOutlineTrayContext, type OutlineTrayContext } from "@/lib/outline";
 
 /**
  * Rebuild the UI transcript from persisted rows (reload / initial render).
@@ -320,14 +321,16 @@ export function appendNewer(current: readonly UIMessage[], newer: readonly UIMes
 
 /**
  * The server-derived context block (`GET /api/x/chat?context=1`): the
- * header chrome facts (phase chip, work PRs, wake watch) computed
- * over the WHOLE transcript, so a page that only hydrated a tail window
- * shows exactly what a full render would. Pure — takes the folded
- * transcript, never the db.
+ * header/composer chrome facts (phase chip, work PRs, the outline tray,
+ * wake watch) computed over the WHOLE transcript, so a page that only
+ * hydrated a tail window shows exactly what a full render would. Pure —
+ * takes the folded transcript, never the db.
  */
 export interface ChatContextBlock {
   phase: Phase | null;
   prs: WorkPR[];
+  /** 0079: the outline tray's data — null before any update_outline. */
+  outline: OutlineTrayContext | null;
   hasBackgroundChild: boolean;
 }
 
@@ -335,6 +338,7 @@ export function deriveChatContext(messages: readonly UIMessage[]): ChatContextBl
   return {
     phase: phaseFromMessages(messages),
     prs: workPRsFromMessages(messages),
+    outline: deriveOutlineTrayContext(messages),
     hasBackgroundChild: hasBackgroundChild(messages),
   };
 }
