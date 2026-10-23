@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { REPO_DOC_FILE_CAP, REPO_DOC_TOTAL_CAP, type RepoDoc } from "../lib/agent/repo-docs";
-import { buildInstructions, buildRepoDocsSection, GIT_DEFAULT_SECTIONS } from "../workflows/chat/instructions";
+import {
+  buildInstructions,
+  buildProjectSection,
+  buildRepoDocsSection,
+  GIT_DEFAULT_SECTIONS,
+  type ProjectContext,
+} from "../workflows/chat/instructions";
 
 /**
  * Pure routing-guidance additions to the turn's instructions: host
@@ -39,6 +45,35 @@ describe("buildInstructions", () => {
     });
     expect(withSkill).toContain('# Skill: Ship\n\nThis thread runs the "ship" skill — follow it.\n\nDo the ship thing.');
     expect(withSkill.endsWith("Do the ship thing.")).toBe(true);
+  });
+
+  it("includes the project section only when a project is given", () => {
+    const withoutProject = buildInstructions(base);
+    expect(withoutProject).not.toContain("# Project");
+    expect(withoutProject).not.toContain("do not call list_projects");
+
+    const withProject = buildInstructions({
+      ...base,
+      project: { id: "gpl", name: "Grand Plan", description: "The big one.", repos: [], testCommand: null, branchPrefix: null },
+    });
+    expect(withProject).toContain("# Project");
+    expect(withProject).toContain('This chat is in project "gpl" (Grand Plan): The big one.');
+    expect(withProject).toContain("do not call list_projects to find it");
+  });
+
+  it("places the project section after host routing and before repo docs", () => {
+    const out = buildInstructions({
+      hasSandbox: true,
+      hosts: [{ name: "bee", address: "10.0.0.1", user: "chad", apiBase: null }],
+      repoDocs: [{ repo: "web", path: "/w/web/AGENTS.md", content: "Style guide." }],
+      project: { id: "gpl", name: "Grand Plan", repos: [] },
+    });
+    const hostIdx = out.indexOf("exec is only for live state on a host");
+    const projectIdx = out.indexOf("# Project");
+    const repoIdx = out.indexOf("# Repo instructions");
+    expect(hostIdx).toBeGreaterThanOrEqual(0);
+    expect(projectIdx).toBeGreaterThan(hostIdx);
+    expect(repoIdx).toBeGreaterThan(projectIdx);
   });
 
   it("keeps the base text intact with no additions", () => {
@@ -156,5 +191,50 @@ describe("buildRepoDocsSection", () => {
     const section = buildRepoDocsSection([{ repo: "only", path: "/w/only/AGENTS.md", content }]);
     expect(section).toContain("# Repo instructions: only");
     expect(section).not.toContain("# Repo instructions: more");
+  });
+});
+
+describe("buildProjectSection", () => {
+  const minimal: ProjectContext = { id: "gpl", name: "Grand Plan", repos: [] };
+
+  it("names the project and tells the model not to call list_projects", () => {
+    const section = buildProjectSection(minimal);
+    expect(section).toContain('# Project\n\nThis chat is in project "gpl" (Grand Plan).');
+    expect(section).toContain("You are already in this project — do not call list_projects to find it");
+  });
+
+  it("omits description, repos, test command, and branch prefix when absent", () => {
+    const section = buildProjectSection(minimal);
+    expect(section).not.toContain(":");
+    expect(section).not.toContain("Repos:");
+    expect(section).not.toContain("Test command:");
+    expect(section).not.toContain("Branch prefix:");
+  });
+
+  it("includes every present field", () => {
+    const section = buildProjectSection({
+      id: "gpl",
+      name: "Grand Plan",
+      description: "World domination, one repo at a time.",
+      repos: [
+        { name: "web", url: "https://git.example/web.git" },
+        { name: "infra", url: "https://git.example/infra.git" },
+      ],
+      testCommand: "npm test",
+      branchPrefix: "gpl",
+    });
+    expect(section).toContain("World domination, one repo at a time.");
+    expect(section).toContain("Repos: web (https://git.example/web.git), infra (https://git.example/infra.git).");
+    expect(section).toContain("Test command: npm test.");
+    expect(section).toContain("Branch prefix: gpl.");
+  });
+
+  it("caps a long description and a long test command, not the whole section", () => {
+    const longText = "x".repeat(2_000);
+    const section = buildProjectSection({ ...minimal, description: longText, testCommand: longText });
+    expect(section.length).toBeLessThan(longText.length);
+    const descMatch = /: (x+)…/.exec(section);
+    expect(descMatch?.[1].length).toBe(500);
+    expect(section).toContain("Test command: ");
   });
 });

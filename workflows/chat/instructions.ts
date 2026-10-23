@@ -63,10 +63,54 @@ export interface BuildInstructionsInput {
   hosts: readonly { name: string; address: string; user: string; apiBase: string | null }[];
   repoDocs: readonly RepoDoc[];
   skill?: { id: string; title: string; body: string } | null;
+  /** The project this chat is bound to, if any — named explicitly so the
+   *  model never has to call list_projects to find "the relevant
+   *  project" it is already in. Null/omitted = plain chat (unchanged
+   *  output). */
+  project?: ProjectContext | null;
   /** 0054: resolved section bodies (Settings-editable, DB-backed);
    *  omitted = the git defaults above — every existing caller that
    *  doesn't pass it keeps today's exact output. */
   sections?: { base: string; harnessSteering: string; hostRouting: string };
+}
+
+export interface ProjectContext {
+  id: string;
+  name: string;
+  description?: string | null;
+  repos: readonly { name: string; url: string }[];
+  testCommand?: string | null;
+  branchPrefix?: string | null;
+}
+
+/** Keeps a long description/testCommand from bloating every turn's
+ *  instructions — same spirit as the repo-doc caps, much smaller since
+ *  this is one project, not a whole file. */
+const PROJECT_FIELD_CAP = 500;
+
+function capProjectField(value: string): string {
+  return value.length > PROJECT_FIELD_CAP ? `${value.slice(0, PROJECT_FIELD_CAP)}…` : value;
+}
+
+/**
+ * The project-identity section: names the project this chat is already
+ * in, so the model uses it directly instead of calling list_projects
+ * to find "the relevant project" (the RCA for why chats kept doing
+ * that). Empty fields (no description, no repos, no test command, no
+ * branch prefix) are omitted rather than rendered blank.
+ */
+export function buildProjectSection(project: ProjectContext): string {
+  const description = project.description ? `: ${capProjectField(project.description)}` : "";
+  const sentences = [`This chat is in project "${project.id}" (${project.name})${description}.`];
+  if (project.repos.length > 0) {
+    sentences.push(`Repos: ${project.repos.map((r) => `${r.name} (${r.url})`).join(", ")}.`);
+  }
+  if (project.testCommand) sentences.push(`Test command: ${capProjectField(project.testCommand)}.`);
+  if (project.branchPrefix) sentences.push(`Branch prefix: ${project.branchPrefix}.`);
+  sentences.push(
+    "You are already in this project — do not call list_projects to find it; use it only for setup or cross-project work.",
+  );
+  return `# Project\n\n${sentences.join(" ")}`;
 }
 
 /**
@@ -108,6 +152,7 @@ export function buildInstructions(input: BuildInstructionsInput): string {
   const parts = [renderOwnerPlaceholders(input.sections?.base ?? GIT_DEFAULT_SECTIONS.base)];
   if (input.hasSandbox) parts.push(renderOwnerPlaceholders(input.sections?.harnessSteering ?? GIT_DEFAULT_SECTIONS.harness_steering));
   if (input.hosts.length > 0) parts.push(renderOwnerPlaceholders(input.sections?.hostRouting ?? GIT_DEFAULT_SECTIONS.host_routing));
+  if (input.project) parts.push(buildProjectSection(input.project));
   const repoSection = buildRepoDocsSection(input.repoDocs);
   if (repoSection) parts.push(repoSection);
   if (input.skill) {
