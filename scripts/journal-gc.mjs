@@ -39,7 +39,6 @@ if (!Number.isFinite(keepDays) || keepDays < 0) {
 const cutoff = keepDays === 0 ? Infinity : Date.now() - keepDays * 86_400_000;
 const SETTLED = new Set(["completed", "failed", "cancelled"]);
 
-const sizeOf = async (p) => (await stat(p).catch(() => null))?.size ?? 0;
 const sizeOfTree = async (p) => {
   const st = await stat(p).catch(() => null);
   if (!st) return 0;
