@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import type { ToolUIPart } from "ai";
 import { BashTerminal } from "@/components/ai-elements/bash-terminal";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
-import { SandboxChip, SANDBOXED_TOOLS } from "@/components/sandbox-view";
 import {
   InspectCard,
   HostExecCard,
@@ -108,7 +107,6 @@ export const ToolCallView = ({ part }: { part: ToolUIPart }) => {
         input={input}
         output={output}
         errorText={errorText}
-        extra={<SandboxChip />}
       />
     );
   }
@@ -118,11 +116,6 @@ export const ToolCallView = ({ part }: { part: ToolUIPart }) => {
         type="dynamic-tool"
         state={part.state}
         toolName={part.type.replace(/^tool-/, "")}
-        extra={
-          SANDBOXED_TOOLS.has(part.type.replace(/^tool-/, "")) ? (
-            <SandboxChip />
-          ) : undefined
-        }
       />
       <ToolContent>
         {input !== undefined && <ToolInput input={input} />}

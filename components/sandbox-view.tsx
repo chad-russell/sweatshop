@@ -1,10 +1,6 @@
 "use client";
 
-import { Box } from "lucide-react";
-import Link from "next/link";
 import { createContext, useContext, type ReactNode } from "react";
-import { shortSandboxId } from "@/lib/sandbox-id";
-import { cn } from "@/lib/utils";
 
 /**
  * The chat's sandbox read-model (db/sandbox-view.ts via
@@ -50,43 +46,7 @@ export function useSandboxView(): ConversationSandboxViewData | null {
   return useContext(SandboxViewContext);
 }
 
-/** Tools whose calls run inside a sandbox (and so get a chip). */
+/** Tools whose calls run inside the chat's sandbox (the composer's sandbox
+ *  picker shows which; there is no per-row chip — it was the same id on
+ *  every row). */
 export const SANDBOXED_TOOLS = new Set(["bash", "pi", "claude", "cursor", "codex"]);
-
-/**
- * The sandbox this conversation's sandboxed calls run in (its binding),
- * linking to the sandbox page. Renders nothing without a bound sandbox.
- */
-export function SandboxChip({ className }: { className?: string }) {
-  const view = useSandboxView();
-  const state = view?.state;
-  if (!view || !state || (state.kind !== "own" && state.kind !== "attached")) return null;
-  const sandbox = view.sandboxes[state.sandboxId];
-  const gone = sandbox?.status === "destroyed";
-  const where =
-    state.kind === "attached"
-      ? `attached · ${sandbox?.ownerLabel ?? "another sandbox"}`
-      : "own sandbox";
-
-  return (
-    <Link
-      href={`/sandboxes/${state.sandboxId}`}
-      title={[`Runs in sandbox ${state.sandboxId}`, where, gone ? "(since destroyed)" : null]
-        .filter(Boolean)
-        .join(" — ")}
-      className={cn(
-        "inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-4",
-        "border-border bg-muted/50 text-muted-foreground",
-        "transition-colors hover:border-ring hover:text-foreground",
-        gone && "opacity-60",
-        className,
-      )}
-    >
-      <Box className="size-3 shrink-0" aria-hidden />
-      <span className={cn("truncate", gone && "line-through")}>
-        {shortSandboxId(state.sandboxId)}
-      </span>
-      {state.kind === "attached" && <span aria-hidden>↗</span>}
-    </Link>
-  );
-}

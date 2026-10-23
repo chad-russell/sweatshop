@@ -6,7 +6,6 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { MessageResponse } from "@/components/ai-elements/message";
 import { CancelCallButton } from "@/components/cancel-call-button";
 import { HARNESS_LABEL, HarnessLogo } from "@/components/harness-logo";
-import { SandboxChip } from "@/components/sandbox-view";
 import { ChildMeta } from "@/components/ai-elements/agent-cards";
 import { summarizeActivity, type HarnessActivity, type TimelineEvent } from "@/lib/harness-timeline";
 import { useChildStatus } from "@/lib/use-child-status";
@@ -260,7 +259,6 @@ export function HarnessCard({
               }
             />
           )}
-          <SandboxChip />
         </div>
         {url && (
           <Link
