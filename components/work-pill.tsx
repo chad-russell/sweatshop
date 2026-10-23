@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ExternalLink, FileDiff, GitPullRequest } from "lucide-react";
+import { ChevronDown, Clock, ExternalLink, FileDiff, GitMerge, GitPullRequest, GitPullRequestClosed, type LucideIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { mergeBreakdowns, prUrlCoords, type DisplayWorkPR, type WorkPRDisplayState } from "@/lib/work-prs";
 import { cn } from "@/lib/utils";
@@ -24,17 +24,18 @@ const STATE_WORD: Record<WorkPRDisplayState, string> = {
  *  worst (most urgent) state's colour. */
 const STATE_RANK: Record<WorkPRDisplayState, number> = { pending: 3, open: 2, merged: 1, closed: 0 };
 
-function dotClass(state: WorkPRDisplayState): string {
-  switch (state) {
-    case "pending":
-      return "bg-warning";
-    case "open":
-      return "bg-info";
-    case "merged":
-      return "bg-success";
-    case "closed":
-      return "bg-muted-foreground";
-  }
+/** The state as a glyph, not a dot — the shape says open / merged /
+ *  closed at a glance, the token colour backs it up. */
+const STATE_ICON: Record<WorkPRDisplayState, { icon: LucideIcon; className: string }> = {
+  pending: { icon: Clock, className: "text-warning" },
+  open: { icon: GitPullRequest, className: "text-info" },
+  merged: { icon: GitMerge, className: "text-success" },
+  closed: { icon: GitPullRequestClosed, className: "text-muted-foreground" },
+};
+
+function StateIcon({ state, className }: { state: WorkPRDisplayState; className?: string }) {
+  const { icon: Icon, className: tone } = STATE_ICON[state];
+  return <Icon aria-hidden className={cn("size-3.5 shrink-0", tone, className)} />;
 }
 
 function worstState(prs: readonly DisplayWorkPR[]): WorkPRDisplayState {
@@ -67,7 +68,7 @@ export function WorkPill({ prs }: { prs: readonly DisplayWorkPR[] }) {
           aria-label={single ? `Pull request ${STATE_WORD[state]}` : `${prs.length} pull requests, ${STATE_WORD[state]} needs the most attention`}
           className="inline-flex h-8 pointer-coarse:h-10 shrink-0 items-center gap-2 rounded-lg border border-border px-2.5 text-sm whitespace-nowrap transition-colors hover:bg-muted"
         >
-          <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass(state))} />
+          <StateIcon state={state} />
           {single ? (
             <span className="flex items-center gap-1">
               {singleNumber && <span className="font-mono text-xs text-muted-foreground max-sm:hidden">#{singleNumber}</span>}
@@ -75,7 +76,6 @@ export function WorkPill({ prs }: { prs: readonly DisplayWorkPR[] }) {
             </span>
           ) : (
             <span className="flex items-center gap-1">
-              <GitPullRequest className="size-3.5" aria-hidden />
               <span className="max-sm:hidden">{prs.length} PRs</span>
               <span className="sm:hidden">{prs.length}</span>
             </span>
@@ -102,7 +102,7 @@ export function WorkPill({ prs }: { prs: readonly DisplayWorkPR[] }) {
             const number = coords?.number ?? (pr.number !== undefined ? String(pr.number) : undefined);
             return (
               <div key={pr.toolCallId} className="flex items-start gap-2 border-b border-border/50 pb-1.5 last:border-0 last:pb-0">
-                <span aria-hidden className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", dotClass(pr.displayState))} />
+                <StateIcon state={pr.displayState} className="mt-0.5" />
                 <div className="min-w-0 flex-1">
                   {(repo || number) && (
                     <div className="font-mono text-[11px] text-muted-foreground">
