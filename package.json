@@ -74,19 +74,5 @@
     "@ai-sdk/workflow-harness": {
       "workflow": "$workflow"
     }
-  },
-  "allowScripts": {
-    "cbor-extract@2.2.2": true,
-    "cpu-features@0.0.10": true,
-    "esbuild@0.28.2": true,
-    "esbuild@0.25.12": true,
-    "esbuild@0.18.20": true,
-    "esbuild@0.28.1": true,
-    "protobufjs@7.6.6": true,
-    "protobufjs@7.6.5": true,
-    "ssh2@1.17.0": true,
-    "unrs-resolver@1.12.2": true,
-    "@google/genai@1.52.0": true,
-    "@swc/core@1.15.3": true
   }
 }

@@ -146,7 +146,8 @@ function OptionRow({
         disabled={disabled}
         onClick={onClick}
         className="flex w-full items-start gap-2 text-left disabled:opacity-50"
-        aria-pressed={checked}
+        role={control === "radio" ? "radio" : "checkbox"}
+        aria-checked={checked}
       >
         {control === "checkbox" ? (
           <Checkbox checked={checked} className="mt-0.5" tabIndex={-1} />
