@@ -162,7 +162,13 @@ describe("GET /api/x/chat context", () => {
   it("context=1 derives the header facts from the WHOLE transcript", async () => {
     seedRows("c_ctx1", [
       { role: "user", text: "build it", modelMessage: { role: "user", content: "build it" } },
-      ...toolPair("oc1", "update_outline", {}, { ok: true, outline: { goal: "g", steps: [] } }),
+      ...toolPair("oc1", "update_outline", {}, {
+        ok: true,
+        version: 1,
+        proposed: false,
+        next: "ok",
+        outline: { goal: "g", steps: [{ id: "a", label: "A", state: "pending" }] },
+      }),
       { role: "assistant", text: "outlined", modelMessage: { role: "assistant", content: "outlined" } },
     ]);
     const res = await get("conversationId=c_ctx1&context=1");
@@ -171,12 +177,27 @@ describe("GET /api/x/chat context", () => {
       context: {
         phase: { label: string } | null;
         prs: unknown[];
+        outline: {
+          current: { version: number; outline: { goal: string }; proposed: boolean };
+          previous: unknown;
+          openReviewId: string | null;
+          approved: boolean;
+          stale: boolean;
+        } | null;
         hasBackgroundChild: boolean;
       };
     };
-    // Outline-derived phase, no background children, no PRs.
+    // Outline-derived phase, no background children, no PRs — the tray's
+    // own context block carries the 0079 fields (0075: whole transcript).
     expect(body.context.hasBackgroundChild).toBe(false);
     expect(body.context.prs).toEqual([]);
+    expect(body.context.outline).toMatchObject({
+      current: { version: 1, proposed: false, outline: { goal: "g" } },
+      previous: null,
+      openReviewId: null,
+      approved: false,
+      stale: false,
+    });
   });
 
   it("context=1 marks a background child so the wake watch survives a tail window", async () => {
@@ -186,8 +207,10 @@ describe("GET /api/x/chat context", () => {
     ]);
     const res = await get("conversationId=c_ctx2&context=1");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { context: { hasBackgroundChild: boolean } };
+    const body = (await res.json()) as { context: { hasBackgroundChild: boolean; outline: unknown } };
     expect(body.context.hasBackgroundChild).toBe(true);
+    // No update_outline call at all — the tray has nothing to show.
+    expect(body.context.outline).toBeNull();
   });
 });
 

@@ -514,6 +514,14 @@ export function progressCount(steps: readonly Step[]): { done: number; total: nu
   return { done: steps.filter((step) => step.state === "done").length, total: steps.length };
 }
 
+/** The step named when nothing is active or blocked: the last done step,
+ *  else the first pending one, else just the first step. Shared by
+ *  `outlineChipLabel` and the tray's `outlineTraySummary` (0079). */
+function fallbackNamedStep(steps: readonly Step[]): Step {
+  const doneStep = [...steps].reverse().find((step) => step.state === "done");
+  return doneStep ?? steps.find((step) => step.state === "pending") ?? steps[0]!;
+}
+
 /** Header-chip text for one outline (ignoring any open review). */
 export function outlineChipLabel(outline: Outline): OutlineChip | null {
   const steps = outline.steps;
@@ -527,9 +535,43 @@ export function outlineChipLabel(outline: Outline): OutlineChip | null {
     return { label: total > 0 ? `${active.label} · ${done}/${total}` : active.label, tone: "running" };
   }
   const { done, total } = progressCount(steps);
-  const doneStep = [...steps].reverse().find((step) => step.state === "done");
-  const named = doneStep ?? steps.find((step) => step.state === "pending") ?? steps[0]!;
+  const named = fallbackNamedStep(steps);
   return { label: total > 0 ? `${named.label} · ${done}/${total}` : named.label, tone: "ok" };
+}
+
+export interface OutlineTraySegment {
+  id: string;
+  state: OutlineState;
+}
+
+export interface OutlineTraySummary {
+  /** One per top-level step, in order — the collapsed bar's segments. */
+  segments: OutlineTraySegment[];
+  done: number;
+  total: number;
+  /** The step named by the same precedence as `outlineChipLabel`
+   *  (blocked wins, then active, then `fallbackNamedStep`) but the name
+   *  alone — the tray shows the d/n count and a "needs you" badge as
+   *  their own elements instead of folding them into the label text. */
+  label: string;
+  tone: OutlineChip["tone"];
+  /** A blocked step, or an open review the caller passes in. */
+  needsYou: boolean;
+}
+
+/** 0079: the outline tray's collapsed-bar summary. `reviewOpen` comes
+ *  from the caller (`outlineHistory`'s `openReviewId`) — this function
+ *  only reads the one outline, not the transcript. */
+export function outlineTraySummary(outline: Outline, reviewOpen: boolean): OutlineTraySummary {
+  const steps = outline.steps;
+  const segments = steps.map((step) => ({ id: step.id, state: step.state }));
+  const { done, total } = progressCount(steps);
+  if (steps.length === 0) return { segments, done, total, label: outline.goal, tone: "ok", needsYou: reviewOpen };
+  const blocked = findOutlineStep(steps, "blocked");
+  if (blocked) return { segments, done, total, label: blocked.label, tone: "warn", needsYou: true };
+  const active = steps.find((step) => step.state === "active");
+  if (active) return { segments, done, total, label: active.label, tone: "running", needsYou: reviewOpen };
+  return { segments, done, total, label: fallbackNamedStep(steps).label, tone: "ok", needsYou: reviewOpen };
 }
 
 /** The header chip from a derived outline: a blocked step wins, then an
@@ -703,5 +745,31 @@ export function outlineHistory(messages: readonly UIMessage[]): OutlineTranscrip
     approved: Boolean(last && approvedAfterLast),
     cardAnchorId,
     current: last ? { version: last.version, outline: last.outline, proposed: last.proposed } : null,
+  };
+}
+
+/** 0079: the composer-docked outline tray's whole-transcript context —
+ *  everything `GET /api/x/chat?context=1` needs to feed the tray so a
+ *  tail window (0075) never hides the current outline or its open
+ *  review. Reuses `outlineHistory` (the card's own source) and
+ *  `deriveOutline`'s stale bit rather than re-deriving either. Null
+ *  when the thread has never called `update_outline`. */
+export interface OutlineTrayContext {
+  current: { version: number; outline: Outline; proposed: boolean };
+  previous: { version: number; outline: Outline } | null;
+  openReviewId: string | null;
+  approved: boolean;
+  stale: boolean;
+}
+
+export function deriveOutlineTrayContext(messages: readonly UIMessage[]): OutlineTrayContext | null {
+  const history = outlineHistory(messages);
+  if (!history.current) return null;
+  return {
+    current: history.current,
+    previous: history.latestId ? (history.previous.get(history.latestId) ?? null) : null,
+    openReviewId: history.openReviewId,
+    approved: history.approved,
+    stale: deriveOutline(messages).stale,
   };
 }
