@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, GitPullRequest, Inbox, MonitorPlay, Search, Settings, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, GitPullRequest, Inbox, MonitorPlay, PanelLeftClose, Search, Settings, Trash2, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
@@ -19,6 +19,7 @@ import { GroupSection } from "@/components/sidebar/group-section";
 import { SearchResults } from "@/components/sidebar/search-results";
 import { NavRow } from "@/components/sidebar/nav-row";
 import { ShelfView } from "@/components/sidebar/shelf-view";
+import { SidebarResizer } from "@/components/sidebar/sidebar-resizer";
 import {
   type Drag,
   type Editing,
@@ -26,6 +27,7 @@ import {
 } from "@/components/sidebar/types";
 import { useSidebarActions } from "@/components/sidebar/use-actions";
 import { useCollapsedFolders } from "@/components/sidebar/use-collapsed";
+import { useSidebarCollapsed } from "@/components/sidebar/use-sidebar-collapsed";
 import { useThreadExpanded } from "@/components/sidebar/use-thread-expanded";
 import { useConversationSearch } from "@/components/sidebar/use-search";
 import { activeNavPage } from "@/lib/sidebar-nav";
@@ -60,6 +62,7 @@ export function ConversationSidebar({
   const actions = useSidebarActions();
   useAttentionSync(inbox.signature);
   const { collapsed, toggle } = useCollapsedFolders();
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebarCollapsed();
   const { explicit: threadExpanded, setExpanded: setThreadExpanded } = useThreadExpanded();
   const [editing, setEditing] = useState<Editing | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -86,6 +89,9 @@ export function ConversationSidebar({
     includeArchived: true,
   });
   const page = activeNavPage(pathname);
+  // Collapsed is a md+-only concept (below md the nav is always a
+  // drawer); below md this stays false regardless of the stored value.
+  const sidebarHiddenMd = sidebarCollapsed && !mobileOpen;
 
   const scopes = useMemo(
     () => [
@@ -117,11 +123,14 @@ export function ConversationSidebar({
       <nav
         aria-label="Conversations"
         {...(mobileOpen ? { role: "dialog", "aria-modal": "true" } : {})}
+        inert={sidebarHiddenMd || undefined}
         className={cn(
-          "h-dvh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+          "relative h-dvh shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
           mobileOpen
             ? "fixed inset-y-0 left-0 z-50 flex w-[min(20rem,85vw)] animate-in slide-in-from-left duration-200 shadow-lg md:hidden"
-            : "hidden md:flex",
+            : sidebarCollapsed
+              ? "hidden md:flex md:w-0 md:overflow-hidden md:border-0"
+              : "hidden w-(--sidebar-w) md:flex",
         )}
       >
         <div className="flex items-center justify-between px-3 py-3">
@@ -129,15 +138,28 @@ export function ConversationSidebar({
             <SweatshopLogo className="text-sidebar-primary" />
             sweatshop
           </span>
-          {/* Drawer mode only (the nav is otherwise hidden below md). */}
-          <button
-            type="button"
-            aria-label="Close navigation"
-            onClick={closeDrawer}
-            className="inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
-          >
-            <X className="size-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            {/* md+ only — collapses the sidebar off-screen; NavTrigger
+                reappears in the page header to bring it back. */}
+            <button
+              type="button"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              onClick={() => setSidebarCollapsed(true)}
+              className="hidden size-8 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:inline-flex"
+            >
+              <PanelLeftClose className="size-4" />
+            </button>
+            {/* Drawer mode only (the nav is otherwise hidden below md). */}
+            <button
+              type="button"
+              aria-label="Close navigation"
+              onClick={closeDrawer}
+              className="inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
         </div>
 
         <div className="px-3 pb-2">
@@ -274,7 +296,7 @@ export function ConversationSidebar({
           </DropdownMenu>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
           {searching ? (
             <SearchResults hits={results ?? []} />
           ) : view === "library" ? (
@@ -310,6 +332,9 @@ export function ConversationSidebar({
           />
           <ThemeToggle />
         </div>
+        {/* Resize handle — desktop only; the mobile drawer keeps its own
+            fixed width, and there's nothing to drag while collapsed. */}
+        {!mobileOpen && !sidebarCollapsed && <SidebarResizer />}
       </nav>
       {/* Mobile: backdrop while the drawer is open (the trigger is in
           each page's header — see NavTrigger). */}

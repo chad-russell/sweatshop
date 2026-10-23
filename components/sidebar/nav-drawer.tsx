@@ -4,6 +4,7 @@ import { PanelLeft } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useMemo, useState } from "react";
 import { cn } from "cn";
+import { useSidebarCollapsed } from "@/components/sidebar/use-sidebar-collapsed";
 
 interface NavDrawer {
   /** Mobile drawer is open (it closes itself when the route changes). */
@@ -40,17 +41,32 @@ export function useNavDrawer(): NavDrawer {
   return ctx;
 }
 
-/** The mobile-only menu button that lives at the start of a page header. */
+/**
+ * The menu button at the start of a page header. Mobile-only by default
+ * (opens the drawer); it also reappears on md+ when the sidebar is
+ * collapsed (components/conversation-sidebar.tsx), where it expands the
+ * sidebar instead — the one way back in once it's off-screen.
+ */
 export function NavTrigger({ className }: { className?: string }) {
   const { openDrawer } = useNavDrawer();
+  const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
     <button
       type="button"
-      aria-label="Open conversations"
+      aria-label={collapsed ? "Expand conversations" : "Open conversations"}
       title="Conversations"
-      onClick={openDrawer}
+      onClick={() => {
+        // md+ with the sidebar collapsed: expand it in place. Otherwise
+        // (always true below md) this is the mobile drawer trigger.
+        if (collapsed && window.matchMedia("(min-width: 768px)").matches) {
+          setCollapsed(false);
+        } else {
+          openDrawer();
+        }
+      }}
       className={cn(
-        "inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden",
+        "inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+        !collapsed && "md:hidden",
         className,
       )}
     >
