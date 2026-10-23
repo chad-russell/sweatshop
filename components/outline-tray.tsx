@@ -103,7 +103,7 @@ export function OutlineTray({
 
   return (
     <div
-      className="flex flex-col overflow-hidden rounded-t-2xl border border-b-0 border-border bg-card"
+      className="outline-tray flex flex-col overflow-hidden rounded-t-2xl border border-b-0 border-border bg-card"
       onKeyDown={(event) => {
         if (event.key === "Escape" && expanded) {
           setExpandedAndStore(false);
