@@ -79,7 +79,7 @@ const questionEvidenceSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("code"), lang: z.string().max(40).optional(), text: z.string().max(EVIDENCE_TEXT_MAX) }),
   z.object({ type: z.literal("diff"), text: z.string().max(EVIDENCE_TEXT_MAX) }),
   z.object({ type: z.literal("markdown"), text: z.string().max(EVIDENCE_TEXT_MAX) }),
-  z.object({ type: z.literal("link"), url: z.string().max(2_000), label: z.string().max(200).optional() }),
+  z.object({ type: z.literal("link"), url: z.string().max(2_000).regex(/^https?:\/\//i, "link evidence must be an http(s) URL"), label: z.string().max(200).optional() }),
   z.object({
     type: z.literal("screenshot"),
     path: z.string().min(1).max(1_000).describe("PNG path inside this chat's sandbox (same rules as attach_screenshot)"),

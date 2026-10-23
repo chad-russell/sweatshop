@@ -329,3 +329,27 @@ describe("mapTypedTextToAnswers", () => {
     expect(mapTypedTextToAnswers({ kind: "ask_owner" }, "hi")).toBeNull();
   });
 });
+
+describe("0081 review fixes", () => {
+  const noOther: StructuredQuestion = { ...resolvedSingle, allowOther: false };
+  it("rejects a freeform answer when allowOther is false", () => {
+    expect(validateAnswers(cardOf(noOther), { scope: { other: "x" } })).toMatchObject({ ok: false });
+  });
+  it("still accepts a text question's freeform answer", () => {
+    expect(validateAnswers(cardOf(resolvedText), { name: { other: "Glen" } })).toEqual({ ok: true });
+  });
+  it("rejects a duplicated multi selection", () => {
+    expect(validateAnswers(cardOf(resolvedMulti), { areas: { selected: ["a", "a"] } })).toMatchObject({ ok: false });
+  });
+  it("rejects non-http link evidence", () => {
+    const q = singleQuestion({ options: [
+      { id: "a", label: "A", evidence: { type: "link", url: "javascript:alert(1)" } },
+      { id: "b", label: "B" },
+    ] });
+    expect(validateStructuredQuestions([q])).toMatchObject({ ok: false });
+  });
+  it("typed text falls back to the legacy answer when Other is off", () => {
+    expect(mapTypedTextToAnswers(cardOf(noOther), "something else")).toBeNull();
+    expect(mapTypedTextToAnswers(cardOf(noOther), "2")).toEqual({ scope: { selected: ["b"] } });
+  });
+});

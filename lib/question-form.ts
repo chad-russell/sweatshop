@@ -125,6 +125,9 @@ export function validateStructuredQuestions(
       if (optLabels.has(label)) return fail(`question "${q.id}" has a duplicate option label "${o.label}"`);
       optLabels.add(label);
       if (o.recommended) recommended += 1;
+      if (o.evidence?.type === "link" && !/^https?:\/\//i.test(o.evidence.url)) {
+        return fail(`question "${q.id}" option "${o.id}": link evidence must be an http(s) URL`);
+      }
     }
     if (q.type === "single" && recommended > 1) {
       return fail(`question "${q.id}" is type single — at most one option may be recommended`);
@@ -209,6 +212,7 @@ export function validateAnswers(
     const modes = [Boolean(a.youPick), hasOther, hasSelected].filter(Boolean).length;
     if (modes === 0) return fail(`"${q.header}" has no answer`);
     if (modes > 1) return fail(`"${q.header}" was answered more than one way`);
+    if (hasOther && !q.allowOther && q.type !== "text") return fail(`"${q.header}" does not accept a freeform answer`);
     if (a.youPick || hasOther) continue;
     if (q.type === "text") return fail(`"${q.header}" is freeform — it has no options to select`);
     const options = q.options ?? [];
@@ -216,10 +220,10 @@ export function validateAnswers(
     for (const id of ids) {
       if (!options.some((o) => o.id === id)) return fail(`"${q.header}" has an unknown option "${id}"`);
     }
+    if (new Set(ids).size !== ids.length) return fail(`"${q.header}" repeats an option`);
     if (q.type === "single" && ids.length !== 1) return fail(`"${q.header}" needs exactly one selection`);
     if (q.type === "rank") {
       if (ids.length !== options.length) return fail(`"${q.header}" needs every option ranked`);
-      if (new Set(ids).size !== ids.length) return fail(`"${q.header}" ranking repeats an option`);
     }
   }
   return { ok: true };
@@ -283,7 +287,8 @@ export function mapTypedTextToAnswers(
     }
     const byLabel = options.find((o) => o.label.toLowerCase() === trimmed.toLowerCase());
     if (byLabel) return { [first.id]: { selected: [byLabel.id] } };
-    return { [first.id]: { other: text } };
   }
+  // No freeform slot: fall back to the legacy plain-text answer.
+  if (!first.allowOther && first.type !== "text") return null;
   return { [first.id]: { other: text } };
 }
