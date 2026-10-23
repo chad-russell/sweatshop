@@ -129,15 +129,21 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   slice as a percentage of the model's catalog window, and cost;
   hidden until metered, ring-only below `sm`; clicking opens the same
   stats breakdown (context first) as a popover. The header itself just
-  holds crumbs · the status chip · the preview pill. The status chip
-  (`lib/thread-phase.ts` `phaseFromMessages`, `components/status-chip.tsx`)
-  shows an open PR when `create_pr` succeeded (0052 — while it does, the
-  client polls `GET /api/x/prs` and `applyPRState` relabels it
-  merged/closed at render time), else the outline chip (0064). Once a
-  PR is open, a diff breakdown chip beside it (0059,
-  `lib/diff-breakdown.ts` `latestDiffBreakdown`, read off the
-  transcript) opens a popover with the branch's change sorted into
-  fixed categories (Generated/Tests/Docs/Migrations/Config/Code).
+  holds crumbs · the outline chip · the work pill · the preview pill.
+  The outline chip (`lib/thread-phase.ts` `phaseFromMessages`,
+  `components/status-chip.tsx`) is outline-only (0064) — a PR is never
+  the phase. The work pill (0078, `components/work-pill.tsx`) is the
+  PR control: `lib/work-prs.ts`'s `workPRsFromMessages` tracks every
+  `create_pr` call in the transcript (pending/open, denied/errored
+  dropped, retried opens deduped by url), 0 PRs renders nothing. While
+  any PR is open the client polls `GET /api/x/prs` per PR url and
+  `applyLiveStates` relabels each one merged/closed at render time. One
+  PR shows a state dot + `#n` + word; several show a count, the dot
+  coloured by whichever needs the most attention. `mergeBreakdowns`
+  aggregates each PR's diff breakdown (when it has one) into the same
+  fixed categories as a single PR's (Generated/Tests/Docs/Migrations/
+  Config/Code, `lib/diff-breakdown.ts`); the pill's popover lists every
+  PR plus that aggregate table.
 - Quiet tool groups (0056) keep their full-width collapsible box and
   render calls with shadcn Trace (`components/ui/trace.tsx`): action
   first, expandable specialized cards, repeated polls still folded.
