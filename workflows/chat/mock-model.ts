@@ -13,9 +13,9 @@ import type { LanguageModel } from "ai";
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" |
  * "structured-question" | "steer" | "hang" | "create-pr" | "viewing" |
- * "thread-state" | "skill" | "loop" | "accept-plan" | "outline-propose" |
- * "enter-mode" | "cache") is read at call time so a test file can switch
- * scripts between turns.
+ * "thread-state" | "skill" | "loop" | "repeat" | "accept-plan" |
+ * "outline-propose" | "enter-mode" | "cache") is read at call time so a
+ * test file can switch scripts between turns.
  *
  * The "steer" script never touches the database itself: workflow context
  * (where doStream runs) forbids Node APIs. The TEST enqueues the steer
@@ -189,9 +189,24 @@ export function scriptedChatModel(): LanguageModel {
       }
 
       // 0037: a turn that never stops calling tools — exhausts its budget.
+      // Distinct inputs every call (never the same signature twice), so
+      // 0082's loop guard must never fire against it.
       if (script === "loop") {
         const n = options.prompt.filter((m) => m.role === "tool").length;
         return result(toolCallPart(`call_loop_${n}`, "note", { note: `loop ${n}` }));
+      }
+
+      // 0082: the SAME call, over and over — the loop guard must fire
+      // once the 3rd identical (tool, input, result) signature lands,
+      // and this script stops as soon as it sees the guard's own note
+      // in the prompt (so the test never has to run the full budget).
+      if (script === "repeat") {
+        const guarded = options.prompt.some(
+          (m) => m.role === "user" && messageText(m).startsWith("[loop guard]"),
+        );
+        if (guarded) return result(textPart("mock-repeat-stopped"));
+        const n = options.prompt.filter((m) => m.role === "tool").length;
+        return result(toolCallPart(`call_repeat_${n}`, "note", { note: "same every time" }));
       }
 
       if (script === "steer") {

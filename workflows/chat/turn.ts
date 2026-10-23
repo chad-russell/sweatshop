@@ -2,8 +2,10 @@ import { WorkflowAgent, type ModelCallStreamPart } from "@ai-sdk/workflow";
 import type { ModelMessage } from "ai";
 import { isStepCount } from "ai";
 import { getWritable } from "workflow";
+import type { RunEventMeta } from "../../db/chat";
 import { viewingNote, type ViewingContext } from "../../lib/page-context";
 import { deriveOutline, renderThreadStateNote } from "../../lib/outline";
+import { LOOP_GUARD_THRESHOLD, loopGuardText, toolCallSignature } from "../../lib/chat/loop-guard";
 import { addUsage, readSliceUsage, type UsageCounts } from "../../lib/usage/pricing";
 import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
@@ -182,6 +184,15 @@ export async function chatTurn(input: ChatTurnInput) {
   // skip = everything already persisted (loaded history + this turn's
   // user message) plus the injected notes, which sit right before it.
   const skip = history.length + (input.viewing ? 1 : 0) + (stateNote ? 1 : 0) + 1;
+  // 0082: the repetition guard's turn-scoped state. Plain local state,
+  // not a step: it is purely DERIVED from `messages`, which itself only
+  // ever holds step-returned, replay-stable data — recomputing it from
+  // scratch on a replay reproduces the exact same counts and firings, so
+  // there is nothing here that needs its own durability.
+  const loopSeenToolCallIds = new Set<string>();
+  const loopSignatureCounts = new Map<string, number>();
+  const loopFiredSignatures = new Set<string>();
+  const loopRunEvents = new Map<number, RunEventMeta>();
   // One durable stream per TURN, not per slice: every slice leaves it
   // open and unfinished; finishTurnStream ends it exactly once — also
   // when a slice throws, so a reconnected browser is never left hanging.
@@ -219,6 +230,14 @@ export async function chatTurn(input: ChatTurnInput) {
         lastSliceUsage = sliceUsage;
         messages = stripLeadingSystem(result.messages);
         finishReason = result.finishReason;
+        // 0082: a tool call that lands the same signature a 3rd time
+        // gets a runtime nudge appended right here — drained into the
+        // NEXT slice exactly like a steer message (it is just another
+        // trailing user message in `messages` by the time the agent is
+        // called again), and persisted as part of THIS slice's tail
+        // below (tagged via loopRunEvents, same mechanism as route/
+        // exhausted metadata).
+        messages = applyLoopGuard(messages, loopSeenToolCallIds, loopSignatureCounts, loopFiredSignatures, loopRunEvents);
 
         // The turn ends when the latest assistant message asks for no tools.
         // Computed BEFORE persisting this slice (0040 phase 3): when this
@@ -238,6 +257,7 @@ export async function chatTurn(input: ChatTurnInput) {
           from: skip + stored,
           final: false,
           exhausted: exhaustedThisSlice,
+          runEvents: loopRunEvents,
         });
 
         if (!wantsTools) break;
@@ -245,7 +265,11 @@ export async function chatTurn(input: ChatTurnInput) {
       }
 
       // The rest of the tail (normally nothing) and the active-run clear.
-      stored += await persistTurn(conversationId, messages, skip, resolved, { from: skip + stored, final: true });
+      stored += await persistTurn(conversationId, messages, skip, resolved, {
+        from: skip + stored,
+        final: true,
+        runEvents: loopRunEvents,
+      });
     } finally {
       await finishTurnStream(writable);
     }
@@ -305,4 +329,62 @@ function countToolCalls(messages: ModelMessage[], from: number): number {
     }
   }
   return n;
+}
+
+/**
+ * 0082: scan for tool calls not yet accounted for (`seenCallIds`), fold
+ * each into its signature's count, and — the first time a signature
+ * crosses LOOP_GUARD_THRESHOLD — append a runtime note to `messages`
+ * (recording its index in `runEvents` so persistTurn tags that row).
+ * Rescans the whole array every slice (bounded by the turn's own step
+ * budget, ≤ 800) rather than tracking a cursor — `seenCallIds` already
+ * makes every call counted exactly once, so a full rescan is just
+ * simpler to get right under replay.
+ */
+function applyLoopGuard(
+  messages: ModelMessage[],
+  seenCallIds: Set<string>,
+  counts: Map<string, number>,
+  fired: Set<string>,
+  runEvents: Map<number, RunEventMeta>,
+): ModelMessage[] {
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (!message || message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (part.type !== "tool-call" || seenCallIds.has(part.toolCallId)) continue;
+      const toolResult = findToolResult(messages, i + 1, part.toolCallId);
+      if (!toolResult) continue; // its result has not landed yet — nothing to sign
+      seenCallIds.add(part.toolCallId);
+      const signature = toolCallSignature(part.toolName, part.input, toolResult.output);
+      const count = (counts.get(signature) ?? 0) + 1;
+      counts.set(signature, count);
+      if (count === LOOP_GUARD_THRESHOLD && !fired.has(signature)) {
+        fired.add(signature);
+        const index = messages.length;
+        messages = [...messages, { role: "user", content: loopGuardText(part.toolName) }];
+        runEvents.set(index, { kind: "loop", id: `loop_${signature}`, status: "triggered" });
+      }
+    }
+  }
+  return messages;
+}
+
+/** The tool-result part matching `toolCallId`, searching forward from
+ *  `from` — within one isStepCount(1) slice the result always lands in
+ *  the same slice as its call, so this is always found by the time
+ *  applyLoopGuard runs (post-slice). */
+function findToolResult(
+  messages: ModelMessage[],
+  from: number,
+  toolCallId: string,
+): { output: unknown } | null {
+  for (let i = from; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (!message || message.role !== "tool" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (part.type === "tool-result" && part.toolCallId === toolCallId) return { output: part.output };
+    }
+  }
+  return null;
 }

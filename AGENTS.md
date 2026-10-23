@@ -68,6 +68,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `finishTurnStream` emits the single `finish` and closes AFTER
   `persistTurn`). A fresh page stays on `/` while its creating turn is
   live, moving to `/c/<id>` only once it settles (`onAddressable`).
+  Loop guard (0082): after every slice, `applyLoopGuard` signs each new
+  tool call (stable hash of toolName + input + result, `lib/chat/
+  loop-guard.ts`) and counts repeats across the WHOLE turn (plain
+  function-local state — purely derived from `messages`, so a replay
+  recomputes it identically); the 3rd time one signature repeats, a
+  runEvent `"loop"` user row (drained into the next slice exactly like a
+  steer message, persisted via `persistTurn`'s `runEvents` map) tells the
+  model to change approach or stop, firing once per signature per turn
+  (RCA: a child thread looped an identical failing `npm run` ~200 times
+  and burned its whole budget unnoticed).
   sqlite is the source of truth (`messages.model_message` rows); the
   browser uses `useChat` + `WorkflowChatTransport` against
   `/api/x/chat/*` — client imports MUST come from

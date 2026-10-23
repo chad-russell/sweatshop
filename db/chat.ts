@@ -52,9 +52,12 @@ export interface MessageRowMetadata {
  *  "plan" = Chad approved the plan under review; 0055: "mode" = the
  *  owner's send entered a mode — this row's TEXT is the mode's
  *  rendered intro + first-phase runbook, not a wake; 0064: "outline" =
- *  Chad approved the outline under review). */
+ *  Chad approved the outline under review; 0082: "loop" = the same tool
+ *  call (name + input + result) repeated 3 times in one turn — the
+ *  row's text is the runtime's own nudge, injected mid-turn like a
+ *  steer message, never Chad's words). */
 export interface RunEventMeta {
-  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode" | "outline" | "outline-edit";
+  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode" | "outline" | "outline-edit" | "loop";
   id: string;
   status: string;
 }
