@@ -2,7 +2,7 @@ import { parseAttachmentRef } from "@/lib/attachment-ref";
 import type { ModelMessage, UIMessage } from "ai";
 import type { MessageRowMetadata } from "@/db/chat";
 import { phaseFromMessages, type Phase } from "@/lib/thread-phase";
-import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
+import { workPRsFromMessages, type WorkPR } from "@/lib/work-prs";
 
 /**
  * Rebuild the UI transcript from persisted rows (reload / initial render).
@@ -320,21 +320,21 @@ export function appendNewer(current: readonly UIMessage[], newer: readonly UIMes
 
 /**
  * The server-derived context block (`GET /api/x/chat?context=1`): the
- * header chrome facts (phase chip, diff breakdown, wake watch) computed
+ * header chrome facts (phase chip, work PRs, wake watch) computed
  * over the WHOLE transcript, so a page that only hydrated a tail window
  * shows exactly what a full render would. Pure — takes the folded
  * transcript, never the db.
  */
 export interface ChatContextBlock {
   phase: Phase | null;
-  diffBreakdown: DiffBreakdown | null;
+  prs: WorkPR[];
   hasBackgroundChild: boolean;
 }
 
 export function deriveChatContext(messages: readonly UIMessage[]): ChatContextBlock {
   return {
     phase: phaseFromMessages(messages),
-    diffBreakdown: latestDiffBreakdown(messages),
+    prs: workPRsFromMessages(messages),
     hasBackgroundChild: hasBackgroundChild(messages),
   };
 }
