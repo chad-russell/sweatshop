@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Experimental_SandboxSession } from "ai";
 import { db } from "../db";
-import { ensureConversation, getHarnessResumeState, saveHarnessResumeState } from "../db/chat";
+import { ensureConversation, getHarnessResumeState, getPendingInputCard, listPendingInputs, saveHarnessResumeState } from "../db/chat";
+import { isAskOwnerCard, type AskOwnerCard } from "../lib/question-form";
 import {
   disableConversationSandbox,
   getConversationBinding,
@@ -382,5 +383,114 @@ describe("owner genericization: ask_owner", () => {
     const names = Object.keys(buildChatTools("c_x", { hasSandbox: false, hasProject: false }));
     expect(names).toContain("ask_owner");
     expect(names).not.toContain("ask_chad");
+  });
+});
+
+describe("0081 ask_owner: structured questions", () => {
+  function askOwnerTool(conversationId: string) {
+    const tools = buildChatTools(conversationId, { hasSandbox: false, hasProject: false });
+    return tools.ask_owner as unknown as {
+      execute: (input: Record<string, unknown>, ctx: { toolCallId: string }) => Promise<unknown>;
+    };
+  }
+
+  function chat(name: string): string {
+    const id = `c_0081_${name}`;
+    ensureConversation(db(), id);
+    return id;
+  }
+
+  // Outside a real workflow run chatApprovalHook.create() throws
+  // (NotInWorkflowContextError) — exactly the "still asks" idiom
+  // tests/host-exec.test.ts already uses: the steps before the hook
+  // (validation, the pending row, the resolved card) already ran by the
+  // time it's reached.
+  async function callOutsideWorkflow(tool: ReturnType<typeof askOwnerTool>, input: Record<string, unknown>, toolCallId: string) {
+    try {
+      return await tool.execute(input, { toolCallId });
+    } catch (err) {
+      if (err instanceof Error && err.name === "NotInWorkflowContextError") return undefined;
+      throw err;
+    }
+  }
+
+  it("a legacy call (no questions) behaves exactly as before: pending row, no card", async () => {
+    const cid = chat("legacy");
+    await callOutsideWorkflow(askOwnerTool(cid), { kind: "question", question: "Which database?" }, "call_legacy");
+    const pending = listPendingInputs(db(), cid);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.question).toBe("Which database?");
+    expect(getPendingInputCard(db(), "call_legacy")).toBeNull();
+  });
+
+  it("questions on kind: approval is rejected value-shaped — no pending row, no hook", async () => {
+    const cid = chat("approval-questions");
+    const result = await askOwnerTool(cid).execute(
+      {
+        kind: "approval",
+        question: "Deploy?",
+        questions: [{ id: "q", header: "Q", type: "text" }],
+      },
+      { toolCallId: "call_bad_kind" },
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid" });
+    expect(listPendingInputs(db(), cid)).toHaveLength(0);
+  });
+
+  it("an invalid structured question (too few options) is rejected before any pending row or hook", async () => {
+    const cid = chat("invalid-options");
+    const result = await askOwnerTool(cid).execute(
+      {
+        kind: "question",
+        question: "Which?",
+        questions: [{ id: "q", header: "Q", type: "single", options: [{ id: "a", label: "Only one" }] }],
+      },
+      { toolCallId: "call_invalid" },
+    );
+    expect(result).toMatchObject({ ok: false, code: "invalid" });
+    expect(listPendingInputs(db(), cid)).toHaveLength(0);
+    expect(getPendingInputCard(db(), "call_invalid")).toBeNull();
+  });
+
+  it("a valid structured question resolves evidence and stores an AskOwnerCard before the hook", async () => {
+    const cid = chat("valid-structured");
+    await callOutsideWorkflow(
+      askOwnerTool(cid),
+      {
+        kind: "question",
+        question: "Which database?",
+        context: "sqlite is simpler; postgres scales further.",
+        questions: [
+          {
+            id: "db",
+            header: "Database",
+            type: "single",
+            options: [
+              { id: "sqlite", label: "sqlite", recommended: true, evidence: { type: "code", lang: "ts", text: "const db = 1;" } },
+              { id: "postgres", label: "postgres" },
+            ],
+          },
+        ],
+      },
+      "call_valid_structured",
+    );
+    const pending = listPendingInputs(db(), cid);
+    expect(pending).toHaveLength(1);
+    const card = getPendingInputCard(db(), "call_valid_structured");
+    expect(isAskOwnerCard(card)).toBe(true);
+    const askOwnerCard = card as AskOwnerCard;
+    expect(askOwnerCard.context).toBe("sqlite is simpler; postgres scales further.");
+    expect(askOwnerCard.questions).toEqual([
+      {
+        id: "db",
+        header: "Database",
+        type: "single",
+        allowOther: true,
+        options: [
+          { id: "sqlite", label: "sqlite", recommended: true, evidence: { type: "code", lang: "ts", text: "const db = 1;" } },
+          { id: "postgres", label: "postgres" },
+        ],
+      },
+    ]);
   });
 });
