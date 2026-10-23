@@ -84,7 +84,7 @@ export function CancelCallButton({
 
 /**
  * The session page's stop bar: sits where the chat composer sits (same
- * width and padding), muted "<label> is running" text plus a square
+ * width and padding), muted "<label> is working — your chat hears back when it finishes" text plus a square
  * icon button styled like the composer's PromptInputSubmit stop state.
  * A failed cancel re-arms the button so it can be retried.
  */
@@ -94,7 +94,7 @@ export function CancelCallBar({ callId, label }: { callId: string; label: string
     <div className="w-full px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-4">
       <div className="flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2">
         <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-          {state === "pending" || state === "done" ? `Stopping ${label}…` : `${label} is running`}
+          {state === "pending" || state === "done" ? `Stopping ${label}…` : `${label} is working — your chat hears back when it finishes`}
         </span>
         {state === "error" && error && <CancelErrorMessage error={error} />}
         <Button
