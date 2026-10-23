@@ -7,7 +7,6 @@ import { nanoid } from "nanoid";
 import { RotateCcw } from "lucide-react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import {
-  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -873,23 +872,11 @@ export function ChatSession({
     messages,
   };
 
-  // 0064: Quote for the outline card; 0079: the tray shares it too.
-  const quoteIntoComposer = useCallback((selection: string) => {
-    const el = textareaRef.current;
-    if (!el) return;
-    const before = el.value.trimEnd();
-    const quoted = `${selection.split("\n").map((line) => `> ${line}`.trimEnd()).join("\n")}\n\n`;
-    el.value = `${before ? `${before}\n\n` : ""}${quoted}`;
-    if (el.value.trim()) window.localStorage.setItem(draftKey, el.value);
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  }, [draftKey]);
   const outlineView = useMemo<OutlineView>(() => ({
     history: outlines,
     conversationId,
     projectId: projectId ?? null,
-    quote: quoteIntoComposer,
-  }), [outlines, conversationId, projectId, quoteIntoComposer]);
+  }), [outlines, conversationId, projectId]);
   const freshMode = fresh ? freshComposer?.(state) : undefined;
 
   // 0042: images upload first (each becomes an attachment id), then the
@@ -1071,7 +1058,6 @@ export function ChatSession({
           key={conversationId}
           conversationId={conversationId}
           projectId={projectId ?? null}
-          quote={quoteIntoComposer}
           context={outlineContext}
           busy={isBusy}
         />
