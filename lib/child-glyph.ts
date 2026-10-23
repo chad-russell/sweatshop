@@ -7,8 +7,9 @@
  * - child thread (chat with a parent): spinner while a turn is live, ⚠
  *   when its last turn ran out of steps, else the generic agent mark.
  *   (Cancelled threads have no persisted signal — see docs/0046.)
- * - historical runs and top-level conversations: "none" here (runs keep
- *   RunGlyph unchanged).
+ * - top-level chat: spinner while a turn is live, else "none" (done is the
+ *   quiet default).
+ * - historical runs: "none" here (runs keep RunGlyph unchanged).
  */
 export type ChildGlyphKind =
   | "none"
@@ -47,5 +48,7 @@ export function childGlyphKind(item: {
     if (item.threadStatus === "exhausted") return "needs-attention";
     return "agent-done";
   }
+  // Top-level chat: spinner while a turn is live; done stays quiet.
+  if (item.kind === "chat" && item.activeRunId) return "running";
   return "none";
 }

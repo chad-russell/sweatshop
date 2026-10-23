@@ -11,7 +11,7 @@ import {
 } from "../db/attention";
 import { loadSidebar } from "../db/organize";
 import { conversations, folders, messages, projects } from "../db/schema";
-import { recordPendingInput, resolvePendingInput } from "../db/chat";
+import { clearActiveRunIfMatches, recordPendingInput, resolvePendingInput, setActiveRun } from "../db/chat";
 
 const tdb = openDb(process.env.SWEATSHOP_DB!);
 
@@ -263,6 +263,17 @@ describe("attention signature", () => {
     resolve("sig1");
     resolve("sig2");
     markSeen(tdb, id, 5000);
+    expect(loadAttention(tdb).signature).toBe(base);
+  });
+
+  it("changes when a turn goes live and when it ends", () => {
+    const id = convId();
+    say(id, "user", "hi", 1); // creates the conversation row
+    const base = loadAttention(tdb).signature;
+    setActiveRun(tdb, id, "run-1");
+    const live = loadAttention(tdb).signature;
+    expect(live).not.toBe(base);
+    clearActiveRunIfMatches(tdb, id, "run-1");
     expect(loadAttention(tdb).signature).toBe(base);
   });
 });
