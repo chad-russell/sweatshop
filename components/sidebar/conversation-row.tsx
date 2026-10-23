@@ -119,7 +119,7 @@ export function ConversationRow({
             <Link
               href={href}
               draggable={false}
-              title={item.title ?? item.id}
+              title={item.step ? `${item.title ?? item.id}\nStep: ${item.step}` : (item.title ?? item.id)}
               className={cn(
                 "flex items-center justify-between gap-2 py-1.5 pointer-coarse:py-2.5",
                 hasChildren ? "pr-2" : "px-2",
@@ -142,19 +142,11 @@ export function ConversationRow({
                   className={hasChildren ? undefined : "-ml-1"}
                 />
                 <ChildGlyph item={item} />
-                <span className="truncate">
+                <span className="min-w-0 truncate">
                   {item.title ?? (
                     <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>
                   )}
                 </span>
-                {item.step && (
-                  <span
-                    title={`Step: ${item.step}`}
-                    className="shrink-0 truncate rounded bg-sidebar-accent px-1 py-0 text-[10px] text-sidebar-foreground/60"
-                  >
-                    {item.step}
-                  </span>
-                )}
                 {collapsedAttention && (
                   <AttentionDot unread={item.descendantAttention.unread} needsYou={item.descendantAttention.needsYou} />
                 )}

@@ -55,7 +55,7 @@ export function SearchResults({ hits }: { hits: readonly SearchHit[] }) {
             }
           >
             <span className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-sm">{hit.title ?? hit.conversationId}</span>
+              <span className="min-w-0 truncate text-sm">{hit.title ?? hit.conversationId}</span>
               {hit.archived && (
                 <Archive aria-label="Archived" className="size-3 shrink-0 text-sidebar-foreground/60" />
               )}

@@ -112,7 +112,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
               )}
             >
               <FolderGit2 className="size-3 shrink-0" />
-              <span className="truncate">{group.project.name}</span>
+              <span className="min-w-0 truncate">{group.project.name}</span>
             </Link>
           ) : (
             <button
