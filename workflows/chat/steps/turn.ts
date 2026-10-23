@@ -281,7 +281,15 @@ export async function persistTurn(
   skip: number,
   /** 0021: recorded on the turn's first assistant row ("what actually ran"). */
   route?: import("../../../db/chat").MessageRowMetadata["route"],
-  opts: { from?: number; final?: boolean; exhausted?: boolean } = {},
+  opts: {
+    from?: number;
+    final?: boolean;
+    exhausted?: boolean;
+    /** 0082: mid-turn runtime notes (the loop guard) keyed by their
+     *  absolute index in `messages` — stamped onto that row's metadata
+     *  the slice it is first persisted in. */
+    runEvents?: Map<number, import("../../../db/chat").RunEventMeta>;
+  } = {},
 ): Promise<number> {
   "use step";
   const { db, chat } = await chatStore();
@@ -303,6 +311,8 @@ export async function persistTurn(
     const metadata: import("../../../db/chat").MessageRowMetadata = {};
     if (route && i === firstAssistant) metadata.route = route;
     if (opts.exhausted && i === lastAssistant) metadata.exhausted = true;
+    const runEvent = opts.runEvents?.get(i);
+    if (runEvent) metadata.runEvent = runEvent;
     tail.push({
       id: `m_${conversationId}_${skip}_${i - skip}`,
       role: message.role === "assistant" ? "assistant" : message.role === "tool" ? "tool" : "user",

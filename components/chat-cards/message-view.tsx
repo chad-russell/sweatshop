@@ -104,6 +104,8 @@ function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; stat
       <span className="truncate">
         {runEvent.kind === "budget"
           ? "step budget reached · continuing"
+          : runEvent.kind === "loop"
+          ? "loop guard triggered"
           : runEvent.kind === "plan"
           ? `plan ${runEvent.status}`
           : runEvent.kind === "outline"

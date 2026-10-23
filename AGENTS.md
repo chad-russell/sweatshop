@@ -68,6 +68,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   `finishTurnStream` emits the single `finish` and closes AFTER
   `persistTurn`). A fresh page stays on `/` while its creating turn is
   live, moving to `/c/<id>` only once it settles (`onAddressable`).
+  Loop guard (0082): after every slice, `applyLoopGuard` signs each new
+  tool call (stable hash of toolName + input + result, `lib/chat/
+  loop-guard.ts`) and counts repeats across the WHOLE turn (plain
+  function-local state — purely derived from `messages`, so a replay
+  recomputes it identically); the 3rd time one signature repeats, a
+  runEvent `"loop"` user row (drained into the next slice exactly like a
+  steer message, persisted via `persistTurn`'s `runEvents` map) tells the
+  model to change approach or stop, firing once per signature per turn
+  (RCA: a child thread looped an identical failing `npm run` ~200 times
+  and burned its whole budget unnoticed).
   sqlite is the source of truth (`messages.model_message` rows); the
   browser uses `useChat` + `WorkflowChatTransport` against
   `/api/x/chat/*` — client imports MUST come from
@@ -108,6 +118,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`lib/child-status.ts`, both live kinds) polled by `useChildStatus`
   every 5 s while the child is live and the tab visible, never once
   settled.
+- Sandboxed commands (0082): `execSandbox` (`lib/sandboxes/provision.ts`,
+  the one non-streaming path for bash, `sandbox_exec` and the AI SDK
+  adapter's `run`) prepends `set -o pipefail` (`withPipefail`), so a
+  pipeline like `npm run test 2>&1 | tail` reports npm's failure instead
+  of `tail`'s 0. Streaming harness spawns are unaffected.
 - Child threads (0037 phase 3): `start_thread({prompt, skill?, fresh?})`
   — every chat tool — starts a fresh child chat with its own context on
   the parent's project, ATTACHED to the parent's sandbox by default
@@ -120,6 +135,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   silently. Children get the thread step budget (800, `resolveMaxSteps`)
   even un-skilled (`hasParent`); the budget CONTINUATION is skill-only —
   an un-skilled child that runs out reports once, never re-fires itself.
+  0082: an attached child whose parent's binding sits at the bare work
+  root (never `cd`'d into a repo) lands inside the repo instead when the
+  project has exactly one (`childSandboxWorkDir`,
+  `lib/sandboxes/binding.ts`) — a multi-repo project, a parent already
+  inside a repo subdir, or no project, keep the parent's exact workDir.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is
   the `DESIGN.md` token contract: semantic tokens only, never raw
   hex/oklch in TSX; themes `clickhouse` (default), `cal`, `nova`.
