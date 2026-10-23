@@ -130,6 +130,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   silently. Children get the thread step budget (800, `resolveMaxSteps`)
   even un-skilled (`hasParent`); the budget CONTINUATION is skill-only —
   an un-skilled child that runs out reports once, never re-fires itself.
+  0082: an attached child whose parent's binding sits at the bare work
+  root (never `cd`'d into a repo) lands inside the repo instead when the
+  project has exactly one (`childSandboxWorkDir`,
+  `lib/sandboxes/binding.ts`) — a multi-repo project, a parent already
+  inside a repo subdir, or no project, keep the parent's exact workDir.
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is
   the `DESIGN.md` token contract: semantic tokens only, never raw
   hex/oklch in TSX; themes `clickhouse` (default), `cal`, `nova`.

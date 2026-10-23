@@ -92,7 +92,7 @@ export async function startThread(
       sandbox = "none";
     } else if (binding) {
       const { binding: bound } = await openConversationSandbox(input.conversationId, input.provider);
-      await attachConversation(childId, bound.sandboxId, input.provider);
+      await attachConversation(childId, bound.sandboxId, input.provider, parent.projectId);
       sandbox = "attached";
     }
   }

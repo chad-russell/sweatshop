@@ -15,6 +15,7 @@ import {
   type SandboxHandle,
   type SandboxProvider,
 } from "@/lib/sandboxes/provider";
+import { loadProjectPlan } from "@/lib/sandboxes/workspace";
 
 export type { BoundSandbox, SandboxBinding } from "@/db/sandboxes";
 
@@ -74,9 +75,29 @@ export async function openInheritedSandbox(
   return openSandbox(binding, provider);
 }
 
-/** The copy an attacher or child gets: same sandbox, same directory. */
-export function inheritBinding(binding: BoundSandbox): BoundSandbox {
-  return { kind: "bound", sandboxId: binding.sandboxId, workDir: binding.workDir, owner: false };
+/** The copy an attacher or child gets: same sandbox, same directory —
+ *  unless `workDir` overrides it (0082: a start_thread child dropped at
+ *  the bare work root of a single-repo project). */
+export function inheritBinding(binding: BoundSandbox, workDir: string = binding.workDir): BoundSandbox {
+  return { kind: "bound", sandboxId: binding.sandboxId, workDir, owner: false };
+}
+
+/**
+ * 0082: a start_thread child attached to its parent's sandbox normally
+ * inherits the EXACT same directory (same sandbox, same cwd) — but a
+ * parent still sitting at the bare work root (never `cd`'d into
+ * anything) hands the child nothing to work in when the project has
+ * exactly one repo: the clone lives at `<root>/<repoName>`, and the
+ * child has to find that itself. Pick the repo subdirectory for it in
+ * that one case. A parent already inside a repo (or any other
+ * subdirectory), a multi-repo project (no single right answer to pick),
+ * or no project at all, are left untouched.
+ */
+export function childSandboxWorkDir(ownerId: string, workDir: string, projectId: string | null): string {
+  if (!projectId || workDir !== sandboxWorkRoot(ownerId)) return workDir;
+  const plan = loadProjectPlan(projectId);
+  if (!plan || plan.repos.length !== 1) return workDir;
+  return `${workDir}/${plan.repos[0]!.name}`;
 }
 
 /**
@@ -136,11 +157,16 @@ async function bindOnFirstUse(
  * Attach a fresh, unbound conversation to an existing sandbox: copy the
  * owner's binding (same sandbox, same directory). Refused once the
  * conversation is bound or disabled — the choice is made at the start.
+ * 0082: `projectId` set (a start_thread child only) adjusts the inherited
+ * workDir via childSandboxWorkDir; omitted (every other attacher — the
+ * UI sandbox picker, previews' fix flow) keeps the exact same directory,
+ * as before.
  */
 export async function attachConversation(
   conversationId: string,
   sandboxId: string,
   provider: SandboxProvider = sandboxProvider(),
+  projectId: string | null = null,
 ): Promise<BoundSandbox> {
   const current = getConversationBinding(db(), conversationId);
   if (!current) throw new Error(`no conversation ${conversationId}`);
@@ -153,7 +179,10 @@ export async function attachConversation(
       "this conversation is already bound to a sandbox — a binding never changes; start a new chat to use another",
     );
   }
-  const target = inheritBinding(ownerBinding(sandboxId));
+  const owner = ownerBinding(sandboxId);
+  const lease = getLease(db(), sandboxId);
+  const workDir = lease ? childSandboxWorkDir(lease.ownerId, owner.workDir, projectId) : owner.workDir;
+  const target = inheritBinding(owner, workDir);
   const bound = bindConversation(db(), conversationId, target);
   if (bound.sandboxId !== sandboxId) {
     throw new Error("this conversation was bound to another sandbox first");

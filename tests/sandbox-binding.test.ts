@@ -5,10 +5,11 @@ import type { Experimental_SandboxSession } from "ai";
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import { ensureConversation } from "../db/chat";
-import { projects } from "../db/schema";
+import { projectRepos, projects } from "../db/schema";
 import { getConversationBinding, getLeaseByOwner } from "../db/sandboxes";
 import {
   attachConversation,
+  childSandboxWorkDir,
   inheritBinding,
   openConversationSandbox,
   openSandbox,
@@ -129,6 +130,59 @@ describe("0013 sandbox bindings", () => {
     expect(opened.sandboxId).toBe(run.sandboxId);
     expect(opened.workDir).toBe("/work/mr_b_run");
     expect(getLeaseByOwner(db(), "conversation", "c_b_proj_guest")).toBeNull();
+  });
+
+  it("childSandboxWorkDir (0082): a single-repo project's child drops into the repo", () => {
+    db().insert(projects).values({ id: "p_bind_one_repo", name: "One repo", createdAt: 0 }).onConflictDoNothing().run();
+    db()
+      .insert(projectRepos)
+      .values({ id: "pr_bind_one", projectId: "p_bind_one_repo", url: "https://example.com/one.git", name: "one", createdAt: 0 })
+      .onConflictDoNothing()
+      .run();
+    expect(childSandboxWorkDir("c_owner1", "/work/c_owner1", "p_bind_one_repo")).toBe("/work/c_owner1/one");
+  });
+
+  it("childSandboxWorkDir: a multi-repo project keeps the work root", () => {
+    db().insert(projects).values({ id: "p_bind_two_repos", name: "Two repos", createdAt: 0 }).onConflictDoNothing().run();
+    db()
+      .insert(projectRepos)
+      .values([
+        { id: "pr_bind_two_a", projectId: "p_bind_two_repos", url: "https://example.com/a.git", name: "a", createdAt: 0 },
+        { id: "pr_bind_two_b", projectId: "p_bind_two_repos", url: "https://example.com/b.git", name: "b", createdAt: 0 },
+      ])
+      .onConflictDoNothing()
+      .run();
+    expect(childSandboxWorkDir("c_owner2", "/work/c_owner2", "p_bind_two_repos")).toBe("/work/c_owner2");
+  });
+
+  it("childSandboxWorkDir: a parent already inside a repo subdir is left untouched", () => {
+    db().insert(projects).values({ id: "p_bind_in_repo", name: "In repo", createdAt: 0 }).onConflictDoNothing().run();
+    db()
+      .insert(projectRepos)
+      .values({ id: "pr_bind_in", projectId: "p_bind_in_repo", url: "https://example.com/r.git", name: "r", createdAt: 0 })
+      .onConflictDoNothing()
+      .run();
+    expect(childSandboxWorkDir("c_owner3", "/work/c_owner3/r", "p_bind_in_repo")).toBe("/work/c_owner3/r");
+  });
+
+  it("childSandboxWorkDir: no project leaves the work root untouched", () => {
+    expect(childSandboxWorkDir("c_owner4", "/work/c_owner4", null)).toBe("/work/c_owner4");
+  });
+
+  it("a start_thread child attached to a single-repo project's sandbox lands inside the repo", async () => {
+    const provider = new FakeProvider();
+    db().insert(projects).values({ id: "p_bind_attach_repo", name: "Attach repo", createdAt: 0 }).onConflictDoNothing().run();
+    db()
+      .insert(projectRepos)
+      .values({ id: "pr_bind_attach", projectId: "p_bind_attach_repo", url: "https://example.com/attach.git", name: "attach", createdAt: 0 })
+      .onConflictDoNothing()
+      .run();
+    ensureConversation(db(), "c_b_repo_owner", "p_bind_attach_repo");
+    const owner = await openConversationSandbox("c_b_repo_owner", provider);
+
+    ensureConversation(db(), "c_b_repo_child");
+    const bound = await attachConversation("c_b_repo_child", owner.sandboxId, provider, "p_bind_attach_repo");
+    expect(bound.workDir).toBe("/work/c_b_repo_owner/attach");
   });
 
   it("opening an inherited binding resumes a stopped sandbox but never stops or destroys", async () => {
