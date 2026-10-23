@@ -14,6 +14,7 @@ import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
 import { DiffBreakdownChip } from "@/components/diff-breakdown";
 import { isDiffBreakdown } from "@/lib/diff-breakdown";
+import { prUrlCoords } from "@/lib/work-prs";
 import { cn } from "@/lib/utils";
 import type { PromptChangeCard as PromptChangeCardData } from "@/lib/read-models/attention";
 
@@ -21,12 +22,6 @@ import type { PromptChangeCard as PromptChangeCardData } from "@/lib/read-models
  * Approval-gated transcript cards (create_pr, ask_owner, exec,
  * gated tools) — split from chat-session.tsx.
  */
-
-/** owner/repo + number read off a PR web URL. */
-function prUrlCoords(url: string): { repo: string; number: string } | null {
-  const match = url.match(/^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\/pulls?\/(\d+)/);
-  return match ? { repo: `${match[1]}/${match[2]}`, number: match[3] } : null;
-}
 
 /**
  * 0037: a create_pr call waiting on Chad — the runtime's evidence (test
@@ -138,63 +133,46 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
   const coords = url ? prUrlCoords(url) : null;
   const numberText = coords?.number ?? (prNumber !== undefined ? String(prNumber) : undefined);
   const errorText = failed ? (part.errorText ?? "create_pr failed") : undefined;
+  const stateWord = failed ? "failed" : running ? "opening" : closed ? "closed" : merged ? "merged" : "open";
+  const stateDot = failed ? "bg-destructive" : running ? "bg-info" : closed ? "bg-muted-foreground" : "bg-success";
+  const iconClass = failed ? "text-destructive" : running ? "text-info" : closed ? "text-muted-foreground" : "text-success";
 
   return (
     <Tool className={cn("my-1", failed && "border-destructive/40")}>
-      <div className="flex w-full items-center justify-between gap-3 px-3 py-2.5">
-        <div className="flex min-w-0 items-center gap-2 text-sm">
-          <GitPullRequest
-            className={cn(
-              "size-4 shrink-0",
-              failed ? "text-destructive" : running ? "text-info" : closed ? "text-warning" : "text-success",
-            )}
+      {/* 0078: one slim line — the detail (body, branches, breakdown)
+       *  lives in the collapsible below. */}
+      <div className="flex w-full items-center gap-2 px-3 py-2.5 text-sm">
+        <GitPullRequest className={cn("size-4 shrink-0", iconClass)} aria-hidden />
+        <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", stateDot, running && "animate-pulse")} />
+        <span className="shrink-0 text-xs text-muted-foreground">{stateWord}</span>
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {title ?? (running ? "Opening pull request…" : "Pull request")}
+        </span>
+        {(coords?.repo || numberText) && (
+          <span className="hidden shrink-0 font-mono text-xs text-muted-foreground sm:inline">
+            {[coords?.repo, numberText && `#${numberText}`].filter(Boolean).join(" ")}
+          </span>
+        )}
+        {url && (
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90 pointer-coarse:px-3 pointer-coarse:py-2"
+          >
+            View PR →
+          </a>
+        )}
+        <CollapsibleTrigger
+          aria-label="Toggle create_pr details"
+          title="Details"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors pointer-coarse:size-10 hover:bg-accent hover:text-foreground"
+        >
+          <ChevronDown
+            className="size-4 transition-transform group-data-[state=open]:rotate-180"
             aria-hidden
           />
-          <span className="truncate font-medium">
-            {title ?? (running ? "Opening pull request…" : "Pull request")}
-          </span>
-          <span
-            className={
-              "shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase " +
-              (failed
-                ? "bg-destructive/15 text-destructive"
-                : running
-                  ? "animate-pulse bg-info/15 text-info"
-                  : closed
-                    ? "bg-warning/15 text-warning"
-                    : "bg-success/15 text-success")
-            }
-          >
-            {failed ? "failed" : running ? "opening" : closed ? "closed" : merged ? "merged" : "opened"}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {(coords?.repo || numberText) && (
-            <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
-              {[coords?.repo, numberText && `#${numberText}`].filter(Boolean).join(" ")}
-            </span>
-          )}
-          {url && (
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:opacity-90 pointer-coarse:px-3 pointer-coarse:py-2"
-            >
-              View PR →
-            </a>
-          )}
-          <CollapsibleTrigger
-            aria-label="Toggle create_pr details"
-            title="Details"
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors pointer-coarse:size-10 hover:bg-accent hover:text-foreground"
-          >
-            <ChevronDown
-              className="size-4 transition-transform group-data-[state=open]:rotate-180"
-              aria-hidden
-            />
-          </CollapsibleTrigger>
-        </div>
+        </CollapsibleTrigger>
       </div>
       {part.state === "input-available" && <PendingPRApproval toolCallId={part.toolCallId} />}
       <ToolContent>
