@@ -9,6 +9,14 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates curl sudo \
   && rm -rf /var/lib/apt/lists/*
 
+# python3/make/g++: node-gyp build toolchain — npm runs it for any gypfile
+# dependency (better-sqlite3 et al.) even when a prebuilt binary exists;
+# without these the whole npm install hard-fails (same reason the dev
+# container carries them — see Containerfile.dev).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
 # 0035: browser tools baked in for general-purpose use — anything the
 # agent needs, not QA-only. The Chrome shared libraries are the list
 # agent-browser's own --with-deps would install (it shells `sudo apt`,
