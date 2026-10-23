@@ -13,7 +13,7 @@
 # fixed unit name also serializes deploys (a second systemd-run fails
 # while one runs), with flock as the belt to those braces.
 #
-#   cd ~/ss/sweatshop && git show <sha>:scripts/ci-deploy.sh \
+#   cd ~/sweatshop && git show <sha>:scripts/ci-deploy.sh \
 #     > /tmp/sweatshop-ci-deploy.sh
 #   /run/wrappers/bin/sudo systemd-run \
 #     --machine=crussell@.host --user --collect --wait \
@@ -48,7 +48,7 @@ if [[ -z "${SWEATSHOP_DEPLOY_COPY:-}" ]]; then
 fi
 trap 'rm -f "$SWEATSHOP_DEPLOY_COPY"' EXIT
 
-ROOT=/home/crussell/ss/sweatshop
+ROOT=/home/crussell/sweatshop
 cd "$ROOT"
 UNIT=sweatshop
 URL="${SWEATSHOP_URL:-http://localhost:3300}"
