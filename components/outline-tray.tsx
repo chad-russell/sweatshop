@@ -7,8 +7,8 @@ import { outlineTraySummary, type OutlineState, type OutlineTrayContext } from "
 import { cn } from "@/lib/utils";
 
 /**
- * 0079: the always-visible outline — a one-line bar docked to the top
- * of the composer (collapsed, the default) that expands UPWARD into
+ * 0079: the always-visible outline — a one-line bar sitting just above
+ * the composer (collapsed, the default) that expands UPWARD into
  * the full checklist, reusing `OutlineBody` (the same document + edit +
  * approve flow as the transcript's own card, 0064). Chad's ask: see
  * progress/status at any point in the chat, not only wherever an
@@ -101,7 +101,7 @@ export function OutlineTray({
 
   return (
     <div
-      className="outline-tray flex flex-col overflow-hidden rounded-t-2xl border border-b-0 border-border bg-card"
+      className="outline-tray mb-1.5 flex flex-col overflow-hidden rounded-xl"
       onKeyDown={(event) => {
         if (event.key === "Escape" && expanded) {
           setExpandedAndStore(false);
