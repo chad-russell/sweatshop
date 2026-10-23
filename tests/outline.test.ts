@@ -19,6 +19,7 @@ import {
   deriveOutlineTrayContext,
   diffOutlineSteps,
   isOutline,
+  outlineChangeSummary,
   outlineChipLabel,
   outlineTraySummary,
   prependOutlineHandoff,
@@ -427,6 +428,38 @@ describe("diffOutlineSteps", () => {
         { id: "b", label: "B", kind: "removed", fromState: "pending" },
       ]),
     );
+  });
+});
+
+describe("outlineChangeSummary (0079: the slimmed card's one-liner)", () => {
+  it("summarizes when every change is a step finishing", () => {
+    const before = outline("x", [
+      { id: "a", label: "A", state: "active" },
+      { id: "b", label: "B", state: "pending" },
+    ]);
+    const after = outline("x", [
+      { id: "a", label: "A", state: "done" },
+      { id: "b", label: "B", state: "done" },
+    ]);
+    expect(outlineChangeSummary(diffOutlineSteps(before, after))).toBe("2 steps done");
+  });
+
+  it("singular for one finished step", () => {
+    const before = outline("x", [{ id: "a", label: "A", state: "active" }]);
+    const after = outline("x", [{ id: "a", label: "A", state: "done" }]);
+    expect(outlineChangeSummary(diffOutlineSteps(before, after))).toBe("1 step done");
+  });
+
+  it("omits anything that isn't purely steps finishing", () => {
+    const before = outline("x", [{ id: "a", label: "A", state: "pending" }]);
+    const addedOnly = outline("x", [
+      { id: "a", label: "A", state: "pending" },
+      { id: "b", label: "B", state: "pending" },
+    ]);
+    expect(outlineChangeSummary(diffOutlineSteps(before, addedOnly))).toBeNull();
+    const mixed = outline("x", [{ id: "a", label: "A", state: "blocked" }]);
+    expect(outlineChangeSummary(diffOutlineSteps(before, mixed))).toBeNull();
+    expect(outlineChangeSummary([])).toBeNull();
   });
 });
 
