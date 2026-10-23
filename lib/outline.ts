@@ -679,6 +679,17 @@ export function diffOutlineSteps(before: Outline, after: Outline): OutlineStepDi
   return out;
 }
 
+/** 0079: the slimmed transcript card's one-line change summary — only
+ *  for the cheap, common case (every changed step just finished); any
+ *  other mix of adds/removes/other state changes is too much to say in
+ *  one line, so the caller omits it instead. */
+export function outlineChangeSummary(diff: readonly OutlineStepDiff[]): string | null {
+  if (diff.length === 0) return null;
+  const doneCount = diff.filter((entry) => entry.kind === "state-changed" && entry.toState === "done").length;
+  if (doneCount !== diff.length) return null;
+  return `${doneCount} step${doneCount === 1 ? "" : "s"} done`;
+}
+
 // --- UI transcript history (card: "changes since vN", open-review hint) ---
 
 type LoosePart = { type: string; state?: string; output?: unknown; toolCallId?: string; text?: string };

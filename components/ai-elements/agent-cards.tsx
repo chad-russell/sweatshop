@@ -73,7 +73,8 @@ export function Card({
   title: ReactNode;
   subtitle?: ReactNode;
   tone: Tone;
-  pill: string;
+  /** Omit for a default-tone card with nothing worth flagging (0079). */
+  pill?: string;
   extra?: ReactNode;
   link?: { href: string; label: string };
   failed?: boolean;
@@ -101,7 +102,7 @@ export function Card({
           {subtitle && <span className="min-w-0 truncate font-mono text-[12.5px] font-medium">{subtitle}</span>}
         </div>
         {extra}
-        <Pill tone={tone} label={pill} />
+        {pill && <Pill tone={tone} label={pill} />}
         {link && (
           <Link
             href={link.href}
