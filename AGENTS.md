@@ -129,21 +129,22 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   slice as a percentage of the model's catalog window, and cost;
   hidden until metered, ring-only below `sm`; clicking opens the same
   stats breakdown (context first) as a popover. The header itself just
-  holds crumbs · the outline chip · the work pill · the preview pill.
-  The outline chip (`lib/thread-phase.ts` `phaseFromMessages`,
-  `components/status-chip.tsx`) is outline-only (0064) — a PR is never
-  the phase. The work pill (0078, `components/work-pill.tsx`) is the
-  PR control: `lib/work-prs.ts`'s `workPRsFromMessages` tracks every
-  `create_pr` call in the transcript (pending/open, denied/errored
-  dropped, retried opens deduped by url), 0 PRs renders nothing. While
-  any PR is open the client polls `GET /api/x/prs` per PR url and
-  `applyLiveStates` relabels each one merged/closed at render time. One
-  PR shows a state dot + `#n` + word; several show a count, the dot
-  coloured by whichever needs the most attention. `mergeBreakdowns`
-  aggregates each PR's diff breakdown (when it has one) into the same
-  fixed categories as a single PR's (Generated/Tests/Docs/Migrations/
-  Config/Code, `lib/diff-breakdown.ts`); the pill's popover lists every
-  PR plus that aggregate table.
+  holds crumbs · the work pill · the preview pill — the outline's own
+  phase/progress chrome lives in the composer-docked outline tray (0079)
+  instead, not the header. `lib/thread-phase.ts`'s `phaseFromMessages`
+  (outline-only, 0064 — a PR is never the phase) still backs the agent
+  panel's compact chip (`components/status-chip.tsx`). The work pill
+  (0078, `components/work-pill.tsx`) is the PR control: `lib/work-prs.ts`'s
+  `workPRsFromMessages` tracks every `create_pr` call in the transcript
+  (pending/open, denied/errored dropped, retried opens deduped by url),
+  0 PRs renders nothing. While any PR is open the client polls
+  `GET /api/x/prs` per PR url and `applyLiveStates` relabels each one
+  merged/closed at render time. One PR shows a state dot + `#n` + word;
+  several show a count, the dot coloured by whichever needs the most
+  attention. `mergeBreakdowns` aggregates each PR's diff breakdown (when
+  it has one) into the same fixed categories as a single PR's
+  (Generated/Tests/Docs/Migrations/Config/Code, `lib/diff-breakdown.ts`);
+  the pill's popover lists every PR plus that aggregate table.
 - Quiet tool groups (0056) keep their full-width collapsible box and
   render calls with shadcn Trace (`components/ui/trace.tsx`): action
   first, expandable specialized cards, repeated polls still folded.
@@ -278,13 +279,26 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   first message); `harness_calls.step` / `conversations.work_step`
   record the step label for cards, the sidebar, `childStatus` and
   `inspect`. UI: `components/outline-card.tsx` (goal, recursive tree,
-  runner badges, "changes since vN" including removed steps, review
-  editing), the header chip (`<active step> · d/n`, `needs you` when
-  blocked or in review, stale after an un-followed wake; PR states win,
-  0052), the Inbox outline card, and `components/work-chip.tsx` in the
-  composer ("N working", live background work with step labels; hidden
-  when idle). Skills are plain runbooks — no `mode` flag, no phases, no
-  mode entry on send; `use_skill` loads text. Legacy read-compat:
+  runner badges shown only for a pinned/non-`auto` runner, "changes
+  since vN" including removed steps, review editing — the document +
+  edit + approve flow is `OutlineBody`, shared with the tray below) and
+  the Inbox outline card. The always-visible surface is the
+  composer-docked outline tray (0079, `components/outline-tray.tsx`) —
+  a one-line bar directly above the composer, fed by the whole
+  transcript the same way `phase`/`prs` are (`ChatContextBlock.outline`,
+  `lib/outline.ts`'s `deriveOutlineTrayContext`): segmented progress per
+  top-level step, `d/n`, the active/blocked step's label
+  (`outlineTraySummary`), `needs you` when blocked or in review, a
+  stale hint after an un-followed wake. Tapping it expands upward into
+  the full `OutlineBody` (edit/approve included) without leaving the
+  composer; transcript cards default closed except the latest open
+  review, since the tray — not wherever a card happens to sit — is now
+  the one place status is always visible. The old header chip is gone;
+  the header's own PR control is the work pill (0078), unrelated to the
+  outline. `components/work-chip.tsx` in the composer ("N working",
+  live background work with step labels; hidden when idle) is separate
+  from the tray and unchanged. Skills are plain runbooks — no `mode`
+  flag, no phases, no mode entry on send; `use_skill` loads text. Legacy read-compat:
   historical `present_plan` results render read-only
   (`components/legacy-plan-card.tsx`, `lib/legacy-plan.ts`) and open
   `plan` review rows are hidden from the Inbox and typed answers, never
