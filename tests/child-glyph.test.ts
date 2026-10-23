@@ -27,9 +27,12 @@ describe("childGlyphKind", () => {
     expect(childGlyphKind(row({ parentConversationId: "p" }))).toBe("agent-done");
   });
 
-  it("top-level chats and historical runs get nothing here", () => {
+  it("top-level chats spin only while a turn is live", () => {
     expect(childGlyphKind(row({}))).toBe("none");
-    expect(childGlyphKind(row({ activeRunId: "w" }))).toBe("none");
+    expect(childGlyphKind(row({ activeRunId: "w" }))).toBe("running");
+  });
+
+  it("historical runs get nothing here", () => {
     expect(childGlyphKind(row({ kind: "run", runStatus: "completed", parentConversationId: "p" }))).toBe("none");
   });
 });

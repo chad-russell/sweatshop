@@ -207,6 +207,7 @@ export function loadAttention(db: Conn): AttentionState {
       lastSeenAt: conversations.lastSeenAt,
       archivedAt: conversations.archivedAt,
       trashedAt: conversations.trashedAt,
+      activeRunId: conversations.activeRunId,
     })
     .from(conversations)
     .where(ne(conversations.kind, "stage"))
@@ -225,10 +226,14 @@ export function loadAttention(db: Conn): AttentionState {
     .filter(([id]) => live.has(id))
     .flatMap(([, list]) => list.map((r) => r.requestId));
   const previewFailures = failedPreviews(db).map((p) => `${p.id}:${p.failedSha}`);
+  // Live turns belong in the signature: a run starting or ending must refresh
+  // the sidebar so its spinner appears and clears without a manual reload.
+  const liveRuns = [...live.values()].filter((r) => r.activeRunId).map((r) => `${r.id}:${r.activeRunId}`);
   const signature = [
     [...unread].sort().join(","),
     requestIds.sort().join(","),
     previewFailures.sort().join(","),
+    liveRuns.sort().join(","),
   ].join("|");
   return { unread, needsYou, signature };
 }
