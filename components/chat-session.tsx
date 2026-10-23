@@ -1065,7 +1065,7 @@ export function ChatSession({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="w-full px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-4">
+      <div className="composer-dock w-full px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-4">
         {/* 0079: docked directly above the composer, flush — no gap. */}
         <OutlineTray
           key={conversationId}

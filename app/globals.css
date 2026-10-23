@@ -178,6 +178,17 @@
     0 0 0 1px var(--ring),
     0 0 24px -2px color-mix(in oklab, var(--ring) 45%, transparent);
 }
+/* 0079: the outline tray is docked above the composer and must read as one */
+/* unit with it — its border follows the composer box on hover and focus.   */
+.outline-tray {
+  transition: border-color 200ms;
+}
+.composer-dock:has(.composer [data-slot="input-group"]:hover) .outline-tray {
+  border-color: color-mix(in oklab, var(--ring) 40%, var(--border));
+}
+.composer-dock:has(.composer [data-slot="input-group"]:focus-within) .outline-tray {
+  border-color: var(--ring);
+}
 .composer [data-slot="input-group-control"] {
   min-height: 3.5rem;
   padding: 0.875rem 1rem 0;
