@@ -288,7 +288,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   edit + approve flow is `OutlineBody`, shared with the tray below) and
   the Inbox outline card. The always-visible surface is the
   composer-docked outline tray (0079, `components/outline-tray.tsx`) —
-  a one-line bar directly above the composer, fed by the whole
+  a one-line borderless tinted bar just above the composer (detached, small gap), fed by the whole
   transcript the same way `phase`/`prs` are (`ChatContextBlock.outline`,
   `lib/outline.ts`'s `deriveOutlineTrayContext`): segmented progress per
   top-level step, `d/n`, the active/blocked step's label

@@ -1053,7 +1053,7 @@ export function ChatSession({
       </Conversation>
 
       <div className="composer-dock w-full px-3 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-4">
-        {/* 0079: docked directly above the composer, flush — no gap. */}
+        {/* 0079: detached tinted bar just above the composer (small gap). */}
         <OutlineTray
           key={conversationId}
           conversationId={conversationId}

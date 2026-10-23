@@ -178,22 +178,19 @@
     0 0 0 1px var(--ring),
     0 0 24px -2px color-mix(in oklab, var(--ring) 45%, transparent);
 }
-/* 0079: the outline tray is docked above the composer and must read as one */
-/* unit with it — its border follows the composer box on hover and focus.   */
+/* 0079: the outline tray sits just above the composer as a detached,     */
+/* borderless tinted bar — no outline of its own, so nothing can drift out */
+/* of step with the composer's focus ring. On focus it only picks up a     */
+/* faint ring tint; the glow stays on the composer.                        */
 .outline-tray {
-  transition: border-color 200ms;
+  background-color: color-mix(in oklab, var(--card) 55%, var(--background));
+  transition: background-color 200ms;
 }
 .composer-dock:has(.composer [data-slot="input-group"]:hover) .outline-tray {
-  border-color: color-mix(in oklab, var(--ring) 40%, var(--border));
+  background-color: color-mix(in oklab, var(--ring) 5%, color-mix(in oklab, var(--card) 55%, var(--background)));
 }
 .composer-dock:has(.composer [data-slot="input-group"]:focus-within) .outline-tray {
-  border-color: var(--ring);
-}
-/* When the tray is docked above, the composer top corners go square so   */
-/* the two boxes meet in a clean seam instead of notching at both ends.   */
-.composer-dock:has(.outline-tray) .composer [data-slot="input-group"] {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+  background-color: color-mix(in oklab, var(--ring) 10%, var(--card));
 }
 .composer [data-slot="input-group-control"] {
   min-height: 3.5rem;
