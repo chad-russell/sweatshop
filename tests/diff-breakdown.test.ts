@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { UIMessage } from "ai";
-import { classifyDiff, isDiffBreakdown, latestDiffBreakdown, parseNumstatZ } from "../lib/diff-breakdown";
+import { classifyDiff, isDiffBreakdown, parseNumstatZ } from "../lib/diff-breakdown";
 
 /**
  * 0059: the diff-breakdown chip's pure core — fixture numstats, no git
@@ -132,61 +131,5 @@ describe("isDiffBreakdown", () => {
     expect(isDiffBreakdown(undefined)).toBe(false);
     expect(isDiffBreakdown(null)).toBe(false);
     expect(isDiffBreakdown({ url: "https://example.com", number: 3 })).toBe(false);
-  });
-});
-
-describe("latestDiffBreakdown", () => {
-  const breakdownA = classifyDiff([{ path: "a.ts", added: 1, deleted: 0, binary: false }]);
-  const breakdownB = classifyDiff([{ path: "b.ts", added: 2, deleted: 3, binary: false }]);
-
-  function createPrMessage(id: string, output: unknown): UIMessage {
-    return {
-      id,
-      role: "assistant",
-      parts: [
-        { type: "tool-create_pr", toolCallId: id, state: "output-available", input: {}, output },
-      ] as UIMessage["parts"],
-    };
-  }
-
-  it("returns null with no create_pr calls", () => {
-    expect(latestDiffBreakdown([])).toBeNull();
-  });
-
-  it("returns the newest call's breakdown", () => {
-    const msgs = [
-      createPrMessage("p1", { url: "https://example.com/1", number: 1, breakdown: breakdownA }),
-      createPrMessage("p2", { url: "https://example.com/2", number: 2, breakdown: breakdownB }),
-    ];
-    expect(latestDiffBreakdown(msgs)).toEqual(breakdownB);
-  });
-
-  it("skips a denied/sent-back call (ok: false)", () => {
-    const msgs = [
-      createPrMessage("p1", { url: "https://example.com/1", number: 1, breakdown: breakdownA }),
-      createPrMessage("p2", { ok: false, code: "denied", message: "no" }),
-    ];
-    expect(latestDiffBreakdown(msgs)).toEqual(breakdownA);
-  });
-
-  it("skips an older result with no breakdown field at all", () => {
-    const msgs = [
-      createPrMessage("p1", { url: "https://example.com/1", number: 1, breakdown: breakdownA }),
-      createPrMessage("p2", { url: "https://example.com/2", number: 2 }),
-    ];
-    expect(latestDiffBreakdown(msgs)).toEqual(breakdownA);
-  });
-
-  it("ignores a pending (input-available) create_pr call", () => {
-    const msgs: UIMessage[] = [
-      {
-        id: "p1",
-        role: "assistant",
-        parts: [
-          { type: "tool-create_pr", toolCallId: "p1", state: "input-available", input: {} },
-        ] as UIMessage["parts"],
-      },
-    ];
-    expect(latestDiffBreakdown(msgs)).toBeNull();
   });
 });

@@ -170,13 +170,13 @@ describe("GET /api/x/chat context", () => {
     const body = (await res.json()) as {
       context: {
         phase: { label: string } | null;
-        diffBreakdown: unknown;
+        prs: unknown[];
         hasBackgroundChild: boolean;
       };
     };
-    // Outline-derived phase, no background children, no diff.
+    // Outline-derived phase, no background children, no PRs.
     expect(body.context.hasBackgroundChild).toBe(false);
-    expect(body.context.diffBreakdown).toBeNull();
+    expect(body.context.prs).toEqual([]);
   });
 
   it("context=1 marks a background child so the wake watch survives a tail window", async () => {

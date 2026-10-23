@@ -17,7 +17,7 @@ import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
 import { LocalTime } from "@/components/local-time";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { PhaseChip } from "@/components/status-chip";
-import { DiffBreakdownChip } from "@/components/diff-breakdown";
+import { WorkPill } from "@/components/work-pill";
 import { WorkChip } from "@/components/work-chip";
 import { UsageControl } from "@/components/usage-control";
 import { shortSandboxId } from "@/lib/sandbox-id";
@@ -532,10 +532,10 @@ export function ChatSurface({
             { label: conversationTitle ?? "New chat" },
           ]}
         >
-          {/* 0041: plan → build → PR, derived from the transcript. */}
+          {/* 0064: the outline's active step, derived from the transcript. */}
           <PhaseChip phase={s.phase} variant="header" />
-          {/* 0059: the newest create_pr's diff breakdown, beside the phase chip. */}
-          {s.diffBreakdown && <DiffBreakdownChip breakdown={s.diffBreakdown} variant="header" />}
+          {/* 0078: every PR this thread opened, live state + aggregate diff. */}
+          <WorkPill prs={s.workPRs} />
           {/* 0016: previews in this chat's sandbox (any tool in the tree). */}
           <PreviewPill owner={s.started ? s.conversationId : null} />
           {headerExtra}

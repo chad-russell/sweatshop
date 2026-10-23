@@ -35,9 +35,9 @@ import {
 import { ComposerAddButton, ComposerAttachments, attachmentErrorMessage } from "@/components/composer-attachments";
 import { MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE } from "@/lib/attachment-ref";
 import { OutlineViewProvider, type OutlineView } from "@/components/outline-card";
-import { applyPRState, phaseFromMessages, type Phase } from "@/lib/thread-phase";
+import { phaseFromMessages, type Phase } from "@/lib/thread-phase";
 import { outlineHistory } from "@/lib/outline";
-import { latestDiffBreakdown, type DiffBreakdown } from "@/lib/diff-breakdown";
+import { applyLiveStates, workPRsFromMessages, type DisplayWorkPR } from "@/lib/work-prs";
 import { usePRStates } from "@/lib/use-pr-states";
 import { Spinner } from "@/components/ui/spinner";
 import { SweatshopLogo } from "@/components/sweatshop-logo";
@@ -188,10 +188,11 @@ export interface ChatSessionState {
   status: ChatStatus;
   /** Forget the composer draft (a run start consumed the text). */
   clearDraft: () => void;
-  /** 0041: the work phase derived from the transcript (plan → build → PR). */
+  /** 0041 (0078: PR-free now): the outline-derived work phase. */
   phase: Phase | null;
-  /** 0059: the newest create_pr call's diff breakdown, for the header chip. */
-  diffBreakdown: DiffBreakdown | null;
+  /** 0078: every create_pr call in the transcript, with live state and
+   *  diff breakdown — the header's work pill. */
+  workPRs: DisplayWorkPR[];
   /** The live transcript — the work chip derives its live child set
    *  from it (lib/chat-ui.ts's backgroundChildIds). */
   messages: UIMessage[];
@@ -472,29 +473,27 @@ export function ChatSession({
   // stored transcript (with the wake row) is swapped in, then the live
   // turn streams in like any other.
   // 0075: the transcript is a WINDOW now. The header facts (phase
-  // chip, diff breakdown, wake watch) are derived from the whole
-  // transcript server-side (`context=1`, fetched on mount and whenever
-  // a turn settles) and preferred over what the visible window derives
-  // — a tail window may not contain the outline or PR that set the
-  // phase.
+  // chip, work PRs, wake watch) are derived from the whole transcript
+  // server-side (`context=1`, fetched on mount and whenever a turn
+  // settles) and preferred over what the visible window derives — a
+  // tail window may not contain the outline or PR that set the phase.
   const [serverContext, setServerContext] = useState<ChatContextBlock | null>(null);
   const derivedPhase = useMemo(() => phaseFromMessages(messages), [messages]);
-  const derivedDiffBreakdown = useMemo(() => latestDiffBreakdown(messages), [messages]);
+  const derivedWorkPRs = useMemo(() => workPRsFromMessages(messages), [messages]);
   const phase = serverContext?.phase ?? derivedPhase;
-  const diffBreakdown = serverContext?.diffBreakdown ?? derivedDiffBreakdown;
+  const workPRs = serverContext?.prs ?? derivedWorkPRs;
   const backgroundOut = serverContext ? serverContext.hasBackgroundChild : hasBackgroundChild(messages);
   // 0064: an open outline review also wakes this chat (on Approve), same watch.
   const outlines = useMemo(() => outlineHistory(messages), [messages]);
-  // 0052: while the derived phase is an open PR, ask the host what it
-  // says now (visible-tab poll; stops once merged/closed) — merged/
-  // closed relabels the chip, unknown keeps the derived label. The
-  // PR URL stays the link.
-  const prUrls = useMemo(
-    () => (phase?.kind === "pr-open" && phase.url ? [phase.url] : null),
-    [phase],
-  );
-  const prStates = usePRStates(prUrls);
-  const shownPhase = prUrls ? applyPRState(phase, prStates[prUrls[0]] ?? null) : phase;
+  // 0052 (now 0078's work pill): ask the host for each open PR's live
+  // answer (visible-tab poll; stops once merged/closed) — merged/closed
+  // relabels that PR's row, unknown keeps it "open".
+  const openPRUrls = useMemo(() => {
+    const urls = workPRs.filter((pr) => pr.state === "open" && pr.url).map((pr) => pr.url!);
+    return urls.length > 0 ? urls : null;
+  }, [workPRs]);
+  const prStates = usePRStates(openPRUrls);
+  const shownWorkPRs = useMemo<DisplayWorkPR[]>(() => applyLiveStates(workPRs, prStates), [workPRs, prStates]);
   const awaitingWake =
     (adopted || selfAdopted) &&
     !isBusy &&
@@ -864,8 +863,8 @@ export function ChatSession({
     busy: isBusy,
     status,
     clearDraft: () => window.localStorage.removeItem(draftKey),
-    phase: shownPhase,
-    diffBreakdown,
+    phase,
+    workPRs: shownWorkPRs,
     messages,
   };
 
