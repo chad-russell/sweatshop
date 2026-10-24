@@ -4,6 +4,7 @@ import { SquareIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { cancelHarnessCall } from "@/lib/api/harness";
 import { cn } from "@/lib/utils";
 
 /** The failed-cancel message — `role="alert"` so a screen-reader user is
@@ -38,19 +39,13 @@ function useCancelCall(callId: string, label: string) {
     if (!ok) return;
     setState("pending");
     setError(null);
-    try {
-      const res = await fetch(`/api/x/harness-calls/${encodeURIComponent(callId)}/cancel`, { method: "POST" });
-      const body = (await res.json().catch(() => null)) as { ok?: boolean; message?: string } | null;
-      if (!res.ok || !body?.ok) {
-        setState("error");
-        setError(body?.message ?? "failed to cancel");
-        return;
-      }
-      setState("done");
-    } catch {
+    const res = await cancelHarnessCall(callId);
+    if (!res.ok) {
       setState("error");
-      setError("failed to cancel");
+      setError(res.error);
+      return;
     }
+    setState("done");
   };
 
   return { state, error, cancel };

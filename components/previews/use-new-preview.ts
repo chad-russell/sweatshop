@@ -9,7 +9,14 @@ import {
   setupFormFromDefinition,
   type SetupFormValues,
 } from "@/components/project/setup-form";
-import type { PreviewSetupDefinition } from "@/lib/previews/setup";
+import {
+  confirmPreview,
+  createPreview,
+  getPreviewSetup,
+  previewAction,
+  type Candidate,
+} from "@/lib/api/previews";
+import { getProjectRepos, getRemoteBranches, type ProjectRepo } from "@/lib/api/projects";
 
 /**
  * 0017/0019: the New-preview flow's state — everything but the markup.
@@ -20,33 +27,14 @@ import type { PreviewSetupDefinition } from "@/lib/previews/setup";
  * (provisioning) preview deletes it. See new-preview.tsx for the UI.
  */
 
-export interface Repo {
-  id: string;
-  name: string;
-  url: string;
-}
-
-export interface Candidate {
-  dir: string;
-  pm: string;
-  script: string;
-  command: string;
-  install: string;
-  port: number;
-  seed?: string;
-}
-
 type Busy = null | "create" | "confirm";
-
-const post = (url: string, body: unknown) =>
-  fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 export function useNewPreview(projects: { id: string; name: string }[]) {
   const router = useRouter();
   const ids = useId();
   const [open, setOpen] = useState(false);
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
-  const [repos, setRepos] = useState<Repo[]>([]);
+  const [repos, setRepos] = useState<ProjectRepo[]>([]);
   const [repoId, setRepoId] = useState("");
   const [branches, setBranches] = useState<string[] | null>(null);
   const [branchWarning, setBranchWarning] = useState<string | null>(null);
@@ -86,19 +74,14 @@ export function useNewPreview(projects: { id: string; name: string }[]) {
     if (!open || !projectId) return;
     let cancelled = false;
     void (async () => {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches`, { cache: "no-store" });
-      const body = (await res.json().catch(() => ({ repos: [] }))) as { repos: Repo[] };
+      const body = await getProjectRepos(projectId);
       if (cancelled) return;
-      setRepos(body.repos);
-      setRepoId(body.repos[0]?.id ?? "");
+      setRepos(body);
+      setRepoId(body[0]?.id ?? "");
     })();
     void (async () => {
-      const res = await fetch(`/api/previews/setup?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
-      const body = (await res.json().catch(() => ({ setup: null }))) as {
-        setup: { definition: PreviewSetupDefinition } | null;
-      };
+      const definition = await getPreviewSetup(projectId);
       if (cancelled) return;
-      const definition = body.setup?.definition ?? null;
       setHasSetup(Boolean(definition));
       setSetupRepoId(definition?.repo ?? null);
       setValues(definition ? setupFormFromDefinition(definition) : emptySetupForm);
@@ -113,17 +96,10 @@ export function useNewPreview(projects: { id: string; name: string }[]) {
     if (!open || !projectId || !repoId) return;
     let cancelled = false;
     void (async () => {
-      const res = await fetch(
-        `/api/projects/${encodeURIComponent(projectId)}/branches?repo=${encodeURIComponent(repoId)}`,
-        { cache: "no-store" },
-      );
-      const body = (await res.json().catch(() => ({ branches: [] }))) as {
-        branches: string[];
-        warning?: string | null;
-      };
+      const body = await getRemoteBranches(projectId, repoId);
       if (cancelled) return;
       setBranches(body.branches);
-      setBranchWarning(body.warning ?? null);
+      setBranchWarning(body.warning);
       setBranch((current) => current || (body.branches.includes("main") ? "main" : (body.branches[0] ?? "")));
     })();
     return () => {
@@ -135,7 +111,7 @@ export function useNewPreview(projects: { id: string; name: string }[]) {
     if (busy) return;
     setOpen(next);
     if (!next) {
-      if (pendingId) void post(`/api/previews/${pendingId}`, { action: "delete" });
+      if (pendingId) void previewAction(pendingId, "delete");
       reset();
     }
   };
@@ -186,22 +162,17 @@ export function useNewPreview(projects: { id: string; name: string }[]) {
     if ("error" in b) return setError(b.error as string);
     setBusy("create");
     setError(null);
-    const res = await post("/api/previews", { projectId, repoId, branch, ...b });
-    const parsed = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      preview?: { id: string };
-      candidates?: Candidate[];
-    };
+    const res = await createPreview({ projectId, repoId, branch, ...b });
     setBusy(null);
-    if (!res.ok) return setError(parsed.error ?? `could not create (${res.status})`);
-    if (parsed.candidates?.length) {
-      setPendingId(parsed.preview!.id);
-      setCandidates(parsed.candidates);
-      applyCandidate(0, parsed.candidates);
+    if (!res.ok) return setError(res.error);
+    if (res.candidates?.length) {
+      setPendingId(res.preview!.id);
+      setCandidates(res.candidates);
+      applyCandidate(0, res.candidates);
       setStep("discover");
       return;
     }
-    finish(parsed.preview?.id);
+    finish(res.preview?.id);
   };
 
   const confirm = async () => {
@@ -210,10 +181,9 @@ export function useNewPreview(projects: { id: string; name: string }[]) {
     if ("error" in b) return setError(b.error as string);
     setBusy("confirm");
     setError(null);
-    const res = await post(`/api/previews/${pendingId}`, { action: "confirm", ...b });
-    const parsed = (await res.json().catch(() => ({}))) as { error?: string };
+    const failure = await confirmPreview(pendingId, b);
     setBusy(null);
-    if (!res.ok || parsed.error) return setError(parsed.error ?? `could not launch (${res.status})`);
+    if (failure) return setError(failure);
     const id = pendingId;
     setPendingId(null); // launched — closing must not delete it
     finish(id);

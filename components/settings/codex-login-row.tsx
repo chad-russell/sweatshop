@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { LABEL, MONO } from "@/components/form-styles";
 import type { ModelsView } from "@/lib/providers/catalog-view";
+import {
+  codexBrowserComplete,
+  codexBrowserStart,
+  codexDeviceStart,
+  codexLoginPoll,
+  codexLogout,
+  codexPasteAuth,
+} from "@/lib/api/codex";
 import type { CodexBrowserHandle, CodexLoginHandle } from "@/lib/harness-auth/codex-login";
 
 /**
@@ -75,21 +83,12 @@ export function CodexLoginRow({
     setError(null);
     setBrowserStarting(true);
     try {
-      const res = await fetch("/api/x/codex/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "browser_start" }),
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        authorizeUrl?: string;
-        handle?: CodexBrowserHandle;
-      };
-      if (!res.ok || !body.authorizeUrl || !body.handle) {
-        setError(body.error ?? `login failed (${res.status})`);
+      const res = await codexBrowserStart();
+      if ("error" in res) {
+        setError(res.error);
         return;
       }
-      setBrowser({ authorizeUrl: body.authorizeUrl, handle: body.handle });
+      setBrowser({ authorizeUrl: res.authorizeUrl, handle: res.handle });
       setPanel("browser");
     } catch {
       setError("login failed — could not reach the server");
@@ -103,14 +102,9 @@ export function CodexLoginRow({
     setCompleting(true);
     setError(null);
     try {
-      const res = await fetch("/api/x/codex/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "browser_complete", handle: browser.handle, callbackUrl }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(body.error ?? `login failed (${res.status})`);
+      const failure = await codexBrowserComplete(browser.handle, callbackUrl);
+      if (failure !== null) {
+        setError(failure);
         return;
       }
       closePanel();
@@ -149,29 +143,20 @@ export function CodexLoginRow({
       return;
     }
     try {
-      const res = await fetch("/api/x/codex/login/poll", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ handle: h }),
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        status?: string;
-        handle?: CodexLoginHandle;
-      };
-      if (res.ok && body.status === "pending" && body.handle) {
-        schedulePoll(body.handle);
+      const res = await codexLoginPoll(h);
+      if ("error" in res) {
+        setError(res.error);
+        setDevicePhase("idle");
+        setDeviceLogin(null);
         return;
       }
-      if (res.ok && body.status === "approved") {
-        stopTimer();
-        closePanel();
-        await onChanged();
+      if (res.status === "pending") {
+        schedulePoll(res.handle);
         return;
       }
-      setError(body.error ?? `login failed (${res.status})`);
-      setDevicePhase("idle");
-      setDeviceLogin(null);
+      stopTimer();
+      closePanel();
+      await onChanged();
     } catch {
       setError("login failed — could not reach the server");
       setDevicePhase("idle");
@@ -183,21 +168,15 @@ export function CodexLoginRow({
     setError(null);
     setDevicePhase("starting");
     try {
-      const res = await fetch("/api/x/codex/login/start", { method: "POST" });
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        userCode?: string;
-        verificationUrl?: string;
-        handle?: CodexLoginHandle;
-      };
-      if (!res.ok || !body.userCode || !body.verificationUrl || !body.handle) {
-        setError(body.error ?? `login failed (${res.status})`);
+      const res = await codexDeviceStart();
+      if ("error" in res) {
+        setError(res.error);
         setDevicePhase("idle");
         return;
       }
-      setDeviceLogin({ userCode: body.userCode, verificationUrl: body.verificationUrl });
+      setDeviceLogin({ userCode: res.userCode, verificationUrl: res.verificationUrl });
       setDevicePhase("waiting");
-      schedulePoll(body.handle);
+      schedulePoll(res.handle);
     } catch {
       setError("login failed — could not reach the server");
       setDevicePhase("idle");
@@ -207,10 +186,9 @@ export function CodexLoginRow({
   const logout = async () => {
     setError(null);
     try {
-      const res = await fetch("/api/x/codex/login", { method: "DELETE" });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(body.error ?? `logout failed (${res.status})`);
+      const failure = await codexLogout();
+      if (failure !== null) {
+        setError(failure);
         return;
       }
       await onChanged();
@@ -221,14 +199,9 @@ export function CodexLoginRow({
 
   const paste = async (authJson: string, onSaved: () => void) => {
     try {
-      const res = await fetch("/api/x/codex/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "paste", authJson }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(body.error ?? `save failed (${res.status})`);
+      const failure = await codexPasteAuth(authJson);
+      if (failure !== null) {
+        setError(failure);
         return;
       }
       onSaved();

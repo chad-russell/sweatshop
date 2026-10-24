@@ -19,7 +19,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { PreviewView } from "@/lib/previews/service";
+import { getPreviewLog, listPreviews } from "@/lib/api/previews";
+import { previewAction } from "@/lib/api/previews";
 import { cn } from "@/lib/utils";
+
+export { previewAction };
 
 /**
  * 0016: previews in a chat's or run's header. The pill appears while
@@ -65,13 +69,8 @@ export function usePreviews(query: string | null): {
   const [previews, setPreviews] = useState<PreviewView[]>([]);
   const refresh = useCallback(async () => {
     if (query === null) return; // "" IS a query — every preview (the /previews page)
-    try {
-      const res = await fetch(`/api/previews?${query}`, { cache: "no-store" });
-      if (!res.ok) return;
-      setPreviews(((await res.json()) as { previews: PreviewView[] }).previews);
-    } catch {
-      /* transient — the next tick retries */
-    }
+    const list = await listPreviews(query);
+    if (list) setPreviews(list); // a failed read keeps the previous list; the next tick retries
   }, [query]);
   useEffect(() => {
     if (query === null) return;
@@ -87,17 +86,6 @@ export function usePreviews(query: string | null): {
     };
   }, [query, refresh]);
   return { previews, refresh };
-}
-
-export async function previewAction(id: string, action: "restart" | "stop" | "delete"): Promise<string | null> {
-  const res = await fetch(`/api/previews/${id}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action }),
-  });
-  if (res.ok) return null;
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
-  return body.error ?? `${action} failed (${res.status})`;
 }
 
 /** The log sheet: the tail of a preview's server log, refreshable. */
@@ -126,11 +114,10 @@ function PreviewLogBody({ preview }: { preview: PreviewView }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const res = await fetch(`/api/previews/${preview.id}?logs=300&env=1`, { cache: "no-store" });
-      const body = (await res.json().catch(() => ({}))) as { log?: string; env?: Record<string, string> };
+      const body = await getPreviewLog(preview.id);
       if (!cancelled) {
-        setLog(body.log ?? "");
-        setEnv(body.env ?? null);
+        setLog(body.log);
+        setEnv(body.env);
       }
     })();
     return () => {

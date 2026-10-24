@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import type { ChildStatus } from "@/lib/child-status";
 import { usePollWhileVisible } from "@/lib/use-poll-while-visible";
+import { getChildStatus } from "@/lib/api/status";
 
 const POLL_MS = 5000;
 
@@ -17,20 +18,13 @@ export function useChildStatus(id: string | null): ChildStatus | null {
 
   const makeCheck = useCallback(
     (stopped: { current: boolean }) => {
-      // The poll below only ever runs this while `id` is non-null.
-      const url = `/api/x/status/${encodeURIComponent(id ?? "")}`;
       let live = true;
       return async () => {
-        if (!live || stopped.current) return;
-        try {
-          const res = await fetch(url, { cache: "no-store" });
-          if (!res.ok || stopped.current) return;
-          const next = (await res.json()) as ChildStatus;
-          live = next.live;
-          setStatus(next);
-        } catch {
-          /* transient — the next tick retries */
-        }
+        if (!live || stopped.current || !id) return;
+        const next = await getChildStatus(id);
+        if (!next) return;
+        live = next.live;
+        setStatus(next);
       };
     },
     [id],

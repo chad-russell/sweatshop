@@ -16,6 +16,7 @@ import { NEW_PROJECT_EVENT } from "@/components/project/new-project";
 import { AttentionDot } from "./attention-dot";
 import { Snippet, whereLabel } from "./search-results";
 import { useConversationSearch } from "./use-search";
+import { listPreviews } from "@/lib/api/previews";
 import { conversationHref } from "@/lib/conversation-href";
 import { allItems, type SidebarData } from "./types";
 import { RunGlyph } from "./run-glyph";
@@ -58,9 +59,8 @@ export function CommandPalette({ data }: { data: SidebarData }) {
   const [previews, setPreviews] = useState<PalettePreview[]>([]);
   useEffect(() => {
     if (!open) return;
-    void fetch("/api/previews", { cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<{ previews: PalettePreview[] }>) : { previews: [] }))
-      .then(({ previews: all }) => setPreviews(all.filter((p) => p.status === "healthy" || p.status === "starting")))
+    listPreviews("")
+      .then((all) => setPreviews((all ?? []).filter((p) => p.status === "healthy" || p.status === "starting")))
       .catch(() => setPreviews([]));
   }, [open]);
   const needle = query.trim().toLowerCase();

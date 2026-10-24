@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { usePollWhileVisible } from "@/lib/use-poll-while-visible";
+import { getAttentionSignature } from "@/lib/api/attention";
 
 const POLL_MS = 5000;
 
@@ -24,10 +25,8 @@ export function useAttentionSync(rendered: string) {
         if (inflight || stopped.current) return;
         inflight = true;
         try {
-          const res = await fetch("/api/attention", { cache: "no-store" });
-          if (!res.ok || stopped.current) return;
-          const body = (await res.json()) as { signature?: string };
-          if (typeof body.signature === "string" && body.signature !== rendered) {
+          const signature = await getAttentionSignature();
+          if (signature !== null && !stopped.current && signature !== rendered) {
             router.refresh();
           }
         } catch {

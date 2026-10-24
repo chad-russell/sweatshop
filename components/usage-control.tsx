@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { getConversationStats } from "@/lib/api/stats";
+import type { ConversationStats } from "@/lib/usage/stats";
 
 /**
  * 0055 PR2: ONE composer-bar control, merging the 0051 context meter
@@ -35,47 +37,10 @@ interface ModelUsage {
   events: number;
 }
 
-interface ChildUsage {
-  conversationId: string;
-  title: string;
-  kind: "conversation" | "harness";
-  costUsd: number | null;
-  inputTokens: number;
-  outputTokens: number;
-  workMs: number;
-  steps: number;
-  href: string;
-}
-
 interface ContextStats {
   usedTokens: number;
   windowTokens: number;
   pct: number;
-}
-
-interface StatsPayload {
-  rootId: string;
-  totals: {
-    costUsd: number | null;
-    reportedCostUsd: number;
-    inputTokens: number;
-    cachedTokens: number;
-    cacheWriteTokens: number;
-    outputTokens: number;
-    reasoningTokens: number;
-    steps: number;
-    toolCalls: number;
-    workMs: number;
-  };
-  wallMs: number | null;
-  waitMs: number;
-  medianWaitMs: number | null;
-  touches: number;
-  byModel: ModelUsage[];
-  byChild: ChildUsage[];
-  cacheHitRate: number | null;
-  /** This conversation's context (null = unmetered/unknown window). */
-  context: ContextStats | null;
 }
 
 const CHART = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
@@ -205,7 +170,7 @@ function ContextReadout({ context }: { context: ContextStats }) {
 
 /** The stats breakdown, context first (0055 PR2: this is what the merged
  *  control's popover shows). */
-function StatsBody({ data }: { data: StatsPayload }) {
+function StatsBody({ data }: { data: ConversationStats }) {
   if (data.byModel.length === 0) {
     return (
       <div className="flex flex-col gap-5">
@@ -422,7 +387,7 @@ export function UsageControl({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [data, setData] = useState<StatsPayload | null>(null);
+  const [data, setData] = useState<ConversationStats | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [attempt, setAttempt] = useState(0);
   const sawBusy = useRef(false);
@@ -435,22 +400,17 @@ export function UsageControl({
     if (!started) return;
     let cancel = false;
     const load = () => {
-      fetch(`/api/x/stats/${conversationId}`)
-        .then(async (res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return (await res.json()) as StatsPayload;
-        })
-        .then((body) => {
-          if (!cancel) {
-            setData(body);
-            setStatus("ready");
-          }
-        })
-        .catch(() => {
+      getConversationStats(conversationId).then((body) => {
+        if (cancel) return;
+        if (!body) {
           // Keep whatever data the trigger already showed; the popover's
           // own error state (below) is what Retry is for.
-          if (!cancel) setStatus("error");
-        });
+          setStatus("error");
+          return;
+        }
+        setData(body);
+        setStatus("ready");
+      });
     };
     load();
     const timer = sawBusy.current

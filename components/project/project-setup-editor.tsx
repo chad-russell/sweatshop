@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { PreviewSetupDefinition } from "@/lib/previews/setup";
+import { savePreviewSetup } from "@/lib/api/previews";
 import { FIELD, LABEL } from "@/components/form-styles";
 import { SetupFields } from "@/components/project/setup-editor";
 import {
@@ -56,15 +57,10 @@ export function ProjectSetupEditor({
       setError(built.error);
       return;
     }
-    const res = await fetch("/api/previews/setup", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId, definition: built.definition }),
-    });
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    const failure = await savePreviewSetup(projectId, built.definition);
     setBusy(false);
-    if (!res.ok) {
-      setError(body.error ?? `could not save (${res.status})`);
+    if (failure !== null) {
+      setError(failure);
       return;
     }
     setSaved(true);

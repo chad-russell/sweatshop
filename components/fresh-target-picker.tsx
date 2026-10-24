@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { listSkills, type SkillOption } from "@/lib/api/skills";
 
 /**
  * The fresh composer's target picker (0012 → 0037 phase 5 → 0055 PR2):
@@ -25,22 +26,12 @@ export interface ProjectOption {
   name: string;
 }
 
-/** 0039: a thread skill a project chat can run by. */
-export interface SkillOption {
-  id: string;
-  title: string;
-  description: string;
-}
-
 /** The thread-skill catalog, fetched once. */
 export function useSkills(): SkillOption[] | null {
   const [books, setBooks] = useState<SkillOption[] | null>(null);
   useEffect(() => {
     let live = true;
-    void fetch("/api/skills", { cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<{ skills: SkillOption[] }>) : { skills: [] }))
-      .then(({ skills }) => live && setBooks(skills))
-      .catch(() => live && setBooks([]));
+    listSkills().then((skills) => live && setBooks(skills ?? []));
     return () => {
       live = false;
     };
