@@ -5,6 +5,7 @@ import { CheckCheck, InboxIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { markAllInboxRead, markConversationSeen } from "@/lib/api/conversations";
 import type {
   InboxData,
   NeedsYouPreview,
@@ -66,11 +67,7 @@ export function InboxView({ data }: { data: InboxData }) {
         else next.delete(thread.id);
         return next;
       });
-      await fetch(`/api/conversations/${thread.id}/seen`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ seen }),
-      });
+      await markConversationSeen(thread.id, seen);
       router.refresh();
     },
     [router],
@@ -78,7 +75,7 @@ export function InboxView({ data }: { data: InboxData }) {
 
   const markAllRead = useCallback(async () => {
     setReadHere((prev) => new Map([...prev, ...data.unread.map((t) => [t.id, t] as const)]));
-    await fetch("/api/inbox/mark-all-read", { method: "POST" });
+    await markAllInboxRead();
     router.refresh();
   }, [data.unread, router]);
 

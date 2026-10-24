@@ -6,6 +6,15 @@ import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FIELD, LABEL, MONO } from "@/components/form-styles";
+import { apiError, type ApiResult } from "@/lib/api/core";
+import {
+  addProjectHost,
+  addProjectRepo,
+  deleteProject,
+  removeProjectHost,
+  removeProjectRepo,
+  updateProject,
+} from "@/lib/api/projects";
 
 /**
  * 0018 phase 3 / 0019 / 0031: the project page's editable surfaces —
@@ -25,15 +34,14 @@ function useApi() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const call = async (run: () => Promise<Response>, onOk?: () => void) => {
+  const call = async (run: () => Promise<ApiResult>, onOk?: () => void) => {
     setBusy(true);
     setError(null);
     setNote(null);
     const res = await run();
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
     setBusy(false);
     if (!res.ok) {
-      setError(body.error ?? `failed (${res.status})`);
+      setError(apiError(res, "failed"));
       return;
     }
     onOk?.();
@@ -47,16 +55,7 @@ export function ProjectNameEditor({ projectId, name }: { projectId: string; name
   const { busy, error, call } = useApi();
   const [value, setValue] = useState(name);
 
-  const rename = () =>
-    call(
-      () =>
-        fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: value }),
-        }),
-      () => router.refresh(),
-    );
+  const rename = () => call(() => updateProject(projectId, { name: value }), () => router.refresh());
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -98,12 +97,7 @@ export function ProjectImageEditor({
 
   const save = () =>
     call(
-      () =>
-        fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ imageRef: value.trim() || null }),
-        }),
+      () => updateProject(projectId, { imageRef: value.trim() || null }),
       () => {
         setNote("Saved — applies to this project's next sandbox.");
         router.refresh();
@@ -165,13 +159,9 @@ export function ProjectWorkEditor({
   const save = () =>
     call(
       () =>
-        fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            testCommand: command.trim() || null,
-            branchPrefix: prefix.trim() || null,
-          }),
+        updateProject(projectId, {
+          testCommand: command.trim() || null,
+          branchPrefix: prefix.trim() || null,
         }),
       () => {
         setNote("Saved — machine stages see it from the next run.");
@@ -233,12 +223,7 @@ export function ProjectReposEditor({ projectId, repos }: { projectId: string; re
 
   const add = () =>
     call(
-      () =>
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/repos`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name, url }),
-        }),
+      () => addProjectRepo(projectId, { name, url }),
       () => {
         setName("");
         setUrl("");
@@ -250,11 +235,7 @@ export function ProjectReposEditor({ projectId, repos }: { projectId: string; re
 
   const remove = (repoId: string, repoName: string) =>
     call(
-      () =>
-        fetch(
-          `/api/projects/${encodeURIComponent(projectId)}/repos?repoId=${encodeURIComponent(repoId)}`,
-          { method: "DELETE" },
-        ),
+      () => removeProjectRepo(projectId, repoId),
       () => {
         setNote(`Removed ${repoName}.`);
         router.refresh();
@@ -345,7 +326,7 @@ export function ProjectDangerZone({ projectId, name }: { projectId: string; name
           disabled={busy || typed !== name}
           onClick={() =>
             call(
-              () => fetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }),
+              () => deleteProject(projectId),
               () => {
                 router.push("/");
                 router.refresh();
@@ -386,11 +367,7 @@ export function ProjectHostsEditor({ projectId, hosts }: { projectId: string; ho
   const add = () =>
     call(
       () =>
-        fetch(`/api/projects/${encodeURIComponent(projectId)}/hosts`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name, address, user, ...(apiBase.trim() ? { apiBase } : {}) }),
-        }),
+        addProjectHost(projectId, { name, address, user, ...(apiBase.trim() ? { apiBase } : {}) }),
       () => {
         setName("");
         setAddress("");
@@ -404,11 +381,7 @@ export function ProjectHostsEditor({ projectId, hosts }: { projectId: string; ho
 
   const remove = (hostId: string, hostName: string) =>
     call(
-      () =>
-        fetch(
-          `/api/projects/${encodeURIComponent(projectId)}/hosts?hostId=${encodeURIComponent(hostId)}`,
-          { method: "DELETE" },
-        ),
+      () => removeProjectHost(projectId, hostId),
       () => {
         setNote(`Removed ${hostName} (its command history stays).`);
         router.refresh();

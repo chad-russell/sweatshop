@@ -54,6 +54,8 @@ import {
   type ChatContextBlock,
 } from "@/lib/chat-ui";
 import { extendChatPageBack, fetchChatPage } from "@/lib/chat-fetch";
+import { getConversationSandbox } from "@/lib/api/conversations";
+import { listSandboxChoices, type SandboxOption } from "@/lib/api/sandboxes";
 import { CHAT_STREAM_THROTTLE_MS } from "@/lib/chat-stream-throttle";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { cn } from "@/lib/utils";
@@ -151,21 +153,6 @@ function OlderMessagesControl({
   );
 }
 
-
-/** A running sandbox the composer can attach to (0013 picker). */
-export interface SandboxOption {
-  id: string;
-  status: string;
-  ownerKind: string;
-  ownerId: string;
-  /** Chat title or machine run name. */
-  ownerLabel: string;
-  projectId: string | null;
-  projectName: string | null;
-  lastUsedAt: number;
-  chats: number;
-  ref: string;
-}
 
 /** What the session tells its frame each render (header chrome, fresh-mode). */
 export interface ChatSessionState {
@@ -337,12 +324,8 @@ export function ChatSession({
   const [sandboxChoice, setSandboxChoice] = useState("auto");
   const [sandboxes, setSandboxes] = useState<SandboxOption[]>([]);
   const loadSandboxes = async () => {
-    try {
-      const res = await fetch("/api/x/sandboxes");
-      if (res.ok) setSandboxes(((await res.json()) as { sandboxes: SandboxOption[] }).sandboxes);
-    } catch {
-      // the dropdown just shows fewer options
-    }
+    const choices = await listSandboxChoices();
+    if (choices) setSandboxes(choices);
   };
 
   // Turn the knobs into request fields on every send. The refs are
@@ -759,17 +742,9 @@ export function ChatSession({
     if (!started) return;
     let cancelled = false;
     void (async () => {
-      try {
-        const res = await fetch(`/api/conversations/${conversationId}/sandbox`, {
-          cache: "no-store",
-        });
-        if (res.ok && !cancelled) {
-          const next = (await res.json()) as ConversationSandboxViewData;
-          setSandboxView(next);
-        }
-      } catch {
-        // chips and the state label are best-effort
-      }
+      // chips and the state label are best-effort
+      const next = await getConversationSandbox(conversationId);
+      if (next && !cancelled) setSandboxView(next);
     })();
     return () => {
       cancelled = true;

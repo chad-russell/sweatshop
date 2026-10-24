@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RoutePicker, shortRouteLabel } from "@/components/route-picker";
 import { LABEL } from "@/components/form-styles";
+import { apiError } from "@/lib/api/core";
+import { patchProjectModels } from "@/lib/api/projects";
+import { getModelsView } from "@/lib/api/models";
 import type { ModelsView } from "@/lib/providers/catalog-view";
 import type { ProviderId } from "@/lib/providers/catalog";
 import type { ChatRoute, RouteHarness } from "@/lib/providers/route";
@@ -26,20 +29,15 @@ export function ProjectModelsEditor({ projectId, initial }: { projectId: string;
   const patch = async (body: Record<string, unknown>) => {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/models`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    const res = await patchProjectModels(projectId, body);
     if (!res.ok) {
-      setError(json.error ?? `failed (${res.status})`);
+      setError(apiError(res, "failed"));
       setBusy(false);
       return;
     }
     // Refetch the scoped view so the picker reflects the new restrictions.
-    const next = await fetch(`/api/models?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
-    if (next.ok) setView((await next.json()) as ModelsView);
+    const next = await getModelsView(projectId);
+    if (next) setView(next);
     setBusy(false);
     router.refresh();
   };

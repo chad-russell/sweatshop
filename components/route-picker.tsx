@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { ModelsView } from "@/lib/providers/catalog-view";
+import { getModelsView } from "@/lib/api/models";
 import { PROVIDER_LABELS } from "@/lib/providers/catalog";
 import type { ChatRoute } from "@/lib/providers/route";
 import { cn } from "@/lib/utils";
@@ -28,10 +29,8 @@ export function useModelsView(projectId?: string | null): ModelsView | null {
   const [view, setView] = useState<ModelsView | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    fetch(`/api/models${qs}`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: ModelsView | null) => {
+    getModelsView(projectId ?? undefined)
+      .then((body) => {
         if (!cancelled && body) setView(body);
       })
       .catch(() => {});

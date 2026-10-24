@@ -8,6 +8,7 @@ import { CursorLoginHelp } from "@/components/settings/cursor-login-help";
 import { CodexLoginRow } from "@/components/settings/codex-login-row";
 import { LABEL, MONO } from "@/components/form-styles";
 import type { ModelsView } from "@/lib/providers/catalog-view";
+import { getSettingsView, refreshModels, saveSurfaceDefault } from "@/lib/api/models";
 import {
   CLAUDE_EFFORTS,
   THINKING_LEVELS,
@@ -18,6 +19,7 @@ import {
   type GlobalDefaults,
   type PiRoute,
   type Surface,
+  type SurfaceRoute,
 } from "@/lib/providers/route";
 
 /**
@@ -47,22 +49,17 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  const save = async (surface: Surface, route: unknown) => {
+  const save = async <S extends Surface>(surface: S, route: SurfaceRoute<S>) => {
     setBusy(surface);
     setError(null);
     setNote(null);
-    const res = await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ surface, route }),
-    });
-    const body = (await res.json().catch(() => ({}))) as { error?: string; defaults?: GlobalDefaults };
+    const res = await saveSurfaceDefault(surface, route);
     setBusy(null);
-    if (!res.ok || !body.defaults) {
-      setError(body.error ?? `failed (${res.status})`);
+    if (!res.ok) {
+      setError(res.error);
       return;
     }
-    setDefaults(body.defaults);
+    setDefaults(res.defaults);
     setNote(`${SURFACE_COPY[surface].title} default saved — applies from the next turn.`);
   };
 
@@ -70,14 +67,13 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
     setBusy("refresh");
     setError(null);
     setNote(null);
-    const res = await fetch("/api/models/refresh", { method: "POST" });
-    const body = (await res.json().catch(() => ({}))) as { error?: string; count?: number };
+    const res = await refreshModels();
     if (res.ok) {
-      const next = await fetch("/api/settings", { cache: "no-store" });
-      if (next.ok) setView((await next.json()) as ModelsView);
-      setNote(`OpenRouter: ${body.count} tool-capable models.`);
+      const next = await getSettingsView();
+      if (next) setView(next);
+      setNote(`OpenRouter: ${res.count} tool-capable models.`);
     } else {
-      setError(body.error ?? `refresh failed (${res.status})`);
+      setError(res.error);
     }
     setBusy(null);
   };
@@ -85,8 +81,8 @@ export function ModelDefaults({ initial }: { initial: ModelsView }) {
   /** 0050: the codex login flips availability — re-read the view the
    *  same way refresh() does after a catalog update. */
   const reloadSettings = async () => {
-    const next = await fetch("/api/settings", { cache: "no-store" });
-    if (next.ok) setView((await next.json()) as ModelsView);
+    const next = await getSettingsView();
+    if (next) setView(next);
   };
 
   const pickerView = { ...view, defaults };
