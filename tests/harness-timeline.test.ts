@@ -23,6 +23,16 @@ describe("buildTimeline", () => {
     expect(items[2]).toMatchObject({ type: "turn-start", task: null });
   });
 
+  it("0083: carries the lane dir a turn ran in, null for the default lane", () => {
+    const items = buildTimeline([
+      ev({ kind: "start", input: "do it", dir: "wt/approvals" }),
+      ev({ kind: "end" }),
+      ev({ kind: "start", input: "do it too" }),
+    ]);
+    expect(items[0]).toMatchObject({ type: "turn-start", dir: "wt/approvals" });
+    expect(items[2]).toMatchObject({ type: "turn-start", dir: null });
+  });
+
   it("folds start + end into one tool item by toolCallId", () => {
     const items = buildTimeline([
       ev({ kind: "tool-start", toolName: "bash", toolCallId: "a", input: "{}" }),

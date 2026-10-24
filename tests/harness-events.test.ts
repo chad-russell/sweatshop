@@ -6,12 +6,14 @@ import {
   getHarnessEvents,
   getHarnessRun,
   isHarnessKind,
+  laneSessionId,
   listActiveHarnessRuns,
   listHarnessRuns,
   MAX_CONCURRENT_HARNESSES,
   recordHarnessEvent,
   recordHarnessRunEnd,
 } from "../lib/harness-events";
+import { LANE_BRIDGE_PORTS } from "../lib/sandboxes/harness-bridge";
 
 
 describe("harness event store (0006)", () => {
@@ -200,5 +202,80 @@ describe("harness event paging backwards (load earlier)", () => {
     const older = getHarnessEvents("wrun_hbw", "pi", { limit: 2, beforeId: tail.events[0].id, fromAt: 200, toAt: 400 });
     expect(older.events.map((e) => e.text)).toEqual(["t200"]);
     expect(older.hasOlder).toBe(false);
+  });
+});
+
+describe("0083 harness lanes: claimHarnessRun", () => {
+  it("a lane collides with another call at the SAME dir, but not with the default lane or a different dir", () => {
+    expect(claimHarnessRun("wrun_lane1", "pi")).toMatchObject({ ok: true }); // default lane
+    expect(claimHarnessRun("wrun_lane1", "pi", "wt/a")).toMatchObject({ ok: true });
+    expect(claimHarnessRun("wrun_lane1", "pi", "wt/b")).toMatchObject({ ok: true });
+    expect(listActiveHarnessRuns("wrun_lane1").map((r) => r.dir).sort()).toEqual(["", "wt/a", "wt/b"]);
+
+    // Same dir again while it's running: refused.
+    const collide = claimHarnessRun("wrun_lane1", "pi", "wt/a");
+    expect(collide).toMatchObject({ ok: false, reason: "same-kind" });
+
+    recordHarnessRunEnd("wrun_lane1", "pi", 0, "completed", undefined, "wt/a");
+    expect(claimHarnessRun("wrun_lane1", "pi", "wt/a")).toMatchObject({ ok: true });
+  });
+
+  it("the default lane collides with itself, same as pre-0083", () => {
+    expect(claimHarnessRun("wrun_lane2", "claude")).toMatchObject({ ok: true });
+    expect(claimHarnessRun("wrun_lane2", "claude")).toMatchObject({ ok: false, reason: "same-kind" });
+  });
+
+  it("the cap is enforced across lanes, regardless of dir", () => {
+    expect(claimHarnessRun("wrun_lane_cap", "pi", "wt/a")).toMatchObject({ ok: true });
+    expect(claimHarnessRun("wrun_lane_cap", "pi", "wt/b")).toMatchObject({ ok: true });
+    expect(claimHarnessRun("wrun_lane_cap", "pi", "wt/c")).toMatchObject({ ok: true });
+    expect(listActiveHarnessRuns("wrun_lane_cap")).toHaveLength(MAX_CONCURRENT_HARNESSES);
+    const fourth = claimHarnessRun("wrun_lane_cap", "pi", "wt/d");
+    expect(fourth).toMatchObject({ ok: false, reason: "cap" });
+  });
+
+  it("grants a lane bridge port to a bridge-backed lane, never to pi or the default lane", () => {
+    const piLane = claimHarnessRun("wrun_lane_port0", "pi", "wt/a");
+    expect(piLane).toMatchObject({ ok: true });
+    if (piLane.ok) expect(piLane.port).toBeUndefined();
+    expect(getHarnessRun("wrun_lane_port0", "pi", "wt/a")?.port ?? null).toBeNull();
+
+    expect(claimHarnessRun("wrun_lane_port0", "claude")).toMatchObject({ ok: true }); // default lane
+    expect(getHarnessRun("wrun_lane_port0", "claude")?.port ?? null).toBeNull();
+
+    const lane = claimHarnessRun("wrun_lane_port0", "claude", "wt/a");
+    expect(lane).toMatchObject({ ok: true });
+    if (lane.ok) expect(LANE_BRIDGE_PORTS).toContain(lane.port);
+  });
+
+  // Exhausting all LANE_BRIDGE_PORTS within ONE conversation is
+  // impossible to observe here: the pool has one more port (4) than
+  // MAX_CONCURRENT_HARNESSES (3), so a single conversation's own cap
+  // always blocks a 4th claim first. Real exhaustion needs the pool's
+  // actual scope — shared across conversations on the SAME sandbox (an
+  // attached child thread) — covered in tests/harness-calls.test.ts,
+  // which has the conversation/sandbox fixtures this needs.
+
+  it("releasing a lane (recordHarnessRunEnd) frees its port for the next lane", () => {
+    const conv = "wrun_lane_port2";
+    const first = claimHarnessRun(conv, "claude", "wt/a");
+    expect(first).toMatchObject({ ok: true });
+    const port = first.ok ? first.port : undefined;
+    recordHarnessRunEnd(conv, "claude", 0, "completed", undefined, "wt/a");
+    expect(getHarnessRun(conv, "claude", "wt/a")?.port ?? null).toBeNull();
+    const second = claimHarnessRun(conv, "cursor", "wt/b");
+    expect(second).toMatchObject({ ok: true, port });
+  });
+});
+
+describe("laneSessionId (0083)", () => {
+  it("is stable, distinct per dir, and contains no '/'", () => {
+    const a = laneSessionId("c_123", "wt/approvals");
+    const b = laneSessionId("c_123", "wt/approvals");
+    const c = laneSessionId("c_123", "wt/other");
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+    expect(a).not.toContain("/");
+    expect(a.startsWith("c_123-")).toBe(true);
   });
 });
