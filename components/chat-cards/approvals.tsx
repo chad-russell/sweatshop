@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import type { ToolUIPart } from "ai";
 import { ChevronDown, GitPullRequest } from "lucide-react";
 import { Tool, ToolContent, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
@@ -17,13 +17,25 @@ import type { ApprovalEvidence } from "@/lib/agent/tools/evidence";
 import { DiffBreakdownChip } from "@/components/diff-breakdown";
 import { isDiffBreakdown } from "@/lib/diff-breakdown";
 import { prUrlCoords } from "@/lib/work-prs";
+import { useAnswerPendingInput, usePendingInputCard } from "@/lib/use-pending-input";
 import { cn } from "@/lib/utils";
 import type { PromptChangeCard as PromptChangeCardData } from "@/lib/read-models/attention";
 
 /**
  * Approval-gated transcript cards (create_pr, ask_owner, exec,
- * gated tools) — split from chat-session.tsx.
+ * gated tools) — split from chat-session.tsx. The evidence polling and
+ * the answering both go through lib/use-pending-input.ts; each card
+ * only owns its predicate on the pending_inputs row's evidence.
  */
+
+/** 0037 kept the create_pr evidence an unvalidated truthiness cast —
+ *  the row is written by our own runtime — so the poll guard stays one. */
+const hasEvidence = (value: unknown): boolean => Boolean(value);
+
+/** A pending_inputs evidence row is this card's data iff it carries the
+ *  prompt_change kind (the proposal's immutable snapshot). */
+const isPromptChangeCard = (value: unknown): boolean =>
+  (value as Partial<PromptChangeCardData> | undefined)?.kind === "prompt_change";
 
 /**
  * 0037: a create_pr call waiting on Chad — the runtime's evidence (test
@@ -32,37 +44,8 @@ import type { PromptChangeCard as PromptChangeCardData } from "@/lib/read-models
  * it (polled until then); typing in the composer is a revise.
  */
 export function PendingPRApproval({ toolCallId }: { toolCallId: string }) {
-  const [evidence, setEvidence] = useState<ApprovalEvidence | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [answered, setAnswered] = useState(false);
-  useEffect(() => {
-    if (evidence) return;
-    let stop = false;
-    const load = async () => {
-      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(toolCallId)}`).catch(() => null);
-      const body = (await res?.json().catch(() => null)) as { evidence?: ApprovalEvidence | null } | null;
-      if (!stop && body?.evidence) setEvidence(body.evidence);
-    };
-    void load();
-    const timer = window.setInterval(() => void load(), 3_000);
-    return () => {
-      stop = true;
-      window.clearInterval(timer);
-    };
-  }, [toolCallId, evidence]);
-  const post = async (approved: boolean) => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/x/input", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ toolCallId, approved }),
-      });
-      if (res.ok) setAnswered(true);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const evidence = usePendingInputCard<ApprovalEvidence>(toolCallId, hasEvidence);
+  const { answered, busy, post } = useAnswerPendingInput(toolCallId);
   if (!evidence) {
     return (
       <p className="px-3 pb-2.5 text-xs text-muted-foreground">Running the project&apos;s checks for the approval card…</p>
@@ -78,7 +61,7 @@ export function PendingPRApproval({ toolCallId }: { toolCallId: string }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(true)}
+            onClick={() => void post({ approved: true })}
             className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Approve PR
@@ -86,7 +69,7 @@ export function PendingPRApproval({ toolCallId }: { toolCallId: string }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(false)}
+            onClick={() => void post({ approved: false })}
             className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Deny
@@ -211,43 +194,16 @@ export function PullRequestToolCard({ part }: { part: ToolUIPart }) {
  * legacy `{answer: DISMISS_ANSWER}` shape, structured or not.
  */
 export function AskOwnerCard({ part }: { part: ToolUIPart }) {
-  const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
-  const [card, setCard] = useState<AskOwnerCardData | null>(null);
   const answered = part.state === "output-available" || part.state === "output-error";
+  // Poll only while the part is unresolved — the resolved card outlives
+  // its pending_inputs row, and the part's own state is the answer.
+  const card = usePendingInputCard<AskOwnerCardData>(part.toolCallId, isAskOwnerCard, !answered);
+  const { busy, post } = useAnswerPendingInput(part.toolCallId);
   const input = part.input as { kind?: unknown; question?: unknown; questions?: unknown } | undefined;
   const kind = input?.kind === "question" ? "question" : "approval";
   const question = typeof input?.question === "string" ? input.question : undefined;
   const structured = Array.isArray(input?.questions) && input.questions.length > 0;
-
-  useEffect(() => {
-    if (card || answered) return;
-    let stop = false;
-    const load = async () => {
-      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(part.toolCallId)}`).catch(() => null);
-      const body = (await res?.json().catch(() => null)) as { evidence?: unknown } | null;
-      if (!stop && isAskOwnerCard(body?.evidence)) setCard(body.evidence);
-    };
-    void load();
-    const timer = window.setInterval(() => void load(), 3_000);
-    return () => {
-      stop = true;
-      window.clearInterval(timer);
-    };
-  }, [part.toolCallId, card, answered]);
-
-  const post = async (payload: Record<string, unknown>) => {
-    setBusy(true);
-    try {
-      await fetch("/api/x/input", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ toolCallId: part.toolCallId, ...payload }),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const contextBlock = !structured && card?.context && (
     <details className="mt-1.5 rounded-md border border-border bg-background px-2 py-1.5">
@@ -349,37 +305,8 @@ export function AskOwnerCard({ part }: { part: ToolUIPart }) {
 
 /** Accept an outline after the owner explicitly approves it. */
 export function AcceptOutlineCard({ part }: { part: ToolUIPart }) {
-  const [card, setCard] = useState<OutlineCard | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [answered, setAnswered] = useState(false);
-  useEffect(() => {
-    if (card) return;
-    let stop = false;
-    const load = async () => {
-      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(part.toolCallId)}`).catch(() => null);
-      const body = (await res?.json().catch(() => null)) as { evidence?: unknown } | null;
-      if (!stop && isOutlineCard(body?.evidence)) setCard(body.evidence);
-    };
-    void load();
-    const timer = window.setInterval(() => void load(), 3_000);
-    return () => {
-      stop = true;
-      window.clearInterval(timer);
-    };
-  }, [part.toolCallId, card]);
-  const post = async (approved: boolean) => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/x/input", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
-      });
-      if (res.ok) setAnswered(true);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const card = usePendingInputCard<OutlineCard>(part.toolCallId, isOutlineCard);
+  const { answered, busy, post } = useAnswerPendingInput(part.toolCallId);
   return (
     <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
       <p className="text-sm font-medium">{card ? `Approve outline v${card.version}?` : "Approve the outline?"}</p>
@@ -397,7 +324,7 @@ export function AcceptOutlineCard({ part }: { part: ToolUIPart }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(true)}
+            onClick={() => void post({ approved: true })}
             className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Approve
@@ -405,7 +332,7 @@ export function AcceptOutlineCard({ part }: { part: ToolUIPart }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(false)}
+            onClick={() => void post({ approved: false })}
             className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Not yet
@@ -482,34 +409,9 @@ export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
 
 /** The complete immutable proposal snapshot, fetched from pending_inputs. */
 export function PromptChangeApprovalCard({ part }: { part: ToolUIPart }) {
-  const [card, setCard] = useState<PromptChangeCardData | null>(null);
-  const [busy, setBusy] = useState(false);
+  const card = usePendingInputCard<PromptChangeCardData>(part.toolCallId, isPromptChangeCard);
+  const { busy, post } = useAnswerPendingInput(part.toolCallId);
   const answered = part.state === "output-available" || part.state === "output-error";
-  useEffect(() => {
-    if (card) return;
-    let stop = false;
-    const load = async () => {
-      const res = await fetch(`/api/x/input?toolCallId=${encodeURIComponent(part.toolCallId)}`).catch(() => null);
-      const body = (await res?.json().catch(() => null)) as { evidence?: unknown } | null;
-      const value = body?.evidence as Partial<PromptChangeCardData> | undefined;
-      if (!stop && value?.kind === "prompt_change") setCard(value as PromptChangeCardData);
-    };
-    void load();
-    const timer = window.setInterval(() => void load(), 3_000);
-    return () => { stop = true; window.clearInterval(timer); };
-  }, [part.toolCallId, card]);
-  const post = async (approved: boolean) => {
-    setBusy(true);
-    try {
-      await fetch("/api/x/input", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <div className="my-1 space-y-3 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
       {card ? <PromptChangeDetails card={card} /> : <p className="text-xs text-muted-foreground">Loading the proposed change…</p>}
@@ -518,7 +420,7 @@ export function PromptChangeApprovalCard({ part }: { part: ToolUIPart }) {
           <button
             type="button"
             disabled={busy || !card}
-            onClick={() => void post(true)}
+            onClick={() => void post({ approved: true })}
             className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
           >
             Approve change
@@ -526,7 +428,7 @@ export function PromptChangeApprovalCard({ part }: { part: ToolUIPart }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(false)}
+            onClick={() => void post({ approved: false })}
             className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50"
           >
             Deny
@@ -541,7 +443,7 @@ export function PromptChangeApprovalCard({ part }: { part: ToolUIPart }) {
  *  inbox card posts to the same endpoint); typing below answers it as a
  *  denial with the text as the comment (the 0037 rule). */
 export function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
-  const [busy, setBusy] = useState(false);
+  const { busy, post } = useAnswerPendingInput(part.toolCallId);
   const input = (part.state === "input-streaming" ? undefined : part.input) as
     | { host?: unknown; command?: unknown; description?: unknown; timeout?: unknown }
     | undefined;
@@ -550,19 +452,6 @@ export function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
   const command = typeof input?.command === "string" ? input.command : undefined;
   const timeout = typeof input?.timeout === "number" ? input.timeout : 120;
   const answered = part.state === "output-available" || part.state === "output-error" || part.state === "output-denied";
-
-  const post = async (approved: boolean) => {
-    setBusy(true);
-    try {
-      await fetch("/api/x/input", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div className="my-1 space-y-2 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
@@ -579,7 +468,7 @@ export function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(true)}
+            onClick={() => void post({ approved: true })}
             className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Approve
@@ -587,7 +476,7 @@ export function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(false)}
+            onClick={() => void post({ approved: false })}
             className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Deny
@@ -603,7 +492,7 @@ export function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
 
 /** One gated tool call awaiting Chad's approval, in the transcript. */
 export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
-  const [busy, setBusy] = useState(false);
+  const { busy, post } = useAnswerPendingInput(part.toolCallId);
   const name = part.type.replace(/^tool-/, "");
   const input = part.state === "input-streaming" ? undefined : (part.input as Record<string, unknown> | undefined);
   const str = (key: string) => (typeof input?.[key] === "string" ? (input[key] as string) : undefined);
@@ -615,19 +504,6 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
         : name.replaceAll("_", " ");
   const answered = part.state === "output-available" || part.state === "output-error";
 
-  const post = async (approved: boolean) => {
-    setBusy(true);
-    try {
-      await fetch("/api/x/input", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ toolCallId: part.toolCallId, approved }),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div className="my-1 rounded-lg border border-warning/50 bg-warning/5 px-3 py-2.5 text-card-foreground">
       <p className="text-sm font-medium">{headline}</p>
@@ -637,7 +513,7 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(true)}
+            onClick={() => void post({ approved: true })}
             className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Approve
@@ -645,7 +521,7 @@ export function GatedApprovalCard({ part }: { part: ToolUIPart }) {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void post(false)}
+            onClick={() => void post({ approved: false })}
             className="rounded-md border px-3 py-1 text-xs font-medium disabled:opacity-50 pointer-coarse:px-4 pointer-coarse:py-2.5 pointer-coarse:text-sm"
           >
             Deny
