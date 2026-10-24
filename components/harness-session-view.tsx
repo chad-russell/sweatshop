@@ -39,6 +39,8 @@ export interface HarnessEvent {
   input?: string | null;
   output?: string | null;
   text?: string | null;
+  /** 0083: the lane this event's call ran in, null for the default lane. */
+  dir?: string | null;
 }
 
 export interface HarnessRun {
@@ -168,8 +170,16 @@ function HarnessTimelineEntry({ item }: { item: TimelineItem }) {
     case "turn-start":
       return (
         <div className="space-y-2">
-          <p className="py-1 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+          <p className="flex items-center justify-center gap-1.5 py-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
             — turn —
+            {item.dir && (
+              <span
+                title={`ran as a lane at ${item.dir}`}
+                className="inline-flex items-center rounded-full border border-border bg-muted/50 px-1.5 py-0.5 normal-case tracking-normal text-foreground"
+              >
+                {item.dir}
+              </span>
+            )}
           </p>
           {/* What the harness was asked — the same quote as its chat card. */}
           {item.task && (

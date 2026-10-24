@@ -51,6 +51,8 @@ export interface TimelineEvent {
   input?: string | null;
   output?: string | null;
   text?: string | null;
+  /** 0083: the lane this event's call ran in, null for the default lane. */
+  dir?: string | null;
 }
 
 export interface FileChange {
@@ -59,8 +61,9 @@ export interface FileChange {
 }
 
 export type TimelineItem =
-  /** task: what the harness was asked (null on pre-2026-10-07 rows). */
-  | { type: "turn-start"; id: number; task: string | null }
+  /** task: what the harness was asked (null on pre-2026-10-07 rows).
+   *  dir: the lane this turn ran in (0083), null for the default lane. */
+  | { type: "turn-start"; id: number; task: string | null; dir: string | null }
   | { type: "turn-end"; id: number }
   | { type: "text"; id: number; text: string }
   | {
@@ -150,7 +153,7 @@ export function buildTimeline(events: readonly TimelineEvent[]): TimelineItem[] 
   for (const event of events) {
     switch (event.kind) {
       case "start":
-        items.push({ type: "turn-start", id: event.id, task: event.input || null });
+        items.push({ type: "turn-start", id: event.id, task: event.input || null, dir: event.dir || null });
         break;
       case "end":
         items.push({ type: "turn-end", id: event.id });
