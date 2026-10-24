@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { ChildStatus } from "@/lib/child-status";
+import { usePollWhileVisible } from "@/lib/use-poll-while-visible";
 
 const POLL_MS = 5000;
 
@@ -14,31 +15,28 @@ const POLL_MS = 5000;
 export function useChildStatus(id: string | null): ChildStatus | null {
   const [status, setStatus] = useState<ChildStatus | null>(null);
 
-  useEffect(() => {
-    if (!id) return;
-    let stop = false;
-    let live = true;
-    const check = async () => {
-      if (!live || stop || document.visibilityState !== "visible") return;
-      try {
-        const res = await fetch(`/api/x/status/${encodeURIComponent(id)}`, { cache: "no-store" });
-        if (!res.ok || stop) return;
-        const next = (await res.json()) as ChildStatus;
-        live = next.live;
-        setStatus(next);
-      } catch {
-        /* transient — the next tick retries */
-      }
-    };
-    void check();
-    const timer = setInterval(() => void check(), POLL_MS);
-    document.addEventListener("visibilitychange", check);
-    return () => {
-      stop = true;
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", check);
-    };
-  }, [id]);
+  const makeCheck = useCallback(
+    (stopped: { current: boolean }) => {
+      // The poll below only ever runs this while `id` is non-null.
+      const url = `/api/x/status/${encodeURIComponent(id ?? "")}`;
+      let live = true;
+      return async () => {
+        if (!live || stopped.current) return;
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res.ok || stopped.current) return;
+          const next = (await res.json()) as ChildStatus;
+          live = next.live;
+          setStatus(next);
+        } catch {
+          /* transient — the next tick retries */
+        }
+      };
+    },
+    [id],
+  );
+
+  usePollWhileVisible(id ? makeCheck : null, POLL_MS, { immediate: true });
 
   return id && status?.id === id ? status : null;
 }

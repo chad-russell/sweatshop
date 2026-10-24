@@ -1,7 +1,8 @@
 "use client";
 
+import { useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { usePollWhileVisible } from "@/lib/use-poll-while-visible";
 
 const POLL_MS = 5000;
 
@@ -16,35 +17,28 @@ const POLL_MS = 5000;
 export function useAttentionSync(rendered: string) {
   const router = useRouter();
 
-  useEffect(() => {
-    let cancelled = false;
-    let inflight = false;
-
-    const check = async () => {
-      if (inflight || document.visibilityState !== "visible") return;
-      inflight = true;
-      try {
-        const res = await fetch("/api/attention", { cache: "no-store" });
-        if (!res.ok || cancelled) return;
-        const body = (await res.json()) as { signature?: string };
-        if (typeof body.signature === "string" && body.signature !== rendered) {
-          router.refresh();
+  const makeCheck = useCallback(
+    (stopped: { current: boolean }) => {
+      let inflight = false;
+      return async () => {
+        if (inflight || stopped.current) return;
+        inflight = true;
+        try {
+          const res = await fetch("/api/attention", { cache: "no-store" });
+          if (!res.ok || stopped.current) return;
+          const body = (await res.json()) as { signature?: string };
+          if (typeof body.signature === "string" && body.signature !== rendered) {
+            router.refresh();
+          }
+        } catch {
+          /* transient — the next tick retries */
+        } finally {
+          inflight = false;
         }
-      } catch {
-        /* transient — the next tick retries */
-      } finally {
-        inflight = false;
-      }
-    };
+      };
+    },
+    [rendered, router],
+  );
 
-    const timer = setInterval(() => void check(), POLL_MS);
-    document.addEventListener("visibilitychange", check);
-    window.addEventListener("focus", check);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", check);
-      window.removeEventListener("focus", check);
-    };
-  }, [rendered, router]);
+  usePollWhileVisible(makeCheck, POLL_MS, { focus: true });
 }
