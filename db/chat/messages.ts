@@ -49,9 +49,20 @@ export interface MessageRowMetadata {
  *  Chad approved the outline under review; 0082: "loop" = the same tool
  *  call (name + input + result) repeated 3 times in one turn — the
  *  row's text is the runtime's own nudge, injected mid-turn like a
- *  steer message, never Chad's words). */
+ *  steer message, never Chad's words); 0084: "pr" = a watched PR the
+ *  chat opened merged or closed on its host (id = the pr_watches row). */
 export interface RunEventMeta {
-  kind: "machine" | "harness" | "budget" | "thread" | "plan" | "mode" | "outline" | "outline-edit" | "loop";
+  kind:
+    | "machine"
+    | "harness"
+    | "budget"
+    | "thread"
+    | "plan"
+    | "mode"
+    | "outline"
+    | "outline-edit"
+    | "loop"
+    | "pr";
   id: string;
   status: string;
 }

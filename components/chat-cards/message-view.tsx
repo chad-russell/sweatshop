@@ -114,6 +114,8 @@ function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; stat
           ? "outline edited by owner"
           : runEvent.kind === "mode"
           ? `Entered ${runEvent.id} mode`
+          : runEvent.kind === "pr"
+          ? `PR ${runEvent.status}`
           : `${runEvent.kind === "machine" ? "run" : runEvent.kind === "thread" ? "thread" : runEvent.id.split("_")[0]} ${runEvent.status} · ${runEvent.id}`}
       </span>
     </span>

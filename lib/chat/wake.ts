@@ -43,8 +43,10 @@ import type { SandboxProvider } from "@/lib/sandboxes/provider";
 /** One settled child, rendered into the parent's thread. */
 export interface WakeEvent {
   /** 0041: "plan" = Chad approved the plan in review (id = the review row).
-   *  0064: "outline" = Chad approved the outline in review, same shape. */
-  kind: "harness" | "thread" | "plan" | "outline";
+   *  0064: "outline" = Chad approved the outline in review, same shape.
+   *  0084: "pr" = a watched PR merged/closed on its host (id = the
+   *  pr_watches row; the detail cites "#N merged (owner/repo)"). */
+  kind: "harness" | "thread" | "plan" | "outline" | "pr";
   /** hc_… / c_… — for inspect/cancel. */
   id: string;
   /** The harness kind ("pi" / "claude" / "cursor" / "codex") or the child thread's skill
