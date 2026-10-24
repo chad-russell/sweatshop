@@ -52,7 +52,8 @@ export function prWakeEvent(watch: PRWatch, state: PRState): WakeEvent {
     name: "pr",
     status: state.state,
     detail: `#${watch.number} ${state.state} (${watch.owner}/${watch.repo})`,
-    url: `${watch.baseUrl}/${watch.owner}/${watch.repo}/pull/${watch.number}`,
+    // GitHub PRs live at /pull/<n>, Forgejo at /pulls/<n> — pick by host.
+    url: `${watch.baseUrl}/${watch.owner}/${watch.repo}/${/github\.com$/.test(watch.baseUrl.replace(/^https?:\/\//, "")) ? "pull" : "pulls"}/${watch.number}`,
   };
 }
 

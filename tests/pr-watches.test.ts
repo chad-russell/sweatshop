@@ -147,6 +147,14 @@ describe("sweepPRWatches (0084)", () => {
     settlePrWatch(tdb, watch.id, "closed"); // leave the worklist clean
   });
 
+  it("renders a forgejo wake with /pulls/<n> (github stays /pull/<n>)", () => {
+    const forgejo = upsertPrWatch(tdb, watchFixture({ baseUrl: "https://git.crussell.io", number: 7 }), 0);
+    expect(renderWake(prWakeEvent(forgejo, { state: "closed" }))).toContain(
+      "git.crussell.io/chad-russell/sweatshop/pulls/7",
+    );
+    settlePrWatch(tdb, forgejo.id, "closed"); // leave the worklist clean
+  });
+
   it("open→merged settles and wakes exactly once, even under a double sweep", async () => {
     const input = watchFixture({ number: 61 });
     const watch = upsertPrWatch(tdb, input, 0);
@@ -233,6 +241,14 @@ describe("sweepPRWatches (0084)", () => {
     expect(seams.asked).toHaveLength(0);
     expect(getPrWatch(tdb, watch.id)).toMatchObject({ state: "open", settledAt: null });
     settlePrWatch(tdb, watch.id, "closed"); // leave the worklist clean
+  });
+
+  it("renders a forgejo wake with /pulls/<n> (github stays /pull/<n>)", () => {
+    const forgejo = upsertPrWatch(tdb, watchFixture({ baseUrl: "https://git.crussell.io", number: 7 }), 0);
+    expect(renderWake(prWakeEvent(forgejo, { state: "closed" }))).toContain(
+      "git.crussell.io/chad-russell/sweatshop/pulls/7",
+    );
+    settlePrWatch(tdb, forgejo.id, "closed"); // leave the worklist clean
   });
 
   it("a trashed parent settles silently — gone, never retried", async () => {
