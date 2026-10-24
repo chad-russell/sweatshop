@@ -26,6 +26,16 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --no-audit --no-fund
+      # fsModuleCache (vitest.config.ts) persists transforms in
+      # node_modules/.vitest-cache; npm ci wipes node_modules, so restore
+      # AFTER it. vitest's own cache key includes file content + config
+      # hash, so a stale bucket entry is recomputed, never wrongly reused —
+      # the lockfile key is just the coarse bucket.
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.vitest-cache
+          key: vitest-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: vitest-${{ runner.os }}-
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test
