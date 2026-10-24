@@ -2,6 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { deleteConversation, updateConversation } from "@/lib/api/conversations";
+import { createFolder, deleteFolder, updateFolder } from "@/lib/api/folders";
+import { apiError, type ApiResult } from "@/lib/api/core";
 
 /**
  * Client side of the 0007 organization API. Every action resolves to
@@ -21,18 +24,11 @@ export function useSidebarActions() {
   }, [error]);
 
   const call = useCallback(
-    async (method: string, url: string, body?: unknown): Promise<boolean> => {
+    async (op: () => Promise<ApiResult>): Promise<boolean> => {
       try {
-        const res = await fetch(url, {
-          method,
-          headers: { "content-type": "application/json" },
-          body: body === undefined ? undefined : JSON.stringify(body),
-        });
+        const res = await op();
         if (!res.ok) {
-          const payload = (await res.json().catch(() => null)) as {
-            error?: string;
-          } | null;
-          setError(payload?.error ?? `Request failed (${res.status})`);
+          setError(apiError(res, "Request failed"));
           return false;
         }
         setError(null);
@@ -51,21 +47,21 @@ export function useSidebarActions() {
       error,
       clearError: () => setError(null),
       createFolder: (name: string, projectId: string | null, parentId: string | null) =>
-        call("POST", "/api/folders", { name, projectId, parentId }),
+        call(() => createFolder(name, projectId, parentId)),
       renameFolder: (id: string, name: string) =>
-        call("PATCH", `/api/folders/${id}`, { name }),
+        call(() => updateFolder(id, { name })),
       moveFolder: (id: string, parentId: string | null) =>
-        call("PATCH", `/api/folders/${id}`, { parentId }),
-      deleteFolder: (id: string) => call("DELETE", `/api/folders/${id}`),
+        call(() => updateFolder(id, { parentId })),
+      deleteFolder: (id: string) => call(() => deleteFolder(id)),
       moveConversation: (id: string, folderId: string | null) =>
-        call("PATCH", `/api/conversations/${id}`, { folderId }),
+        call(() => updateConversation(id, { folderId })),
       renameConversation: (id: string, title: string) =>
-        call("PATCH", `/api/conversations/${id}`, { title }),
+        call(() => updateConversation(id, { title })),
       setArchived: (id: string, archived: boolean) =>
-        call("PATCH", `/api/conversations/${id}`, { archived }),
+        call(() => updateConversation(id, { archived })),
       setTrashed: (id: string, trashed: boolean) =>
-        call("PATCH", `/api/conversations/${id}`, { trashed }),
-      deleteForever: (id: string) => call("DELETE", `/api/conversations/${id}`),
+        call(() => updateConversation(id, { trashed })),
+      deleteForever: (id: string) => call(() => deleteConversation(id)),
     }),
     [call, error],
   );

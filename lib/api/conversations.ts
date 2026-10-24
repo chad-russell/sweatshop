@@ -28,13 +28,18 @@ export async function markAllInboxRead(): Promise<void> {
 }
 
 /**
- * PATCH a conversation row (today: `hostAutoApprove` from the composer
- * settings sheet). Returns the raw result — the composer throws on
- * !ok to trigger its own revert, so it needs the status, not a shaped
- * error.
+ * PATCH a conversation row (the composer's host-auto-approve toggle,
+ * the sidebar's move/rename/archive/trash). Returns the raw result —
+ * callers that need the status (the composer throws on !ok to revert)
+ * get it, the sidebar reads the error body.
  */
 export async function updateConversation(conversationId: string, patch: Record<string, unknown>): Promise<ApiResult> {
   return apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}`, jsonInit("PATCH", patch));
+}
+
+/** Delete a trashed conversation forever (the sidebar's last step). */
+export async function deleteConversation(conversationId: string): Promise<ApiResult> {
+  return apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
 }
 
 /**
