@@ -4,6 +4,17 @@
 
 import { tool } from "ai";
 import { z } from "zod";
+
+/** 0083: taught identically on all four harness tools — run as a LANE in a
+ *  subdirectory (a worktree, a monorepo package): a FRESH session with no
+ *  memory of this chat's other calls, rooted there; one lane per distinct
+ *  dir runs alongside the default (no-dir) call and other lanes of this
+ *  kind. Combine with git worktrees for parallel independent tasks. */
+const LANE_DIR_DESCRIPTION =
+  "Run as a lane in this subdirectory of the sandbox work root (relative path — a git worktree, a monorepo " +
+  "package, a scratch dir). A lane is a FRESH session with no memory of this chat's other calls to this " +
+  "harness; one lane per distinct dir may run at once, alongside the default (no-dir) call and other lanes " +
+  "of this kind. Combine with git worktrees to run several independent tasks in parallel.";
 import { startHarnessCallStep } from "../harness-step";
 import { possessive } from "../../../lib/agent/owner";
 import { commandDescription } from "./shared";
@@ -50,8 +61,9 @@ export function sandboxTools(
           "files or areas; for work that could collide, use start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
+          dir: z.string().min(1).max(200).optional().describe(LANE_DIR_DESCRIPTION),
         }),
-        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "pi", task }),
+        execute: ({ task, dir }) => startHarnessCallStep({ conversationId, kind: "pi", task, dir }),
       }),
 
       claude: tool({
@@ -66,8 +78,9 @@ export function sandboxTools(
           "collide, use start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
+          dir: z.string().min(1).max(200).optional().describe(LANE_DIR_DESCRIPTION),
         }),
-        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "claude", task }),
+        execute: ({ task, dir }) => startHarnessCallStep({ conversationId, kind: "claude", task, dir }),
       }),
 
       cursor: tool({
@@ -82,8 +95,9 @@ export function sandboxTools(
           "start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
+          dir: z.string().min(1).max(200).optional().describe(LANE_DIR_DESCRIPTION),
         }),
-        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "cursor", task }),
+        execute: ({ task, dir }) => startHarnessCallStep({ conversationId, kind: "cursor", task, dir }),
       }),
 
       codex: tool({
@@ -98,8 +112,9 @@ export function sandboxTools(
           "start_thread with fresh: true instead.",
         inputSchema: z.object({
           task: z.string().min(1).describe("The coding task, with enough context to act on."),
+          dir: z.string().min(1).max(200).optional().describe(LANE_DIR_DESCRIPTION),
         }),
-        execute: ({ task }) => startHarnessCallStep({ conversationId, kind: "codex", task }),
+        execute: ({ task, dir }) => startHarnessCallStep({ conversationId, kind: "codex", task, dir }),
       }),
     }),
   };
