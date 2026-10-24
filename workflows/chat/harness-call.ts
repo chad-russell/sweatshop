@@ -43,17 +43,26 @@ export interface HarnessCallInput {
   route: HarnessRoute;
   /** The previous turn's resume handle, when the session continues. */
   resumeFrom?: unknown;
+  /** 0083: a lane — a fresh session rooted at this sandbox-relative dir,
+   *  never chat_harness_state's resume continuity. */
+  dir?: string;
+  /** 0083: the lane bridge port the claim granted (bridge-backed kinds
+   *  only). */
+  port?: number;
+  /** 0083: the harness's own session identity for a lane call (see
+   *  lib/chat/harness-call-start.ts); unset = use `conversationId`. */
+  harnessSessionId?: string;
   /** Test-only override of MAX_STEPS — never set in production. */
   maxSteps?: number;
 }
 
 export async function harnessCall(input: HarnessCallInput): Promise<{ status: string }> {
   "use workflow";
-  const { callId, conversationId, kind, task, route } = input;
+  const { callId, conversationId, kind, task, route, dir, port } = input;
   const maxSteps = input.maxSteps ?? MAX_STEPS;
 
   let state = {
-    sessionId: conversationId,
+    sessionId: input.harnessSessionId ?? conversationId,
     prompt: task,
     status: "not_started",
     ...(input.resumeFrom ? { resumeFrom: input.resumeFrom } : {}),
@@ -97,6 +106,8 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
         kind,
         route,
         state,
+        dir,
+        port,
         totals: { usage, steps, toolCalls, reportedCostUsd, model },
       });
       state = r.state;
@@ -128,6 +139,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       callId,
       conversationId,
       kind,
+      dir,
       status: "failed",
       text,
       finalText: resultText(finalText, lastStepHadText),
@@ -150,7 +162,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     // its bridge doesn't outlive the call (destroy: cancel means "stop,
     // don't continue" — unlike the step cap, there is no next call
     // waiting to resume this one).
-    await harnessStopStep({ callId, conversationId, kind, route, state, destroy: true });
+    await harnessStopStep({ callId, conversationId, kind, route, state, dir, port, destroy: true });
     return { status: "cancelled" };
   }
 
@@ -159,6 +171,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       callId,
       conversationId,
       kind,
+      dir,
       status: "failed",
       text,
       finalText: resultText(finalText, lastStepHadText),
@@ -182,6 +195,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
       callId,
       conversationId,
       kind,
+      dir,
       status: "failed",
       text,
       finalText: resultText(finalText, lastStepHadText),
@@ -202,11 +216,12 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     // suspended turn's own continueFrom and stop() it (park, don't
     // discard — unlike cancel, the NEXT call in this conversation
     // should resume right where this one left off).
-    const { resumeFrom } = await harnessStopStep({ callId, conversationId, kind, route, state });
+    const { resumeFrom } = await harnessStopStep({ callId, conversationId, kind, route, state, dir, port });
     await harnessSettleStep({
       callId,
       conversationId,
       kind,
+      dir,
       status: "failed",
       text,
       finalText: resultText(finalText, lastStepHadText),
@@ -227,6 +242,7 @@ export async function harnessCall(input: HarnessCallInput): Promise<{ status: st
     callId,
     conversationId,
     kind,
+    dir,
     status: "completed",
     text,
     finalText: resultText(finalText, lastStepHadText),

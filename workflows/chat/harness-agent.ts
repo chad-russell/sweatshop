@@ -21,8 +21,15 @@ import { harnessBridgePort } from "@/lib/sandboxes/harness-bridge";
 export interface BuildArgs {
   /** 0021: the resolved, validated route — decides harness, provider, model. */
   route: HarnessRoute;
-  /** Harness session id (0010 chat: the conversation id). */
+  /** Harness session id (0010 chat: the conversation id; 0083: a lane's
+   *  own distinct session id). */
   sessionId: string;
+  /** 0083: a lane — rooted at this sandbox-relative dir instead of the
+   *  sandbox cwd ("."). */
+  dir?: string;
+  /** 0083: the lane bridge port the claim granted (bridge-backed kinds
+   *  only) — overrides the kind's fixed `HARNESS_BRIDGE_PORTS` entry. */
+  port?: number;
   /** Host tools (create_pr, …). */
   tools: ToolSet;
   /** pi model sizing, when the caller knows it (catalog entry). */
@@ -67,11 +74,14 @@ export function buildHarnessAgent(args: BuildArgs) {
   return tapResults(buildAgent(args), args.onResult);
 }
 
-function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: BuildArgs) {
+function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd, dir, port }: BuildArgs) {
   const lifecycle = {
     ...(onStepEnd ? { onStepEnd: onStepEnd as never } : {}),
     ...(onEnd ? { onEnd: onEnd as never } : {}),
   };
+  // 0083: a lane runs rooted at its own sandbox-relative dir instead of
+  // the sandbox cwd; the default lane keeps "." bit-identical to pre-0083.
+  const workDir = dir ?? ".";
   if (route.harness === "pi") {
     // 0021: only the route's provider is registered, with the model
     // declared explicitly — pi never needs its built-in catalog to know
@@ -90,7 +100,7 @@ function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: Bu
       // Without a workDir the harness gives every session a private
       // `<harness>-<sessionId>` directory — sessions would not see each
       // other's work. "." = the sandbox cwd, the workspace root.
-      sandboxConfig: { workDir: "." },
+      sandboxConfig: { workDir },
       tools,
       ...lifecycle,
       stopWhen: isStepCount(1),
@@ -107,10 +117,10 @@ function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: Bu
     // forward, so the planted file is what authenticates. The route
     // contributes only the model.
     return new HarnessAgent({
-      harness: createCursor({ port: harnessBridgePort("cursor") }),
+      harness: createCursor({ port: port ?? harnessBridgePort("cursor") }),
       id: `cursor-${sessionId}`,
       ...(route.model ? { model: route.model } : {}),
-      sandboxConfig: { workDir: "." },
+      sandboxConfig: { workDir },
       tools,
       ...lifecycle,
       stopWhen: isStepCount(1),
@@ -140,7 +150,7 @@ function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: Bu
     if (!credential.ok) throw new Error(credential.message);
     return new HarnessAgent({
       harness: createCodex({
-        port: harnessBridgePort("codex"),
+        port: port ?? harnessBridgePort("codex"),
         ...(route.effort ? { reasoningEffort: route.effort } : {}),
       }),
       id: `codex-${sessionId}`,
@@ -155,7 +165,7 @@ function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: Bu
       // session, but the agent's `headers` is the designed seam — they
       // ride the bridge start message (verified in adapter source).
       ...(credential.accountId ? { headers: { "ChatGPT-Account-ID": credential.accountId } } : {}),
-      sandboxConfig: { workDir: "." },
+      sandboxConfig: { workDir },
       tools,
       ...lifecycle,
       stopWhen: isStepCount(1),
@@ -173,14 +183,14 @@ function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd }: Bu
     // an endpoint.
     harness: createClaudeCode({
       auth: "direct",
-      port: harnessBridgePort("claude"),
+      port: port ?? harnessBridgePort("claude"),
       env: { CLAUDE_CODE_OAUTH_TOKEN: token },
       ...(route.effort ? { effort: route.effort } : {}),
     }),
     id: `claude-${sessionId}`,
     ...(route.model ? { model: route.model } : {}),
     // "." = the sandbox cwd, the workspace root (shared across calls).
-    sandboxConfig: { workDir: "." },
+    sandboxConfig: { workDir },
     tools,
     ...lifecycle,
     stopWhen: isStepCount(1),

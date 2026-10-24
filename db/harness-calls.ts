@@ -68,6 +68,8 @@ export function createHarnessCall(
     task: string;
     /** 0064 PR2: active outline step this call is doing. */
     step?: string | null;
+    /** 0083: the lane this call runs in, null for the default lane. */
+    dir?: string | null;
   },
   now = Date.now(),
 ): HarnessCall {
@@ -79,6 +81,7 @@ export function createHarnessCall(
       kind: input.kind,
       task: input.task.slice(0, 10_000),
       step: input.step ?? null,
+      dir: input.dir ?? null,
       status: "running",
       createdAt: now,
       updatedAt: now,
