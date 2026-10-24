@@ -7,6 +7,23 @@ import { harnessEventSink } from "../shared/harness-sink";
 /** The resume handle a terminal state carries for the next user turn. */
 type HarnessResumeFrom = NonNullable<HarnessWorkflowState["resumeFrom"]>;
 
+type MockHarnessWorkflowState = Omit<HarnessWorkflowState, "resumeFrom" | "continueFrom"> & {
+  mockStep?: number;
+  resumeFrom?: HarnessWorkflowState["resumeFrom"] | { mock: "resume-after-failure" };
+  continueFrom?: HarnessWorkflowState["continueFrom"] | { mock: "continue"; step: number };
+};
+
+/**
+ * 0022/0038: the double-gated test harness uses marker handles, not SDK
+ * lifecycle coordinates (type, harnessId, specificationVersion, data).
+ * Keep their serialized shape for mock teardown/resume tests; only this
+ * boundary asserts SDK compatibility, with every other state field checked.
+ * Never pass these handles to a real adapter.
+ */
+function mockHarnessState(state: MockHarnessWorkflowState): HarnessWorkflowState {
+  return state as unknown as HarnessWorkflowState;
+}
+
 /**
  * 0010 Phase 3b: the chat harness steps. (The synchronous
  * agent-stage path died with machines, 0037 phase 5.)
@@ -199,12 +216,12 @@ export async function harnessAdvanceStep(input: {
     if (process.env.SWEATSHOP_HARNESS_MOCK === "fail-resume") {
       // A turn that FAILS but leaves a live session behind (a detached handle).
       return {
-        state: {
+        state: mockHarnessState({
           ...input.state,
           status: "failed",
           error: "harness turn emitted an error",
           resumeFrom: { mock: "resume-after-failure" },
-        } as unknown as HarnessWorkflowState,
+        }),
         text: "",
         toolCalls: 0,
         usage: null,
@@ -218,12 +235,12 @@ export async function harnessAdvanceStep(input: {
       // to reattach to, same as a real suspended turn would.
       const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
       return {
-        state: {
+        state: mockHarnessState({
           ...input.state,
           mockStep: n,
           status: "ready_for_next_step",
           continueFrom: { mock: "continue", step: n },
-        } as unknown as HarnessWorkflowState,
+        }),
         text: `mock-harness-step:${n}`,
         toolCalls: 1,
         usage: null,
@@ -233,7 +250,7 @@ export async function harnessAdvanceStep(input: {
     const n = ((input.state as { mockStep?: number }).mockStep ?? 0) + 1;
     const done = n >= 2;
     return {
-      state: {
+      state: mockHarnessState({
         ...input.state,
         mockStep: n,
         status: done ? "finished" : "ready_for_next_step",
@@ -241,7 +258,7 @@ export async function harnessAdvanceStep(input: {
         // one too once a step cap under 2 is in play (tests), so the
         // teardown step has something to reattach to.
         ...(done ? {} : { continueFrom: { mock: "continue", step: n } }),
-      } as unknown as HarnessWorkflowState,
+      }),
       text: `mock-harness-step:${n}`,
       toolCalls: 1,
       usage: null,
