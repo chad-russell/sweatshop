@@ -11,6 +11,7 @@ import { PreviewPill } from "@/components/previews/preview-pill";
 import { usePageContextReader } from "@/components/page-context";
 import { rowsToUIMessages, type StoredRow } from "@/lib/chat-ui";
 import { extendChatPageBack } from "@/lib/chat-fetch";
+import { fetchChatTitle } from "@/lib/api/chat";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import type { ChatRoute } from "@/lib/providers/route";
@@ -234,12 +235,9 @@ export function AgentPanel() {
     // The sidebar gains the conversation (server-rendered shell).
     router.refresh();
     // Best-effort title for the header.
-    void fetch(`/api/x/chat?conversationId=${id}`, { cache: "no-store" })
-      .then((res) => (res.ok ? (res.json() as Promise<{ title: string | null }>) : null))
-      .then((body) => {
-        if (body) setLiveTitle(body.title);
-      })
-      .catch(() => undefined);
+    void fetchChatTitle(id).then((body) => {
+      if (body) setLiveTitle(body.title);
+    });
   };
 
   const handleNew = () => {

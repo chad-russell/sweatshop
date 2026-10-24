@@ -55,6 +55,7 @@ import {
 } from "@/lib/chat-ui";
 import { extendChatPageBack, fetchChatPage } from "@/lib/chat-fetch";
 import { getConversationSandbox } from "@/lib/api/conversations";
+import { cancelChat, steerChat, uploadAttachment } from "@/lib/api/chat";
 import { listSandboxChoices, type SandboxOption } from "@/lib/api/sandboxes";
 import { CHAT_STREAM_THROTTLE_MS } from "@/lib/chat-stream-throttle";
 import { useMarkSeen } from "@/lib/use-mark-seen";
@@ -880,12 +881,9 @@ export function ChatSession({
         const blob = await (await fetch(file.url)).blob();
         const form = new FormData();
         form.set("file", new File([blob], file.filename ?? "image", { type: blob.type }));
-        const res = await fetch("/api/x/attachments", { method: "POST", body: form });
-        const body = (await res.json().catch(() => ({}))) as { error?: string; url?: string; mediaType?: string };
-        if (!res.ok || !body.url || !body.mediaType) {
-          throw new Error(body.error ?? `upload failed (${res.status})`);
-        }
-        return { type: "file" as const, mediaType: body.mediaType, url: body.url, filename: file.filename };
+        const uploaded = await uploadAttachment(form);
+        if ("error" in uploaded) throw new Error(uploaded.error);
+        return { type: "file" as const, mediaType: uploaded.mediaType, url: uploaded.url, filename: file.filename };
       }),
     );
 
@@ -917,11 +915,7 @@ export function ChatSession({
     window.localStorage.removeItem(draftKey);
     if (isBusy) {
       // A live turn: queue a steer (drained between the turn's slices).
-      void fetch("/api/x/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId, text }),
-      });
+      void steerChat(conversationId, text);
       return;
     }
     // The optimistic user message carries the viewing context as
@@ -934,11 +928,7 @@ export function ChatSession({
 
   const handleStop = async () => {
     chat.stop();
-    await fetch("/api/x/chat/cancel", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ conversationId }),
-    }).catch(() => undefined);
+    await cancelChat(conversationId);
   };
 
   const handleRetry = () => {

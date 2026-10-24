@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { QuestionAnswer } from "@/lib/question-form";
+import { respondToInput } from "@/lib/api/input";
 
 export interface InputAnswer {
   requestId: string;
@@ -24,39 +25,28 @@ export function useRespond() {
     async (answers: InputAnswer[]): Promise<boolean> => {
       setBusy(true);
       setError(null);
-      try {
-        const answer = answers[0];
-        const freeform = answer.text?.trim();
-        const res = await fetch("/api/x/input", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          // A structured Submit sends `answers`; a freeform reply
-          // answers a question-kind request; an option (or its
-          // absence) is an approve/deny.
-          body: JSON.stringify(
-            answer.answers
-              ? { toolCallId: answer.requestId, answers: answer.answers }
-              : freeform && !answer.optionId
-                ? { toolCallId: answer.requestId, answer: freeform }
-                : {
-                    toolCallId: answer.requestId,
-                    approved: answer.optionId !== "deny",
-                    ...(freeform ? { comment: freeform } : {}),
-                  },
-          ),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null;
-          setError(body?.error ?? `Request failed (${res.status})`);
-          return false;
-        }
-        return true;
-      } catch {
-        setError("Network error — is the server up?");
+      const answer = answers[0];
+      const freeform = answer.text?.trim();
+      // A structured Submit sends `answers`; a freeform reply
+      // answers a question-kind request; an option (or its
+      // absence) is an approve/deny.
+      const res = await respondToInput(
+        answer.answers
+          ? { toolCallId: answer.requestId, answers: answer.answers }
+          : freeform && !answer.optionId
+            ? { toolCallId: answer.requestId, answer: freeform }
+            : {
+                toolCallId: answer.requestId,
+                approved: answer.optionId !== "deny",
+                ...(freeform ? { comment: freeform } : {}),
+              },
+      );
+      setBusy(false);
+      if (!res.ok) {
+        setError(res.error);
         return false;
-      } finally {
-        setBusy(false);
       }
+      return true;
     },
     [],
   );
