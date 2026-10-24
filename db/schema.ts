@@ -488,6 +488,11 @@ export const harnessEvents = sqliteTable(
     input: text("input"),
     output: text("output"),
     text: text("text"),
+    /** 0083: the lane this event's call ran in, null for the default lane
+     *  (informational only — the (session, harness) index below is
+     *  unchanged, events of every lane of one kind still share one
+     *  timeline; this just lets the UI render a lane chip). */
+    dir: text("dir"),
   },
   (table) => [
     index("harness_events_session_idx").on(table.sessionId, table.harness),
@@ -497,12 +502,18 @@ export const harnessEvents = sqliteTable(
 /**
  * One row per harness per conversation (0006): the index the UI reads for
  * status and the /h/[sessionId]/[harness] view validates against.
+ *
+ * 0083: `dir` extends this to one row per (session, harness, dir) — the
+ * default lane stores `""`, never `NULL` (sqlite/ANSI unique indexes treat
+ * NULL as distinct from NULL, which would break the onConflictDoUpdate
+ * upsert every claim/settle relies on to reuse one row per slot instead of
+ * growing the table forever).
  */
 export const harnessRuns = sqliteTable(
   "harness_runs",
   {
     /** eve sessionId of the owning conversation; one row per (session,
-     *  harness) via the unique index below (rowid table — composite
+     *  harness, dir) via the unique index below (rowid table — composite
      *  primary keys trip drizzle-kit 0.31's snapshot generator). */
     sessionId: text("session_id").notNull(),
     /** Harness discriminator — same meaning as harness_events.harness. */
@@ -514,11 +525,23 @@ export const harnessRuns = sqliteTable(
     lastAt: integer("last_at").notNull(),
     /** Bounded, redacted failure description; null on success (0006). */
     error: text("error"),
+    /** 0083: the lane this slot belongs to — `""` for the default lane,
+     *  else the sandbox-relative dir a lane call runs in. Part of the
+     *  unique index so one lane per dir (plus the default) can run at
+     *  once, per kind. */
+    dir: text("dir").notNull().default(""),
+    /** 0083: the bridge port leased to a LANE of a bridge-backed kind
+     *  (claude/cursor/codex) from the shared lane-port pool — granted by
+     *  the claim, released (nulled) at settle. Always null for pi and for
+     *  the default lane (those use pi's in-process session / the fixed
+     *  per-kind port). */
+    port: integer("port"),
   },
   (table) => [
-    uniqueIndex("harness_runs_session_kind_idx").on(
+    uniqueIndex("harness_runs_session_kind_dir_idx").on(
       table.sessionId,
       table.kind,
+      table.dir,
     ),
   ],
 );
@@ -541,6 +564,9 @@ export const harnessCalls = sqliteTable(
     /** pi | claude */
     kind: text("kind").notNull(),
     task: text("task").notNull(),
+    /** 0083: the lane this call ran in (sandbox-relative), null for the
+     *  default lane. */
+    dir: text("dir"),
     /** 0064 PR2: active outline step this call was started for. */
     step: text("step"),
     /** running | completed | failed | cancelled */

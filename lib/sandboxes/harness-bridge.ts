@@ -35,9 +35,23 @@ export const HARNESS_BRIDGE_PORTS = {
 
 export type BridgeHarnessKind = keyof typeof HARNESS_BRIDGE_PORTS;
 
+export function isBridgeHarnessKind(kind: string): kind is BridgeHarnessKind {
+  return kind in HARNESS_BRIDGE_PORTS;
+}
+
 export function harnessBridgePort(kind: BridgeHarnessKind): number {
   return HARNESS_BRIDGE_PORTS[kind];
 }
+
+/**
+ * 0083: a lane of a bridge-backed kind does not get that kind's fixed
+ * port (the default lane's bridge may already hold it) — it draws from
+ * this small shared pool instead, granted by `claimHarnessRun` and
+ * released at settle. One pool shared across claude/cursor/codex lanes
+ * (not one per kind): the cap is on how many bridge processes a sandbox
+ * runs at once, not on any one kind.
+ */
+export const LANE_BRIDGE_PORTS = [4600, 4601, 4602, 4603] as const;
 
 const EXEC_OPTS = {
   timeout: 30_000,
