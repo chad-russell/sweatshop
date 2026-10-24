@@ -73,7 +73,10 @@ asking by hand; revisit if a skill needs it.
 - No PR table, no persistence of PR state, no webhook receiver, no
   background polling. State is read live on view, cached in browser
   memory only. (A settled PR's live state is computed at most once per
-  view mount; the poll stops.)
+  view mount; the poll stops.) **Superseded by 0084** on the
+  agent-side half: `pr_watches` now persist, the wake sweep polls them
+  (no webhook), and a merge/close wakes the opening chat — client-side
+  this document's live polling is unchanged.
 - No change to `derivePhase`'s purity or the phase-events model.
 - No new dependency.
 

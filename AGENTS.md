@@ -96,6 +96,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   child's active outline step. Idempotency is `woken_settled_at` (stamped after delivery —
   duplicates over losses); the 30 s sweep in `instrumentation-node.ts`
   re-fires what the in-run wake missed (`WAKE_SWEEP=off` disables).
+  0084: that same tick also polls the chat's open `pr_watches`
+  (registered by `create_pr`'s success path; deterministic ids) and
+  wakes the opening conversation when the host merges or closes a
+  watched PR (`lib/prs/sweep.ts`, runEvent kind `"pr"`;
+  `PR_WATCH=off` disables just that pass).
   Cancelled children never wake; trashed parents are marked woken and
   skipped. The result is never cut to a stub: a harness call's result
   (`harness_calls.result`) and a thread's `lastAssistantReport`
