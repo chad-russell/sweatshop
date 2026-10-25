@@ -43,6 +43,26 @@ export async function createPrStep(
   if (!projectId) throw new Error("no project bound to this conversation");
   // 0052: the host's answer at creation — the transcript copy stays true.
   const result = await openProjectPR({ projectId, ...input });
+  // 0084: the chat that opened the PR watches it — the wake sweep's PR
+  // pass settles this watch when the host merges or closes it and wakes
+  // this conversation. Registration happens only on success (a denial
+  // never reaches this step) and is idempotent (deterministic id; a
+  // settled watch is never clobbered back to open). An unparseable
+  // host URL skips the watch — the PR itself opened fine.
+  const [{ prCoords }, { upsertPrWatch }] = await Promise.all([
+    import("../../../lib/prs/state"),
+    import("../../../db/pr-watches"),
+  ]);
+  const coords = prCoords(result.url);
+  if (coords) {
+    upsertPrWatch(db(), {
+      conversationId,
+      baseUrl: coords.origin,
+      owner: coords.owner,
+      repo: coords.repo,
+      number: coords.number,
+    });
+  }
   return { ...result, state: "open" as const };
 }
 

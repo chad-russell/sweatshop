@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GET } from "../app/api/x/prs/route";
 import { db } from "../db";
 import { gitCredentials } from "../db/schema";
+import { prWatchId as prWatchIdOf } from "../db/pr-watches";
 
 /**
  * 0052 — GET /api/x/prs: the batched live-PR-state route. Credentials
@@ -86,5 +87,44 @@ describe("0052 GET /api/x/prs", () => {
     expect(Object.keys(body)).toHaveLength(10);
     expect(calls).toHaveLength(10);
     expect(body[urls[10]]).toBeUndefined(); // dropped entirely, never asked
+  });
+
+  it("answers a settled watch from the row — no host fetch (0084)", async () => {
+    // If asked, the host would say open; the settled row must win.
+    stubFetchJson(200, { state: "open", merged: false });
+    const { ensureConversation } = await import("../db/chat");
+    const { settlePrWatch, upsertPrWatch } = await import("../db/pr-watches");
+    ensureConversation(db(), "c_prw_route", null);
+    upsertPrWatch(db(), {
+      conversationId: "c_prw_route",
+      baseUrl: "https://github.com",
+      owner: "o",
+      repo: "r",
+      number: 7,
+    });
+    settlePrWatch(db(), prWatchIdOf("https://github.com", "o", "r", 7), "merged", 1_760_000_000_000);
+    const res = await GET(request([GH_URL]));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      [GH_URL]: { state: "merged", mergedAt: new Date(1_760_000_000_000).toISOString() },
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("still asks the host for an OPEN watch — only settled rows answer locally (0084)", async () => {
+    stubFetchJson(200, { state: "open", merged: false });
+    const { ensureConversation } = await import("../db/chat");
+    const { upsertPrWatch } = await import("../db/pr-watches");
+    ensureConversation(db(), "c_prw_route_open", null);
+    upsertPrWatch(db(), {
+      conversationId: "c_prw_route_open",
+      baseUrl: "https://git.example.com",
+      owner: "o",
+      repo: "r",
+      number: 2,
+    });
+    const res = await GET(request([FJ_URL]));
+    expect(await res.json()).toEqual({ [FJ_URL]: { state: "open" } });
+    expect(calls).toHaveLength(1);
   });
 });

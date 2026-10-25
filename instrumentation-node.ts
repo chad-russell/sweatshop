@@ -13,6 +13,9 @@
  *   reconcile/follow tick (every 30 s; `PREVIEW_TICK=off` disables).
  * - 0022 wake sweep: deliver run settles the in-run wake missed (every
  *   30 s; `WAKE_SWEEP=off` disables).
+ * - 0084 PR watch: the same tick polls the chat's open pr_watches and
+ *   wakes the opening conversation on merge/close (`PR_WATCH=off`
+ *   disables just that pass).
  * - 0050 codex: `CODEX_HOME` pointed at the app's harness-auth dir at
  *   boot, before the adapter first reads it.
  */
@@ -123,6 +126,14 @@ function startWakeSweep(g: Globals) {
       await sweepWakes();
     } catch (err) {
       console.error("[wake-sweep] pass failed", err);
+    }
+    // 0084: PR watches ride the same tick — PR_WATCH=off disables just
+    // this pass (checked per pass, inside the sweep).
+    try {
+      const { sweepPRWatches } = await import("./lib/prs/sweep");
+      await sweepPRWatches();
+    } catch (err) {
+      console.error("[pr-watch] pass failed", err);
     }
   };
   console.log(`[wake-sweep] every ${WAKE_SWEEP_MS / 1000}s (first pass in ${WAKE_SWEEP_FIRST_MS / 1000}s)`);

@@ -96,6 +96,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   child's active outline step. Idempotency is `woken_settled_at` (stamped after delivery —
   duplicates over losses); the 30 s sweep in `instrumentation-node.ts`
   re-fires what the in-run wake missed (`WAKE_SWEEP=off` disables).
+  0084: that same tick also polls the chat's open `pr_watches`
+  (registered by `create_pr`'s success path; deterministic ids) and
+  wakes the opening conversation when the host merges or closes a
+  watched PR (`lib/prs/sweep.ts`, runEvent kind `"pr"`;
+  `PR_WATCH=off` disables just that pass).
   Cancelled children never wake; trashed parents are marked woken and
   skipped. The result is never cut to a stub: a harness call's result
   (`harness_calls.result`) and a thread's `lastAssistantReport`
@@ -118,6 +123,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`lib/child-status.ts`, both live kinds) polled by `useChildStatus`
   every 5 s while the child is live and the tab visible, never once
   settled.
+- Harness lanes (0083): the four harness tools (`pi`/`claude`/`cursor`/
+  `codex`) take an optional `dir` — a lane: a FRESH session rooted at that
+  sandbox-relative subdirectory (never reads/writes `chat_harness_state`),
+  one lane per distinct dir per kind alongside the unchanged default lane.
+  `harness_runs` is keyed (session, kind, dir; default dir `''`, not NULL —
+  sqlite unique-index NULLs would break the claim upserts) and lanes of
+  bridge kinds lease a port from the per-sandbox `LANE_BRIDGE_PORTS` pool
+  (released at settle); `MAX_CONCURRENT_HARNESSES = 3` still bounds the
+  conversation total. Combine with git worktrees for parallel independent
+  tasks — the controller pattern's wave dispatch.
 - Sandboxed commands (0082): `execSandbox` (`lib/sandboxes/provision.ts`,
   the one non-streaming path for bash, `sandbox_exec` and the AI SDK
   adapter's `run`) prepends `set -o pipefail` (`withPipefail`), so a

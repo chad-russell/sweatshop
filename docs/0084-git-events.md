@@ -1,6 +1,6 @@
 # 0084 — Git events into chat: the merge wakes the chat
 
-Status: **draft — awaiting Chad's approval in chat.**
+Status: **implemented on `glen/0084-git-events`.**
 
 ## Why
 

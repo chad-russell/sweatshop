@@ -395,6 +395,21 @@ describe("0010 spike: chat turn workflow", () => {
             expect(requests.length).toBe(before);
             expect(serialized(id)).toContain("Chad declined the PR");
           }
+          // 0084: only a successful create_pr registers a pr_watch. The
+          // stub's html_url host is git.test, so the watch's coordinates
+          // come from the host's answer, not the repo url.
+          const { getPrWatchByCoords } = await import("../db/pr-watches");
+          const watch = getPrWatchByCoords(db(), "http://git.test", "chad", "r", 9);
+          if (approved) {
+            expect(watch).toMatchObject({
+              conversationId: id,
+              number: 9,
+              state: "open",
+              settledAt: null,
+            });
+          } else {
+            expect(watch === null || watch.conversationId !== id).toBe(true);
+          }
           db().delete(messages).where(eq(messages.conversationId, id)).run();
           db().delete(pendingInputs).where(eq(pendingInputs.conversationId, id)).run();
           db().delete(steerQueue).where(eq(steerQueue.conversationId, id)).run();

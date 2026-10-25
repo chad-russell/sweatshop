@@ -596,6 +596,45 @@ export const harnessCalls = sqliteTable(
 export type HarnessCall = typeof harnessCalls.$inferSelect;
 
 /**
+ * 0084: one PR the app watches for its opening chat. create_pr inserts
+ * (the only writer, on success); the wake sweep's PR pass settles it
+ * when the host reports merged/closed and wakes that conversation —
+ * the "say the word when merged" human sync point disappears. The
+ * deterministic id (sha1 over the PR's full coordinates) makes
+ * re-watching idempotent and a settle exactly-once.
+ */
+export const prWatches = sqliteTable(
+  "pr_watches",
+  {
+    /** prw_ + 12 hex — deterministic (db/pr-watches.ts prWatchId). */
+    id: text("id").primaryKey(),
+    /** The chat whose create_pr opened the PR (wake target). */
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    /** Origin of the host instance ("https://github.com", forgejo base
+     *  url) — reconstruction of the PR web url and the id hash. */
+    baseUrl: text("base_url").notNull(),
+    owner: text("owner").notNull(),
+    repo: text("repo").notNull(),
+    number: integer("number").notNull(),
+    /** open (at registration) → merged | closed (terminal — hosts
+     *  number PRs once, so a settled row can never reopen). */
+    state: text("state").notNull(),
+    /** ms; when create_pr registered the watch. */
+    openedAt: integer("opened_at").notNull(),
+    /** ms; null while open, stamped by the settle that won. */
+    settledAt: integer("settled_at"),
+    /** Optional merged-at sha for the wake text — hosts' createPR
+     *  answers carry no sha, so this stays null until enriched. */
+    headSha: text("head_sha"),
+  },
+  (table) => [index("pr_watches_state_idx").on(table.state)],
+);
+
+export type PRWatch = typeof prWatches.$inferSelect;
+
+/**
  * 0017 declared services: the sibling containers a sandbox owns per
  * its project setup (postgres, minio…). The substrate is the truth;
  * this row is the bookkeeping — same split as `sandboxes`. `ref` is
