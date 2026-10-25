@@ -123,6 +123,16 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`lib/child-status.ts`, both live kinds) polled by `useChildStatus`
   every 5 s while the child is live and the tab visible, never once
   settled.
+- Harness lanes (0083): the four harness tools (`pi`/`claude`/`cursor`/
+  `codex`) take an optional `dir` — a lane: a FRESH session rooted at that
+  sandbox-relative subdirectory (never reads/writes `chat_harness_state`),
+  one lane per distinct dir per kind alongside the unchanged default lane.
+  `harness_runs` is keyed (session, kind, dir; default dir `''`, not NULL —
+  sqlite unique-index NULLs would break the claim upserts) and lanes of
+  bridge kinds lease a port from the per-sandbox `LANE_BRIDGE_PORTS` pool
+  (released at settle); `MAX_CONCURRENT_HARNESSES = 3` still bounds the
+  conversation total. Combine with git worktrees for parallel independent
+  tasks — the controller pattern's wave dispatch.
 - Sandboxed commands (0082): `execSandbox` (`lib/sandboxes/provision.ts`,
   the one non-streaming path for bash, `sandbox_exec` and the AI SDK
   adapter's `run`) prepends `set -o pipefail` (`withPipefail`), so a
