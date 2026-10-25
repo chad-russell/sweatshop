@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { NeedsYouPreview } from "@/lib/read-models/attention";
+import { answerPreviewFailure, fixPreview } from "@/lib/api/previews";
 import { Where } from "./where";
 
 /**
@@ -28,14 +29,10 @@ export function PreviewFailureCard({
   const act = async (action: "retry" | "dismiss") => {
     setBusy(action);
     setError(null);
-    const res = await fetch(`/api/previews/${item.previewId}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
+    const failure = await answerPreviewFailure(item.previewId, action);
     setBusy(null);
-    if (!res.ok) {
-      setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `${action} failed`);
+    if (failure !== null) {
+      setError(failure);
       return;
     }
     onAnswered(item.id);
@@ -44,14 +41,13 @@ export function PreviewFailureCard({
   const fix = async () => {
     setBusy("fix");
     setError(null);
-    const res = await fetch(`/api/previews/${item.previewId}/fix`, { method: "POST" });
-    const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    const res = await fixPreview(item.previewId);
     setBusy(null);
-    if (!res.ok || !body.url) {
-      setError(body.error ?? "could not start a fix chat");
+    if ("error" in res) {
+      setError(res.error);
       return;
     }
-    router.push(body.url);
+    router.push(res.url);
   };
 
   const sha = item.sha && item.sha !== "create" ? item.sha.slice(0, 7) : null;

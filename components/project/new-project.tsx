@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { FIELD, LABEL, MONO } from "@/components/form-styles";
+import { createProject } from "@/lib/api/projects";
 import { cn } from "@/lib/utils";
 
 /**
@@ -81,22 +82,17 @@ export function NewProjectDialog() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          id: id.trim(),
-          name: name.trim(),
-          repos: repos.filter((r) => r.url.trim()).map((r) => ({ name: r.name.trim(), url: r.url.trim() })),
-        }),
+      const res = await createProject({
+        id: id.trim(),
+        name: name.trim(),
+        repos: repos.filter((r) => r.url.trim()).map((r) => ({ name: r.name.trim(), url: r.url.trim() })),
       });
-      const body = (await res.json().catch(() => ({}))) as { error?: string; project?: { id: string } };
-      if (!res.ok || !body.project) {
-        setError(body.error ?? `failed (${res.status})`);
+      if (!res.ok) {
+        setError(res.error);
         return;
       }
       setOpen(false);
-      router.push(`/p/${encodeURIComponent(body.project.id)}`);
+      router.push(`/p/${encodeURIComponent(res.id)}`);
     } finally {
       setBusy(false);
     }

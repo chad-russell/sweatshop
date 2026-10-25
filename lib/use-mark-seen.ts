@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { markConversationSeen } from "@/lib/api/conversations";
 
 const DEBOUNCE_MS = 800;
 
@@ -28,14 +29,8 @@ export function useMarkSeen(conversationId: string | null, signal: string) {
       timer = setTimeout(async () => {
         if (!watching()) return;
         try {
-          const res = await fetch(`/api/conversations/${conversationId}/seen`, {
-            method: "PUT",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ seen: true }),
-          });
-          if (!res.ok) return; // not mirrored yet — the next signal retries
-          const body = (await res.json()) as { changed?: boolean };
-          if (body.changed) router.refresh();
+          const res = await markConversationSeen(conversationId, true);
+          if (res?.changed) router.refresh(); // not mirrored yet — the next signal retries
         } catch {
           /* transient — the next signal retries */
         }

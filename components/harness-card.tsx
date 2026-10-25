@@ -8,6 +8,7 @@ import { CancelCallButton } from "@/components/cancel-call-button";
 import { HARNESS_LABEL, HarnessLogo } from "@/components/harness-logo";
 import { ChildMeta } from "@/components/ai-elements/agent-cards";
 import { summarizeActivity, type HarnessActivity, type TimelineEvent } from "@/lib/harness-timeline";
+import { fetchHarnessWindow } from "@/lib/api/harness";
 import { useChildStatus } from "@/lib/use-child-status";
 import { cn } from "@/lib/utils";
 
@@ -48,14 +49,8 @@ function useLiveActivity(conversationId: string | null, kind: string, active: bo
     if (!active || !conversationId) return;
     let stop = false;
     const tick = async () => {
-      try {
-        const res = await fetch(`/api/harness/${conversationId}?harness=${kind}&tail=60`, { cache: "no-store" });
-        if (!res.ok || stop) return;
-        const body = (await res.json()) as { events: TimelineEvent[] };
-        if (!stop) setActivity(summarizeActivity(body.events));
-      } catch {
-        /* transient — the next tick retries */
-      }
+      const page = await fetchHarnessWindow<TimelineEvent>(conversationId, { harness: kind, tail: 60 });
+      if (page && !stop) setActivity(summarizeActivity(page.events)); // a failed read keeps the last activity
     };
     void tick();
     const timer = setInterval(tick, POLL_MS);

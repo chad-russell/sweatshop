@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getPRStates } from "@/lib/api/prs";
 
 const POLL_MS = 5000;
 
@@ -70,10 +71,8 @@ export function usePRStates(
       }
       busy = true;
       try {
-        const query = pending.map((url) => `url=${encodeURIComponent(url)}`).join("&");
-        const res = await fetch(`/api/x/prs?${query}`, { cache: "no-store" });
-        if (!res.ok || stop) return;
-        const body = (await res.json()) as Record<string, PRStateInfo | null>;
+        const body = await getPRStates(pending);
+        if (!body || stop) return;
         latest.current = { ...latest.current, ...body };
         setStates(latest.current);
         if (pollSettled(tracked.map((url) => latest.current[url]))) finish();

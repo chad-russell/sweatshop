@@ -4,7 +4,8 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { Box, Check, ChevronsUpDown, SlidersHorizontal, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import type { SandboxOption } from "@/components/chat-session";
+import type { SandboxOption } from "@/lib/api/sandboxes";
+import { updateConversation } from "@/lib/api/conversations";
 import { LocalTime } from "@/components/local-time";
 import { RoutePicker, routePickerLabel } from "@/components/route-picker";
 import { type ConversationSandboxViewData } from "@/components/sandbox-view";
@@ -300,11 +301,7 @@ function HostAutoApproveToggle({
     setChecked(next);
     setPending(true);
     try {
-      const res = await fetch(`/api/conversations/${conversationId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ hostAutoApprove: next }),
-      });
+      const res = await updateConversation(conversationId, { hostAutoApprove: next });
       if (!res.ok) throw new Error("request failed");
     } catch {
       setChecked(!next); // revert — the server never saw it

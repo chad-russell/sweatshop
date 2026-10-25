@@ -19,6 +19,7 @@ import {
   type Step,
 } from "@/lib/outline";
 import { isStatusSnapshot } from "@/lib/status";
+import { approveOutline, editOutline, type EditOutlineResponse } from "@/lib/api/input";
 import { cn } from "@/lib/utils";
 
 /**
@@ -212,39 +213,6 @@ function replaceSiblings(outline: Outline, parent: readonly number[], steps: Ste
   return { ...outline, steps: updateAt(outline.steps, parent, (step) => ({ ...step, children: steps })) };
 }
 
-interface EditOutlineResponse {
-  version: number;
-  rowId: string;
-  approved: boolean;
-}
-
-async function editOutlineRequest(input: {
-  conversationId: string;
-  outline: Outline;
-  baseVersion: number;
-  approve?: boolean;
-  note?: string;
-}): Promise<{ failure: string | null; saved: EditOutlineResponse | null }> {
-  try {
-    const res = await fetch("/api/x/input", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        conversationId: input.conversationId,
-        editOutline: input.outline,
-        baseVersion: input.baseVersion,
-        ...(input.approve ? { approve: true } : {}),
-        ...(input.note ? { note: input.note } : {}),
-      }),
-    });
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    if (res.ok) return { failure: null, saved: body as EditOutlineResponse | null };
-    return { failure: body?.error ?? `save failed (${res.status})`, saved: null };
-  } catch (error) {
-    return { failure: error instanceof Error ? error.message : String(error), saved: null };
-  }
-}
-
 function OutlineEditor({ initial, version, conversationId, projectId, review, onSaved }: {
   initial: Outline;
   version: number;
@@ -261,7 +229,7 @@ function OutlineEditor({ initial, version, conversationId, projectId, review, on
   const save = async (approve: boolean) => {
     setBusy(true);
     setError(null);
-    const { failure, saved } = await editOutlineRequest({ conversationId, outline: draft, baseVersion: version, approve, note: note.trim() || undefined });
+    const { failure, saved } = await editOutline({ conversationId, outline: draft, baseVersion: version, approve, note: note.trim() || undefined });
     setBusy(false);
     if (failure || !saved) setError(failure ?? "save failed");
     else onSaved(draft, saved);
@@ -350,22 +318,6 @@ function EditableStep({ step, path, depth, review, models, onChange, onRemove, o
   );
 }
 
-/** Approve (with an optional note) for an open outline review. */
-export async function approveOutlineRequest(toolCallId: string, note?: string): Promise<string | null> {
-  try {
-    const res = await fetch("/api/x/input", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ toolCallId, approveOutline: true, ...(note ? { note } : {}) }),
-    });
-    if (res.ok) return null;
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return body?.error ?? `approve failed (${res.status})`;
-  } catch (err) {
-    return err instanceof Error ? err.message : String(err);
-  }
-}
-
 export function OutlineApprove({
   toolCallId,
   version,
@@ -385,7 +337,7 @@ export function OutlineApprove({
   const approve = async () => {
     setBusy(true);
     setError(null);
-    const failure = await approveOutlineRequest(toolCallId, note.trim() || undefined);
+    const failure = await approveOutline(toolCallId, note.trim() || undefined);
     setBusy(false);
     if (failure) setError(failure);
     else {

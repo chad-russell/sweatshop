@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { reapSandboxes, sandboxAction, type ReapAction } from "@/lib/api/sandboxes";
 
 /**
  * 0013: manual sandbox lifecycle. Stop idles a live sandbox (state kept —
@@ -40,13 +41,9 @@ export function SandboxActions({
     setBusy(action);
     setError(null);
     try {
-      const res = await fetch(`/api/sandboxes/${sandboxId}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      if (!res.ok) {
-        setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `failed (${res.status})`);
+      const failure = await sandboxAction(sandboxId, action);
+      if (failure !== null) {
+        setError(failure);
         return;
       }
       setConfirming(false);
@@ -105,11 +102,6 @@ export function SandboxActions({
   );
 }
 
-interface ReapAction {
-  sandboxId: string;
-  action: "stop" | "destroy" | "drop-stale" | "skip-busy";
-}
-
 /** 0013: run the reaper now (the same pass the in-app timer runs). */
 export function RunCleanupButton() {
   const router = useRouter();
@@ -118,12 +110,12 @@ export function RunCleanupButton() {
   const run = async () => {
     setState({ busy: true, note: null });
     try {
-      const res = await fetch("/api/sandboxes/reap", { method: "POST" });
+      const res = await reapSandboxes();
       if (!res.ok) {
         setState({ busy: false, note: `cleanup failed (${res.status})` });
         return;
       }
-      const report = (await res.json()) as { actions: ReapAction[]; errors: unknown[] };
+      const report = res.report;
       const count = (a: ReapAction["action"]) => report.actions.filter((x) => x.action === a).length;
       const parts = [
         count("stop") && `stopped ${count("stop")}`,

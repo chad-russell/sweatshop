@@ -26,6 +26,7 @@ import type { SandboxLink } from "@/lib/read-models/sandbox";
 import { TaskQuote } from "@/components/harness-card";
 import { HARNESS_LABEL, HarnessMark } from "@/components/harness-logo";
 import { buildTimeline, timelineToParts, type FileChange, type TimelineItem } from "@/lib/harness-timeline";
+import { fetchHarnessWindow } from "@/lib/api/harness";
 import { shortSandboxId } from "@/lib/sandbox-id";
 import { groupParts } from "@/lib/tool-views/groups";
 import { cn } from "@/lib/utils";
@@ -327,12 +328,14 @@ export function HarnessSessionView({
   const [pagedOnce, setPagedOnce] = useState(false);
   const anchor = usePrependAnchor(events);
 
-  const windowParams = (params: URLSearchParams) => {
-    if (call) {
-      params.set("from", String(call.createdAt));
-      if (call.settledAt !== null) params.set("to", String(call.settledAt));
-    }
-  };
+  /** The query params a per-call page adds (its event window). */
+  const callWindow = () =>
+    call
+      ? {
+          from: call.createdAt,
+          ...(call.settledAt !== null ? { to: call.settledAt } : {}),
+        }
+      : {};
 
   /** Prepend the previous page and keep the viewport pinned (the chat's
    *  0075 anchor: scrollTop moves by exactly the height added above).
@@ -344,60 +347,43 @@ export function HarnessSessionView({
     setOlderLoading(true);
     setPagedOnce(true);
     anchor.capture();
-    try {
-      const params = new URLSearchParams({
-        harness: run.kind,
-        tail: String(HARNESS_PAGE),
-        before: String(oldest.id),
-      });
-      windowParams(params);
-      const res = await fetch(`/api/harness/${run.sessionId}?${params.toString()}`, { cache: "no-store" });
-      if (!res.ok) {
-        anchor.cancel();
-        return;
-      }
-      const body = (await res.json()) as { events: HarnessEvent[]; hasOlder?: boolean };
-      setEvents((prev) => [...body.events.filter((e) => e.id < (prev[0]?.id ?? Infinity)), ...prev]);
-      setHasOlder(body.hasOlder ?? false);
-      anchor.commit(); // same batch as the prepend
-    } catch {
-      anchor.cancel(); // transient — the button stays for a retry
-    } finally {
+    const page = await fetchHarnessWindow<HarnessEvent>(run.sessionId, {
+      harness: run.kind,
+      tail: HARNESS_PAGE,
+      before: oldest.id,
+      ...callWindow(),
+    });
+    if (!page) {
+      anchor.cancel(); // failed — the button stays for a retry
       setOlderLoading(false);
+      return;
     }
+    setEvents((prev) => [...page.events.filter((e) => e.id < (prev[0]?.id ?? Infinity)), ...prev]);
+    setHasOlder(page.hasOlder);
+    anchor.commit(); // same batch as the prepend
+    setOlderLoading(false);
   };
 
   useEffect(() => {
     if (run.status !== "running") return;
     const timer = setInterval(async () => {
-      try {
-        const after = events.length > 0 ? events[events.length - 1].id : 0;
-        const params = new URLSearchParams({ harness: run.kind });
-        if (after > 0) params.set("after", String(after));
-        windowParams(params);
-        const res = await fetch(
-          `/api/harness/${run.sessionId}?${params.toString()}`,
-          { cache: "no-store" },
-        );
-        if (res.ok) {
-          const body = (await res.json()) as {
-            run: HarnessRun | null;
-            events: HarnessEvent[];
-          };
-          if (body.run) setRun(body.run);
-          if (body.events.length > 0) {
-            setEvents((prev) => {
-              const last = prev[prev.length - 1]?.id ?? 0;
-              return [...prev, ...body.events.filter((e) => e.id > last)];
-            });
-          }
-        }
-      } catch {
-        /* transient — keep polling */
+      const after = events.length > 0 ? events[events.length - 1].id : 0;
+      const page = await fetchHarnessWindow<HarnessEvent>(run.sessionId, {
+        harness: run.kind,
+        ...(after > 0 ? { after } : {}),
+        ...callWindow(),
+      });
+      if (!page) return; // transient — keep polling
+      if (page.run) setRun(page.run);
+      if (page.events.length > 0) {
+        setEvents((prev) => {
+          const last = prev[prev.length - 1]?.id ?? 0;
+          return [...prev, ...page.events.filter((e) => e.id > last)];
+        });
       }
     }, 2000);
     return () => clearInterval(timer);
-    // windowParams only reads `call`, already a dependency.
+    // callWindow only reads `call`, already a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.status, run.sessionId, run.kind, events, call]);
 

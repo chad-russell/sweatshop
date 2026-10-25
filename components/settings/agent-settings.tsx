@@ -4,12 +4,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { diffLines } from "@/lib/text-diff";
+import {
+  getAgentDefault,
+  getAgentDetail,
+  getAssembledPrompt,
+  listAgentTargets,
+  previewSectionDraft,
+  putAgentTarget,
+  type AgentDefault,
+  type AgentTarget,
+  type ListedTarget,
+  type Row,
+} from "@/lib/api/agent-settings";
 
-type Key = "base" | "harness_steering" | "host_routing";
-type Target = { kind: "section"; key: Key } | { kind: "skill"; id: string };
-type Row = { body: string; version: number; origin?: string; description?: string; thread?: boolean; status?: "active" | "disabled" | "deleted"; editedBy?: string; note?: string | null; updatedAt?: number; createdAt?: number };
-type Listed = Row & Target;
-type Default = { body: string; description?: string; thread?: boolean; status?: Row["status"] };
+type Target = AgentTarget;
+type Listed = ListedTarget;
+type Default = AgentDefault;
 type Confirmation = { action: "reset" | "restore" | "publish"; version?: number; patch?: object; before: Row; after: Default; heading: string };
 const SECTIONS = [
   { key: "base", name: "Base instructions", hint: "Every chat's top-level instructions" },
@@ -19,14 +29,6 @@ const SECTIONS = [
 const EMPTY: Row = { body: "", version: 0, description: "", thread: false, status: "active" };
 const ID = /^[a-z][a-z0-9-]{0,40}$/;
 const BOUNDARY = "This edits prompt text and the skill catalog's data. Tool access, approvals (create_pr, exec, project create/delete, and agent-proposed changes), and provider/model validation are enforced in code and cannot be changed here.";
-const ENDPOINT = "/api/settings/agent";
-function params(t: Target) { return `kind=${t.kind}&${t.kind === "section" ? `key=${t.key}` : `id=${encodeURIComponent(t.id)}`}`; }
-async function request(url: string, init?: RequestInit) {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok && res.status !== 409) throw new Error(data.issues?.join("; ") ?? data.error ?? `Request failed (${res.status})`);
-  return data;
-}
 function title(body: string) { return body.match(/^# (.+)$/m)?.[1] ?? "Untitled"; }
 function isDifferent(a: Default, b: Default, skill: boolean) {
   return a.body !== b.body || (skill && (a.description ?? "") !== (b.description ?? "")) || (skill && !!a.thread !== !!b.thread) || (skill && (a.status ?? "active") !== (b.status ?? "active"));
@@ -63,9 +65,9 @@ export function AgentSettings() {
   const listSequence = useRef(0);
   const refreshList = useCallback(async () => {
     const token = ++listSequence.current;
-    try { const data = await request(`${ENDPOINT}?includeDeleted=${showDeleted}`); if (token !== listSequence.current) return; setList(data.targets); const defaults = await Promise.all((data.targets as Listed[]).map(async item => {
+    try { const data = await listAgentTargets(showDeleted); if (token !== listSequence.current) return; setList(data.targets); const defaults = await Promise.all(data.targets.map(async item => {
       if (item.kind === "skill" && item.origin !== "git") return null;
-      try { return [item.kind === "section" ? item.key : item.id, await request(`${ENDPOINT}?action=default&${params(item)}`)] as const; } catch { return null; }
+      try { return [item.kind === "section" ? item.key : item.id, await getAgentDefault(item)] as const; } catch { return null; }
     })); if (token === listSequence.current) setListDefaults(Object.fromEntries(defaults.filter((entry): entry is readonly [string, Default] => entry !== null))); }
     catch (e) { if (token === listSequence.current) setError(String(e)); }
   }, [showDeleted]);
@@ -80,12 +82,12 @@ export function AgentSettings() {
     const token = ++sequence.current;
     setTarget(t); setCreating(false); setCurrent(null); setDraft(EMPTY); setVersions([]); setShipped(null); setDefaultChecked(false); setCompare(false); setPreview(null); setConfirmation(null); setError(""); setNotice(""); setConflict(undefined);
     try {
-      const detail = await request(`${ENDPOINT}?action=detail&${params(t)}`);
+      const detail = await getAgentDetail(t);
       if (token !== sequence.current) return;
       setCurrent(detail.current); setDraft(detail.current ?? EMPTY); setVersions(detail.versions ?? []);
       // The default endpoint is the only source of truth for git drift. Missing defaults disable Reset.
       try {
-        const def = await request(`${ENDPOINT}?action=default&${params(t)}`);
+        const def = await getAgentDefault(t);
         if (token === sequence.current) setShipped(def);
       } catch { /* A user-created skill, or a shipped file since removed. */ }
       if (token === sequence.current) setDefaultChecked(true);
@@ -100,11 +102,11 @@ export function AgentSettings() {
     const token = sequence.current;
     setBusy(true); setError(""); setConflict(undefined); setConfirmation(null);
     try {
-      const result = await request(ENDPOINT, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ target: selected, expectedVersion: current?.version ?? 0, action, patch, version }) });
+      const result = await putAgentTarget({ target: selected, expectedVersion: current?.version ?? 0, action, patch, version });
       if (token !== sequence.current) return;
       if (!result.ok) {
-        if (result.code === "conflict") { setConflict(result.current); setError("This target changed since it was loaded. Your draft is preserved. Review the latest version before retrying; nothing was overwritten."); }
-        else setError(result.issues?.join("; ") ?? result.message ?? result.code ?? "Could not save.");
+        if (result.code === "conflict") { setConflict(result.current ?? null); setError("This target changed since it was loaded. Your draft is preserved. Review the latest version before retrying; nothing was overwritten."); }
+        else setError(result.issues?.join("; ") ?? result.code ?? "Could not save.");
       } else {
         await open(selected);
         if (token + 1 === sequence.current) setNotice(`Saved as version ${result.version}.`);
@@ -128,11 +130,7 @@ export function AgentSettings() {
     const snapshot = draft.body;
     setError("");
     try {
-      const data = await request(section ? ENDPOINT : `${ENDPOINT}?action=preview`, section ? {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "preview", target: section, body: snapshot }),
-      } : undefined);
+      const data = section ? await previewSectionDraft(section.key, snapshot) : await getAssembledPrompt();
       if (token !== sequence.current || previewToken !== previewSequence.current) return;
       setPreview(data.prompt);
     } catch (e) {

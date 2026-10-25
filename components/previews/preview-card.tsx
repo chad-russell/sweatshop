@@ -4,6 +4,7 @@ import { ArrowUpRightIcon, ChevronDownIcon, MonitorPlayIcon } from "lucide-react
 import { useEffect, useState } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PreviewView } from "@/lib/previews/service";
+import { getPreview } from "@/lib/api/previews";
 import type { ToolState } from "@/lib/tool-views/inspect";
 import { objectOf } from "@/lib/tool-views/fields";
 import { cn } from "@/lib/utils";
@@ -34,10 +35,8 @@ function useLivePreview(initial: PreviewView | undefined): PreviewView | undefin
     let cancelled = false;
     const load = async () => {
       if (document.visibilityState !== "visible") return;
-      const res = await fetch(`/api/previews/${id}`, { cache: "no-store" }).catch(() => null);
-      if (!res?.ok || cancelled) return;
-      const body = (await res.json()) as { preview: PreviewView };
-      setLive(body.preview);
+      const body = await getPreview(id);
+      if (body && !cancelled) setLive(body);
     };
     void load();
     const timer = setInterval(() => void load(), 10_000);
