@@ -14,9 +14,10 @@ import {
   settleHarnessCall,
   setCallWorkflowRun,
 } from "../db/harness-calls";
-import { appendMessages, ensureConversation } from "../db/chat";
-import { claimHarnessRun, listActiveHarnessRuns, getHarnessEvents, getHarnessRun } from "../lib/harness-events";
-import { conversations, harnessRuns, projects } from "../db/schema";
+import { appendMessages, ensureConversation, getHarnessResumeState, saveHarnessResumeState } from "../db/chat";
+import { claimHarnessRun, laneSessionId, listActiveHarnessRuns, getHarnessEvents, getHarnessRun } from "../lib/harness-events";
+import { conversations, harnessRuns, projects, sandboxes } from "../db/schema";
+import { LANE_BRIDGE_PORTS } from "../lib/sandboxes/harness-bridge";
 import { wakeCallIfDue, sweepWakes } from "../lib/chat/wake";
 import { cancelRunTool } from "../lib/agent/tools/cancel-run";
 import { startHarnessCall } from "../lib/chat/harness-call-start";
@@ -40,6 +41,27 @@ const newConv = () => {
   ensureConversation(tdb, id, "p_hc");
   return id;
 };
+
+/** Bind two or more conversations to the SAME sandbox row (an attached
+ *  child thread, 0037 phase 3) — the fixture the 0083 lane-port pool's
+ *  cross-conversation sharing needs. */
+function attachToSameSandbox(conversationIds: readonly string[]) {
+  const sandboxId = `sbx_shared_${++n}`;
+  tdb.insert(sandboxes).values({
+    id: sandboxId,
+    provider: "podman",
+    ref: sandboxId,
+    ownerKind: "conversation",
+    ownerId: conversationIds[0]!,
+    status: "running",
+    lastUsedAt: 0,
+    createdAt: 0,
+  }).run();
+  for (const id of conversationIds) {
+    tdb.update(conversations).set({ sandboxId, sandboxWorkDir: "." }).where(eq(conversations.id, id)).run();
+  }
+  return sandboxId;
+}
 
 function setOutline(conversationId: string, outline: Outline, version = 1) {
   const output = { ok: true as const, version, outline, proposed: false, next: "recorded" };
@@ -489,5 +511,129 @@ describe("explainBridgeStartupFailure (harness-bridge-cleanup)", () => {
 
   it("leaves unrelated errors alone even with a stale resume handle", () => {
     expect(explainBridgeStartupFailure("ECONNRESET", true, "claude")).toBeNull();
+  });
+});
+
+describe("startHarnessCall: 0083 lane semantics", () => {
+  const fakeStart = async (input: { callId: string }) => {
+    setCallWorkflowRun(tdb, input.callId, "wr_fake");
+    return { runId: "wr_fake" };
+  };
+
+  it("never reads the default lane's chat_harness_state, and derives a distinct, component-safe session id", async () => {
+    const conv = newConv();
+    saveHarnessResumeState(tdb, conv, "pi", { stale: "default lane resume" });
+    const seen: { resumeFrom?: unknown; harnessSessionId?: string; dir?: string }[] = [];
+    const result = await startHarnessCall({
+      conversationId: conv,
+      kind: "pi",
+      task: "x",
+      dir: "wt/approvals",
+      start: async (input) => {
+        seen.push({ resumeFrom: input.resumeFrom, harnessSessionId: input.harnessSessionId, dir: input.dir });
+        return fakeStart(input);
+      },
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.resumeFrom).toBeUndefined();
+    expect(seen[0]!.dir).toBe("wt/approvals");
+    expect(seen[0]!.harnessSessionId).toBe(laneSessionId(conv, "wt/approvals"));
+    expect(seen[0]!.harnessSessionId).not.toContain("/");
+
+    // The default lane's own resume state is untouched by the lane call.
+    expect(getHarnessResumeState(tdb, conv, "pi")).toEqual({ stale: "default lane resume" });
+  });
+
+  it("records dir on the harness call row and claims a lane slot alongside the default lane", async () => {
+    const conv = newConv();
+    expect(claimHarnessRun(conv, "pi")).toMatchObject({ ok: true }); // default lane already running
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", dir: "wt/a", start: fakeStart });
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) return;
+    expect(getHarnessCall(tdb, result.callId)!.dir).toBe("wt/a");
+    expect(listActiveHarnessRuns(conv).map((r) => r.dir).sort()).toEqual(["", "wt/a"]);
+  });
+
+  it("a second lane at the SAME dir is busy, value-shaped, and names the dir", async () => {
+    const conv = newConv();
+    expect(claimHarnessRun(conv, "pi", "wt/a")).toMatchObject({ ok: true });
+    const result = await startHarnessCall({ conversationId: conv, kind: "pi", task: "x", dir: "wt/a", start: fakeStart });
+    expect(result).toMatchObject({ ok: false, code: "busy" });
+    if (!result.ok) {
+      expect(result.message).toContain("wt/a");
+      expect(result.message).toContain("lane");
+    }
+  });
+
+  it("a lane of a bridge-backed kind is granted a lane bridge port, distinct from the default lane's fixed port", async () => {
+    const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-token";
+    try {
+      const conv = newConv();
+      const seen: { port?: number }[] = [];
+      const result = await startHarnessCall({
+        conversationId: conv,
+        kind: "claude",
+        task: "x",
+        dir: "wt/a",
+        start: async (input) => {
+          seen.push({ port: input.port });
+          return fakeStart(input);
+        },
+      });
+      expect(result).toMatchObject({ ok: true });
+      expect(seen[0]!.port).toBeDefined();
+      expect(LANE_BRIDGE_PORTS).toContain(seen[0]!.port);
+    } finally {
+      if (prevToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = prevToken;
+    }
+  });
+
+  it("exhausts the lane bridge port pool across conversations sharing one sandbox (an attached child thread)", async () => {
+    const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-token";
+    try {
+      const parent = newConv();
+      const child = newConv();
+      attachToSameSandbox([parent, child]);
+
+      // Each conversation's own cap (3) never limits this — four lanes
+      // split across two conversations, never more than two per side.
+      const claims = [
+        [parent, "claude", "wt/a"],
+        [child, "cursor", "wt/b"],
+        [parent, "codex", "wt/c"],
+        [child, "claude", "wt/d"],
+      ] as const;
+      for (const [conv, kind, dir] of claims) {
+        const claimed = claimHarnessRun(conv, kind, dir);
+        expect(claimed).toMatchObject({ ok: true });
+      }
+
+      // The pool (4 ports) is now fully leased across the shared sandbox —
+      // a 5th lane, even from a third kind or either conversation, is
+      // refused value-shaped, not a crash or a silent port collision.
+      const exhausted = await startHarnessCall({
+        conversationId: parent,
+        kind: "claude",
+        task: "x",
+        dir: "wt/e",
+        start: fakeStart,
+      });
+      expect(exhausted).toMatchObject({ ok: false, code: "busy" });
+      if (!exhausted.ok) expect(exhausted.message).toContain("lane port");
+
+      // Releasing one frees it for the other conversation on the same box
+      // (claimHarnessRun directly here — startHarnessCall would also gate
+      // on a cursor login, orthogonal to what this test is checking).
+      const { recordHarnessRunEnd } = await import("../lib/harness-events");
+      recordHarnessRunEnd(parent, "claude", 0, "completed", undefined, "wt/a");
+      expect(claimHarnessRun(child, "cursor", "wt/f")).toMatchObject({ ok: true });
+    } finally {
+      if (prevToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = prevToken;
+    }
   });
 });

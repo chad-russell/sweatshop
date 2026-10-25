@@ -1,6 +1,8 @@
-import { and, asc, desc, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { harnessEvents, harnessRuns } from "@/db/schema";
+import { conversations, harnessEvents, harnessRuns } from "@/db/schema";
+import { isBridgeHarnessKind, LANE_BRIDGE_PORTS } from "@/lib/sandboxes/harness-bridge";
 
 /**
  * 0005/0006 harness visibility: harness events per conversation ×
@@ -33,6 +35,19 @@ export interface HarnessEvent {
   readonly input?: string | null;
   readonly output?: string | null;
   readonly text?: string | null;
+  /** 0083: the lane this event's call ran in, null for the default lane. */
+  readonly dir?: string | null;
+}
+
+/**
+ * 0083: a short, stable, component-safe (no "/") id for a lane's harness
+ * session — distinct per (conversation, dir) so a lane never shares pi's
+ * in-process session state (or a bridge-backed harness's internal session
+ * bookkeeping) with the default lane or another lane of the same kind.
+ */
+export function laneSessionId(conversationId: string, dir: string): string {
+  const hash = createHash("sha256").update(dir).digest("hex").slice(0, 8);
+  return `${conversationId}-${hash}`;
 }
 
 function clip(value: unknown, max = 2000): string | undefined {
@@ -46,6 +61,7 @@ export function recordHarnessEvent(
   sessionId: string,
   harness: HarnessKind,
   event: Omit<HarnessEvent, "id" | "at">,
+  dir?: string,
 ): void {
   db()
     .insert(harnessEvents)
@@ -59,6 +75,7 @@ export function recordHarnessEvent(
       input: event.input ?? null,
       output: event.output ?? null,
       text: event.text ?? null,
+      dir: dir ?? null,
     })
     .run();
 }
@@ -144,14 +161,15 @@ export const clipHarnessText = clip;
 export const MAX_CONCURRENT_HARNESSES = 3;
 
 export type ClaimHarnessRunResult =
-  | { ok: true }
+  | { ok: true; port?: number }
   | {
       ok: false;
-      /** `same-kind`: this kind is already running — one call of a kind
-       *  at a time. `cap`: MAX_CONCURRENT_HARNESSES are already running,
-       *  regardless of kind. */
-      reason: "same-kind" | "cap";
-      /** Every run currently holding a slot (any kind). */
+      /** `same-kind`: this (kind, dir) is already running — one call of a
+       *  kind per lane at a time. `cap`: MAX_CONCURRENT_HARNESSES are
+       *  already running, regardless of kind or dir. `lane-ports`: every
+       *  lane bridge port is already leased to another lane. */
+      reason: "same-kind" | "cap" | "lane-ports";
+      /** Every run currently holding a slot (any kind, any lane). */
       active: readonly HarnessRun[];
     };
 
@@ -160,15 +178,19 @@ export type ClaimHarnessRunResult =
  *
  * `claimHarnessRun` atomically claims a concurrency slot (0038: up to
  * MAX_CONCURRENT_HARNESSES running at once per conversation, at most one
- * of each kind — harness_runs already has one row per (session, kind)).
- * The check-then-start pair runs inside a single synchronous sqlite
- * transaction, so two concurrent tool calls cannot both pass the guard;
- * the claim also (re)writes this harness's row to running, resetting
- * startedAt, toolCalls and error for a fresh run.
+ * of each kind; 0083: now scoped per (kind, dir) — a lane claims its own
+ * slot alongside the default lane and other lanes of the same kind,
+ * harness_runs has one row per (session, kind, dir)). The check-then-start
+ * pair runs inside a single synchronous sqlite transaction, so two
+ * concurrent tool calls cannot both pass the guard; the claim also
+ * (re)writes this slot's row to running, resetting startedAt, toolCalls
+ * and error for a fresh run. `dir` omitted (or "") claims the default
+ * lane — bit-identical to pre-0083 behavior.
  */
 export function claimHarnessRun(
   sessionId: string,
   harness: HarnessKind,
+  dir = "",
 ): ClaimHarnessRunResult {
   const now = Date.now();
   return db().transaction((tx) => {
@@ -178,33 +200,81 @@ export function claimHarnessRun(
         eq(harnessRuns.status, "running"),
       ),
     }).sync() as HarnessRun[];
-    if (running.some((r) => r.kind === harness)) {
+    if (running.some((r) => r.kind === harness && r.dir === dir)) {
       return { ok: false, reason: "same-kind", active: running };
     }
     if (running.length >= MAX_CONCURRENT_HARNESSES) {
       return { ok: false, reason: "cap", active: running };
     }
+    // 0083: a lane of a bridge-backed kind needs its own port (the
+    // default lane's fixed per-kind port may already be held). pi lanes
+    // and the default lane need none. The pool is leased per SANDBOX, not
+    // per conversation — a sandbox can be shared by more than one
+    // conversation (an attached child thread, 0037 phase 3), and their
+    // bridge processes would otherwise compete for the same container's
+    // TCP ports without either side's claim ever seeing the other.
+    let port: number | null = null;
+    if (dir && isBridgeHarnessKind(harness)) {
+      const sandboxId = tx
+        .select({ sandboxId: conversations.sandboxId })
+        .from(conversations)
+        .where(eq(conversations.id, sessionId))
+        .get()?.sandboxId ?? null;
+      // No bound sandbox yet (this call will provision one): nothing else
+      // could be sharing it, so scope to this conversation alone.
+      const sharedSessionIds = sandboxId
+        ? tx
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(eq(conversations.sandboxId, sandboxId))
+            .all()
+            .map((r) => r.id)
+        : [sessionId];
+      const used = new Set(
+        tx
+          .select({ port: harnessRuns.port })
+          .from(harnessRuns)
+          .where(
+            and(
+              inArray(harnessRuns.sessionId, sharedSessionIds),
+              eq(harnessRuns.status, "running"),
+              ne(harnessRuns.dir, ""),
+              isNotNull(harnessRuns.port),
+            ),
+          )
+          .all()
+          .map((r) => r.port),
+      );
+      const free = LANE_BRIDGE_PORTS.find((p) => !used.has(p));
+      if (free === undefined) {
+        return { ok: false, reason: "lane-ports", active: running };
+      }
+      port = free;
+    }
     tx.insert(harnessRuns)
       .values({
         sessionId,
         kind: harness,
+        dir,
+        port,
         status: "running",
         toolCalls: 0,
         startedAt: now,
         lastAt: now,
       })
       .onConflictDoUpdate({
-        target: [harnessRuns.sessionId, harnessRuns.kind],
+        target: [harnessRuns.sessionId, harnessRuns.kind, harnessRuns.dir],
         set: {
           status: "running",
           toolCalls: 0,
           startedAt: now,
           lastAt: now,
           error: null,
+          port,
         },
       })
       .run();
-    return { ok: true };
+    return port !== null ? { ok: true, port } : { ok: true };
   });
 }
 
@@ -219,12 +289,16 @@ export function countToolCalls(sessionId: string, harness: HarnessKind): number 
     .get()?.n ?? 0;
 }
 
+/** 0083: `dir` must match the claim's — else this would create a brand
+ *  new (session, kind, dir) row instead of settling the one actually
+ *  running, leaving that slot (and any leased port) stuck "running". */
 export function recordHarnessRunEnd(
   sessionId: string,
   harness: HarnessKind,
   toolCalls: number,
   status: "completed" | "failed" | "cancelled",
   error?: string,
+  dir = "",
 ): void {
   const now = Date.now();
   db()
@@ -232,15 +306,18 @@ export function recordHarnessRunEnd(
     .values({
       sessionId,
       kind: harness,
+      dir,
       status,
       toolCalls,
       startedAt: now,
       lastAt: now,
       error: error ? clip(error, 500) : null,
+      port: null,
     })
     .onConflictDoUpdate({
-      target: [harnessRuns.sessionId, harnessRuns.kind],
-      set: { status, toolCalls, lastAt: now, error: error ? clip(error, 500) : null },
+      target: [harnessRuns.sessionId, harnessRuns.kind, harnessRuns.dir],
+      // Settling always releases any leased lane port back to the pool.
+      set: { status, toolCalls, lastAt: now, error: error ? clip(error, 500) : null, port: null },
     })
     .run();
 }
@@ -253,11 +330,16 @@ export interface HarnessRun {
   startedAt: number;
   lastAt: number;
   error?: string | null;
+  /** 0083: "" for the default lane. */
+  dir: string;
+  /** 0083: the lane bridge port leased to this run, when it holds one. */
+  port?: number | null;
 }
 
 export function getHarnessRun(
   sessionId: string,
   harness: HarnessKind = "pi",
+  dir = "",
 ): HarnessRun | null {
   return (
     (db()
@@ -265,6 +347,7 @@ export function getHarnessRun(
         where: and(
           eq(harnessRuns.sessionId, sessionId),
           eq(harnessRuns.kind, harness),
+          eq(harnessRuns.dir, dir),
         ),
       })
       .sync() as HarnessRun | undefined) ?? null
@@ -287,7 +370,9 @@ export function listActiveHarnessRuns(sessionId: string): readonly HarnessRun[] 
     .sync() as HarnessRun[];
 }
 
-/** Most-recent run per harness for a conversation (sidebar/landing use). */
+/** Most-recent run per (harness, lane) for a conversation (sidebar/landing
+ *  use) — 0083: keyed by kind+dir now, so a lane's row never shadows the
+ *  default lane's (or vice versa) just for being newer. */
 export function listHarnessRuns(sessionId: string): readonly HarnessRun[] {
   const rows = db()
     .select()
@@ -298,8 +383,9 @@ export function listHarnessRuns(sessionId: string): readonly HarnessRun[] {
   const seen = new Set<string>();
   const latest: HarnessRun[] = [];
   for (const row of rows) {
-    if (seen.has(row.kind)) continue;
-    seen.add(row.kind);
+    const key = `${row.kind}\u0000${row.dir}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     latest.push(row);
   }
   return latest;

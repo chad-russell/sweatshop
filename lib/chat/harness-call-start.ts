@@ -4,10 +4,12 @@ import { createHarnessCall, setCallWorkflowRun, settleHarnessCall } from "@/db/h
 import {
   claimHarnessRun,
   clipHarnessText,
+  laneSessionId,
   MAX_CONCURRENT_HARNESSES,
   recordHarnessEvent,
   recordHarnessRunEnd,
 } from "@/lib/harness-events";
+import { LANE_BRIDGE_PORTS } from "@/lib/sandboxes/harness-bridge";
 import { HARNESS_INPUT_CLIP } from "@/lib/harness-limits";
 import { cursorCredential } from "@/lib/harness-auth/cursor";
 import { codexCredential } from "@/lib/harness-auth/codex";
@@ -65,6 +67,18 @@ export interface HarnessCallWorkflowInput {
   task: string;
   route: HarnessRoute;
   resumeFrom?: unknown;
+  /** 0083: a lane — a fresh session rooted at this sandbox-relative dir,
+   *  never chat_harness_state's resume continuity. */
+  dir?: string;
+  /** 0083: the lane bridge port the claim granted (bridge-backed kinds
+   *  only); unset for pi lanes and the default lane. */
+  port?: number;
+  /** 0083: the harness's OWN session identity for a lane call — distinct
+   *  from `conversationId` so a lane never shares pi's in-process session
+   *  state (or a bridge harness's internal session bookkeeping) with the
+   *  default lane or another lane of the same kind. Unset = use
+   *  `conversationId`, today's behavior. */
+  harnessSessionId?: string;
 }
 
 export async function startHarnessCall(
@@ -72,10 +86,15 @@ export async function startHarnessCall(
     conversationId: string;
     kind: "pi" | "claude" | "cursor" | "codex";
     task: string;
+    /** 0083: run as a lane — a fresh session rooted at this sandbox-
+     *  relative dir, running alongside the default lane and other lanes
+     *  of this kind. Never resumes/saves chat_harness_state. */
+    dir?: string;
     /** Test seam: the workflow starter (default: the real runtime). */
     start?: (workflowInput: HarnessCallWorkflowInput) => Promise<{ runId: string }>;
   },
 ): Promise<StartHarnessCallResult> {
+  const dir = input.dir?.trim() || undefined;
   const conversation = getConversation(db(), input.conversationId);
   const projectId = conversation?.projectId ?? null;
   // 0047 review fix (price cold-start): pi calls are priced — warm the
@@ -135,16 +154,34 @@ export async function startHarnessCall(
 
   // 0038 amendment: up to MAX_CONCURRENT_HARNESSES may run at once per
   // conversation, at most one of each kind — held for each call's whole
-  // life (the reaper's busy set reads it).
-  const claim = claimHarnessRun(input.conversationId, input.kind);
+  // life (the reaper's busy set reads it). 0083: scoped per (kind, dir) —
+  // a lane claims its own slot alongside the default lane and other lanes
+  // of the same kind.
+  const claim = claimHarnessRun(input.conversationId, input.kind, dir);
   if (!claim.ok) {
+    if (claim.reason === "lane-ports") {
+      // The pool is leased per sandbox (shared by any attached conversation
+      // too, lib/harness-events.ts), so `claim.active` — this conversation's
+      // own running calls — may not name every holder; keep the message
+      // general rather than claim a count that could be wrong.
+      return {
+        ok: false,
+        code: "busy",
+        message:
+          `all ${LANE_BRIDGE_PORTS.length} lane ports in this sandbox are in use — ` +
+          "inspect or cancel_run a lane, or wait before starting another one",
+      };
+    }
     const hint = claim.active
-      .map((r) => `${r.kind} (events: /h/${r.kind}/${input.conversationId})`)
+      .map((r) => `${r.kind}${r.dir ? ` at ${r.dir}` : ""} (events: /h/${r.kind}/${input.conversationId})`)
       .join(", ");
     const message =
       claim.reason === "same-kind"
-        ? `a ${input.kind} call is already running in this conversation — inspect it (events: ` +
-          `/h/${input.kind}/${input.conversationId}) or cancel_run it before starting another ${input.kind}`
+        ? dir
+          ? `a ${input.kind} lane is already running at ${dir} — inspect it (events: ` +
+            `/h/${input.kind}/${input.conversationId}) or cancel_run it, or use a different dir`
+          : `a ${input.kind} call is already running in this conversation — inspect it (events: ` +
+            `/h/${input.kind}/${input.conversationId}) or cancel_run it before starting another ${input.kind}`
         : `${claim.active.length} harness calls are already running in this conversation ` +
           `(the cap is ${MAX_CONCURRENT_HARNESSES}): ${hint} — inspect or cancel_run one before starting ${input.kind}`;
     return { ok: false, code: "busy", message };
@@ -155,8 +192,13 @@ export async function startHarnessCall(
     kind: input.kind,
     task: input.task,
     step: gate.active?.label ?? null,
+    dir,
   });
-  const resumeFrom = getHarnessResumeState(db(), input.conversationId, input.kind) ?? undefined;
+  // 0083: a lane never reads (or later writes) chat_harness_state — it is
+  // a fresh session every call, by design.
+  const resumeFrom = dir
+    ? undefined
+    : getHarnessResumeState(db(), input.conversationId, input.kind) ?? undefined;
 
   try {
     const startWorkflow =
@@ -172,18 +214,20 @@ export async function startHarnessCall(
       task: withResultInstruction(prependOutlineHandoff(input.task, outline).task),
       route,
       ...(resumeFrom ? { resumeFrom } : {}),
+      ...(dir ? { dir, harnessSessionId: laneSessionId(input.conversationId, dir) } : {}),
+      ...(claim.port !== undefined ? { port: claim.port } : {}),
     });
     setCallWorkflowRun(db(), call.id, workflow.runId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     settleHarnessCall(db(), call.id, { status: "failed", error: `could not start: ${message}` });
-    recordHarnessRunEnd(input.conversationId, input.kind, 0, "failed", `could not start: ${message}`);
+    recordHarnessRunEnd(input.conversationId, input.kind, 0, "failed", `could not start: ${message}`, dir);
     return { ok: false, code: "start-failed", message: `could not start: ${message}` };
   }
 
   // The task rides on the start event so the session page shows what
   // the harness was asked (the chat card already does).
-  recordHarnessEvent(input.conversationId, input.kind, { kind: "start", input: clipHarnessText(input.task, HARNESS_INPUT_CLIP) });
+  recordHarnessEvent(input.conversationId, input.kind, { kind: "start", input: clipHarnessText(input.task, HARNESS_INPUT_CLIP) }, dir);
   return {
     ok: true,
     callId: call.id,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { db } from "../db";
-import { ensureConversation } from "../db/chat";
+import { ensureConversation, getHarnessResumeState } from "../db/chat";
+import { claimHarnessRun, getHarnessRun } from "../lib/harness-events";
 import { createHarnessCall, getHarnessCall } from "../db/harness-calls";
 import { RESULT_FILE_CAP } from "../lib/chat/result-file";
 import { harnessSettleStep } from "../workflows/chat/harness-step";
@@ -56,5 +57,32 @@ describe("harnessSettleStep: stored result size", () => {
     }).catch(() => {});
 
     expect(getHarnessCall(db(), call.id)!.result).toBe("short");
+  });
+});
+
+describe("harnessSettleStep: 0083 lanes never persist chat_harness_state", () => {
+  it("a lane's resumeFrom is dropped, not saved, even though the default lane's own state is untouched", async () => {
+    const conversationId = chatId();
+    ensureConversation(db(), conversationId, null);
+    claimHarnessRun(conversationId, "pi", "wt/a");
+    const call = createHarnessCall(db(), { conversationId, kind: "pi", task: "x", dir: "wt/a" });
+
+    await harnessSettleStep({
+      callId: call.id,
+      conversationId,
+      kind: "pi",
+      dir: "wt/a",
+      status: "failed",
+      text: "boom",
+      finalText: "boom",
+      toolCalls: 0,
+      error: "exceeded steps",
+      resumeFrom: { parked: "mid-turn" },
+    }).catch(() => {}); // the wake it fires has no workflow runtime here
+
+    expect(getHarnessResumeState(db(), conversationId, "pi")).toBeNull();
+    // The lane's own slot settles (and its port releases) all the same.
+    expect(getHarnessRun(conversationId, "pi", "wt/a")?.status).toBe("failed");
+    expect(getHarnessRun(conversationId, "pi", "wt/a")?.port ?? null).toBeNull();
   });
 });

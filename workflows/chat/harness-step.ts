@@ -165,6 +165,8 @@ export async function startHarnessCallStep(input: {
   conversationId: string;
   kind: "pi" | "claude" | "cursor" | "codex";
   task: string;
+  /** 0083: run as a lane rooted at this sandbox-relative dir. */
+  dir?: string;
 }): Promise<import("../../lib/chat/harness-call-start").StartHarnessCallResult> {
   "use step";
   const { startHarnessCall } = await import("../../lib/chat/harness-call-start");
@@ -190,6 +192,10 @@ export async function harnessAdvanceStep(input: {
   kind: "pi" | "claude" | "cursor" | "codex";
   route: import("../../lib/providers/route").HarnessRoute;
   state: HarnessWorkflowState;
+  /** 0083: a lane — fresh session rooted at this sandbox-relative dir. */
+  dir?: string;
+  /** 0083: the lane bridge port the claim granted (bridge-backed kinds only). */
+  port?: number;
   /** 0047 review fix: running totals so far (tokens + steps) — the
    *  step re-upserts the usage row so a CANCELLED call keeps every
    *  completed step's metering (cancel never reaches the settle write). */
@@ -289,7 +295,7 @@ export async function harnessAdvanceStep(input: {
   let callbackUsage: UsageCounts | null = null;
   let finishMetadata: Promise<unknown> | null = null;
   let resolvedModel: string | null = null;
-  const { sandboxSession, agent, handle } = await resolveHarnessRunContext(input.conversationId, input.route, {
+  const { sandboxSession, agent, handle } = await resolveHarnessRunContext(input.conversationId, input.route, input.state.sessionId, input.dir, input.port, {
     onStepEnd: (step) => {
       const id = (step as { model?: { modelId?: unknown } }).model?.modelId;
       if (typeof id === "string" && id) resolvedModel = id;
@@ -335,7 +341,7 @@ export async function harnessAdvanceStep(input: {
   let stepUsage: UsageCounts | null = null;
   try {
     const { sink, text } = harnessEventSink({
-      recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event),
+      recordEvent: (event) => recordHarnessEvent(input.conversationId, input.kind, event, input.dir),
       clip: clipHarnessText,
       inputClip: HARNESS_INPUT_CLIP,
       outputClip: HARNESS_OUTPUT_CLIP,
@@ -372,7 +378,7 @@ export async function harnessAdvanceStep(input: {
     recordHarnessEvent(input.conversationId, input.kind, {
       kind: "step-end",
       text: clipHarnessText(text(), 500),
-    });
+    }, input.dir);
     // The UI-chunk transform drops finish-step usage. A finished step
     // still carries a thin summary (input/output only) on finalResult.
     if (state.status !== "ready_for_next_step" && finishMetadata) {
@@ -427,6 +433,14 @@ export async function harnessAdvanceStep(input: {
 async function resolveHarnessRunContext(
   conversationId: string,
   route: import("../../lib/providers/route").HarnessRoute,
+  /** 0083: the harness's OWN session identity — `conversationId` for the
+   *  default lane, else the lane's distinct id (`input.state.sessionId`,
+   *  set once by the starter — lib/chat/harness-call-start.ts). */
+  sessionId: string,
+  /** 0083: a lane — fresh session rooted at this sandbox-relative dir. */
+  dir: string | undefined,
+  /** 0083: the lane bridge port the claim granted (bridge-backed kinds only). */
+  port: number | undefined,
   /** 0062: lifecycle taps forwarded straight to `buildHarnessAgent` —
    *  `harnessAdvanceStep` passes them (it drives the agent and wants its
    *  usage/cost callbacks); `harnessStopStep` passes none (it only
@@ -456,8 +470,10 @@ async function resolveHarnessRunContext(
   if (!projectId) throw new Error(`conversation ${conversationId} lost its project mid-call`);
   const agent = buildHarnessAgent({
     route,
-    sessionId: conversationId,
+    sessionId,
     tools: {},
+    dir,
+    port,
     ...(route.harness === "pi" ? { modelInfo: getModelInfo(db(), route.provider, route.model) } : {}),
     ...callbacks,
   });
@@ -497,6 +513,10 @@ export async function harnessStopStep(input: {
   kind: "pi" | "claude" | "cursor" | "codex";
   route: import("../../lib/providers/route").HarnessRoute;
   state: HarnessWorkflowState;
+  /** 0083: a lane — fresh session rooted at this sandbox-relative dir. */
+  dir?: string;
+  /** 0083: the lane bridge port the claim granted (bridge-backed kinds only). */
+  port?: number;
   /** false (default) = stop() — park for the next call to resume.
    *  true = destroy() — discard resumability (cancel). */
   destroy?: boolean;
@@ -515,14 +535,14 @@ export async function harnessStopStep(input: {
         // persist (by design — cancel discards resumability), so tests
         // asserting teardown actually ran need SOME durable trace of it.
         const { recordHarnessEvent } = await import("../../lib/harness-events");
-        recordHarnessEvent(input.conversationId, input.kind, { kind: "step-end", text: "mock-teardown:destroy" });
+        recordHarnessEvent(input.conversationId, input.kind, { kind: "step-end", text: "mock-teardown:destroy" }, input.dir);
         return {};
       }
       return { resumeFrom: { mock: "stopped", from: reattachFrom } };
     }
-    const { sandboxSession, agent } = await resolveHarnessRunContext(input.conversationId, input.route);
+    const { sandboxSession, agent } = await resolveHarnessRunContext(input.conversationId, input.route, input.state.sessionId, input.dir, input.port);
     const session = await agent.createSession({
-      sessionId: input.conversationId,
+      sessionId: input.state.sessionId,
       ...(input.state.continueFrom
         ? { continueFrom: input.state.continueFrom }
         : { resumeFrom: input.state.resumeFrom }),
@@ -611,6 +631,9 @@ export async function harnessSettleStep(input: {
   callId: string;
   conversationId: string;
   kind: "pi" | "claude" | "cursor" | "codex";
+  /** 0083: a lane — never persists chat_harness_state (fresh session every
+   *  call, by design). */
+  dir?: string;
   status: "completed" | "failed";
   /** The whole step-by-step log, joined — kept for harness_events (the
    *  per-step "step-end" events already carry each step's own text; this
@@ -655,8 +678,9 @@ export async function harnessSettleStep(input: {
   // is just as important when it left a live bridge behind (0038) — without
   // it the next call cannot reattach and a second bridge collides on the
   // port. Cancelled calls never reach here, and a handle only exists when
-  // the harness produced one.
-  if (input.resumeFrom) {
+  // the harness produced one. 0083: a lane never reads or writes this —
+  // a fresh session every call, by design.
+  if (input.resumeFrom && !input.dir) {
     saveHarnessResumeState(db(), input.conversationId, input.kind, input.resumeFrom as HarnessResumeFrom);
   }
   // 0040 phase 3: stored (and delivered) whole, up to the same 60 k cap
@@ -669,7 +693,7 @@ export async function harnessSettleStep(input: {
   });
   // The full step-by-step log finds a home here (each step's own text
   // already landed on its own "step-end" event as the call progressed).
-  recordHarnessEvent(input.conversationId, input.kind, { kind: "end", text: clipHarnessText(input.text, 500) });
+  recordHarnessEvent(input.conversationId, input.kind, { kind: "end", text: clipHarnessText(input.text, 500) }, input.dir);
   if (settled) {
     // A racing cancel already released the slot with its own end record.
     recordHarnessRunEnd(
@@ -678,6 +702,7 @@ export async function harnessSettleStep(input: {
       input.toolCalls,
       input.status,
       input.error,
+      input.dir ?? "",
     );
     // 0040 phase 3: the full result goes to a file in THIS chat's own
     // sandbox (a harness call has no separate "parent" — it already runs
