@@ -14,6 +14,7 @@ describe("activeNavPage (0040)", () => {
     expect(activeNavPage("/sandboxes/sb_123")).toBe("sandboxes");
     expect(activeNavPage("/previews")).toBe("previews");
     expect(activeNavPage("/settings")).toBe("settings");
+    expect(activeNavPage("/changelog")).toBe("changelog"); // 0082
   });
 
   it("lights nothing on chats, runs, harness views or the new-chat page", () => {
