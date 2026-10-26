@@ -94,8 +94,9 @@ Harness logins (all optional, per harness):
 - **codex** — Log in with ChatGPT on `/settings` (in-app OAuth).
 
 Git-host credentials for the `gh` / `forgejo` agent tools and sandbox
-clones live as rows in the `git_credentials` sqlite table — no UI yet;
-see `.env.example` for the insert statement shape.
+clones live as rows in the `git_credentials` sqlite table, editable on
+`/settings` → Git credentials (shows only the start/end of each token).
+`.env.local` is not read for these.
 
 ## Previews
 

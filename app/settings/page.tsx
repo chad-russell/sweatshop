@@ -1,5 +1,6 @@
 import { AppHeader } from "@/components/app-header";
 import { ModelDefaults } from "@/components/settings/model-defaults";
+import { GitCredentials } from "@/components/settings/git-credentials";
 import { AgentSettings } from "@/components/settings/agent-settings";
 import { db } from "@/db";
 import { modelsView } from "@/lib/providers/catalog-view";
@@ -17,6 +18,7 @@ export default async function SettingsPage() {
       <AppHeader crumbs={[{ label: "Settings" }]} />
       <div className="p-4 md:p-6">
         <ModelDefaults initial={view} />
+        <GitCredentials />
         <AgentSettings />
       </div>
     </div>
