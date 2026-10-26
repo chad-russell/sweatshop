@@ -1,4 +1,4 @@
-# 0082 — In-app changelog
+# 0085 — In-app changelog
 
 Status: **approved scope (Chad), implementing on `feat/changelog`.**
 

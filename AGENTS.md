@@ -28,7 +28,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 - **Commits:** conventional commits — `type(scope): subject` (feat, fix,
   docs, chore, refactor…). Commit often enough that history reads as a
   logical sequence of small steps.
-- **Changelog (0082):** a PR with a user-visible change (a feat, or a
+- **Changelog (0085):** a PR with a user-visible change (a feat, or a
   notable fix/behavior change) adds one short, Chad-facing bullet to
   `CHANGELOG.md` under today's date, in the same PR — create the date
   heading if it's missing. Keep it short and write it for Chad, not for
@@ -661,7 +661,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   every 5 s while the tab is visible; refreshes only when the
   signature changes). Dots only — no tab-title flash, no
   notifications.
-- Changelog (0082): `/changelog` renders `CHANGELOG.md` (repo root), read
+- Changelog (0085): `/changelog` renders `CHANGELOG.md` (repo root), read
   and parsed at request time by `lib/changelog.ts` — no db table, no
   seeding; the file is the state and git history is its version history.
   A sidebar footer icon links there. See the "Changelog" ground rule

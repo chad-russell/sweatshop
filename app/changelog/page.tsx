@@ -19,7 +19,7 @@ function formatDateHeading(date: string): string {
   return new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" }).format(parsed);
 }
 
-/** 0082: what shipped, read from the repo-root CHANGELOG.md at request time. */
+/** 0085: what shipped, read from the repo-root CHANGELOG.md at request time. */
 export default async function ChangelogPage() {
   const dates = loadChangelog();
   return (

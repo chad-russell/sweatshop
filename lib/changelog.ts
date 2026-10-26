@@ -2,13 +2,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
- * 0082: the in-app changelog, parsed from the root `CHANGELOG.md` at
+ * 0085: the in-app changelog, parsed from the root `CHANGELOG.md` at
  * request time — no db table, no seeding. Synchronous `readFileSync`
  * against `process.cwd()`, same idiom as `lib/skill-files.ts`'s
  * git-shipped skill reads; the production deploy (0045) runs `next
  * start` against the full checkout, so the root file is already there.
  *
- * The parser is tolerant on purpose (0082 decision 3): an untagged
+ * The parser is tolerant on purpose (0085 decision 3): an untagged
  * bullet falls back to a generic tag instead of being dropped, and any
  * line that isn't a date heading or a bullet (blank lines, the header
  * comment, stray prose) is silently skipped.

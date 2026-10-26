@@ -331,7 +331,7 @@ export function ConversationSidebar({
             active={page === "settings"}
             className="flex-1"
           />
-          {/* 0082: icon-only, styled like ThemeToggle — the changelog isn't
+          {/* 0085: icon-only, styled like ThemeToggle — the changelog isn't
               a page row worth a label, just a quick "what shipped" link. */}
           <Link
             href="/changelog"
