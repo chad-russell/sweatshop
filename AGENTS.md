@@ -78,6 +78,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   model to change approach or stop, firing once per signature per turn
   (RCA: a child thread looped an identical failing `npm run` ~200 times
   and burned its whole budget unnoticed).
+  Inbox unread snippets come from the newest assistant row with real text (markdown kept, `[tool …]` placeholders stripped); thread labels go through `conversationLabel` (`lib/conversation-label.ts`: title → first user text → "Untitled chat").
   sqlite is the source of truth (`messages.model_message` rows); the
   browser uses `useChat` + `WorkflowChatTransport` against
   `/api/x/chat/*` — client imports MUST come from
