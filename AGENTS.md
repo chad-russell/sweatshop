@@ -146,6 +146,20 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (released at settle); `MAX_CONCURRENT_HARNESSES = 3` still bounds the
   conversation total. Combine with git worktrees for parallel independent
   tasks — the controller pattern's wave dispatch.
+- Bridge lockfile patch (vercel/ai#23829): upstream tarballs of
+  `@ai-sdk/harness-claude-code` (from 1.0.163) and
+  `@ai-sdk/harness-codex` (from 1.0.161) ship WITHOUT
+  `dist/bridge/pnpm-lock.yaml` while their bridge boot still reads it
+  (ENOENT on the first claude/codex call); the fix is merged upstream
+  but unpublished. Valid lockfiles (bridge deps identical to the
+  last-good claude 1.0.162 / codex 1.0.160) are vendored under
+  `vendor/bridge-locks/<pkg>@<version>/pnpm-lock.yaml`, and
+  `instrumentation-node.ts` runs `applyBridgeLockPatch()`
+  (`lib/bridge-lock-patch.ts`) at boot: exact installed-version match +
+  file missing → copy; never overwrite an existing file; any other
+  version skips silently, so the patch self-retires on the next
+  dependency bump (a new regression needs a new registry entry).
+  `BRIDGE_LOCK_PATCH=off` disables.
 - Sandboxed commands (0082): `execSandbox` (`lib/sandboxes/provision.ts`,
   the one non-streaming path for bash, `sandbox_exec` and the AI SDK
   adapter's `run`) prepends `set -o pipefail` (`withPipefail`), so a

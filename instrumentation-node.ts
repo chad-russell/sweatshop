@@ -18,6 +18,11 @@
  *   disables just that pass).
  * - 0050 codex: `CODEX_HOME` pointed at the app's harness-auth dir at
  *   boot, before the adapter first reads it.
+ * - Bridge lockfile patch (vercel/ai#23829): copy the vendored
+ *   `dist/bridge/pnpm-lock.yaml` into the installed claude/codex
+ *   adapters before any bridge can start; exact-version +
+ *   never-overwrite guards, self-retires on the next bump
+ *   (`BRIDGE_LOCK_PATCH=off` disables).
  */
 
 const REAP_INTERVAL_MS = 5 * 60_000;
@@ -40,6 +45,16 @@ export async function registerNode() {
   const { existsSync } = await import("node:fs");
   const split = codexHomeSplitWarning(process.env, existsSync);
   if (split) console.warn(split);
+  // vercel/ai#23829: the installed claude/codex adapter tarballs ship
+  // without dist/bridge/pnpm-lock.yaml while their bridge boot still
+  // reads it (ENOENT) — vendor it in before anything starts a bridge.
+  // A failure here must NEVER block boot; one line is all it gets.
+  try {
+    const { applyBridgeLockPatch } = await import("./lib/bridge-lock-patch");
+    await applyBridgeLockPatch();
+  } catch (err) {
+    console.warn(`[bridge-lock-patch] failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
   startReaper(g);
   await startPreviews(g);
 }
