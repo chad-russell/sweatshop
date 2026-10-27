@@ -1,5 +1,6 @@
 "use client";
 
+import { MessageResponse } from "@/components/ai-elements/message";
 import { ShieldQuestion } from "lucide-react";
 import Link from "next/link";
 import { cn } from "cn";
@@ -88,7 +89,7 @@ export function ApprovalCard({
           {!request.exec && !request.promptChange && request.askOwner?.context && (
             <details className="rounded-md border bg-background px-2 py-1.5">
               <summary className="cursor-pointer text-xs text-muted-foreground">Why they&apos;re asking</summary>
-              <div className="mt-1.5 text-sm">{request.askOwner.context}</div>
+              <MessageResponse className="mt-1.5 text-sm">{request.askOwner.context}</MessageResponse>
             </details>
           )}
           {!request.exec && !request.promptChange && input && (

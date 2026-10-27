@@ -1,5 +1,6 @@
 "use client";
 
+import { MessageResponse } from "@/components/ai-elements/message";
 import {
   ArrowRightIcon,
   ArrowUpRightIcon,
@@ -261,9 +262,9 @@ export function StartThreadCard({
       defaultOpen={Boolean(prompt)}
     >
       {prompt ? (
-        <p className="whitespace-pre-wrap break-words border-l-2 border-border py-2 pl-3 pr-3 text-[13px] leading-relaxed text-muted-foreground">
+        <MessageResponse className="break-words border-l-2 border-border py-2 pl-3 pr-3 text-[13px] leading-relaxed text-muted-foreground">
           {prompt}
-        </p>
+        </MessageResponse>
       ) : undefined}
     </Card>
   );
@@ -281,10 +282,10 @@ const VISIT_TONE: Record<string, { Icon: LucideIcon; className: string }> = {
 function InspectBody({ view }: { view: InspectView }) {
   return (
     <div className="space-y-2.5 px-3 py-2.5 text-[12.5px]">
-      {view.prompt && <p className="whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-muted-foreground">{view.prompt}</p>}
+      {view.prompt && <MessageResponse className="break-words border-l-2 border-border pl-3 text-muted-foreground">{view.prompt}</MessageResponse>}
       {view.error && <p className="font-mono text-[11px] text-destructive">{view.error}</p>}
       {!view.prompt && view.opener && (
-        <p className="line-clamp-4 whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-muted-foreground">{view.opener}</p>
+        <MessageResponse className="line-clamp-4 break-words border-l-2 border-border pl-3 text-muted-foreground">{view.opener}</MessageResponse>
       )}
       {view.last && (
         <p className="flex min-w-0 items-baseline gap-2">

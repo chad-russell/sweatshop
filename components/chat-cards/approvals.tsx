@@ -296,9 +296,9 @@ export function AskOwnerCard({ part }: { part: ToolUIPart }) {
         )
       )}
       {answered && (
-        <p className="mt-1 text-xs whitespace-pre-wrap text-muted-foreground">
+        <MessageResponse className="mt-1 text-xs text-muted-foreground">
           {part.state === "output-available" ? answerText(part.output) : "no answer recorded"}
-        </p>
+        </MessageResponse>
       )}
     </div>
   );

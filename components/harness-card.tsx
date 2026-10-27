@@ -129,7 +129,7 @@ function plural(n: number, word: string) {
 export function TaskQuote({ children, className }: { children: string; className?: string }) {
   return (
     <Clamped className={cn("border-l-2 border-border pl-3 text-[13px] leading-relaxed text-muted-foreground", className)}>
-      <p className="whitespace-pre-wrap break-words">{children}</p>
+      <MessageResponse className="break-words">{children}</MessageResponse>
     </Clamped>
   );
 }

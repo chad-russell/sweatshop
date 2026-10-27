@@ -1,5 +1,6 @@
 "use client";
 
+import { MessageResponse } from "@/components/ai-elements/message";
 import { Circle, CircleDot } from "lucide-react";
 import Link from "next/link";
 import { cn } from "cn";
@@ -44,7 +45,9 @@ export function UnreadCard({
         </Link>
         <Where projectName={thread.projectName} path={thread.path} at={thread.at} />
         {thread.snippet && (
-          <p className="line-clamp-3 text-sm text-muted-foreground">{thread.snippet}</p>
+          <MessageResponse className="line-clamp-3 text-sm text-muted-foreground [&_a]:pointer-events-none">
+            {thread.snippet}
+          </MessageResponse>
         )}
       </div>
       <Button

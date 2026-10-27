@@ -1,5 +1,6 @@
 "use client";
 
+import { MessageResponse } from "@/components/ai-elements/message";
 import { MessageCircleQuestion } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -51,7 +52,7 @@ export function QuestionCard({
       </header>
       <div className="flex items-start gap-2">
         <MessageCircleQuestion className="mt-0.5 size-4 shrink-0 text-info" />
-        <p className="min-w-0 flex-1 text-sm whitespace-pre-wrap">{request.prompt}</p>
+        <MessageResponse className="min-w-0 flex-1 text-sm">{request.prompt}</MessageResponse>
       </div>
       {structured ? (
         <QuestionForm card={request.askOwner!} busy={busy} onSubmit={(answers) => void answer({ answers })} />

@@ -1,5 +1,6 @@
 "use client";
 
+import { MessageResponse } from "@/components/ai-elements/message";
 import { ChevronRight, ListTree } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
@@ -16,7 +17,7 @@ export function OutlineContextBlock({ text, className }: { text: string; classNa
         {label}
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="px-3 pb-2 whitespace-pre-wrap font-sans text-xs leading-relaxed text-muted-foreground">{text}</pre>
+        <MessageResponse className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground">{text}</MessageResponse>
       </CollapsibleContent>
     </Collapsible>
   );

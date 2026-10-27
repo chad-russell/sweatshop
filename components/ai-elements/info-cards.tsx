@@ -296,7 +296,7 @@ export function NoteCard({ state, input, output, errorText }: CardProps) {
         {failed ? (
           <p className="mt-0.5 font-mono text-[11px] text-destructive">{failureLines(output, errorText)?.[0]}</p>
         ) : text ? (
-          <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed">{text}</p>
+          <MessageResponse className="mt-0.5 break-words text-[13px] leading-relaxed">{text}</MessageResponse>
         ) : null}
       </div>
     </div>
