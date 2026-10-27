@@ -57,7 +57,7 @@ export function ScreenshotCard({
           )}
         </figcaption>
         <a href={result.url} target="_blank" rel="noreferrer" className="block w-fit max-w-full">
-          {/* eslint-disable-next-line @next/next/no-img-element -- static attachment file served by our API, not the image optimizer */}
+          {/* biome-ignore lint/performance/noImgElement: static attachment file served by our API, not the image optimizer */}
           <img
             src={result.url}
             alt={caption ?? "attached screenshot"}
