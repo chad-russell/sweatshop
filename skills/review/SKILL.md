@@ -27,6 +27,8 @@ every step done, and nothing done that it ruled out.
    you trust; for visual claims, look at the running preview at
    `http://localhost:<port>` (never restart or reconfigure it) and
    attach what you see with `attach_screenshot`.
+   A visible UI change whose PR (or evidence) has no before/after
+   screenshots is a **should-fix** finding.
 3. **Change nothing.** No edits, no commits, no pushes, no installs —
    your output is findings, nothing else. If you cannot verify
    something (blocked, missing, broken), that is a FINDING: name it,

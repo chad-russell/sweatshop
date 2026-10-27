@@ -38,6 +38,13 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   see Environment). Store-layer tests run against per-worker temp
   databases; agent-behavior tests use a mock LLM — tests never wait on a
   real model call.
+- **PR screenshots:** a PR with a visible UI change carries before/after
+  screenshots in its body: capture "before" on the base branch and "after"
+  on the PR branch (same route, same viewport; agent-browser), then after
+  `create_pr` run `gh pr edit <n> --body-file body.md --attach
+  ./before.png --attach ./after.png` (the body references
+  `![Before](./before.png)`; gh uploads and rewrites it). `GH_TOKEN`
+  comes from the sandbox's git credential store — never print it.
 - **No sloppy growth:** prefer deleting over accumulating. Ask before
   adding a dependency. Every file earns its place.
 
