@@ -1,5 +1,6 @@
 "use client";
 
+import { conversationLabel } from "@/lib/conversation-label";
 import { Archive } from "lucide-react";
 import Link from "next/link";
 import type { SearchHit } from "@/lib/read-models/search";
@@ -46,7 +47,7 @@ export function SearchResults({ hits }: { hits: readonly SearchHit[] }) {
         <li key={hit.conversationId}>
           <Link
             href={conversationHref({ id: hit.conversationId, kind: hit.kind })}
-            title={hit.title ?? hit.conversationId}
+            title={conversationLabel({ title: hit.title })}
             className={
               "block rounded-md px-2 py-1.5 pointer-coarse:py-2.5 transition-colors " +
               (pathname === conversationHref({ id: hit.conversationId, kind: hit.kind })
@@ -55,7 +56,7 @@ export function SearchResults({ hits }: { hits: readonly SearchHit[] }) {
             }
           >
             <span className="flex items-baseline justify-between gap-2">
-              <span className="min-w-0 truncate text-sm">{hit.title ?? hit.conversationId}</span>
+              <span className="min-w-0 truncate text-sm">{conversationLabel({ title: hit.title })}</span>
               {hit.archived && (
                 <Archive aria-label="Archived" className="size-3 shrink-0 text-sidebar-foreground/60" />
               )}

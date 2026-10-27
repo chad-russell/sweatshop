@@ -1,5 +1,6 @@
 "use client";
 
+import { conversationLabel } from "@/lib/conversation-label";
 import { Archive, ChevronRight, Loader2, Pencil, Trash2 } from "lucide-react";
 import { conversationHref } from "@/lib/conversation-href";
 import { defaultExpanded, hasActiveDescendant } from "@/lib/sidebar-tree";
@@ -95,7 +96,7 @@ export function ConversationRow({
           <button
             type="button"
             aria-expanded={open}
-            aria-label={`${open ? "Collapse" : "Expand"} ${item.title ?? item.id} and its threads`}
+            aria-label={`${open ? "Collapse" : "Expand"} ${conversationLabel({ title: item.title })} and its threads`}
             onClick={() => setThreadExpanded(item.id, !open)}
             className="inline-flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/60 pointer-coarse:size-9"
           >
@@ -119,7 +120,7 @@ export function ConversationRow({
             <Link
               href={href}
               draggable={false}
-              title={item.step ? `${item.title ?? item.id}\nStep: ${item.step}` : (item.title ?? item.id)}
+              title={item.step ? `${conversationLabel({ title: item.title })}\nStep: ${item.step}` : (conversationLabel({ title: item.title }))}
               className={cn(
                 "flex items-center justify-between gap-2 py-1.5 pointer-coarse:py-2.5",
                 hasChildren ? "pr-2" : "px-2",
@@ -143,9 +144,7 @@ export function ConversationRow({
                 />
                 <ChildGlyph item={item} />
                 <span className="min-w-0 truncate">
-                  {item.title ?? (
-                    <span className="font-mono text-xs text-sidebar-foreground/60">{item.id}</span>
-                  )}
+                  <span title={item.id}>{conversationLabel({ title: item.title })}</span>
                 </span>
                 {collapsedAttention && (
                   <AttentionDot unread={item.descendantAttention.unread} needsYou={item.descendantAttention.needsYou} />
@@ -164,7 +163,7 @@ export function ConversationRow({
         </div>
         {!renaming && !locked && (
           <DropdownMenu>
-            <RowMenuTrigger label={`Actions for ${item.title ?? item.id}`} />
+            <RowMenuTrigger label={`Actions for ${conversationLabel({ title: item.title })}`} />
             <DropdownMenuContent
               align="start"
               className="w-48"
@@ -190,7 +189,7 @@ export function ConversationRow({
                 onSelect={() => {
                   if (
                     isLiveRun(item) &&
-                    !confirm(`"${item.title ?? item.id}" is still running. Cancel the run and move it to trash?`)
+                    !confirm(`"${conversationLabel({ title: item.title })}" is still running. Cancel the run and move it to trash?`)
                   ) {
                     return;
                   }

@@ -1,5 +1,6 @@
 "use client";
 
+import { conversationLabel } from "@/lib/conversation-label";
 import { Archive, FolderGit2, FolderPlus, MonitorPlay } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -146,7 +147,7 @@ export function CommandPalette({ data }: { data: SidebarData }) {
                   }}
                 >
                   <RunGlyph status={item.runStatus ?? "running"} />
-                  <span className="truncate">{item.title ?? item.id}</span>
+                  <span className="truncate">{conversationLabel({ title: item.title })}</span>
                   {item.needsYou && <AttentionDot unread={0} needsYou={1} />}
                   <span className="ml-auto truncate text-xs text-muted-foreground">
                     {projectNameByConversationId.get(item.id) ?? ""}
@@ -216,7 +217,7 @@ export function CommandPalette({ data }: { data: SidebarData }) {
               className="flex-col items-start gap-0.5"
             >
               <span className="flex w-full items-center justify-between gap-2">
-                <span className="truncate">{hit.title ?? hit.conversationId}</span>
+                <span className="truncate">{conversationLabel({ title: hit.title })}</span>
                 {hit.archived && <Archive className="size-3 shrink-0 text-muted-foreground" />}
               </span>
               <span className="w-full truncate text-xs text-muted-foreground">

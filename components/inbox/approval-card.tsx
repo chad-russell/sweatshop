@@ -68,7 +68,7 @@ export function ApprovalCard({
           href={`/c/${thread.id}`}
           className="truncate text-sm font-medium hover:underline"
         >
-          {thread.title ?? thread.id}
+          {thread.label}
         </Link>
         <Where projectName={thread.projectName} path={thread.path} at={request.at} />
       </header>

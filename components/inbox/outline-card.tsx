@@ -26,7 +26,7 @@ export function OutlineReviewCard({
     <article className="flex flex-col gap-3 rounded-lg border border-warning/50 bg-card p-4 text-card-foreground">
       <header className="flex flex-col gap-1">
         <Link href={`/c/${thread.id}`} className="truncate text-sm font-medium hover:underline">
-          {thread.title ?? thread.id}
+          {thread.label}
         </Link>
         <Where projectName={thread.projectName} path={thread.path} at={request.at} />
       </header>

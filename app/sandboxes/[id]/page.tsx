@@ -1,3 +1,4 @@
+import { conversationLabel } from "@/lib/conversation-label";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
@@ -134,7 +135,7 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
                     href={`/c/${u.conversationId}`}
                     className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-accent"
                   >
-                    <span className="min-w-0 flex-1 truncate">{u.title ?? u.conversationId}</span>
+                    <span className="min-w-0 flex-1 truncate">{conversationLabel({ title: u.title })}</span>
                     <span className="shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
                       {u.owner ? "owner" : "attached"}
                     </span>
