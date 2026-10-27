@@ -8,6 +8,10 @@
   Create the date heading if it's missing; don't backfill older dates.
 -->
 
+## 2026-10-27
+
+- **Fixed** Claude and Codex harness calls failing to start after the dependency update — the missing-lockfile workaround now also works in production builds.
+
 ## 2026-10-26
 
 - **Added** in-app changelog.
