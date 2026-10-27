@@ -1,5 +1,6 @@
 "use client";
 
+import { MessageResponse } from "@/components/ai-elements/message";
 import { Circle, CircleDot } from "lucide-react";
 import Link from "next/link";
 import { cn } from "cn";
@@ -40,18 +41,20 @@ export function UnreadCard({
           href={conversationHref(thread)}
           className="truncate text-sm font-medium after:absolute after:inset-0 hover:underline"
         >
-          {thread.title ?? thread.id}
+          {thread.label}
         </Link>
         <Where projectName={thread.projectName} path={thread.path} at={thread.at} />
         {thread.snippet && (
-          <p className="line-clamp-3 text-sm text-muted-foreground">{thread.snippet}</p>
+          <MessageResponse className="line-clamp-3 text-sm text-muted-foreground [&_a]:pointer-events-none">
+            {thread.snippet}
+          </MessageResponse>
         )}
       </div>
       <Button
         size="icon-xs"
         variant="ghost"
         title={read ? "Mark unread" : "Mark read"}
-        aria-label={`Mark ${thread.title ?? thread.id} ${read ? "unread" : "read"}`}
+        aria-label={`Mark ${thread.label} ${read ? "unread" : "read"}`}
         onClick={() => onToggle(thread.id, !read)}
         className="relative z-10 shrink-0"
       >

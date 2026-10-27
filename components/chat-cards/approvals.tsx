@@ -1,5 +1,7 @@
 "use client";
 
+import { ExecCommandBlock } from "@/components/exec-command-block";
+import { conversationLabel } from "@/lib/conversation-label";
 import { Fragment, useState } from "react";
 import type { ToolUIPart } from "ai";
 import { ChevronDown, GitPullRequest } from "lucide-react";
@@ -295,9 +297,9 @@ export function AskOwnerCard({ part }: { part: ToolUIPart }) {
         )
       )}
       {answered && (
-        <p className="mt-1 text-xs whitespace-pre-wrap text-muted-foreground">
+        <MessageResponse className="mt-1 text-xs text-muted-foreground">
           {part.state === "output-available" ? answerText(part.output) : "no answer recorded"}
-        </p>
+        </MessageResponse>
       )}
     </div>
   );
@@ -380,7 +382,7 @@ export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
           <p className="font-medium">Currently running bound threads</p>
           <ul className="mt-1 space-y-0.5 font-mono text-muted-foreground">
             {card.affectedThreads.map((thread) => (
-              <li key={thread.id}>{thread.title ?? thread.id} · {thread.id}</li>
+              <li key={thread.id}>{conversationLabel({ title: thread.title })} · {thread.id}</li>
             ))}
           </ul>
           <p className="mt-1 text-muted-foreground">They keep using this skill; the status only affects new bindings.</p>
@@ -459,10 +461,11 @@ export function HostExecApprovalCard({ part }: { part: ToolUIPart }) {
         Run on {host ?? "a host"}?
         {description && <span className="ml-1.5 font-normal text-muted-foreground">{description}</span>}
       </p>
-      <div className="rounded-md border border-terminal-border bg-terminal px-3 py-2 font-mono text-xs">
-        <div className="text-terminal-muted">{timeout}s timeout · every approved command runs via bash -lc as the host&apos;s user</div>
-        <pre className="mt-1.5 whitespace-pre-wrap text-terminal-foreground">$ {command ?? "…"}</pre>
-      </div>
+      <ExecCommandBlock
+        timeoutSec={timeout}
+        command={command}
+        note="every approved command runs via bash -lc as the host's user"
+      />
       {!answered ? (
         <div className="flex flex-wrap items-center gap-2">
           <button

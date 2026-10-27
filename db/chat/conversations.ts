@@ -1,3 +1,4 @@
+import { stripToolPlaceholders } from "../../lib/conversation-label";
 import { eq, sql } from "drizzle-orm";
 import type { ChatRoute } from "../../lib/providers/route";
 import type { Db } from "../index";
@@ -172,9 +173,7 @@ export function markChatChildWoken(db: Db, id: string, at: number, resultFile: s
 /** Strip `[tool <name>]` placeholder tokens (textOf's stand-in for a
  *  tool-call with no text, workflows/chat/steps.ts) and surrounding
  *  whitespace — what is left is "real" text, if anything is. */
-function stripToolPlaceholders(text: string): string {
-  return text.replace(/\[tool [^\]]*\]/g, "").trim();
-}
+export { stripToolPlaceholders };
 
 /** A malformed metadata blob (legacy/imported data) must never throw
  *  inside a wake — at turn-end that is wakeParentStep, inside the

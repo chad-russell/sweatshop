@@ -1,8 +1,11 @@
 "use client";
 
+import { MessageResponse } from "@/components/ai-elements/message";
 import { ShieldQuestion } from "lucide-react";
 import Link from "next/link";
 import { cn } from "cn";
+import { ExecCommandBlock } from "@/components/exec-command-block";
+import { ToolInput } from "@/components/ai-elements/tool";
 import { ApprovalEvidenceView } from "@/components/approval-evidence";
 import { PromptChangeDetails } from "@/components/chat-cards/approvals";
 import { Button } from "@/components/ui/button";
@@ -11,31 +14,18 @@ import type { NeedsYouThread, PendingRequest, RequestOption } from "@/lib/read-m
 /** 0043: an exec ask — host line + the command as it will run, not JSON. */
 function ExecAsk({ exec }: { exec: NonNullable<PendingRequest["exec"]> }) {
   return (
-    <div className="rounded-md border border-terminal-border bg-terminal px-3 py-2 font-mono text-xs">
-      {exec.description && (
-        <p className="mb-1 font-sans text-[13px] font-medium text-terminal-foreground">{exec.description}</p>
-      )}
-      <div className="flex flex-wrap items-center gap-x-2 text-terminal-muted">
-        <span className="text-terminal-foreground">{exec.user}@{exec.host}</span>
-        <span aria-hidden>·</span>
-        <span>{exec.address}</span>
-        <span aria-hidden>·</span>
-        <span>{exec.timeoutSec}s timeout</span>
-      </div>
-      <pre className="mt-1.5 whitespace-pre-wrap text-terminal-foreground">$ {exec.command}</pre>
-    </div>
+    <ExecCommandBlock
+      user={exec.user}
+      host={exec.host}
+      address={exec.address}
+      timeoutSec={exec.timeoutSec}
+      command={exec.command}
+      description={exec.description}
+    />
   );
 }
 import { Where } from "./where";
 import { useRespond } from "./use-respond";
-
-const INPUT_MAX = 600;
-
-function formatInput(input: Record<string, unknown> | null): string | null {
-  if (!input) return null;
-  const text = JSON.stringify(input, null, 2);
-  return text.length > INPUT_MAX ? `${text.slice(0, INPUT_MAX)}…` : text;
-}
 
 /** Fallback options when the request carries none. */
 const DEFAULT_APPROVAL: RequestOption[] = [
@@ -59,7 +49,7 @@ export function ApprovalCard({
 }) {
   const { respond, busy, error } = useRespond();
   const options = request.options.length > 0 ? request.options : DEFAULT_APPROVAL;
-  const input = formatInput(request.toolInput);
+  const input = request.toolInput;
 
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-warning/50 bg-card p-4 text-card-foreground">
@@ -68,7 +58,7 @@ export function ApprovalCard({
           href={`/c/${thread.id}`}
           className="truncate text-sm font-medium hover:underline"
         >
-          {thread.title ?? thread.id}
+          {thread.label}
         </Link>
         <Where projectName={thread.projectName} path={thread.path} at={request.at} />
       </header>
@@ -88,13 +78,11 @@ export function ApprovalCard({
           {!request.exec && !request.promptChange && request.askOwner?.context && (
             <details className="rounded-md border bg-background px-2 py-1.5">
               <summary className="cursor-pointer text-xs text-muted-foreground">Why they&apos;re asking</summary>
-              <div className="mt-1.5 text-sm">{request.askOwner.context}</div>
+              <MessageResponse className="mt-1.5 text-sm">{request.askOwner.context}</MessageResponse>
             </details>
           )}
           {!request.exec && !request.promptChange && input && (
-            <pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap">
-              {input}
-            </pre>
+            <ToolInput input={input} className="max-h-48 overflow-auto" />
           )}
           {request.evidence && <ApprovalEvidenceView evidence={request.evidence} />}
         </div>

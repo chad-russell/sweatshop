@@ -1,5 +1,6 @@
 "use client";
 
+import { conversationLabel } from "@/lib/conversation-label";
 import { ArchiveRestore, Trash2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useSidebar } from "./context";
@@ -81,8 +82,8 @@ export function ShelfView({
                 : "hover:bg-sidebar-accent/60")
             }
           >
-            <Link href={conversationHref(item)} title={item.title ?? item.id} className="min-w-0 flex-1">
-              <span className="block truncate text-sm">{item.title ?? item.id}</span>
+            <Link href={conversationHref(item)} title={conversationLabel({ title: item.title })} className="min-w-0 flex-1">
+              <span className="block truncate text-sm">{conversationLabel({ title: item.title })}</span>
               <Crumbs item={item} />
             </Link>
             {mounted && (
