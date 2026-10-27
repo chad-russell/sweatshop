@@ -1,0 +1,97 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.3/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": [
+      "**",
+      "!!.next",
+      "!!out",
+      "!!build",
+      "!!next-env.d.ts",
+      "!!.eve",
+      "!!.output",
+      "!!.workflow-data",
+      "!!app/.well-known",
+      "!!.agents",
+      "!!components/ai-elements",
+      "!!components/ui"
+    ]
+  },
+  // 0085: lint only; preserve existing formatting and import order.
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "includes": ["**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+    "rules": {
+      "preset": "recommended",
+      "style": { "preset": "none" },
+      "complexity": { "preset": "none" },
+      "correctness": {
+        // Match the old hook warning level; refresh ticks are intentional deps.
+        "useExhaustiveDependencies": {
+          "level": "warn",
+          "options": { "reportUnnecessaryDependencies": false }
+        }
+      },
+      "suspicious": {
+        "noAssignInExpressions": "off",
+        // Preview setup strings intentionally contain ${...} placeholders.
+        "noTemplateCurlyInString": "off",
+        // New checks remain visible without rewriting existing UI/test code.
+        "noArrayIndexKey": "warn",
+        "noImplicitAnyLet": "warn",
+        "useIterableCallbackReturn": {
+          "level": "error",
+          "options": { "checkForEach": false }
+        }
+      },
+      "a11y": {
+        "noLabelWithoutControl": {
+          "level": "error",
+          "options": { "inputComponents": ["Input", "Checkbox", "Switch", "Textarea"] }
+        },
+        // Avoid semantic-element rewrites during the tooling migration.
+        "useSemanticElements": "off",
+        // These checks differ from the former JSX plugin; keep findings visible.
+        "noStaticElementInteractions": "warn",
+        "useKeyWithClickEvents": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "useAriaPropsForRole": "warn",
+        "noAutofocus": "warn"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["lib/ansi.ts"],
+      "linter": {
+        "rules": {
+          // Parsing ANSI escapes requires literal control characters.
+          "suspicious": { "noControlCharactersInRegex": "off" }
+        }
+      }
+    },
+    {
+      "includes": ["components/**/*.ts", "components/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            // 0049: components use read models, never the store layer.
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@/db", "@/db/**"],
+                    "message": "read models live in @/lib/read-models; queries go through API routes"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

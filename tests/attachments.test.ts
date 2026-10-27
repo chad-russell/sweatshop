@@ -203,7 +203,8 @@ describe("0042: the turn sees image bytes, not references", () => {
         const payload = Uint8Array.from([...PNG.slice(0, 8), ...marker]);
         const { id } = await (await up(payload)).json();
         const cid = conv("canary");
-        await (await start(chatTurn, [{ conversationId: cid, userText: "canary", attachments: [id] }])).returnValue;
+        const run = await start(chatTurn, [{ conversationId: cid, userText: "canary", attachments: [id] }]);
+        await run.returnValue;
 
         // The marker as raw text and as base64 at each of the 3 alignments
         // (recorded Uint8Arrays are base64 inside the event JSON).
@@ -223,7 +224,8 @@ describe("0042: the turn sees image bytes, not references", () => {
             : body
           ).toString("latin1");
         };
-        const events = path.join(process.env.WORKFLOW_LOCAL_DATA_DIR!, "events");
+        // 0085: the stable local world stores each run's events in its own directory.
+        const events = path.join(process.env.WORKFLOW_LOCAL_DATA_DIR!, "events", run.runId);
         let decoded = 0;
         let sawReference = false;
         const hits: string[] = [];

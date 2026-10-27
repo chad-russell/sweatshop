@@ -36,8 +36,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # Bridge-backed harnesses (claude) bootstrap their in-sandbox bridge with
-# `pnpm install`; pinned to the version eve's own sandbox image ships.
-RUN npm install -g pnpm@11.5.2 agent-browser@0.38.2 && npm cache clean --force
+# `pnpm install`; pin both tools so image rebuilds are reproducible (0085).
+RUN npm install -g pnpm@12.15.0 agent-browser@0.39.4 && npm cache clean --force
 
 # Non-root agent user with passwordless sudo — the same shape as eve's
 # own sandbox image (vercel-sandbox). Claude Code refuses to run its

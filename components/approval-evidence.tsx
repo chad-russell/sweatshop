@@ -59,7 +59,7 @@ export function ApprovalEvidenceView({ evidence }: { evidence: ApprovalEvidence 
               title={shot.label}
               className="block overflow-hidden rounded-md border border-border"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element -- immutable attachment files served by our API */}
+              {/* biome-ignore lint/performance/noImgElement: immutable attachment files served by our API */}
               <img
                 src={shot.url}
                 alt={shot.label ?? "attached screenshot"}

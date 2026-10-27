@@ -109,6 +109,7 @@ function useServerContext({
 }): ChatContextBlock | null {
   const [serverContext, setServerContext] = useState<ChatContextBlock | null>(null);
   const settledTick = status === "ready" ? messages.length : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: chatRef/pendingResumeRef are stable refs, setPendingResume a stable setter.
   useEffect(() => {
     if (!adoptedNow || settledTick == null) return;
     let cancelled = false;
@@ -151,7 +152,6 @@ function useServerContext({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- chatRef/pendingResumeRef are stable refs, setPendingResume a stable setter
   }, [adoptedNow, conversationId, settledTick]);
 
   return serverContext;

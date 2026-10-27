@@ -59,6 +59,20 @@ list of host:container pairs) so your browser can reach the app, e.g.
 http://localhost:3000. Set `SWEATSHOP_DB` to move the
 sqlite database (default `./data/sweatshop.db`).
 
+Both `npm run dev` and `npm run build` explicitly select Turbopack. Native
+addons and harness bridge packages use `serverExternalPackages` in the
+checked-in `next.config.ts`; no local config overlay or `--webpack` flag
+is needed.
+
+Production builds (`./dev exec -- npm run build`) use the project-local
+TypeScript 7 native Go compiler for type checking, explicitly selected by
+`experimental.useTypeScriptCli` in `next.config.ts`. The separate
+`./dev exec -- npm run typecheck` gate uses the same compiler. Build-time
+checks remain enabled so Next.js also checks its freshly generated route
+types. No Go toolchain or `@typescript/native-preview` install is needed.
+See [Next.js's CLI checker documentation](https://nextjs.org/docs/app/api-reference/config/next-config-js/useTypeScriptCli)
+and [TypeScript 7's release notes](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).
+
 Before your first sandbox: build the sandbox image —
 
 ```sh

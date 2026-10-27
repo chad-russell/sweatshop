@@ -68,8 +68,8 @@ export class SerializableChatModel {
   /** 0042: claim `attachment:` image references as natively supported, so
    *  the SDK passes them through to doStream (where withImages swaps in the
    *  bytes) instead of trying to download the scheme. The inner model's own
-   *  entries are kept. (WorkflowAgent's first conversion pass is covered by
-   *  the turn's experimental_download; doStreamStep's second one reads this.) */
+   *  entries are kept. WorkflowAgent preserves URLs on its first conversion
+   *  pass (0085); doStreamStep's second conversion reads this getter. */
   get supportedUrls() {
     return Promise.resolve(this.inner.supportedUrls).then((inner) => {
       const base = (inner ?? {}) as Record<string, RegExp[]>;

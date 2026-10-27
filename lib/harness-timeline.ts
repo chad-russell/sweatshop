@@ -225,6 +225,7 @@ export function buildTimeline(events: readonly TimelineEvent[]): TimelineItem[] 
  * way prose does in chat.
  */
 export function timelineToParts(items: readonly TimelineItem[]): PartLike[] {
+  // biome-ignore lint/suspicious/useIterableCallbackReturn: the switch exhausts the TimelineItem discriminated union (checked by TypeScript).
   return items.map((item): PartLike => {
     switch (item.type) {
       case "tool":

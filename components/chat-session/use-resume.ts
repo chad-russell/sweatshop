@@ -69,6 +69,7 @@ export function useResumeStream({
   setOlderCursor: (value: number | null) => void;
   setOlderRemaining: (value: number) => void;
 }): void {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the run identity, not every re-render.
   useEffect(() => {
     if (!pendingResume) return;
     let cancelled = false;
@@ -88,6 +89,5 @@ export function useResumeStream({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the run identity, not every re-render
   }, [pendingResume?.runId, conversationId]);
 }

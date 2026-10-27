@@ -72,9 +72,13 @@ export async function startWorkflowExecutor(): Promise<WorkflowExecutor> {
       // Native/troublesome packages must stay external in the steps bundle.
       externalPackages: [
         "better-sqlite3",
+        "ssh2",
         "@ai-sdk/harness",
         "@ai-sdk/harness-pi",
         "@ai-sdk/harness-claude-code",
+        "@ai-sdk/harness-codex",
+        "@ai-sdk/harness-cursor",
+        "@ai-sdk/harness-acp",
         "@ai-sdk/workflow-harness",
         "@earendil-works/pi-coding-agent",
       ],

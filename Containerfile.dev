@@ -14,7 +14,7 @@ FROM docker.io/library/node:24-trixie-slim
 # binary exists (arm64 — a Mac running this under OrbStack).
 # gh (pinned exactly — Debian carries no gh package): 0033 — the
 # agent's github discovery tool runs the real CLI in this container.
-ARG GH_VERSION=2.102.0
+ARG GH_VERSION=2.103.3
 RUN apt-get update \
   && apt-get install -y --no-install-recommends docker-cli git ca-certificates curl python3 make g++ \
   && ARCH="$(dpkg --print-architecture)" \

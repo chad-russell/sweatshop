@@ -158,7 +158,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
 - UI is Vercel AI Elements on shadcn + tailwind. The visual system is
   the `DESIGN.md` token contract: semantic tokens only, never raw
   hex/oklch in TSX; themes `clickhouse` (default), `cal`, `nova`.
-  Components never import `@/db` (lint-enforced); read-model types live
+  Components never import `@/db` (Biome-enforced); read-model types live
   in `@/lib/read-models` (0049). A composer-bar usage control (0051 +
   0047, merged 0055 PR2) shows a ring, the conversation's last metered
   slice as a percentage of the model's catalog window, and cost;
@@ -420,8 +420,9 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   whose data is a REFERENCE (`attachment:<id>`) — never bytes; recorded
   workflow state holds references only. Bytes are swapped in only
   inside `SerializableChatModel.doStream` (`resolveAttachmentPartsStep`
-  → `lib/chat/attachment-parts.ts`, with `supportedUrls` +
-  `experimental_download` both required or the SDK fetches the scheme).
+  → `lib/chat/attachment-parts.ts`; `supportedUrls` keeps `attachment:`
+  references intact inside the model step, while WorkflowAgent itself
+  preserves URLs during workflow-side conversion, 0085).
   No vision gate: a model that rejects an image is the user's error; a
   missing file becomes `[image unavailable]`. Steers are text-only (the
   route 409s an image steer).
@@ -586,11 +587,11 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   the builder fails fast naming it.
   Persistence: `harness_events` + `harness_runs` keyed (conversation,
   harness); `/h/<harness>/<conversationId>` is the one URL shape
-  (legacy shapes permanent-redirect). Packaging pins:
-  `pi-coding-agent` 0.85.1 exactly; harness 1.0.141 / harness-pi
-  1.0.143 / harness-claude-code 1.0.145 (the ai / workflow /
-  provider-utils line moves with the harness pin — one deliberate
-  bump). Adapter rules: env goes as `docker exec -e` flags, exec uses
+  (legacy shapes permanent-redirect). Packaging (0085): exact pins live
+  in `package.json`; the harness, pi, AI SDK, Workflow and provider-utils
+  line moves together. Lint uses Biome with formatting and import sorting
+  disabled; `biome.jsonc` owns migration exceptions and the component/store
+  import boundary. Adapter rules: env goes as `docker exec -e` flags, exec uses
   `bash` not `sh`, bridge processes need real streaming spawn.
 - Repo AGENTS.md for agents (2026-10-16, approved in chat): no harness
   or top-level agent reads a project repo's AGENTS.md unprompted, so

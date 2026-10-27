@@ -65,7 +65,7 @@ export function ComposerAttachments({ dimmed }: { dimmed?: boolean }) {
           key={file.id}
           className={cn("group/thumb relative size-16 shrink-0 transition-opacity", dimmed && "opacity-50")}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element -- local blob preview */}
+          {/* biome-ignore lint/performance/noImgElement: local blob preview */}
           <img
             src={file.url}
             alt={file.filename ?? "attached image"}
