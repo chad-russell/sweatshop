@@ -324,12 +324,22 @@ export function mapTheme(themeJson, opts = {}) {
     list.push(token);
     missing.set(scope, list);
   };
+  const addNote = (note) => {
+    if (!notes.includes(note)) notes.push(note);
+  };
   const parsed = (scope) => {
     const raw = colors[scope];
     if (raw == null || raw === "") return null;
     const c = parseColor(raw);
     if (!c) {
-      notes.push(`${scope}: present but not a #hex color ("${raw}") — ignored`);
+      addNote(`${scope}: present but not a #hex color ("${raw}") — ignored`);
+      return null;
+    }
+    if (c.a === 0) {
+      // alpha 0 = the theme author disabled that surface; flattened it
+      // would be the background itself (e.g. an invisible border), so
+      // chains treat it as absent and fall through.
+      addNote(`${scope} (${raw}) fully transparent — treated as absent`);
       return null;
     }
     return c;
@@ -385,6 +395,25 @@ export function mapTheme(themeJson, opts = {}) {
     const value =
       fg && surface && Math.abs(yiq(fg) - yiq(surface)) >= Math.abs(yiq(bg) - yiq(surface)) ? fg : bg;
     return derived(token, "contrast pick (foreground/background by YIQ vs the surface)", value);
+  };
+  /**
+   * ring/sidebar-ring: focusBorder only when its alpha survives flattening
+   * (≥50%); below that it is near-invisible, so both fall back — ring to
+   * the accent token, sidebar-ring to the already-resolved ring token.
+   */
+  const focusRing = (token, fallbackToken) => {
+    const fb = read("focusBorder");
+    if (fb && fb.alpha >= 0.5) {
+      if (fb.alpha < 1)
+        derivations.push({ token, rule: `focusBorder (${colors.focusBorder}) flattened over background` });
+      tokens.set(token, toHex(fb.color));
+      return;
+    }
+    const why = fb
+      ? `focusBorder (${colors.focusBorder}) alpha ${Math.round(fb.alpha * 100)}% < 50% — near-invisible flattened`
+      : "focusBorder absent";
+    derivations.push({ token, rule: `${why} → ${fallbackToken}` });
+    tokens.set(token, tokens.get(fallbackToken));
   };
   const rgbToken = (token) => parseColor(tokens.get(token));
   const placeholder = kind === "dark" ? "#ffffff" : "#000000";
@@ -521,22 +550,7 @@ export function mapTheme(themeJson, opts = {}) {
       ),
     input: () =>
       tokens.set("input", chain("input", ["input.background"]) ?? derived("input", "secondary", rgbToken("secondary"))),
-    ring: () => {
-      // focusBorder with alpha ≥50% (flattened); below that it is
-      // near-invisible flattened, so ring falls back to the accent token.
-      const fb = read("focusBorder");
-      if (fb && fb.alpha >= 0.5) {
-        if (fb.alpha < 1)
-          derivations.push({ token: "ring", rule: `focusBorder (${colors.focusBorder}) flattened over background` });
-        tokens.set("ring", toHex(fb.color));
-        return;
-      }
-      const why = fb
-        ? `focusBorder (${colors.focusBorder}) alpha ${Math.round(fb.alpha * 100)}% < 50% — near-invisible flattened`
-        : "focusBorder absent";
-      derivations.push({ token: "ring", rule: `${why} → accent` });
-      tokens.set("ring", tokens.get("accent"));
-    },
+    ring: () => focusRing("ring", "accent"),
     radius: () => tokens.set("radius", opts.radius ?? "0.5rem"),
     sidebar: () =>
       tokens.set(
@@ -582,11 +596,7 @@ export function mapTheme(themeJson, opts = {}) {
         chain("sidebar-border", ["sideBar.border", "panel.border", "contrastBorder"]) ??
           derived("sidebar-border", "border", rgbToken("border")),
       ),
-    "sidebar-ring": () =>
-      tokens.set(
-        "sidebar-ring",
-        chain("sidebar-ring", ["focusBorder"]) ?? derived("sidebar-ring", "ring", rgbToken("ring")),
-      ),
+    "sidebar-ring": () => focusRing("sidebar-ring", "ring"),
     success: () => {
       let v = chain("success", ["editorInfo.foreground", "terminal.ansiGreen", "editorHint.foreground"]);
       if (!v) {

@@ -96,6 +96,32 @@ describe("import-theme mapTheme", () => {
     expect(mapped.tokens["terminal-bg-black"]).toBe("#2a2438"); // bright absent → normal ANSI
   });
 
+  it("treats fully-transparent colors as absent in chains", () => {
+    const transparent = structuredClone(FIXTURE);
+    transparent.colors["panel.border"] = "#0000"; // author disabled the border surface
+    const mapped = mapTheme(transparent);
+    // border falls through its whole chain to the "muted lifted 1 step" derivation
+    expect(
+      mapped.derivations.some((d) => d.token === "border" && d.rule.includes("derived: muted lifted 1 step")),
+    ).toBe(true);
+    expect(mapped.tokens.border).not.toBe("#000000");
+    expect(mapped.tokens["terminal-border"]).toBe(mapped.tokens.border); // border-token derivation
+    expect(mapped.notes.some((n) => n === "panel.border (#0000) fully transparent — treated as absent")).toBe(true);
+  });
+
+  it("routes sidebar-ring through ring when focusBorder alpha is below 50%", () => {
+    const lowAlpha = structuredClone(FIXTURE);
+    lowAlpha.colors.focusBorder = "#7aa2f740"; // 25% alpha — near-invisible flattened
+    const mapped = mapTheme(lowAlpha);
+    expect(mapped.tokens.ring).toBe("#4d438f"); // accent (flattened list.hoverBackground)
+    expect(mapped.tokens["sidebar-ring"]).toBe(mapped.tokens.ring);
+    expect(
+      mapped.derivations.some(
+        (d) => d.token === "sidebar-ring" && d.rule.includes("alpha 25% < 50%") && d.rule.endsWith("→ ring"),
+      ),
+    ).toBe(true);
+  });
+
   it("parses JSONC sources (comments + trailing commas)", () => {
     const parsed = parseJsonc('{\n  // comment with "quote"\n  "colors": { "editor.background": "#101010", },\n}');
     expect(parsed.colors["editor.background"]).toBe("#101010");
