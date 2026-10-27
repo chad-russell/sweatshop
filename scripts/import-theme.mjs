@@ -388,6 +388,12 @@ export function mapTheme(themeJson, opts = {}) {
   /** lift = away from the background (white for dark, black for light); dim = toward it. */
   const lift = (c, n = OKLAB_STEP) => shiftLightness(c, kind === "dark" ? n : -n);
   const dim = (c, n) => shiftLightness(c, kind === "dark" ? -n : n);
+  /** Interpolate oklab lightness from c's L toward the background's L by fraction t (keeps a/b). */
+  const blendTowardBgLightness = (c, t) => {
+    const lab = toOklab(c);
+    const bgL = toOklab(bg).L;
+    return fromOklab({ ...lab, L: lab.L + (bgL - lab.L) * t });
+  };
   /** The foreground/background pair member that contrasts better with a surface (YIQ). */
   const contrastPick = (token, surfaceHex) => {
     const fg = parseColor(tokens.get("foreground"));
@@ -397,23 +403,72 @@ export function mapTheme(themeJson, opts = {}) {
     return derived(token, "contrast pick (foreground/background by YIQ vs the surface)", value);
   };
   /**
+   * Foreground guard: a chain-resolved foreground that reads worse than 3:1
+   * on its own surface (e.g. activityBar.foreground on activityBarBadge)
+   * loses to the contrast pick.
+   */
+  const guardForeground = (token, value, surfaceColor, surfaceName) => {
+    const c = parseColor(value);
+    const surface = parseColor(surfaceColor);
+    if (!c || !surface) return value;
+    const ratio = contrastRatio(c, surface);
+    if (ratio >= 3) return value;
+    derivations.push({
+      token,
+      rule: `${value} contrast ${ratio.toFixed(1)}:1 < 3:1 vs ${surfaceName} → contrast pick`,
+    });
+    return null;
+  };
+  /**
+   * docs/0086 not-dim rule: a descriptionForeground within 10% of the
+   * foreground's luminance was never actually dimmed upstream — treat it
+   * as absent so muted-foreground/terminal-muted derive instead.
+   */
+  const descriptionNotDim = () => {
+    const df = read("descriptionForeground");
+    if (!df) return { df: null, notDim: false };
+    const fgLum = relLum(rgbToken("foreground"));
+    const notDim = fgLum > 0 ? Math.abs(relLum(df.color) - fgLum) <= 0.1 * fgLum : false;
+    return { df, notDim };
+  };
+  const notDimNote = (token) =>
+    derivations.push({
+      token,
+      rule: `descriptionForeground (${colors.descriptionForeground}) within 10% of foreground luminance — treated as absent`,
+    });
+  /**
    * ring/sidebar-ring: focusBorder only when its alpha survives flattening
    * (≥50%); below that it is near-invisible, so both fall back — ring to
    * the accent token, sidebar-ring to the already-resolved ring token.
+   * Final visibility gate: a value too close to its surface (WCAG < 1.5:1)
+   * is an invisible ring, so it falls back to primary instead.
    */
-  const focusRing = (token, fallbackToken) => {
+  const focusRing = (token, fallbackToken, surfaceColor, surfaceName) => {
     const fb = read("focusBorder");
+    let value;
     if (fb && fb.alpha >= 0.5) {
       if (fb.alpha < 1)
         derivations.push({ token, rule: `focusBorder (${colors.focusBorder}) flattened over background` });
-      tokens.set(token, toHex(fb.color));
-      return;
+      value = toHex(fb.color);
+    } else {
+      const why = fb
+        ? `focusBorder (${colors.focusBorder}) alpha ${Math.round(fb.alpha * 100)}% < 50% — near-invisible flattened`
+        : "focusBorder absent";
+      derivations.push({ token, rule: `${why} → ${fallbackToken}` });
+      value = tokens.get(fallbackToken);
     }
-    const why = fb
-      ? `focusBorder (${colors.focusBorder}) alpha ${Math.round(fb.alpha * 100)}% < 50% — near-invisible flattened`
-      : "focusBorder absent";
-    derivations.push({ token, rule: `${why} → ${fallbackToken}` });
-    tokens.set(token, tokens.get(fallbackToken));
+    const c = parseColor(value);
+    if (c && value !== tokens.get("primary")) {
+      const ratio = contrastRatio(c, surfaceColor);
+      if (ratio < 1.5) {
+        derivations.push({
+          token,
+          rule: `${value} contrast ${ratio.toFixed(1)}:1 < 1.5:1 vs ${surfaceName} → primary`,
+        });
+        value = tokens.get("primary");
+      }
+    }
+    tokens.set(token, value);
   };
   const rgbToken = (token) => parseColor(tokens.get(token));
   const placeholder = kind === "dark" ? "#ffffff" : "#000000";
@@ -474,17 +529,24 @@ export function mapTheme(themeJson, opts = {}) {
         chain("primary", ["button.background", "focusBorder", "activityBarBadge.background"]) ??
           derived("primary", "focusBorder absent too — background lifted 1 step", lift(bg)),
       ),
-    "primary-foreground": () =>
+    "primary-foreground": () => {
+      const v = chain("primary-foreground", ["button.foreground"]);
       tokens.set(
         "primary-foreground",
-        chain("primary-foreground", ["button.foreground"]) ??
+        (v && guardForeground("primary-foreground", v, tokens.get("primary"), "primary")) ??
           contrastPick("primary-foreground", tokens.get("primary")),
-      ),
+      );
+    },
     secondary: () => {
       let v = chain("secondary", ["secondaryButton.background"]);
       if (!v) {
         const btn = read("button.background");
-        if (btn) v = derived("secondary", "button.background dimmed 25% onto background", dim(btn.color, 0.25));
+        if (btn)
+          v = derived(
+            "secondary",
+            "button.background blended 25% toward background lightness",
+            blendTowardBgLightness(btn.color, 0.25),
+          );
       }
       if (!v) {
         const input = read("input.background");
@@ -506,16 +568,19 @@ export function mapTheme(themeJson, opts = {}) {
         chain("muted", ["sideBar.background", "editorGroupHeader.noTabsBackground", "panel.background"]) ??
           derived("muted", "background dimmed 4%", dim(bg, 0.04)),
       ),
-    "muted-foreground": () =>
-      tokens.set(
-        "muted-foreground",
-        chain("muted-foreground", ["descriptionForeground", "sideBar.foreground"]) ??
-          derived(
-            "muted-foreground",
-            "foreground at 60% over background (dimmed)",
-            flatten({ ...rgbToken("foreground"), a: 0.6 }, bg),
-          ),
-      ),
+    "muted-foreground": () => {
+      const { df, notDim } = descriptionNotDim();
+      let v;
+      if (df && notDim) {
+        notDimNote("muted-foreground");
+        v = derived("muted-foreground", "foreground at 60% over background (dimmed)", flatten({ ...rgbToken("foreground"), a: 0.6 }, bg));
+      } else {
+        v =
+          chain("muted-foreground", ["descriptionForeground", "sideBar.foreground"]) ??
+          derived("muted-foreground", "foreground at 60% over background (dimmed)", flatten({ ...rgbToken("foreground"), a: 0.6 }, bg));
+      }
+      tokens.set("muted-foreground", v);
+    },
     accent: () =>
       tokens.set(
         "accent",
@@ -550,7 +615,7 @@ export function mapTheme(themeJson, opts = {}) {
       ),
     input: () =>
       tokens.set("input", chain("input", ["input.background"]) ?? derived("input", "secondary", rgbToken("secondary"))),
-    ring: () => focusRing("ring", "accent"),
+    ring: () => focusRing("ring", "accent", bg, "background"),
     radius: () => tokens.set("radius", opts.radius ?? "0.5rem"),
     sidebar: () =>
       tokens.set(
@@ -572,12 +637,14 @@ export function mapTheme(themeJson, opts = {}) {
           // resolves (its own row derives), so the later links never fire.
           derived("sidebar-primary", "accent", rgbToken("accent")),
       ),
-    "sidebar-primary-foreground": () =>
+    "sidebar-primary-foreground": () => {
+      const v = chain("sidebar-primary-foreground", ["activityBar.foreground"]);
       tokens.set(
         "sidebar-primary-foreground",
-        chain("sidebar-primary-foreground", ["activityBar.foreground"]) ??
+        (v && guardForeground("sidebar-primary-foreground", v, tokens.get("sidebar-primary"), "sidebar-primary")) ??
           contrastPick("sidebar-primary-foreground", tokens.get("sidebar-primary")),
-      ),
+      );
+    },
     "sidebar-accent": () =>
       tokens.set(
         "sidebar-accent",
@@ -596,18 +663,16 @@ export function mapTheme(themeJson, opts = {}) {
         chain("sidebar-border", ["sideBar.border", "panel.border", "contrastBorder"]) ??
           derived("sidebar-border", "border", rgbToken("border")),
       ),
-    "sidebar-ring": () => focusRing("sidebar-ring", "ring"),
+    "sidebar-ring": () => focusRing("sidebar-ring", "ring", rgbToken("sidebar"), "sidebar"),
     success: () => {
-      let v = chain("success", ["editorInfo.foreground", "terminal.ansiGreen", "editorHint.foreground"]);
-      if (!v) {
-        const green = read("terminal.ansiGreen");
-        if (green) v = derived("success", "terminal.ansiGreen", green.color);
-        else {
-          missingScope("terminal.ansiGreen", "success");
-          v = "#00ff00";
-        }
+      // ansiGreen first: editorInfo.foreground is info's first choice, and a
+      // shared source would make success === info (blue-ish) in green-less tables.
+      const v = chain("success", ["terminal.ansiGreen", "editorInfo.foreground"]);
+      if (v) tokens.set("success", v);
+      else {
+        missingScope("terminal.ansiGreen", "success");
+        tokens.set("success", "#00ff00");
       }
-      tokens.set("success", v);
     },
     warning: () => {
       let v = chain("warning", ["editorWarning.foreground", "terminal.ansiYellow"]);
@@ -653,12 +718,21 @@ export function mapTheme(themeJson, opts = {}) {
         chain("terminal-foreground", ["terminal.foreground"]) ??
           derived("terminal-foreground", "foreground", rgbToken("foreground")),
       ),
-    "terminal-muted": () =>
-      tokens.set(
-        "terminal-muted",
-        chain("terminal-muted", ["descriptionForeground", "terminal.ansiBrightBlack"]) ??
-          derived("terminal-muted", "muted-foreground", rgbToken("muted-foreground")),
-      ),
+    "terminal-muted": () => {
+      const { df, notDim } = descriptionNotDim();
+      let v;
+      if (df && notDim) {
+        notDimNote("terminal-muted");
+        v =
+          chain("terminal-muted", ["terminal.ansiBrightBlack"]) ??
+          derived("terminal-muted", "muted-foreground", rgbToken("muted-foreground"));
+      } else {
+        v =
+          chain("terminal-muted", ["descriptionForeground", "terminal.ansiBrightBlack"]) ??
+          derived("terminal-muted", "muted-foreground", rgbToken("muted-foreground"));
+      }
+      tokens.set("terminal-muted", v);
+    },
     "terminal-border": () =>
       tokens.set(
         "terminal-border",
@@ -777,11 +851,14 @@ function commentBlock(paragraphs) {
 
 /** Render the complete app/themes/<id>.css file for a mapped theme. */
 export function renderThemeCss({ id, label, source, mapped }) {
-  const upstream = mapped.name
-    ? `"${mapped.name}"${mapped.author ? ` by ${mapped.author}` : ""}`
-    : "unknown upstream";
+  // when the upstream theme's own name is our label, repeating it adds nothing
+  const fromUpstream = !mapped.name
+    ? "unknown upstream"
+    : mapped.name.toLowerCase() === label.toLowerCase()
+      ? `upstream${mapped.author ? ` by ${mapped.author}` : ""}`
+      : `upstream "${mapped.name}"${mapped.author ? ` by ${mapped.author}` : ""}`;
   const header = commentBlock([
-    `${id} — ${mapped.kind}. ${label}, imported from upstream ${upstream}.`,
+    `${id} — ${mapped.kind}. ${label}, imported from ${fromUpstream}.`,
     `Vendored source: ${source}. Imported via scripts/import-theme.mjs (docs/0086).`,
   ]);
   const lines = [`[data-theme="${id}"] {`];

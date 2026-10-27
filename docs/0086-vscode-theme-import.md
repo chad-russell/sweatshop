@@ -50,11 +50,11 @@ LICENSE) so imports are reproducible and reviewable. The importer:
 | popover | dropdown.background | editorWidget.background, quickInput.background | card lifted 1 step |
 | popover-foreground | dropdown.foreground | editorWidget.foreground, foreground | foreground |
 | primary | button.background | focusBorder, accent (custom), activityBarBadge.background | focusBorder |
-| primary-foreground | button.foreground | | contrast pick (ink/bg by YIQ) |
-| secondary | secondaryButton.background | button.background dimmed 25% onto bg | input.background |
+| primary-foreground | button.foreground (kept only ≥3:1 vs primary) | | contrast pick (ink/bg by YIQ) |
+| secondary | secondaryButton.background | button.background blended 25% toward background lightness | input.background |
 | secondary-foreground | secondaryButton.foreground | | foreground |
 | muted | sideBar.background | editorGroupHeader.noTabsBackground, panel.background | background dimmed 4% |
-| muted-foreground | descriptionForeground | sideBar.foreground, foreground 60% | foreground dimmed |
+| muted-foreground | descriptionForeground (not-dim skip, see notes) | sideBar.foreground, foreground 60% | foreground dimmed |
 | accent | list.hoverBackground (flattened) | list.activeSelectionBackground | muted lifted 1 step |
 | accent-foreground | list.hoverForeground | list.activeSelectionForeground, sideBar.foreground, foreground | foreground |
 | destructive | editorError.foreground | | **error** |
@@ -66,12 +66,12 @@ LICENSE) so imports are reproducible and reviewable. The importer:
 | sidebar | sideBar.background | activityBar.background | background dimmed 2% |
 | sidebar-foreground | sideBar.foreground | | foreground |
 | sidebar-primary | activityBarBadge.background | accent, focusBorder | primary |
-| sidebar-primary-foreground | activityBar.foreground | | contrast pick |
+| sidebar-primary-foreground | activityBar.foreground (kept only ≥3:1 vs sidebar-primary) | | contrast pick |
 | sidebar-accent | list.inactiveSelectionBackground | sideBarSectionHeader.background | accent |
 | sidebar-accent-foreground | sideBarSectionHeader.foreground | list.hoverForeground | accent-foreground |
 | sidebar-border | sideBar.border | panel.border, contrastBorder | border |
 | sidebar-ring | focusBorder | | ring |
-| success | editorInfo.foreground | terminal.ansiGreen, editorHint.foreground | terminal.ansiGreen |
+| success | terminal.ansiGreen | editorInfo.foreground | terminal.ansiGreen |
 | warning | editorWarning.foreground | terminal.ansiYellow | terminal.ansiYellow |
 | info | terminal.ansiBlue (always present) | editorInfo.foreground | — |
 | radius | `--radius` flag | | 0.5rem |
@@ -88,6 +88,14 @@ LICENSE) so imports are reproducible and reviewable. The importer:
 "lifted/dimmed N%" = oklab lightness shift away from/toward background,
 clamped; "contrast pick" = the darker of ink/bg pair by YIQ against the
 surface.
+
+- ring/sidebar-ring visibility gate: after either resolves (any path),
+  a WCAG contrast < 1.5:1 vs background (sidebar for sidebar-ring) falls
+  back to primary.
+- Not-dim rule: a descriptionForeground within 10% of the foreground's
+  luminance was never dimmed upstream — treat it as absent;
+  muted-foreground then derives the 60% blend, terminal-muted still
+  prefers terminal.ansiBrightBlack.
 
 Notes:
 - `info` prefers ANSI blue over editorInfo.foreground when both exist
