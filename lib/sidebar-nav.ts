@@ -3,7 +3,14 @@
  * testable without rendering. `/p/<id>` (a project's own page) is inside
  * Projects; everything else matches by its top-level segment.
  */
-export type NavPage = "inbox" | "prs" | "projects" | "sandboxes" | "previews" | "settings";
+export type NavPage =
+  | "inbox"
+  | "prs"
+  | "projects"
+  | "sandboxes"
+  | "previews"
+  | "settings"
+  | "changelog";
 
 const SEGMENT: Record<string, NavPage> = {
   inbox: "inbox",
@@ -13,6 +20,7 @@ const SEGMENT: Record<string, NavPage> = {
   sandboxes: "sandboxes",
   previews: "previews",
   settings: "settings",
+  changelog: "changelog",
 };
 
 export function activeNavPage(pathname: string): NavPage | null {

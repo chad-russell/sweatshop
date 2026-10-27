@@ -1,6 +1,7 @@
 "use client";
 
-import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, GitPullRequest, Inbox, MonitorPlay, PanelLeftClose, Search, Settings, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, GitPullRequest, History, Inbox, MonitorPlay, PanelLeftClose, Search, Settings, Trash2, X } from "lucide-react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
@@ -330,6 +331,20 @@ export function ConversationSidebar({
             active={page === "settings"}
             className="flex-1"
           />
+          {/* 0085: icon-only, styled like ThemeToggle — the changelog isn't
+              a page row worth a label, just a quick "what shipped" link. */}
+          <Link
+            href="/changelog"
+            aria-label="Changelog"
+            title="Changelog"
+            aria-current={page === "changelog" ? "page" : undefined}
+            className={cn(
+              "inline-flex size-8 pointer-coarse:size-10 items-center justify-center rounded-md border border-sidebar-border text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              page === "changelog" && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+          >
+            <History className="size-4" />
+          </Link>
           <ThemeToggle />
         </div>
         {/* Resize handle — desktop only; the mobile drawer keeps its own
