@@ -2,16 +2,18 @@ import type { NextConfig } from "next";
 import { withWorkflow } from "workflow/next";
 
 const nextConfig: NextConfig = {
-  // better-sqlite3 is a native addon; keep it out of the bundler. The
-  // harness packages run in machine workflow steps (0009) and must load
-  // through plain Node resolution: harness-pi pulls pi-mcp-adapter (raw
-  // .ts exports Turbopack cannot type), and harness-claude-code loads
-  // package-relative bridge assets via import.meta.url (0006).
+  // Native addons and harness bridge assets must load through plain Node
+  // resolution. Turbopack cannot bundle native binaries or the adapters'
+  // package-relative bridge lockfiles (0006, 0085).
   serverExternalPackages: [
     "better-sqlite3",
+    "ssh2",
     "@ai-sdk/harness",
     "@ai-sdk/harness-pi",
     "@ai-sdk/harness-claude-code",
+    "@ai-sdk/harness-codex",
+    "@ai-sdk/harness-cursor",
+    "@ai-sdk/harness-acp",
     "@ai-sdk/workflow-harness",
     "@earendil-works/pi-coding-agent",
   ],

@@ -364,6 +364,7 @@ export function HarnessSessionView({
     setOlderLoading(false);
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: callWindow only reads `call`, already a dependency.
   useEffect(() => {
     if (run.status !== "running") return;
     const timer = setInterval(async () => {
@@ -383,8 +384,6 @@ export function HarnessSessionView({
       }
     }, 2000);
     return () => clearInterval(timer);
-    // callWindow only reads `call`, already a dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.status, run.sessionId, run.kind, events, call]);
 
   // On a per-call page a settled call shows its own status, not the

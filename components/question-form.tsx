@@ -102,7 +102,7 @@ function EvidenceView({ evidence }: { evidence: QuestionEvidence }) {
       rel="noreferrer"
       className="mt-2 block overflow-hidden rounded-md border border-border"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- immutable attachment files served by our API */}
+      {/* biome-ignore lint/performance/noImgElement: immutable attachment files served by our API */}
       <img src={evidence.url} alt="attached screenshot" className="max-h-48 w-full object-cover object-top" />
     </a>
   );

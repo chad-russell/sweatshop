@@ -333,7 +333,7 @@ function MessageImages({ parts }: { parts: UIMessage["parts"] }) {
     <div className={many ? "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap" : "flex"}>
       {images.map((image, i) => (
         <a key={i} href={image.url} target="_blank" rel="noreferrer" className="block min-w-0">
-          {/* eslint-disable-next-line @next/next/no-img-element -- our own attachment route, not the image optimizer */}
+          {/* biome-ignore lint/performance/noImgElement: our own attachment route, not the image optimizer */}
           <img
             src={image.url}
             alt={image.filename ?? "attached image"}

@@ -37,6 +37,7 @@ export function useWakePoll({
   pendingResumeRef: MutableRefObject<PendingResume | null>;
   setPendingResume: (value: PendingResume | null) => void;
 }): void {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: chatRef/pendingResumeRef are stable refs, setPendingResume a stable setter.
   useEffect(() => {
     if (!awaitingWake) return;
     let stop = false;
@@ -84,6 +85,5 @@ export function useWakePoll({
       clearInterval(timer);
       document.removeEventListener("visibilitychange", check);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- chatRef/pendingResumeRef are stable refs, setPendingResume a stable setter
   }, [awaitingWake, conversationId]);
 }

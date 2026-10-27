@@ -141,11 +141,11 @@ export async function chatTurn(input: ChatTurnInput) {
       project,
       sections,
     }),
-    // 0042: WorkflowAgent hard-codes supportedUrls: {}, so the SDK would try
-    // to fetch every URL part itself. Returning null passes `attachment:`
-    // references through untouched; the model wrapper resolves them to
-    // bytes inside its step (never into recorded workflow state).
-    experimental_download: async (requests) => requests.map(() => null),
+    // 0042/0085: WorkflowAgent now preserves URLs during workflow-side
+    // conversion. The model's supportedUrls passes attachment references
+    // through its step's conversion; the wrapper resolves bytes there.
+    // A custom experimental_download would now cross the step boundary
+    // (plain callbacks are not serializable), so use the SDK's default.
     tools: buildChatTools(conversationId, {
       hasSandbox: input.hasSandbox ?? true,
       hasProject: input.hasProject ?? true,

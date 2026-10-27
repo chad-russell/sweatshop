@@ -51,7 +51,6 @@ export function useChatTransport({
   // The callback runs at send time (never during render) and must see
   // the current knobs.
   const [transport] = useState(
-    // eslint-disable-next-line react-hooks/refs -- read at send time only
     () =>
       new WorkflowChatTransport({
         api: "/api/x/chat",
