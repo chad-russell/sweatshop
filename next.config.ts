@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 import { withWorkflow } from "workflow/next";
 
 const nextConfig: NextConfig = {
+  // Use the project-local TypeScript 7 (Go) CLI, not the legacy JS API.
+  // Keep build-time checks enabled, including Next's generated route types.
+  experimental: {
+    useTypeScriptCli: true,
+  },
   // Native addons and harness bridge assets must load through plain Node
   // resolution. Turbopack cannot bundle native binaries or the adapters'
   // package-relative bridge lockfiles (0006, 0085).
