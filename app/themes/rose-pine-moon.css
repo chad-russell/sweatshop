@@ -1,0 +1,67 @@
+/* ------------------------------------------------------------------ */
+/* rose-pine-moon — dark. Rosé Pine Moon, imported from upstream.      */
+/* Vendored source: design/rose-pine-moon/rose-pine-moon.json.         */
+/* Imported via scripts/import-theme.mjs (docs/0086).                  */
+/* ------------------------------------------------------------------ */
+[data-theme="rose-pine-moon"] {
+  --background: #232136;
+  --foreground: #e0def4;
+  --card: #2a273f;
+  --card-foreground: #908caa;
+  --popover: #2a273f;
+  --popover-foreground: #e0def4;
+  --primary: #ea9a97;
+  --primary-foreground: #232136;
+  --secondary: #c07371;
+  --secondary-foreground: #e0def4;
+  --muted: #232136;
+  --muted-foreground: #908caa;
+  --accent: #2a283e;
+  --accent-foreground: #e0def4;
+  --destructive: #eb6f92;
+  --destructive-foreground: #232136;
+  --border: #343249;
+  --input: #322e49;
+  --ring: #ea9a97;
+  --chart-1: #9ccfd8;
+  --chart-2: #3e8fb0;
+  --chart-3: #f6c177;
+  --chart-4: #c4a7e7;
+  --chart-5: #eb6f92;
+  --radius: 0.5rem;
+  --sidebar: #232136;
+  --sidebar-foreground: #908caa;
+  --sidebar-primary: #ea9a97;
+  --sidebar-primary-foreground: #232136;
+  --sidebar-accent: #2a273f;
+  --sidebar-accent-foreground: #e0def4;
+  --sidebar-border: #343249;
+  --sidebar-ring: #ea9a97;
+  --success: #3e8fb0;
+  --warning: #f6c177;
+  --info: #9ccfd8;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
+  /* terminal surface: rose-pine-moon ANSI on the imported terminal palette */
+  --terminal: #232136;
+  --terminal-foreground: #e0def4;
+  --terminal-muted: #908caa;
+  --terminal-border: #343249;
+  --terminal-red: #eb6f92;
+  --terminal-green: #3e8fb0;
+  --terminal-yellow: #f6c177;
+  --terminal-blue: #9ccfd8;
+  --terminal-magenta: #c4a7e7;
+  --terminal-cyan: #ea9a97;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #393552;
+  --terminal-white: #e0def4;
+  --terminal-ink: #232136;
+  --terminal-bg-black: #908caa;
+  --terminal-bg-red: #eb6f92;
+  --terminal-bg-green: #3e8fb0;
+  --terminal-bg-yellow: #f6c177;
+  --terminal-bg-blue: #9ccfd8;
+  --terminal-bg-magenta: #c4a7e7;
+  --terminal-bg-cyan: #ea9a97;
+  --terminal-bg-white: #e0def4;
+}

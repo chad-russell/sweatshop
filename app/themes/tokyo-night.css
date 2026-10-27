@@ -1,0 +1,67 @@
+/* ------------------------------------------------------------------ */
+/* tokyo-night — dark. Tokyo Night, imported from upstream by Enkia.   */
+/* Vendored source: design/tokyo-night/tokyo-night.json. Imported via  */
+/* scripts/import-theme.mjs (docs/0086).                               */
+/* ------------------------------------------------------------------ */
+[data-theme="tokyo-night"] {
+  --background: #1a1b26;
+  --foreground: #a9b1d6;
+  --card: #16161e;
+  --card-foreground: #787c99;
+  --popover: #14141b;
+  --popover-foreground: #787c99;
+  --primary: #385191;
+  --primary-foreground: #ffffff;
+  --secondary: #2a417f;
+  --secondary-foreground: #a9b1d6;
+  --muted: #16161e;
+  --muted-foreground: #515670;
+  --accent: #13131a;
+  --accent-foreground: #a9b1d6;
+  --destructive: #db4b4b;
+  --destructive-foreground: #ffffff;
+  --border: #101014;
+  --input: #14141b;
+  --ring: #385191;
+  --chart-1: #7aa2f7;
+  --chart-2: #73daca;
+  --chart-3: #e0af68;
+  --chart-4: #bb9af7;
+  --chart-5: #f7768e;
+  --radius: 0.5rem;
+  --sidebar: #16161e;
+  --sidebar-foreground: #787c99;
+  --sidebar-primary: #3d59a1;
+  --sidebar-primary-foreground: #a9b1d6;
+  --sidebar-accent: #1c1d29;
+  --sidebar-accent-foreground: #a9b1d6;
+  --sidebar-border: #101014;
+  --sidebar-ring: #385191;
+  --success: #73daca;
+  --warning: #e0af68;
+  --info: #0da0ba;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
+  /* terminal surface: tokyo-night ANSI on the imported terminal palette */
+  --terminal: #16161e;
+  --terminal-foreground: #787c99;
+  --terminal-muted: #515670;
+  --terminal-border: #101014;
+  --terminal-red: #f7768e;
+  --terminal-green: #73daca;
+  --terminal-yellow: #e0af68;
+  --terminal-blue: #7aa2f7;
+  --terminal-magenta: #bb9af7;
+  --terminal-cyan: #7dcfff;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #363b54;
+  --terminal-white: #acb0d0;
+  --terminal-ink: #16161e;
+  --terminal-bg-black: #363b54;
+  --terminal-bg-red: #f7768e;
+  --terminal-bg-green: #73daca;
+  --terminal-bg-yellow: #e0af68;
+  --terminal-bg-blue: #7aa2f7;
+  --terminal-bg-magenta: #bb9af7;
+  --terminal-bg-cyan: #7dcfff;
+  --terminal-bg-white: #acb0d0;
+}

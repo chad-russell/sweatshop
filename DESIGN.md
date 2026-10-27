@@ -21,6 +21,10 @@ that registry and CSS never drift (docs/0044). Current themes:
 | `gruvbox`    | warm retro groove, yellow primary `#fabd2f`, 0.5rem radii | Gruvbox (morhetz)         |
 | `cal`        | clean white canvas, black CTAs, hairlines, soft 12px radii, blue focus | `design/cal/DESIGN.md` |
 | `nova`       | shadcn baseline light (fallback + regression baseline) | shadcn default palette       |
+| `catppuccin`  | Mocha: pastel dark, mauve primary `#cba6f7`, green success | Catppuccin — imported (0086) |
+| `dracula`     | purple canvas `#282a36`, purple primary `#bd93f9`, canonical ANSI | Dracula — imported (0086) |
+| `tokyo-night` | blue-black `#1a1b26`, blue primary `#7aa2f7` hues | Tokyo Night — imported (0086) |
+| `rose-pine-moon` | violet night `#232136`, rose primary `#ea9a97` | Rosé Pine — imported (0086) |
 
 The token set is shadcn's semantic contract (background, foreground, card,
 popover, primary, secondary, muted, accent, destructive, border, input, ring,
@@ -48,5 +52,9 @@ The three square windows and their four horizontal gutters stay equal.
 
 ## North star
 
-Import any VSCode theme and use it as an app theme. The rules above are what keep
-that possible: if the app only ever speaks in tokens, a theme is just data.
+Import any VSCode theme and use it as an app theme — done (docs/0086):
+`node scripts/import-theme.mjs <vendored>.json <id> "<Label>"` maps the
+workbench colors onto this token contract and writes the registry entry,
+CSS file and wiring; the derivation report is the curation pass. The
+rules above are what keep it possible: if the app only ever speaks in
+tokens, a theme is just data.

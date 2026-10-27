@@ -6,7 +6,9 @@
  * (imported by app/globals.css). The registry supplies the metadata the UI
  * needs (label, dark/light kind); the CSS file supplies every token.
  * Adding a theme = one entry here + one file there — tests/themes.test.ts
- * enforces that the two never drift apart.
+ * enforces that the two never drift apart. Or import a VSCode theme:
+ * scripts/import-theme.mjs (docs/0086) writes both halves from a
+ * vendored upstream JSON.
  */
 export type ThemeKind = "dark" | "light";
 
@@ -24,6 +26,10 @@ export const THEMES: readonly ThemeEntry[] = [
   { id: "everforest", label: "Everforest", kind: "dark" },
   { id: "nord", label: "Nord", kind: "dark" },
   { id: "gruvbox", label: "Gruvbox", kind: "dark" },
+  { id: "catppuccin", label: "Catppuccin Mocha", kind: "dark" },
+  { id: "dracula", label: "Dracula", kind: "dark" },
+  { id: "tokyo-night", label: "Tokyo Night", kind: "dark" },
+  { id: "rose-pine-moon", label: "Rosé Pine Moon", kind: "dark" },
   { id: "cal", label: "Cal.com", kind: "light" },
   { id: "nova", label: "Nova", kind: "light" },
 ] as const;

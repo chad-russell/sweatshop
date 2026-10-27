@@ -21,6 +21,10 @@
 @import "./themes/everforest.css";
 @import "./themes/nord.css";
 @import "./themes/gruvbox.css";
+@import "./themes/catppuccin.css";
+@import "./themes/dracula.css";
+@import "./themes/tokyo-night.css";
+@import "./themes/rose-pine-moon.css";
 @import "./themes/cal.css";
 
 /*
@@ -45,7 +49,15 @@
     [data-theme="nord"],
     [data-theme="nord"] *,
     [data-theme="gruvbox"],
-    [data-theme="gruvbox"] *
+    [data-theme="gruvbox"] *,
+    [data-theme="catppuccin"],
+    [data-theme="catppuccin"] *,
+    [data-theme="dracula"],
+    [data-theme="dracula"] *,
+    [data-theme="tokyo-night"],
+    [data-theme="tokyo-night"] *,
+    [data-theme="rose-pine-moon"],
+    [data-theme="rose-pine-moon"] *
   )
 );
 
