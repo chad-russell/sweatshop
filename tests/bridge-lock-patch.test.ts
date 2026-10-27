@@ -7,16 +7,24 @@ import {
   BRIDGE_LOCK_PATCHES,
   nodeIO,
   patchBridgeLockEntry,
+  resolveInstalledWith,
   runBridgeLockPatch,
   type BridgeLockPatchEntry,
+  type RequireLike,
 } from "../lib/bridge-lock-patch";
 
 /**
  * vercel/ai#23829 workaround: the boot-time bridge lockfile patch —
  * exact-version guard, never-overwrite, and the BRIDGE_LOCK_PATCH=off
  * kill-switch. Everything runs against a real temp dir through the
- * SAME node:fs/promises io the boot pass uses; the createRequire
- * resolution layer stays thin and is deliberately not exercised here.
+ * SAME node:fs/promises io the boot pass uses.
+ *
+ * The anchorRequire fallback itself CANNOT be unit-tested here: vitest
+ * gives import.meta a real file:// URL, so createRequire(import.meta
+ * .url) never throws and the cwd branch is unreachable — its behavior
+ * comes from the 2026-10-27 production diagnosis, not a fake seam.
+ * resolveInstalledWith is the seam that IS tested: a fake RequireLike
+ * drives the error classification (quiet absence vs surfaced failure).
  */
 
 const root = mkdtempSync(path.join(os.tmpdir(), "bridge-lock-"));
@@ -41,6 +49,13 @@ async function fixture(entry: Pick<BridgeLockPatchEntry, "name" | "version">, in
 const bridgeLock = (pkgDir: string) => path.join(pkgDir, "dist", "bridge", "pnpm-lock.yaml");
 
 const CLAUDE = BRIDGE_LOCK_PATCHES[0];
+
+/** A require-like whose resolve always throws `code` (the resolver seam). */
+const throwingRequire = (code: string): RequireLike => ({
+  resolve: () => {
+    throw Object.assign(new Error(code === "MODULE_NOT_FOUND" ? "Cannot find module" : "boom"), { code });
+  },
+});
 
 describe("bridge lockfile patch (vercel/ai#23829)", () => {
   it("copies the vendored lockfile when the version matches exactly and the bridge file is missing", async () => {
@@ -114,5 +129,73 @@ describe("bridge lockfile patch (vercel/ai#23829)", () => {
       expect(entry.lockfile).toBe(`vendor/bridge-locks/${entry.name}@${entry.version}/pnpm-lock.yaml`);
       expect(await nodeIO.fileExists(path.join(process.cwd(), entry.lockfile))).toBe(true);
     }
+  });
+
+  it("logs one line with BOTH versions when the installed version misses the registry (self-retire signal)", async () => {
+    const { pkgDir, vendoredFile } = await fixture(CLAUDE, "1.0.170");
+    const logged: string[] = [];
+    const outcomes = await runBridgeLockPatch([CLAUDE], {
+      resolveInstalled: async () => ({ version: "1.0.170", dir: pkgDir }),
+      vendoredFile: () => vendoredFile,
+      io: nodeIO,
+      env: {},
+      log: (line) => logged.push(line),
+    });
+    expect(outcomes).toEqual(["skip-version"]);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toContain(CLAUDE.name);
+    expect(logged[0]).toContain("1.0.170");
+    expect(logged[0]).toContain(CLAUDE.version);
+    expect(await nodeIO.fileExists(bridgeLock(pkgDir))).toBe(false);
+  });
+
+  it("surfaces resolver failures instead of eating them as absent (2026-10-27 deploy lesson)", async () => {
+    const req = throwingRequire("ERR_INVALID_ARG_VALUE");
+    const { pkgDir, vendoredFile } = await fixture(CLAUDE, "1.0.169");
+    const logged: string[] = [];
+    const outcomes = await runBridgeLockPatch([CLAUDE], {
+      resolveInstalled: (name) => resolveInstalledWith(req, name),
+      vendoredFile: () => vendoredFile,
+      io: nodeIO,
+      env: {},
+      log: (line) => logged.push(line),
+    });
+    expect(outcomes).toEqual([]);
+    expect(logged).toEqual([`[bridge-lock-patch] ${CLAUDE.name} skipped: boom`]);
+    expect(await nodeIO.fileExists(bridgeLock(pkgDir))).toBe(false);
+  });
+
+  it("treats MODULE_NOT_FOUND from the resolver as quietly not installed (no log, no copy)", async () => {
+    const req = throwingRequire("MODULE_NOT_FOUND");
+    const logged: string[] = [];
+    const outcomes = await runBridgeLockPatch(BRIDGE_LOCK_PATCHES, {
+      resolveInstalled: (name) => resolveInstalledWith(req, name),
+      vendoredFile: () => {
+        throw new Error("absent packages never reach the vendored file");
+      },
+      io: nodeIO,
+      env: {},
+      log: (line) => logged.push(line),
+    });
+    expect(outcomes).toEqual([]);
+    expect(logged).toEqual([]);
+  });
+
+  it("treats a resolved but malformed package.json as quietly absent", async () => {
+    const malformed = path.join(root, "malformed-pkg.json");
+    await writeFile(malformed, "{not json");
+    const req: RequireLike = { resolve: () => malformed };
+    const logged: string[] = [];
+    const outcomes = await runBridgeLockPatch([CLAUDE], {
+      resolveInstalled: (name) => resolveInstalledWith(req, name),
+      vendoredFile: () => {
+        throw new Error("absent packages never reach the vendored file");
+      },
+      io: nodeIO,
+      env: {},
+      log: (line) => logged.push(line),
+    });
+    expect(outcomes).toEqual([]);
+    expect(logged).toEqual([]);
   });
 });

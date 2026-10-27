@@ -20,9 +20,10 @@ import path from "node:path";
  *   installed bridge bundle only because the bridge `package.json`
  *   deps are identical to the last-good versions (claude 1.0.162,
  *   codex 1.0.160). Any other installed version — including a future
- *   one with the upstream fix — skips silently, so the patch
- *   self-retires the moment the dependency bumps; a new regression
- *   needs a new entry, added deliberately.
+ *   one with the upstream fix — skips with one logged line (installed
+ *   ≠ vendored, the actionable self-retire signal), so the patch
+ *   retires the moment the dependency bumps; a new regression needs a
+ *   new entry, added deliberately.
  * - NEVER overwrite: if the target file already exists (upstream
  *   shipped it, an operator placed one), it wins untouched.
  *
@@ -33,6 +34,18 @@ import path from "node:path";
  * `require.resolve` stays a plain runtime call. The vendored path is
  * cwd-relative like `skills/` (lib/skill-files.ts) — the app process
  * runs from the repo root.
+ *
+ * Production finding (2026-10-27 deploy): Turbopack compiles
+ * `import.meta` into a shim OBJECT that node's createRequire rejects
+ * outright (ERR_INVALID_ARG_VALUE), so a top-level
+ * `createRequire(import.meta.url)` made this whole pass no-op in the
+ * shipped bundle — invisibly, because a blanket catch in the resolver
+ * ate the error as "not installed". Two answers, both below: the
+ * anchor is built lazily with a cwd fallback (the server always runs
+ * with cwd = repo root in every deployment shape — dev, container,
+ * tests), and only genuine absence (MODULE_NOT_FOUND /
+ * ERR_MODULE_NOT_FOUND from the resolve itself) stays quiet —
+ * anything else rethrows to the per-entry catch and logs one line.
  */
 
 /** One vendored bridge lockfile and the exact package it is valid for. */
@@ -133,6 +146,10 @@ export async function runBridgeLockPatch(
       outcomes.push(outcome);
       if (outcome === "copied") {
         deps.log?.(`[bridge-lock-patch] vendored ${entry.name}@${entry.version} pnpm-lock.yaml (vercel/ai#23829)`);
+      } else if (outcome === "skip-version") {
+        deps.log?.(
+          `[bridge-lock-patch] ${entry.name} ${installed.version} ≠ vendored ${entry.version} — registry stale, upstream fixed?`,
+        );
       }
     } catch (err) {
       deps.log?.(`[bridge-lock-patch] ${entry.name} skipped: ${err instanceof Error ? err.message : String(err)}`);
@@ -141,21 +158,67 @@ export async function runBridgeLockPatch(
   return outcomes;
 }
 
-const require = createRequire(import.meta.url);
+/** The minimal shape of node's require the resolver needs. */
+export interface RequireLike {
+  resolve(specifier: string): string;
+}
+
+let anchoredRequire: RequireLike | null = null;
 
 /**
- * The installed package via node module resolution, or null when it
- * cannot be resolved/parsed (not installed — nothing to patch).
+ * A createRequire anchor, built lazily ONCE (module state, never at
+ * top level, so a throwing anchor cannot reject the whole module
+ * import — instrumentation's `await import` must stay safe). The
+ * natural anchor is this module's own URL; in a Turbopack production
+ * bundle import.meta is a shim OBJECT node rejects
+ * (ERR_INVALID_ARG_VALUE, the 2026-10-27 deploy failure), and the
+ * server always runs with cwd = repo root, so fall back to anchoring
+ * there — resolution walks up to the same node_modules either way.
  */
-async function resolveInstalled(name: string): Promise<{ version: string; dir: string } | null> {
+function anchorRequire(): RequireLike {
+  if (anchoredRequire) return anchoredRequire;
   try {
-    const file = require.resolve(`${name}/package.json`);
+    anchoredRequire = createRequire(import.meta.url);
+  } catch {
+    anchoredRequire = createRequire(path.join(process.cwd(), "package.json"));
+  }
+  return anchoredRequire;
+}
+
+/**
+ * Resolve one installed package through a require-like — the real
+ * resolver feeds anchorRequire(); tests feed a fake (the one seam).
+ * Only GENUINE absence (MODULE_NOT_FOUND / ERR_MODULE_NOT_FOUND from
+ * the resolve itself) maps to null and stays quiet; any other error
+ * rethrows so runBridgeLockPatch's per-entry catch logs it — the
+ * 2026-10-27 deploy no-op'd invisibly because a blanket catch here
+ * ate ERR_INVALID_ARG_VALUE as "not installed". A resolved but
+ * unreadable/malformed package.json still maps to null (absent enough
+ * — nothing to patch, not worth a boot line).
+ */
+export async function resolveInstalledWith(
+  req: RequireLike,
+  name: string,
+): Promise<{ version: string; dir: string } | null> {
+  let file: string;
+  try {
+    file = req.resolve(`${name}/package.json`);
+  } catch (err) {
+    const code = (err as { code?: unknown }).code;
+    if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") return null;
+    throw err;
+  }
+  try {
     const pkg = JSON.parse(await readFile(file, "utf8")) as { version?: unknown };
     if (typeof pkg.version !== "string") return null;
     return { version: pkg.version, dir: path.dirname(file) };
   } catch {
     return null;
   }
+}
+
+async function resolveInstalled(name: string): Promise<{ version: string; dir: string } | null> {
+  return resolveInstalledWith(anchorRequire(), name);
 }
 
 /**
