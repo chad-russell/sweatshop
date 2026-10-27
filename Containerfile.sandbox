@@ -39,6 +39,13 @@ RUN apt-get update \
 # `pnpm install`; pinned to the version eve's own sandbox image ships.
 RUN npm install -g pnpm@11.5.2 agent-browser@0.38.2 && npm cache clean --force
 
+# gh CLI: agents attach before/after screenshots to PRs with
+# `gh pr edit --attach` (AGENTS.md "PR screenshots"). Pinned; bump and rebuild.
+ARG GH_VERSION=2.103.2
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+    | tar -xz -C /tmp && install /tmp/gh_${GH_VERSION}_linux_amd64/bin/gh /usr/local/bin/gh \
+    && rm -rf /tmp/gh_${GH_VERSION}_linux_amd64
+
 # Non-root agent user with passwordless sudo — the same shape as eve's
 # own sandbox image (vercel-sandbox). Claude Code refuses to run its
 # permission-skipping mode as root, so bridge harnesses need this.
