@@ -1,0 +1,67 @@
+/* ------------------------------------------------------------------ */
+/* dracula — dark. Dracula, imported from upstream by Zeno Rocha.      */
+/* Vendored source: design/dracula/dracula.json. Imported via          */
+/* scripts/import-theme.mjs (docs/0086).                               */
+/* ------------------------------------------------------------------ */
+[data-theme="dracula"] {
+  --background: #282a36;
+  --foreground: #f8f8f2;
+  --card: #21222c;
+  --card-foreground: #f8f8f2;
+  --popover: #343746;
+  --popover-foreground: #f8f8f2;
+  --primary: #44475a;
+  --primary-foreground: #f8f8f2;
+  --secondary: #3c3f52;
+  --secondary-foreground: #f8f8f2;
+  --muted: #21222c;
+  --muted-foreground: #a5a6a7;
+  --accent: #353747;
+  --accent-foreground: #f8f8f2;
+  --destructive: #ff5555;
+  --destructive-foreground: #f8f8f2;
+  --border: #bd93f9;
+  --input: #282a36;
+  --ring: #6272a4;
+  --chart-1: #bd93f9;
+  --chart-2: #50fa7b;
+  --chart-3: #f1fa8c;
+  --chart-4: #ff79c6;
+  --chart-5: #ff5555;
+  --radius: 0.5rem;
+  --sidebar: #21222c;
+  --sidebar-foreground: #f8f8f2;
+  --sidebar-primary: #ff79c6;
+  --sidebar-primary-foreground: #282a36;
+  --sidebar-accent: #353747;
+  --sidebar-accent-foreground: #f8f8f2;
+  --sidebar-border: #bd93f9;
+  --sidebar-ring: #6272a4;
+  --success: #50fa7b;
+  --warning: #f1fa8c;
+  --info: #bd93f9;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
+  /* terminal surface: dracula ANSI on the imported terminal palette */
+  --terminal: #282a36;
+  --terminal-foreground: #f8f8f2;
+  --terminal-muted: #6272a4;
+  --terminal-border: #bd93f9;
+  --terminal-red: #ff5555;
+  --terminal-green: #50fa7b;
+  --terminal-yellow: #f1fa8c;
+  --terminal-blue: #bd93f9;
+  --terminal-magenta: #ff79c6;
+  --terminal-cyan: #8be9fd;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #21222c;
+  --terminal-white: #ffffff;
+  --terminal-ink: #282a36;
+  --terminal-bg-black: #6272a4;
+  --terminal-bg-red: #ff6e6e;
+  --terminal-bg-green: #69ff94;
+  --terminal-bg-yellow: #ffffa5;
+  --terminal-bg-blue: #d6acff;
+  --terminal-bg-magenta: #ff92df;
+  --terminal-bg-cyan: #a4ffff;
+  --terminal-bg-white: #ffffff;
+}

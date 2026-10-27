@@ -1,0 +1,67 @@
+/* ------------------------------------------------------------------ */
+/* catppuccin — dark. Catppuccin Mocha, imported from upstream.        */
+/* Vendored source: design/catppuccin/mocha.json. Imported via         */
+/* scripts/import-theme.mjs (docs/0086).                               */
+/* ------------------------------------------------------------------ */
+[data-theme="catppuccin"] {
+  --background: #1e1e2e;
+  --foreground: #cdd6f4;
+  --card: #181825;
+  --card-foreground: #cdd6f4;
+  --popover: #181825;
+  --popover-foreground: #cdd6f4;
+  --primary: #cba6f7;
+  --primary-foreground: #11111b;
+  --secondary: #a07cca;
+  --secondary-foreground: #cdd6f4;
+  --muted: #181825;
+  --muted-foreground: #878ca5;
+  --accent: #282839;
+  --accent-foreground: #cdd6f4;
+  --destructive: #f38ba8;
+  --destructive-foreground: #11111b;
+  --border: #585b70;
+  --input: #313244;
+  --ring: #cba6f7;
+  --chart-1: #89b4fa;
+  --chart-2: #a6e3a1;
+  --chart-3: #f9e2af;
+  --chart-4: #f5c2e7;
+  --chart-5: #f38ba8;
+  --radius: 0.5rem;
+  --sidebar: #181825;
+  --sidebar-foreground: #cdd6f4;
+  --sidebar-primary: #cba6f7;
+  --sidebar-primary-foreground: #1e1e2e;
+  --sidebar-accent: #313244;
+  --sidebar-accent-foreground: #cdd6f4;
+  --sidebar-border: #585b70;
+  --sidebar-ring: #cba6f7;
+  --success: #a6e3a1;
+  --warning: #fab387;
+  --info: #89b4fa;
+  --brand-claude: #d97757; /* Claude's brand orange, same in every theme */
+  /* terminal surface: catppuccin ANSI on the imported terminal palette */
+  --terminal: #1e1e2e;
+  --terminal-foreground: #cdd6f4;
+  --terminal-muted: #585b70;
+  --terminal-border: #585b70;
+  --terminal-red: #f38ba8;
+  --terminal-green: #a6e3a1;
+  --terminal-yellow: #f9e2af;
+  --terminal-blue: #89b4fa;
+  --terminal-magenta: #f5c2e7;
+  --terminal-cyan: #94e2d5;
+  /* ANSI black/white fg, and background colours (bright in every theme: text on them is terminal-ink) */
+  --terminal-black: #45475a;
+  --terminal-white: #bac2de;
+  --terminal-ink: #1e1e2e;
+  --terminal-bg-black: #585b70;
+  --terminal-bg-red: #f37799;
+  --terminal-bg-green: #89d88b;
+  --terminal-bg-yellow: #ebd391;
+  --terminal-bg-blue: #74a8fc;
+  --terminal-bg-magenta: #f2aede;
+  --terminal-bg-cyan: #6bd7ca;
+  --terminal-bg-white: #bac2de;
+}

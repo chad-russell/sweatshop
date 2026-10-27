@@ -67,6 +67,8 @@ get real scheme colors instead of defaults. Radii: everforest/nord
 
 ## VSCode-theme mapping sketch (importer groundwork)
 
+> Superseded by docs/0086's exact mapping table — the importer landed.
+
 When the importer arrives it reads a VSCode theme JSON's token scopes and
 writes the same CSS files. First-cut scope → token mapping (the importer
 must treat every unmapped token as an error, never silently omit):
