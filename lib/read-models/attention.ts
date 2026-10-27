@@ -96,6 +96,8 @@ export interface NeedsYouThread extends Where {
   kind: "thread";
   id: string;
   title: string | null;
+  /** Display label: title, else first user message, else "Untitled chat". */
+  label: string;
   requests: PendingRequest[];
   /** Raised-at of the oldest pending request. */
   since: number;
@@ -122,7 +124,9 @@ export interface UnreadThread extends Where {
   id: string;
   kind: "chat";
   title: string | null;
-  /** Newest assistant message, clipped. */
+  /** Display label: title, else first user message, else "Untitled chat". */
+  label: string;
+  /** Newest real assistant text (markdown kept), or an activity line. */
   snippet: string;
   /** Unix ms of that message. */
   at: number;

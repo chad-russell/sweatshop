@@ -212,7 +212,7 @@ describe("needs you", () => {
     const inbox = loadInbox(tdb);
     const ids = inbox.unread.map((u) => u.id);
     expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older));
-    expect(inbox.unread.find((u) => u.id === newer)!.snippet).toBe("newer reply with spaces");
+    expect(inbox.unread.find((u) => u.id === newer)!.snippet).toBe("newer   reply\nwith  spaces");
   });
 
 });
@@ -285,5 +285,33 @@ describe("legacy plan reviews", () => {
     recordPendingInput(tdb, { id: `old_plan_${seq}`, conversationId: id, kind: "plan", question: "Plan v1" });
     expect(loadPendingRequests(tdb, [id]).get(id)).toBeUndefined();
     expect(loadAttention(tdb).needsYou.has(id)).toBe(false);
+  });
+});
+
+describe("inbox snippet", () => {
+  const snippetOf = (id: string) => loadInbox(tdb).unread.find((u) => u.id === id)!;
+
+  it("shows an activity line for placeholder-only rows", () => {
+    const id = convId();
+    say(id, "user", "go", 1000);
+    say(id, "assistant", "[tool exec]", 2000);
+    const t = snippetOf(id);
+    expect(t.snippet).toBe("Ran `exec`");
+    expect(t.label).toBe("go");
+  });
+
+  it("prefers real text from an earlier row over a newer placeholder", () => {
+    const id = convId();
+    say(id, "assistant", "All done.", 2000);
+    say(id, "assistant", "[tool exec][tool bash]", 3000);
+    const t = snippetOf(id);
+    expect(t.snippet).toBe("All done.");
+    expect(t.at).toBe(3000);
+  });
+
+  it("keeps markdown newlines", () => {
+    const id = convId();
+    say(id, "assistant", "## Title\n\n- a\n- b\n\n\n\n```ts\nx\n```", 2000);
+    expect(snippetOf(id).snippet).toBe("## Title\n\n- a\n- b\n\n```ts\nx\n```");
   });
 });

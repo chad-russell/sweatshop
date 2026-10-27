@@ -10,6 +10,7 @@ import {
   projectRepos,
   projects,
 } from "./schema";
+import { conversationLabel, placeholderToolNames, stripToolPlaceholders } from "../lib/conversation-label";
 import { isOutlineCard } from "./outlines";
 import { isAskOwnerCard } from "../lib/question-form";
 import type {
@@ -298,14 +299,58 @@ export function markAllSeen(db: Conn, at: number = Date.now()): void {
 // ---------------------------------------------------------------------
 // Inbox page read model
 
-const SNIPPET_MAX = 280;
+const SNIPPET_MAX = 600;
+const SNIPPET_SCAN_ROWS = 25;
 
-function clip(text: string): string {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  return collapsed.length > SNIPPET_MAX
-    ? `${collapsed.slice(0, SNIPPET_MAX - 1).trimEnd()}…`
-    : collapsed;
+/** Clip markdown to ~SNIPPET_MAX at a paragraph/line/word boundary,
+ *  keeping newlines (only runs of 3+ newlines and trailing spaces collapse). */
+export function clipMarkdown(text: string, max = SNIPPET_MAX): string {
+  const tidy = text
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (tidy.length <= max) return tidy;
+  const head = tidy.slice(0, max);
+  const cut = Math.max(head.lastIndexOf("\n"), head.lastIndexOf(" "));
+  return `${(cut > max * 0.6 ? head.slice(0, cut) : head).trimEnd()}…`;
 }
+
+/** Snippet source: newest assistant row with real text, else an activity
+ *  line from the newest row's tool placeholders. */
+function unreadSnippet(db: Conn, id: string): { snippet: string; at: number } | null {
+  const rows = db
+    .select({ text: messages.text, at: messages.at })
+    .from(messages)
+    .where(and(eq(messages.conversationId, id), eq(messages.role, "assistant")))
+    .orderBy(sql`${messages.at} desc, rowid desc`)
+    .limit(SNIPPET_SCAN_ROWS)
+    .all();
+  const newest = rows[0];
+  if (!newest) return null;
+  for (const row of rows) {
+    const real = stripToolPlaceholders(row.text);
+    if (real) return { snippet: clipMarkdown(real), at: newest.at };
+  }
+  const names = placeholderToolNames(newest.text);
+  const snippet = names.length ? `Ran ${names.map((n) => `\`${n}\``).join(", ")}` : "Working…";
+  return { snippet, at: newest.at };
+}
+
+function firstUserText(db: Conn, id: string): string | null {
+  return (
+    db
+      .select({ text: messages.text })
+      .from(messages)
+      .where(and(eq(messages.conversationId, id), eq(messages.role, "user")))
+      .orderBy(sql`rowid asc`)
+      .limit(1)
+      .get()?.text ?? null
+  );
+}
+
+const labelFor = (db: Conn, id: string, title: string | null | undefined) =>
+  conversationLabel({ title, id, firstUserText: title?.trim() ? null : firstUserText(db, id) });
 
 export function loadInbox(db: Conn): InboxData {
   const attention = loadAttention(db);
@@ -342,6 +387,7 @@ export function loadInbox(db: Conn): InboxData {
       kind: "thread",
       id,
       title: meta.get(id)?.title ?? null,
+      label: labelFor(db, id, meta.get(id)?.title),
       requests,
       since: requests[0]?.at ?? 0,
       unread: attention.unread.has(id),
@@ -372,20 +418,15 @@ export function loadInbox(db: Conn): InboxData {
   // A thread that needs an answer is shown once, above; Unread is the rest.
   const unreadIds = [...attention.unread].filter((id) => !attention.needsYou.has(id));
   const unread: UnreadThread[] = unreadIds.flatMap((id): UnreadThread[] => {
-    const last = db
-      .select({ text: messages.text, at: messages.at })
-      .from(messages)
-      .where(and(eq(messages.conversationId, id), eq(messages.role, "assistant")))
-      .orderBy(sql`${messages.at} desc`)
-      .limit(1)
-      .get();
+    const last = unreadSnippet(db, id);
     if (!last) return [];
     return [
       {
         id,
         kind: "chat",
         title: meta.get(id)?.title ?? null,
-        snippet: clip(last.text),
+        label: labelFor(db, id, meta.get(id)?.title),
+        snippet: last.snippet,
         at: last.at,
         ...where(id),
       },
