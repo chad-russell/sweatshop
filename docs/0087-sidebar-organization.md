@@ -28,14 +28,19 @@ and offer an activity-first view across projects.
 
 ### Manual order in Projects view
 
-- Add a compact **Projects / Recent** view control below the Conversations
-  heading. Projects is the initial default and retains today's organization.
+- Choose **Projects / Recent** from the Conversations heading's three-dot
+  menu (owner refinement, approved in chat). Projects is the initial default
+  and retains today's organization; the chosen view is checked in the menu.
 - Reorder project/Chats groups, and folders among siblings, with drag handles
   and insertion indicators. Add **Move up / Move down** menu actions as the
   keyboard/touch alternative; disable them at the ends of a sibling list.
 - Distinguish reordering from filing: folder edge drops reorder; folder body
   drops retain the existing move-into-folder behavior. Conversation dragging
   continues to file whole thread families, never reorder individual children.
+- Container drop targets include their trailing spacing and expanded contents,
+  with an insertion line at the container boundary. There are no inter-group
+  margin dead zones. Folder headers reserve their center for filing; a valid
+  descendant target takes priority over the enclosing container.
 - Reordered containers retain their chosen order as conversations get updates.
   New containers append in the existing default order (projects alphabetically,
   folders by activity). Removing or moving a folder ignores its stale saved id
@@ -142,3 +147,10 @@ and offer an activity-first view across projects.
   descendant reveal, search/shelf switching, and a simulated next-day tab wake.
   Removed all fixture rows afterward; the original conversation was untouched.
 - No added dependency, schema migration, or model call.
+- Follow-up refinement: reproduced the inter-row margin dead zone, then swept
+  25 collapsed-row and 37 expanded-row boundary points in the browser; every
+  valid point accepts a drop. Checked the actual insertion-line CSS, gap-drop
+  ordering, wider folder edges, and folder-center filing priority. Verified
+  desktop/mobile menu switching and saved checked state. Current full gate:
+  1,386 passed, 16 skipped. One unrelated seed-preview test timed out on the
+  first run; its isolated rerun and the full rerun both pass unchanged.

@@ -73,6 +73,16 @@ export function insertRelative(ids: readonly string[], moving: string, target: s
   return result;
 }
 
+/** Full targets include inter-row padding; only folder headers reserve a filing center. */
+export function reorderEdge(bounds: { top: number; bottom: number }, y: number, filingCenter = false): "before" | "after" | null {
+  const height = bounds.bottom - bounds.top;
+  if (!filingCenter) return y < bounds.top + height / 2 ? "before" : "after";
+  const band = Math.min(12, height / 3);
+  if (y <= bounds.top + band) return "before";
+  if (y >= bounds.bottom - band) return "after";
+  return null;
+}
+
 export function sidebarOrderScopes(groups: readonly SidebarGroup[]): Record<string, string[]> {
   const scopes: Record<string, string[]> = { groups: groups.map((group) => groupId(group.project?.id ?? null)) };
   function visit(nodes: readonly FolderNode[], projectId: string | null, parentId: string | null) {

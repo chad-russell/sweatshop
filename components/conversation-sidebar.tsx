@@ -9,6 +9,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -299,6 +302,17 @@ export function ConversationSidebar({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
+              <DropdownMenuLabel>View conversations</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={preferences.view} onValueChange={(mode) => {
+                if (mode !== "projects" && mode !== "recent") return;
+                updatePreferences((current) => ({ ...current, view: mode }));
+                setView("library");
+                setQuery("");
+              }}>
+                <DropdownMenuRadioItem value="projects">Projects</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="recent">Recent</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuItem disabled={Object.keys(preferences.orders).length === 0}
                 onSelect={() => updatePreferences((current) => ({ ...current, orders: {} }))}>
                 <RotateCcw />
@@ -318,19 +332,6 @@ export function ConversationSidebar({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-
-        {!searching && view === "library" && (
-          <div className="mx-3 mb-2 mt-1 flex rounded-md bg-sidebar-accent/50 p-0.5" role="group" aria-label="Conversation organization">
-            {(["projects", "recent"] as const).map((mode) => (
-              <button key={mode} type="button" aria-pressed={preferences.view === mode}
-                onClick={() => updatePreferences((current) => ({ ...current, view: mode }))}
-                className={cn("flex-1 rounded px-2 py-1 pointer-coarse:py-2 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-sidebar-ring",
-                  preferences.view === mode ? "bg-sidebar text-sidebar-foreground shadow-sm" : "text-sidebar-foreground/60 hover:text-sidebar-foreground")}>
-                {mode === "projects" ? "Projects" : "Recent"}
-              </button>
-            ))}
-          </div>
-        )}
 
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
           {searching ? (

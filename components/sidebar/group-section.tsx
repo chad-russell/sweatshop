@@ -91,12 +91,11 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
   const buckets = mounted ? bucketByAge(unfiledTree) : null;
 
   return (
-    <section className={groupOpen ? "mb-4" : "mb-1"}>
+    <section {...reorder.containerProps} className={cn("relative", groupOpen ? "pb-4" : "pb-1", reorder.indicator)}>
       <div
         {...reorder.props}
         className={cn(
           "group/head relative flex items-center justify-between gap-1 rounded-md px-2 py-1 transition-colors",
-          reorder.indicator,
           header.over && "bg-sidebar-accent ring-1 ring-sidebar-ring",
           header.dimmed && !reorder.indicator && "opacity-40",
         )}

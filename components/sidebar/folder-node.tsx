@@ -86,7 +86,7 @@ export function FolderNodeView({
   const Icon = open ? FolderOpen : Folder;
 
   return (
-    <div>
+    <div {...reorder.containerProps} className={cn("relative", reorder.indicator)}>
       <div
         draggable={!renaming}
         onDragStart={(e) => {
@@ -99,7 +99,6 @@ export function FolderNodeView({
         {...reorder.props}
         className={cn(
           "group/row relative rounded-md transition-colors hover:bg-sidebar-accent/60",
-          reorder.indicator,
           target.over && "bg-sidebar-accent ring-1 ring-sidebar-ring",
           target.dimmed && "opacity-40",
         )}

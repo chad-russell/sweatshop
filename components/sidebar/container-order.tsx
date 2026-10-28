@@ -1,9 +1,9 @@
 "use client";
 
 import { ArrowDown, ArrowUp, GripVertical } from "lucide-react";
-import { useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { insertRelative } from "@/lib/sidebar-organization";
+import { insertRelative, reorderEdge } from "@/lib/sidebar-organization";
 import { useSidebar } from "./context";
 import type { Drag } from "./types";
 import type { useDropTarget } from "./use-drop-target";
@@ -20,43 +20,71 @@ export interface ContainerOrder {
 /** Edge drops reorder siblings; a folder's body still files/reparents. */
 export function useContainerOrder(order: ContainerOrder, body: ReturnType<typeof useDropTarget>["props"]) {
   const { drag, setDrag, setOrder } = useSidebar();
+  const containerRef = useRef<HTMLElement | null>(null);
   const [edge, setEdge] = useState<"before" | "after" | null>(null);
   const eligible = drag?.kind === order.kind && drag.id !== order.id && order.ids.includes(drag.id) &&
     (drag.kind !== "folder" || (drag.projectId === order.projectId && drag.parentId === order.parentId));
-  const getEdge = (e: DragEvent): "before" | "after" | null => {
+  const getEdge = (e: DragEvent, filingCenter = false): "before" | "after" | null => {
     if (!eligible) return null;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    if (order.kind === "group") return y < rect.height / 2 ? "before" : "after";
-    return y < 8 ? "before" : y > rect.height - 8 ? "after" : null;
+    return reorderEdge(e.currentTarget.getBoundingClientRect(), e.clientY, filingCenter);
+  };
+  const showTarget = (e: DragEvent, next: "before" | "after") => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    setEdge(next);
+  };
+  const drop = (e: DragEvent, next: "before" | "after") => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEdge(null);
+    if (drag) setOrder(order.scope, insertRelative(order.ids, drag.id, order.id, next));
+    setDrag(null);
+  };
+  const leaveContainer = (e: DragEvent) => {
+    // Moving from a heading to its padding/children must keep the indicator alive.
+    if (!containerRef.current?.contains(e.relatedTarget as Node | null)) setEdge(null);
   };
   return {
+    containerProps: {
+      ref: (node: HTMLElement | null) => { containerRef.current = node; },
+      "data-reorder-edge": eligible ? edge : null,
+      onDragOver(e: DragEvent) {
+        // A descendant's filing/reorder target has priority over this container.
+        if (e.defaultPrevented) return;
+        const next = getEdge(e);
+        if (next) showTarget(e, next);
+      },
+      onDragLeave: leaveContainer,
+      onDrop(e: DragEvent) {
+        if (e.defaultPrevented) return;
+        const next = getEdge(e);
+        if (next) drop(e, next);
+      },
+    },
     indicator: eligible && edge && (edge === "before"
-      ? "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:border-t-2 before:border-sidebar-ring"
-      : "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:border-b-2 after:border-sidebar-ring"),
+      ? "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:z-10 before:border-t-2 before:border-sidebar-ring"
+      : "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:z-10 after:border-b-2 after:border-sidebar-ring"),
     props: {
       onDragOver(e: DragEvent) {
-        const next = getEdge(e);
-        setEdge(next);
-        if (next) {
-          e.preventDefault();
-          e.stopPropagation();
-          e.dataTransfer.dropEffect = "move";
-        } else body.onDragOver(e);
+        const next = getEdge(e, order.kind === "folder");
+        if (next) showTarget(e, next);
+        else {
+          setEdge(null);
+          body.onDragOver(e);
+        }
       },
       onDragLeave(e: DragEvent) {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEdge(null);
+        leaveContainer(e);
         body.onDragLeave(e);
       },
       onDrop(e: DragEvent) {
-        const next = getEdge(e);
-        setEdge(null);
-        if (next && drag) {
-          e.preventDefault();
-          e.stopPropagation();
-          setOrder(order.scope, insertRelative(order.ids, drag.id, order.id, next));
-          setDrag(null);
-        } else body.onDrop(e);
+        const next = getEdge(e, order.kind === "folder");
+        if (next) drop(e, next);
+        else {
+          setEdge(null);
+          body.onDrop(e);
+        }
       },
     },
   };

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FolderNode, SidebarGroup, SidebarItem } from "../lib/read-models/sidebar";
 import {
   folderOrderKey, groupId, groupRecent, insertRelative, localDayStart, orderedIds, orderItems,
-  parseSidebarPreferences, recentBucket, recentProjection, reconcileOrders, sectionExpanded, sidebarOrderScopes,
+  parseSidebarPreferences, recentBucket, recentProjection, reconcileOrders, reorderEdge, sectionExpanded, sidebarOrderScopes,
 } from "../lib/sidebar-organization";
 import { createSidebarPreferenceStore } from "../components/sidebar/use-preferences";
 import { canDrop } from "../components/sidebar/use-drop-target";
@@ -95,6 +95,25 @@ describe("sidebar defaults and preferences", () => {
 });
 
 describe("container ordering", () => {
+  it("accepts every point of a padded container, including exact row/gap boundaries", () => {
+    const bounds = { top: 100, bottom: 132 }; // 28px header + the formerly dead 4px margin.
+    for (let y = 100; y <= 132; y += 0.5) expect(reorderEdge(bounds, y)).not.toBeNull();
+    expect(reorderEdge(bounds, 100)).toBe("before");
+    expect(reorderEdge(bounds, 128)).toBe("after");
+    expect(reorderEdge(bounds, 130)).toBe("after");
+    expect(reorderEdge(bounds, 132)).toBe("after");
+  });
+
+  it("widens folder edges while retaining a center for filing at all row sizes", () => {
+    for (const height of [28, 32, 48]) {
+      const bounds = { top: 100, bottom: 100 + height };
+      expect(reorderEdge(bounds, 108, true)).toBe("before");
+      expect(reorderEdge(bounds, bounds.bottom - 8, true)).toBe("after");
+      expect(reorderEdge(bounds, 100 + height / 2, true)).toBeNull();
+      expect(reorderEdge(bounds, bounds.bottom, true)).toBe("after");
+    }
+  });
+
   it("ignores stale/duplicate ids and appends new containers in default order", () => {
     expect(orderedIds(["a", "b", "new"], ["deleted", "b", "b", "a"])).toEqual(["b", "a", "new"]);
     expect(orderedIds(["b", "a"])).toEqual(["b", "a"]);
