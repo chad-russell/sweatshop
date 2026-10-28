@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, FolderGit2, FolderPlus, Layers, MessageSquarePlus } from "lucide-react";
+import { ChevronRight, Ellipsis, FolderGit2, FolderPlus, Layers, MessageSquarePlus } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { cn } from "cn";
@@ -12,6 +12,9 @@ import { useSidebar } from "./context";
 import { FolderNodeView, NewFolderRow } from "./folder-node";
 import { flattenFolders, type SidebarGroup } from "./types";
 import { useDropTarget } from "./use-drop-target";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { folderOrderKey, groupId, orderItems, sectionExpanded } from "@/lib/sidebar-organization";
+import { OrderHandle, OrderMenuItems, useContainerOrder } from "./container-order";
 
 const HEADING =
   "text-[11px] font-medium tracking-wide text-sidebar-foreground/60 uppercase";
@@ -50,23 +53,28 @@ function folderCount(group: SidebarGroup): number {
  *
  * Structure, hinted by indentation: group (0) > folders and Unfiled (1) >
  * age labels and conversations (2). The group and Unfiled collapse;
- * state persists in the same localStorage set as folder collapsing (keys
+ * explicit state persists with the browser's sidebar preferences (keys
  * `group:<id>` / `unfiled:<id>` cannot collide with `fld_…` folder ids).
+ * Empty sections default closed without saving an explicit choice (0087).
  * Collapsed headers stay drop targets, so a drag can still land there.
  */
-export function GroupSection({ group }: { group: SidebarGroup }) {
-  const { editing, setEditing, mounted, collapsed, toggleFolder } = useSidebar();
+export function GroupSection({ group, siblingIds }: { group: SidebarGroup; siblingIds: readonly string[] }) {
+  const { editing, setEditing, mounted, expanded, setExpanded, orders } = useSidebar();
   const projectId = group.project?.id ?? null;
-  const groupKey = `group:${projectId ?? "chats"}`;
+  const groupKey = groupId(projectId);
   const unfiledKey = `unfiled:${projectId ?? "chats"}`;
-  const groupOpen = !collapsed.has(groupKey);
-  const unfiledOpen = !collapsed.has(unfiledKey);
   const total = folderCount(group);
+  const groupOpen = sectionExpanded(expanded, groupKey, total > 0);
+  const unfiledOpen = sectionExpanded(expanded, unfiledKey, conversationsOnly(group.unfiled) > 0);
+  const folderScope = folderOrderKey(projectId, null);
+  const folders = orderItems(group.folders, orders[folderScope], (folder) => folder.id);
   const choices = useMemo(() => flattenFolders(group.folders), [group.folders]);
 
   // Header: dropping here sends a conversation to Unfiled or a folder
   // to this group's top level.
   const header = useDropTarget({ projectId, folderId: null });
+  const order = { id: groupKey, scope: "groups", ids: siblingIds, kind: "group" as const, projectId };
+  const reorder = useContainerOrder(order, header.props);
   // Unfiled: dropping a conversation here unfiles it.
   const unfiledDrop = useDropTarget({ projectId, folderId: null, only: "conversation" });
 
@@ -83,21 +91,22 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
   const buckets = mounted ? bucketByAge(unfiledTree) : null;
 
   return (
-    <section className="mb-4">
+    <section {...reorder.containerProps} className={cn("relative", groupOpen ? "pb-4" : "pb-1", reorder.indicator)}>
       <div
-        {...header.props}
+        {...reorder.props}
         className={cn(
-          "group/head flex items-center justify-between gap-1.5 rounded-md px-2 py-1 transition-colors",
+          "group/head relative flex items-center justify-between gap-1 rounded-md px-2 py-1 transition-colors",
           header.over && "bg-sidebar-accent ring-1 ring-sidebar-ring",
-          header.dimmed && "opacity-40",
+          header.dimmed && !reorder.indicator && "opacity-40",
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1">
+          <OrderHandle label={group.project?.name ?? "Chats"} drag={{ kind: "group", id: groupKey, projectId }} />
           <button
             type="button"
             aria-expanded={groupOpen}
             aria-label={`${groupOpen ? "Collapse" : "Expand"} ${group.project?.name ?? "Chats"}`}
-            onClick={() => toggleFolder(groupKey)}
+            onClick={() => setExpanded(groupKey, !groupOpen)}
             className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded transition-colors hover:bg-sidebar-accent/60"
           >
             <Chevron open={groupOpen} />
@@ -117,7 +126,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
           ) : (
             <button
               type="button"
-              onClick={() => toggleFolder(groupKey)}
+              onClick={() => setExpanded(groupKey, !groupOpen)}
               className={cn(HEADING, "transition-colors hover:text-sidebar-foreground")}
             >
               Chats
@@ -143,19 +152,30 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
           aria-label={`New folder in ${group.project?.name ?? "Chats"}`}
           title="New folder"
           onClick={() => {
-            if (!groupOpen) toggleFolder(groupKey);
+            setExpanded(groupKey, true);
             setEditing({ kind: "new-folder", projectId, parentId: null });
           }}
           className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
         >
           <FolderPlus className="size-3.5" />
         </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" aria-label={`Actions for ${group.project?.name ?? "Chats"} group`}
+              className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-hover/head:opacity-100 group-focus-within/head:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100">
+              <Ellipsis className="size-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-40">
+            <OrderMenuItems {...order} />
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {groupOpen && (
         <>
           {creatingRoot && <NewFolderRow projectId={projectId} parentId={null} depth={1} />}
-          {group.folders.map((node) => (
+          {folders.map((node) => (
             <FolderNodeView
               key={node.id}
               node={node}
@@ -163,6 +183,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
               parentId={null}
               depth={1}
               choices={choices}
+              siblingIds={folders.map((folder) => folder.id)}
             />
           ))}
 
@@ -178,7 +199,7 @@ export function GroupSection({ group }: { group: SidebarGroup }) {
               type="button"
               aria-expanded={unfiledOpen}
               aria-label={`${unfiledOpen ? "Collapse" : "Expand"} Unfiled`}
-              onClick={() => toggleFolder(unfiledKey)}
+              onClick={() => setExpanded(unfiledKey, !unfiledOpen)}
               className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-sidebar-accent/60"
               style={{ paddingLeft: 8 + INDENT }}
             >

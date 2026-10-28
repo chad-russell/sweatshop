@@ -18,6 +18,8 @@ import { MoveMenu } from "./move-menu";
 import { RowMenuTrigger } from "./row-menu-trigger";
 import { subtreeIds, type FolderChoice, type FolderNode } from "./types";
 import { useDropTarget } from "./use-drop-target";
+import { folderOrderKey, orderItems, sectionExpanded } from "@/lib/sidebar-organization";
+import { OrderHandle, OrderMenuItems, useContainerOrder } from "./container-order";
 
 /** Inline "new folder" row, shown where the folder will be created. */
 export function NewFolderRow({
@@ -57,19 +59,25 @@ export function FolderNodeView({
   parentId,
   depth,
   choices,
+  siblingIds,
 }: {
   node: FolderNode;
   projectId: string | null;
   parentId: string | null;
   depth: number;
   choices: readonly FolderChoice[];
+  siblingIds: readonly string[];
 }) {
-  const { actions, collapsed, toggleFolder, editing, setEditing, setDrag } = useSidebar();
-  const open = !collapsed.has(node.id);
+  const { actions, expanded, setExpanded, orders, editing, setEditing, setDrag } = useSidebar();
+  const open = sectionExpanded(expanded, node.id);
+  const childScope = folderOrderKey(projectId, node.id);
+  const folders = orderItems(node.folders, orders[childScope], (folder) => folder.id);
   // 0040 phase 2: a start_thread child nests under its parent when both
   // are filed in this same folder (items are already sorted by activity).
   const tree = useMemo(() => buildSidebarTree(node.items), [node.items]);
   const target = useDropTarget({ projectId, folderId: node.id });
+  const order = { id: node.id, scope: folderOrderKey(projectId, parentId), ids: siblingIds, kind: "folder" as const, projectId, parentId };
+  const reorder = useContainerOrder(order, target.props);
   const renaming = editing?.kind === "rename-folder" && editing.id === node.id;
   const creatingChild =
     editing?.kind === "new-folder" &&
@@ -78,7 +86,7 @@ export function FolderNodeView({
   const Icon = open ? FolderOpen : Folder;
 
   return (
-    <div>
+    <div {...reorder.containerProps} className={cn("relative", reorder.indicator)}>
       <div
         draggable={!renaming}
         onDragStart={(e) => {
@@ -88,7 +96,7 @@ export function FolderNodeView({
           setDrag({ kind: "folder", id: node.id, projectId, parentId, subtree: subtreeIds(node) });
         }}
         onDragEnd={() => setDrag(null)}
-        {...target.props}
+        {...reorder.props}
         className={cn(
           "group/row relative rounded-md transition-colors hover:bg-sidebar-accent/60",
           target.over && "bg-sidebar-accent ring-1 ring-sidebar-ring",
@@ -97,11 +105,12 @@ export function FolderNodeView({
         style={{ paddingLeft: depth * 12 }}
       >
         <div className="flex items-center gap-1.5 px-2 py-1.5 pointer-coarse:py-2.5">
+          {!renaming && <OrderHandle label={node.name} drag={{ kind: "folder", id: node.id, projectId, parentId, subtree: subtreeIds(node) }} />}
           <button
             type="button"
             aria-expanded={open}
             aria-label={`${open ? "Collapse" : "Expand"} ${node.name}`}
-            onClick={() => toggleFolder(node.id)}
+            onClick={() => setExpanded(node.id, !open)}
             className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           >
             <ChevronRight
@@ -144,7 +153,7 @@ export function FolderNodeView({
             >
               <DropdownMenuItem
                 onSelect={() => {
-                  if (!open) toggleFolder(node.id);
+                  setExpanded(node.id, true);
                   setEditing({ kind: "new-folder", projectId, parentId: node.id });
                 }}
               >
@@ -162,6 +171,8 @@ export function FolderNodeView({
                 onPick={(id) => void actions.moveFolder(node.id, id)}
               />
               <DropdownMenuSeparator />
+              <OrderMenuItems {...order} />
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
                 onSelect={() => void actions.deleteFolder(node.id)}
@@ -176,7 +187,7 @@ export function FolderNodeView({
       {open && (
         <div>
           {creatingChild && <NewFolderRow projectId={projectId} parentId={node.id} depth={depth + 1} />}
-          {node.folders.map((child) => (
+          {folders.map((child) => (
             <FolderNodeView
               key={child.id}
               node={child}
@@ -184,6 +195,7 @@ export function FolderNodeView({
               parentId={node.id}
               depth={depth + 1}
               choices={choices}
+              siblingIds={folders.map((folder) => folder.id)}
             />
           ))}
           {tree.map((item) => (

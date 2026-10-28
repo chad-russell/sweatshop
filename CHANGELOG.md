@@ -8,6 +8,11 @@
   Create the date heading if it's missing; don't backfill older dates.
 -->
 
+## 2026-10-28
+
+- **Added** A quieter sidebar with collapsed empty sections, reorderable projects and folders, and a Recent view grouped by day and week.
+- **Fixed** Sidebar dragging now accepts drops between rows; Projects and Recent are tucked into the Conversations menu.
+
 ## 2026-10-27
 
 - **Fixed** Claude and Codex harness calls failing to start after the dependency update — the missing-lockfile workaround now also works in production builds.

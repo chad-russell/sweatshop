@@ -498,6 +498,14 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   persisting, max two calls per conversation). All invariants live in
   `db/organize.ts`; routes under `app/api/{folders,conversations}`; the
   sidebar is `components/sidebar/*`; ⌘K palette shares `/api/search`.
+- Sidebar organization (0087): Projects defaults empty groups and Unfiled
+  closed; explicit browser preferences win. Project groups and sibling
+  folders support manual order (drag edges or Move up/down); body drops
+  retain filing. Recent includes filed and unfiled conversations, nests
+  families before grouping by newest conversation activity in the subtree,
+  and filters by local calendar days. View, range, order and expansion are
+  per-browser; legacy collapsed choices migrate. See docs/0087 for defaults
+  and grouping semantics when changing sidebar behavior.
 - Sidebar parent/child tree (0040/0046): a `start_thread` child nests
   under its parent. Nesting is a property of whatever FLAT list is
   already VISIBLE — never global: `buildSidebarTree`

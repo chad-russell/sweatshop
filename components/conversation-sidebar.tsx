@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, GitPullRequest, History, Inbox, MonitorPlay, PanelLeftClose, Search, Settings, Trash2, X } from "lucide-react";
+import { Archive, ArrowLeft, Box, Ellipsis, FolderGit2, GitPullRequest, History, Inbox, MonitorPlay, PanelLeftClose, RotateCcw, Search, Settings, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +9,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -27,7 +31,9 @@ import {
   type SidebarData,
 } from "@/components/sidebar/types";
 import { useSidebarActions } from "@/components/sidebar/use-actions";
-import { useCollapsedFolders } from "@/components/sidebar/use-collapsed";
+import { useSidebarPreferences } from "@/components/sidebar/use-preferences";
+import { RecentConversations } from "@/components/sidebar/recent-conversations";
+import { groupId, orderItems, reconcileOrders, sidebarOrderScopes } from "@/lib/sidebar-organization";
 import { useSidebarCollapsed } from "@/components/sidebar/use-sidebar-collapsed";
 import { useThreadExpanded } from "@/components/sidebar/use-thread-expanded";
 import { useConversationSearch } from "@/components/sidebar/use-search";
@@ -62,7 +68,14 @@ export function ConversationSidebar({
   const mounted = useMounted();
   const actions = useSidebarActions();
   useAttentionSync(inbox.signature);
-  const { collapsed, toggle } = useCollapsedFolders();
+  const { preferences, updatePreferences } = useSidebarPreferences();
+  const groups = useMemo(() => orderItems(data.groups, preferences.orders.groups,
+    (group) => groupId(group.project?.id ?? null)), [data.groups, preferences.orders.groups]);
+  const siblingIds = groups.map((group) => groupId(group.project?.id ?? null));
+  useEffect(() => {
+    const scopes = sidebarOrderScopes(data.groups);
+    updatePreferences((current) => ({ ...current, orders: reconcileOrders(current.orders, scopes) }));
+  }, [data.groups, updatePreferences]);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebarCollapsed();
   const { explicit: threadExpanded, setExpanded: setThreadExpanded } = useThreadExpanded();
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -109,8 +122,14 @@ export function ConversationSidebar({
     actions,
     pathname,
     mounted,
-    collapsed,
-    toggleFolder: toggle,
+    expanded: preferences.expanded,
+    setExpanded: (id: string, open: boolean) => updatePreferences((current) => ({
+      ...current, expanded: { ...current.expanded, [id]: open },
+    })),
+    orders: preferences.orders,
+    setOrder: (key: string, ids: string[]) => updatePreferences((current) => ({
+      ...current, orders: { ...current.orders, [key]: ids },
+    })),
     threadExpanded,
     setThreadExpanded,
     editing,
@@ -283,6 +302,23 @@ export function ConversationSidebar({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
+              <DropdownMenuLabel>View conversations</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={preferences.view} onValueChange={(mode) => {
+                if (mode !== "projects" && mode !== "recent") return;
+                updatePreferences((current) => ({ ...current, view: mode }));
+                setView("library");
+                setQuery("");
+              }}>
+                <DropdownMenuRadioItem value="projects">Projects</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="recent">Recent</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={Object.keys(preferences.orders).length === 0}
+                onSelect={() => updatePreferences((current) => ({ ...current, orders: {} }))}>
+                <RotateCcw />
+                Reset order
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setView(view === "archive" ? "library" : "archive")}>
                 <Archive />
                 Archive
@@ -301,8 +337,11 @@ export function ConversationSidebar({
           {searching ? (
             <SearchResults hits={results ?? []} />
           ) : view === "library" ? (
-            data.groups.map((group) => (
-              <GroupSection key={group.project?.id ?? "unbound"} group={group} />
+            preferences.view === "recent" ? (
+              <RecentConversations groups={data.groups} range={preferences.range}
+                onRangeChange={(range) => updatePreferences((current) => ({ ...current, range }))} />
+            ) : groups.map((group) => (
+              <GroupSection key={group.project?.id ?? "unbound"} group={group} siblingIds={siblingIds} />
             ))
           ) : (
             <>

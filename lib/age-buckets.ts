@@ -11,23 +11,21 @@ export const AGE_BUCKETS: readonly AgeBucket[] = [
   "Older",
 ];
 
-function startOfDay(ms: number): number {
+export function localDayStart(ms: number, daysAgo = 0): number {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);
+  // Local calendar arithmetic, not 24h subtraction (DST days vary in length).
+  d.setDate(d.getDate() - daysAgo);
   return d.getTime();
 }
 
 /** Bucket for a timestamp relative to `now` (both Unix ms). */
 export function ageBucket(ms: number, now: number = Date.now()): AgeBucket {
-  const today = startOfDay(now);
+  const today = localDayStart(now);
   if (ms >= today) return "Today";
   // setDate arithmetic stays correct across DST changes (24h ≠ a day).
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (ms >= yesterday.getTime()) return "Yesterday";
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 6);
-  if (ms >= weekAgo.getTime()) return "This week";
+  if (ms >= localDayStart(now, 1)) return "Yesterday";
+  if (ms >= localDayStart(now, 6)) return "This week";
   return "Older";
 }
 
