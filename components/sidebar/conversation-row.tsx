@@ -21,6 +21,11 @@ import { MoveMenu } from "./move-menu";
 import { RowMenuTrigger } from "./row-menu-trigger";
 import { relativeTime, type FolderChoice, type SidebarTreeItem } from "./types";
 import { useMounted } from "@/lib/use-mounted";
+import type { SidebarLocation } from "@/lib/sidebar-organization";
+
+export interface RowLocation extends SidebarLocation {
+  choices: readonly FolderChoice[];
+}
 
 /** Pixels of left padding per nesting level (matches the folder tree). */
 const INDENT = 12;
@@ -48,11 +53,14 @@ const INDENT = 12;
  */
 export function ConversationRow({
   item,
-  projectId,
-  folderId,
+  projectId: fallbackProjectId,
+  folderId: fallbackFolderId,
   depth,
-  choices,
+  choices: fallbackChoices,
   showAge,
+  locations,
+  showContext = false,
+  activityAt,
 }: {
   item: SidebarTreeItem;
   projectId: string | null;
@@ -60,7 +68,14 @@ export function ConversationRow({
   depth: number;
   choices: readonly FolderChoice[];
   showAge: boolean;
+  locations?: ReadonlyMap<string, RowLocation>;
+  showContext?: boolean;
+  activityAt?: number;
 }) {
+  const location = locations?.get(item.id);
+  const projectId = location ? location.projectId : fallbackProjectId;
+  const folderId = location ? location.folderId : fallbackFolderId;
+  const choices = location ? location.choices : fallbackChoices;
   const { actions, pathname, editing, setEditing, setDrag, threadExpanded, setThreadExpanded } = useSidebar();
   // relativeTime is clock- and timezone-dependent — client-only after mount.
   const mounted = useMounted();
@@ -143,8 +158,13 @@ export function ConversationRow({
                   className={hasChildren ? undefined : "-ml-1"}
                 />
                 <ChildGlyph item={item} />
-                <span className="min-w-0 truncate">
-                  <span title={item.id}>{conversationLabel({ title: item.title })}</span>
+                <span className="min-w-0">
+                  <span className="block truncate" title={item.id}>{conversationLabel({ title: item.title })}</span>
+                  {showContext && location && (
+                    <span className="block truncate text-[10px] font-normal text-sidebar-foreground/50" title={[location.projectName, ...location.path].join(" / ")}>
+                      {[location.projectName, ...location.path].join(" / ")}
+                    </span>
+                  )}
                 </span>
                 {collapsedAttention && (
                   <AttentionDot unread={item.descendantAttention.unread} needsYou={item.descendantAttention.needsYou} />
@@ -155,7 +175,7 @@ export function ConversationRow({
               </span>
               {showAge && mounted && (
                 <span className="shrink-0 font-mono text-[10px] text-sidebar-foreground/60 group-focus-within/row:invisible group-hover/row:invisible group-has-[[data-state=open]]/row:invisible pointer-coarse:invisible">
-                  {relativeTime(item.updatedAt)}
+                  {relativeTime(activityAt ?? item.updatedAt)}
                 </span>
               )}
             </Link>
@@ -220,6 +240,7 @@ export function ConversationRow({
               depth={1}
               choices={choices}
               showAge={false}
+              locations={locations}
             />
           ))}
         </div>

@@ -3,14 +3,17 @@
 import { createContext, useContext } from "react";
 import type { Drag, Editing } from "./types";
 import type { SidebarActions } from "./use-actions";
+import type { SidebarPreferences } from "@/lib/sidebar-organization";
 
 export interface SidebarContextValue {
   actions: SidebarActions;
   pathname: string;
   /** False during SSR/hydration: gate anything timezone/clock dependent. */
   mounted: boolean;
-  collapsed: ReadonlySet<string>;
-  toggleFolder: (id: string) => void;
+  expanded: Readonly<Record<string, boolean>>;
+  setExpanded: (id: string, open: boolean) => void;
+  orders: SidebarPreferences["orders"];
+  setOrder: (key: string, ids: string[]) => void;
   /** 0040 phase 2: explicit open/closed choices for parent conversation
    *  rows (tri-state — absence means "use the computed default"). */
   threadExpanded: ReadonlyMap<string, boolean>;

@@ -18,6 +18,7 @@ export interface DropTarget {
  * The server re-checks everything; this only decides what looks droppable.
  */
 export function canDrop(drag: Drag, target: DropTarget): boolean {
+  if (drag.kind === "group") return false;
   if (target.only && drag.kind !== target.only) return false;
   if (drag.projectId !== target.projectId) return false;
   if (drag.kind === "conversation") return drag.folderId !== target.folderId;
@@ -51,7 +52,7 @@ export function useDropTarget(target: DropTarget) {
       setDrag(null);
       if (dragged.kind === "conversation") {
         void actions.moveConversation(dragged.id, target.folderId);
-      } else {
+      } else if (dragged.kind === "folder") {
         void actions.moveFolder(dragged.id, target.folderId);
       }
     },

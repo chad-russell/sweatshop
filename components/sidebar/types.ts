@@ -14,6 +14,7 @@ export type { FolderNode, ShelvedItem, SidebarData, SidebarGroup, SidebarItem, S
 /** What is being dragged — held in React state because dataTransfer
  *  contents are unreadable during dragover. */
 export type Drag =
+  | { kind: "group"; id: string; projectId: string | null }
   | {
       kind: "conversation";
       id: string;

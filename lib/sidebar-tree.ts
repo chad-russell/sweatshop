@@ -1,4 +1,4 @@
-import type { AttentionCounts, SidebarItem } from "@/db/organize";
+import type { AttentionCounts, SidebarItem } from "./read-models/sidebar";
 
 /**
  * 0040 phase 2 — the sidebar's parent/child tree. Pure and framework-free

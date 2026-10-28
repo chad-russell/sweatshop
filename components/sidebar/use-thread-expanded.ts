@@ -4,11 +4,10 @@ import { useCallback, useSyncExternalStore } from "react";
 
 /**
  * 0040 phase 2: explicit expand/collapse choices for parent conversation
- * rows — TRI-state, unlike use-collapsed.ts's folders (which default
- * open): a parent's default comes from its live status
+ * rows — TRI-state: a parent's default comes from its live status
  * (lib/sidebar-tree.ts defaultExpanded), so "no entry here" must mean
  * "use that default", not "open" or "closed". Same external-store-over-
- * localStorage shape as use-collapsed.ts otherwise (hydration-safe: the
+ * localStorage pattern as use-preferences.ts (hydration-safe: the
  * server snapshot is "no explicit choices").
  */
 const KEY = "sweatshop.sidebar.thread-expanded";

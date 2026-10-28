@@ -6,7 +6,7 @@ import { useCallback, useSyncExternalStore } from "react";
 // toggle button in its header, and NavTrigger reappearing to expand it —
 // see nav-drawer.tsx). Expanded by default; hydration-safe external
 // store over localStorage (the server snapshot is "expanded"), same
-// pattern as use-collapsed.ts for folders.
+// pattern as use-thread-expanded.ts for conversation rows.
 const KEY = "sweatshop.sidebar.hidden";
 const listeners = new Set<() => void>();
 let cache: { raw: string | null; value: boolean } | null = null;
