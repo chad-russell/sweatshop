@@ -69,9 +69,13 @@ export function ConversationSidebar({
   const actions = useSidebarActions();
   useAttentionSync(inbox.signature);
   const { preferences, updatePreferences } = useSidebarPreferences();
-  const groups = useMemo(() => orderItems(data.groups, preferences.orders.groups,
-    (group) => groupId(group.project?.id ?? null)), [data.groups, preferences.orders.groups]);
-  const siblingIds = groups.map((group) => groupId(group.project?.id ?? null));
+  // Projects are user-orderable; Chats (no project) is fixed, always last.
+  const groups = useMemo(() => [
+    ...orderItems(data.groups.filter((group) => group.project), preferences.orders.groups,
+      (group) => groupId(group.project?.id ?? null)),
+    ...data.groups.filter((group) => !group.project),
+  ], [data.groups, preferences.orders.groups]);
+  const siblingIds = groups.filter((group) => group.project).map((group) => groupId(group.project?.id ?? null));
   useEffect(() => {
     const scopes = sidebarOrderScopes(data.groups);
     updatePreferences((current) => ({ ...current, orders: reconcileOrders(current.orders, scopes) }));

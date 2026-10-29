@@ -84,7 +84,9 @@ export function reorderEdge(bounds: { top: number; bottom: number }, y: number, 
 }
 
 export function sidebarOrderScopes(groups: readonly SidebarGroup[]): Record<string, string[]> {
-  const scopes: Record<string, string[]> = { groups: groups.map((group) => groupId(group.project?.id ?? null)) };
+  const scopes: Record<string, string[]> = {
+    groups: groups.filter((group) => group.project).map((group) => groupId(group.project?.id ?? null)),
+  };
   function visit(nodes: readonly FolderNode[], projectId: string | null, parentId: string | null) {
     scopes[folderOrderKey(projectId, parentId)] = nodes.map((node) => node.id);
     for (const node of nodes) visit(node.folders, projectId, node.id);

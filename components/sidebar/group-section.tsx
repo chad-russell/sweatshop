@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Ellipsis, FolderGit2, FolderPlus, Layers, MessageSquarePlus } from "lucide-react";
+import { ChevronRight, Ellipsis, FolderGit2, FolderPlus, Layers, MessageSquare, MessageSquarePlus } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { cn } from "cn";
@@ -75,6 +75,10 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
   const header = useDropTarget({ projectId, folderId: null });
   const order = { id: groupKey, scope: "groups", ids: siblingIds, kind: "group" as const, projectId };
   const reorder = useContainerOrder(order, header.props);
+  // Chats (no project) is a fixed section pinned after the projects: it
+  // is not a sibling of them, so it neither drags nor reorders.
+  const reorderable = group.project !== null;
+  const headerProps = reorderable ? reorder.props : header.props;
   // Unfiled: dropping a conversation here unfiles it.
   const unfiledDrop = useDropTarget({ projectId, folderId: null, only: "conversation" });
 
@@ -91,17 +95,21 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
   const buckets = mounted ? bucketByAge(unfiledTree) : null;
 
   return (
-    <section {...reorder.containerProps} className={cn("relative", groupOpen ? "pb-4" : "pb-1", reorder.indicator)}>
+    <section {...(reorderable ? reorder.containerProps : {})} className={cn("relative", groupOpen ? "pb-4" : "pb-1", reorderable && reorder.indicator)}>
       <div
-        {...reorder.props}
+        {...headerProps}
         className={cn(
           "group/head relative flex items-center justify-between gap-1 rounded-md px-2 py-1 transition-colors",
           header.over && "bg-sidebar-accent ring-1 ring-sidebar-ring",
-          header.dimmed && !reorder.indicator && "opacity-40",
+          header.dimmed && !(reorderable && reorder.indicator) && "opacity-40",
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          <OrderHandle label={group.project?.name ?? "Chats"} drag={{ kind: "group", id: groupKey, projectId }} />
+          {reorderable ? (
+            <OrderHandle label={group.project?.name ?? "Chats"} drag={{ kind: "group", id: groupKey, projectId }} />
+          ) : (
+            <span aria-hidden className="inline-block w-3 shrink-0 pointer-coarse:hidden" />
+          )}
           <button
             type="button"
             aria-expanded={groupOpen}
@@ -129,7 +137,10 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
               onClick={() => setExpanded(groupKey, !groupOpen)}
               className={cn(HEADING, "transition-colors hover:text-sidebar-foreground")}
             >
-              Chats
+              <span className="flex items-center gap-1.5">
+                <MessageSquare className="size-3 shrink-0" />
+                Chats
+              </span>
             </button>
           )}
           <span className="font-mono text-[10px] text-sidebar-foreground/40">{total}</span>
@@ -159,17 +170,19 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
         >
           <FolderPlus className="size-3.5" />
         </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button" aria-label={`Actions for ${group.project?.name ?? "Chats"} group`}
-              className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-hover/head:opacity-100 group-focus-within/head:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100">
-              <Ellipsis className="size-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-40">
-            <OrderMenuItems {...order} />
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {reorderable && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" aria-label={`Actions for ${group.project?.name ?? "Chats"} group`}
+                className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-hover/head:opacity-100 group-focus-within/head:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100">
+                <Ellipsis className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-40">
+              <OrderMenuItems {...order} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       {groupOpen && (
@@ -203,6 +216,8 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
               className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-sidebar-accent/60"
               style={{ paddingLeft: 8 + INDENT }}
             >
+              {/* Same slot as a folder's drag handle, so chevrons line up. */}
+              <span aria-hidden className="inline-block w-3 shrink-0 pointer-coarse:hidden" />
               <Chevron open={unfiledOpen} />
               <Layers className="size-3 shrink-0 text-sidebar-foreground/60" />
               <span className={HEADING}>Unfiled</span>

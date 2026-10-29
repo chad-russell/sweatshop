@@ -131,7 +131,7 @@ describe("container ordering", () => {
   it("scopes folder order to siblings and removes moved/deleted ids", () => {
     const groups = [group([], [folder("a", [], [folder("nested")]), folder("b")]), group([], [], null)];
     const scopes = sidebarOrderScopes(groups);
-    expect(scopes.groups).toEqual([groupId("p1"), groupId(null)]);
+    expect(scopes.groups).toEqual([groupId("p1")]); // Chats is pinned, not orderable.
     expect(scopes[folderOrderKey("p1", "a")]).toEqual(["nested"]);
     const source = folderOrderKey("p1", null);
     const dest = folderOrderKey("p1", "a");
