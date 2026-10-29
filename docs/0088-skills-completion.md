@@ -1,7 +1,7 @@
 # 0088 — Skills: a dynamic, S3-backed catalog (2.3, redrawn)
 
-Status: **draft 2, 2026-10-29 — redrawn after Chad's review of draft 1;
-awaiting approval before implementation.**
+Status: **draft 3, 2026-10-29 — draft 2 plus Chad's call to drop thread
+binding entirely; awaiting approval before implementation.**
 
 ## Why (decisions, Chad 2026-10-29)
 
@@ -21,6 +21,12 @@ skills, harness mounting). Chad redirected:
   runs on a server; no reliance on the repo checkout's filesystem.
 - The agent must be able to **edit any skill and add new ones** —
   write path back to the store, not just reads.
+- **Thread binding is dropped entirely** (Chad, same day): the concept
+  existed to serve long unattended playbooks (0037/0039's ticket/ship),
+  which are gone. Skills are reference material — visible, loadable,
+  mountable, writable — never a thread's "way of working". If a future
+  bring-your-own runbook genuinely wants unattended long-run treatment,
+  binding returns as a front-matter flag on a much smaller base.
 
 What survives from draft 1's research (unchanged by the pivot): the
 model-visible catalog (instructions appendix), progressive disclosure
@@ -42,9 +48,8 @@ trigger text), body markdown, supporting files loaded on demand.
 
 - `<id>` = first path segment; must match `^[a-z][a-z0-9-]{0,40}$`
   (today's `SKILL_ID`), anything else is skipped at listing.
-- `thread: true` in front matter keeps its 0039 meaning: bindable as a
-  thread's way of working (budget 800 + bounded auto-continue).
-  `status: disabled` hides a skill without deleting it.
+- `status: disabled` in front matter hides a skill without deleting
+  it. `thread: true` is no longer read — binding is gone (below).
 - Limits: ≤16 files per skill, each ≤64 KiB, ≤256 KiB per skill.
 
 **Client.** `@aws-sdk/client-s3` against the rustfs endpoint (SigV4,
@@ -62,19 +67,17 @@ grouped by first segment) cached in memory 60 s; bodies cached LRU
 into a turn: an unreachable store reads as an empty catalog plus a
 status string for the Settings card.
 
-**Read shape.** `listSkills()` (all non-disabled), `listThreadSkills()`
-(active + `thread: true`), `readSkill(id)` (SKILL.md parsed) and
-`readSkillFile(id, path)` (supporting file) — same names as today's
-callers already use, so turn instructions, `use_skill`, pickers and
-`start_thread` keep their seams.
+**Read shape.** `listSkills()` (all non-disabled), `readSkill(id)`
+(SKILL.md parsed) and `readSkillFile(id, path)` (supporting file).
+`listThreadSkills()` is deleted with binding.
 
 ## Surfaces
 
 1. **Instructions appendix** (every chat): `# Skills` section, one
-   line per skill — `id — description` (description capped ~200 chars),
-   thread skills marked. Catalog ≤20 lines; a bigger catalog falls
-   back to today's "use_skill lists them" sentence. Discovery becomes
-   free; no tool round-trip to know a skill exists.
+   line per skill — `id — description` (description capped ~200 chars).
+   Catalog ≤20 lines; a bigger catalog falls back to today's
+   "use_skill lists them" sentence. Discovery becomes free; no tool
+   round-trip to know a skill exists.
 2. **`use_skill` grows `file`**: `{id}` returns body + file list;
    `{id, file: "reference.md"}` returns that file — the chat thread's
    progressive disclosure. Unknown file → value-shaped error listing
@@ -86,10 +89,11 @@ callers already use, so turn instructions, `use_skill`, pickers and
 4. **Settings**: the skills editor is deleted. A small read-only card
    shows store status (configured/unconfigured, N skills, last sync
    error if any).
-5. **Thread binding mechanics unchanged**: `conversations.skill`,
-   `?skill=`, `start_thread({skill})`, pickers all resolve ids against
-   the dynamic catalog. A thread bound to a since-removed id keeps its
-   budget bump, loses the body, and shows the bare id on its chip.
+5. **Thread binding is removed**: skills never join instructions by
+   binding. Child threads keep their 800-step budget through
+   `hasParent` (unchanged); the skill-only budget CONTINUATION
+   (`lib/chat/budget.ts`) is deleted along with
+   `THREAD_SKILL_MAX_STEPS`/`resolveMaxSteps`'s skill path.
 
 ## The write path (agent edits and additions)
 
@@ -120,18 +124,25 @@ New tool **`save_skill`**: `{id, body, files?: [{path, content}[]],
   Settings skills editor UI, `propose_prompt_change`'s skill kind
   (section edits stay), skills-lock seed references, AGENTS.md/ROADMAP
   2.3 text updates.
-- `conversations.skill` column STAYS (binding survives; resolution
-  just points at the store).
+- The whole binding surface: `conversations.skill` column (dropped in
+  the same migration), `?skill=` on `/` and `POST /api/x/chat`,
+  `start_thread`'s `skill` param, `loadSkillStep`, the
+  thread-skill pickers (composer, new chat), skill mentions in thread
+  chips/wake text, and the skill-kind rows of the route-validation
+  tests. `start_thread`'s doc/PROMPT pass a brief, never a skill id.
 
 ## Verification
 
 - Unit (fake client seam): listing/groups/front matter, id and limit
-  validation, thread filter, cache TTL, torn-manifest skip, store
-  error → empty catalog + status; `save_skill` validation, diff shape,
-  PUT order (manifest last); instructions appendix rendering (cap,
-  markers, empty catalog); `use_skill` file reads.
+  validation, cache TTL, torn-manifest skip, store error → empty
+  catalog + status; `save_skill` validation, diff shape, PUT order
+  (manifest last); instructions appendix rendering (cap, empty
+  catalog); `use_skill` file reads; binding removals (`?skill=`
+  rejected, `start_thread` schema has no skill, child budget still 800
+  via parent).
 - Mock-model chat tests: instructions carry the appendix; harness call
-  start receives mapped skills (assert on the built agent, no podman).
+  start receives mapped skills (assert on the built agent, no podman);
+  no skill path exists in a turn's instruction assembly.
 - Live smoke (manual, against real rustfs): mount visible in a pi
   session's own skill listing; edit a skill via `save_skill`, next
   harness call sees the new body; kill the store, chats run with an
@@ -141,4 +152,5 @@ New tool **`save_skill`**: `{id, body, files?: [{path, content}[]],
 
 "Skills are now a bring-your-own catalog on S3-compatible storage:
 visible to every chat and mounted into pi, claude and codex runs, with
-the agent able to propose edits and new skills (one-click approval)."
+the agent able to propose edits and new skills (one-click approval).
+Bound threads and the built-in runbooks are gone."
