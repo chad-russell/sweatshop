@@ -353,41 +353,16 @@ export function AcceptOutlineCard({ part }: { part: ToolUIPart }) {
 export const GATED_TOOLS = new Set(["create_project", "delete_project"]);
 
 export function PromptChangeDetails({ card }: { card: PromptChangeCardData }) {
-  const fields = (["description", "thread", "status"] as const).filter((key) => key in card.patch);
-  const value = (v: unknown) => typeof v === "boolean" ? String(v) : v == null ? "(unset)" : String(v);
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="font-medium">{card.title}</span>
-        <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">
-          based on v{card.currentVersion}
-        </span>
+        {card.target.kind === "section" && (
+          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">
+            based on v{card.currentVersion}
+          </span>
+        )}
       </div>
-      {fields.length > 0 && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-background p-2 text-xs">
-          {fields.map((key) => (
-            <Fragment key={key}>
-              <dt className="font-mono text-muted-foreground">{key}</dt>
-              <dd className="min-w-0 break-words">
-                <span className="text-destructive line-through">{value(card.before?.[key])}</span>
-                <span className="px-1.5" aria-hidden>→</span>
-                <span className="text-success">{value(card.patch[key])}</span>
-              </dd>
-            </Fragment>
-          ))}
-        </dl>
-      )}
-      {card.affectedThreads && card.affectedThreads.length > 0 && (
-        <div className="rounded-md border border-warning/40 bg-warning/5 p-2 text-xs">
-          <p className="font-medium">Currently running bound threads</p>
-          <ul className="mt-1 space-y-0.5 font-mono text-muted-foreground">
-            {card.affectedThreads.map((thread) => (
-              <li key={thread.id}>{conversationLabel({ title: thread.title })} · {thread.id}</li>
-            ))}
-          </ul>
-          <p className="mt-1 text-muted-foreground">They keep using this skill; the status only affects new bindings.</p>
-        </div>
-      )}
       {card.diff && (
         <pre className="max-h-[32rem] overflow-auto rounded-md border bg-background p-2 font-mono text-xs whitespace-pre-wrap break-words">
           {card.diff.map((line, index) => (

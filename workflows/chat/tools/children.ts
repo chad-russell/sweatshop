@@ -17,8 +17,8 @@ export function childTools(
         "work). It runs in the BACKGROUND attached to this sandbox (same checkout; fresh: true gives it " +
         "its own) and THIS conversation is woken with its final message when it settles. Put RAW " +
         "MATERIAL in the prompt — the ticket, the branch, where the evidence is — never your reasoning " +
-        "or conclusions. Optional skill (e.g. \"review\") guides it. inspect checks on it; " +
-        "cancel_run stops it.",
+        "or conclusions. inspect checks on it; cancel_run " +
+        "stops it.",
       inputSchema: z.object({
         prompt: z
           .string()
@@ -28,13 +28,11 @@ export function childTools(
             "The child's whole task, standalone: the ticket/branch/diff to look at and what to return. " +
               "Raw material only — it must form its own judgment.",
           ),
-        skill: z.string().optional().describe("Skill id for the child (e.g. \"review\")"),
         fresh: z.boolean().optional().describe("Give the child its own new sandbox instead of sharing this one"),
       }),
-      execute: ({ prompt, skill, fresh }) =>
+      execute: ({ prompt, fresh }) =>
         startThreadStep(conversationId, {
           prompt,
-          ...(skill ? { skill } : {}),
           ...(fresh ? { fresh } : {}),
         }),
     }),

@@ -1,23 +1,19 @@
 /**
- * 0054: the /settings agent screen's client — the prompt sections and
- * the skill catalog's admin surface. Unlike the ApiResult modules this
+ * 0054: the /settings agent screen's client — the prompt sections'
+ * admin surface (0088: skills moved to the S3 catalog). Unlike the ApiResult modules this
  * endpoint family carries its own contract: every failure body is
  * `{ok:false, code?, issues?, current?}` and a 409 (optimistic-version
  * conflict) is a RESULT, not an error — the screen shows the server's
  * current row for review instead of throwing.
  */
 
-/** What can be edited: one of the three prompt sections, or a skill. */
-export type AgentTarget = { kind: "section"; key: "base" | "harness_steering" | "host_routing" } | { kind: "skill"; id: string };
+/** What can be edited: one of the three prompt sections. */
+export type AgentTarget = { kind: "section"; key: "base" | "harness_steering" | "host_routing" };
 
-/** One stored version of a section/skill body plus its row metadata. */
+/** One stored version of a section body plus its row metadata. */
 export interface Row {
   body: string;
   version: number;
-  origin?: string;
-  description?: string;
-  thread?: boolean;
-  status?: "active" | "disabled" | "deleted";
   editedBy?: string;
   note?: string | null;
   updatedAt?: number;
@@ -28,7 +24,7 @@ export interface Row {
 export type ListedTarget = Row & AgentTarget;
 
 /** The shipped (Git) default of a target — what Reset returns to. */
-export type AgentDefault = { body: string; description?: string; thread?: boolean; status?: Row["status"] };
+export type AgentDefault = { body: string };
 
 /** A PUT's outcome. `ok` covers publish/reset/restore; a conflict
  * carries the server's current row so the screen can diff against it. */
@@ -40,9 +36,9 @@ export interface AgentPutResult {
   version?: number;
 }
 
-/** `?kind=section&key=…` / `?kind=skill&id=…` — the target's params. */
+/** `?kind=section&key=…` — the target's params. */
 function params(target: AgentTarget): string {
-  return `kind=${target.kind}&${target.kind === "section" ? `key=${target.key}` : `id=${encodeURIComponent(target.id)}`}`;
+  return `kind=${target.kind}&key=${target.key}`;
 }
 
 const ENDPOINT = "/api/settings/agent";
@@ -64,9 +60,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-/** The list of editable targets (skills optionally including deleted). */
-export function listAgentTargets(includeDeleted: boolean): Promise<{ targets: ListedTarget[] }> {
-  return request(`${ENDPOINT}?includeDeleted=${includeDeleted}`);
+/** The list of editable targets. */
+export function listAgentTargets(): Promise<{ targets: ListedTarget[] }> {
+  return request(ENDPOINT);
 }
 
 /** A target's shipped default (404 "No shipped default" throws). */

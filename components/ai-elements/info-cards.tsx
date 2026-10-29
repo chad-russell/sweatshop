@@ -76,31 +76,33 @@ export function SkillCard({ state, input, output, errorText }: CardProps) {
   const view = useMemo(() => skillView(output), [output]);
   const asked = objectOf(input)?.id;
   const options = failure ? skillItems(objectOf(output)?.skills) : view?.kind === "list" ? view.skills : [];
-  const bound = view?.kind === "bound" ? view : undefined;
-  const subtitle = bound ? bound.id : typeof asked === "string" ? asked : undefined;
+  const loaded = view?.kind === "loaded" ? view : undefined;
+  const file = view?.kind === "file" ? view : undefined;
+  const subtitle = file ? `${file.id}/${file.file}` : loaded ? loaded.id : typeof asked === "string" ? asked : undefined;
   return (
     <Card
       icon={BookOpenIcon}
-      title={bound ? "Bound to skill" : subtitle ? "Skill" : "Skills"}
+      title={file ? "Skill file" : subtitle ? "Skill" : "Skills"}
       subtitle={subtitle ?? (options.length ? `${options.length} available` : "…")}
-      {...pillFor(state, failed, bound ? "bound" : "listed")}
+      {...pillFor(state, failed, loaded || file ? "loaded" : "listed")}
       failed={failed}
       errorLines={failureLines(output, errorText)}
       defaultOpen={options.length > 0 && options.length <= 8}
     >
-      {bound ? (
+      {loaded ? (
         <>
-          {bound.note && <p className="px-4 pt-2.5 text-xs text-muted-foreground">{bound.note}</p>}
-          <p className="px-4 pt-2 text-[12.5px] font-medium">{bound.title}</p>
-          <Prose>{bound.body}</Prose>
+          <p className="px-4 pt-2 text-[12.5px] font-medium">{loaded.title}</p>
+          <Prose>{loaded.body}</Prose>
         </>
+      ) : file ? (
+        <Prose>{file.content}</Prose>
       ) : options.length > 0 ? (
         <ul className="divide-y divide-border">
           {options.map((s) => (
             <li key={s.id} className="flex items-baseline gap-2.5 px-3 py-1.5">
               <span className="shrink-0 font-mono text-[12px] font-medium">{s.id}</span>
               <span className="min-w-0 truncate text-xs text-muted-foreground" title={s.description}>
-                {s.description || s.title}
+                {s.description}
               </span>
             </li>
           ))}

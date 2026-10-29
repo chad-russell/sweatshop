@@ -10,22 +10,12 @@ export interface PromptChangeCard {
   kind: "prompt_change";
   target:
     | { kind: "section"; key: "base" | "harness_steering" | "host_routing" }
+    // 0088: save_skill cards reuse this shape.
     | { kind: "skill"; id: string };
   title: string;
   currentVersion: number;
-  patch: {
-    body?: string;
-    description?: string;
-    thread?: boolean;
-    status?: "active" | "disabled" | "deleted";
-  };
-  before: {
-    body?: string;
-    description?: string;
-    thread?: boolean;
-    status?: "active" | "disabled" | "deleted";
-  } | null;
-  affectedThreads?: { id: string; title: string | null }[];
+  patch: { body?: string };
+  before: { body?: string } | null;
   diff?: { op: "same" | "add" | "del"; text: string }[];
 }
 

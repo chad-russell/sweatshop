@@ -49,8 +49,7 @@ export interface WakeEvent {
   kind: "harness" | "thread" | "plan" | "outline" | "pr";
   /** hc_… / c_… — for inspect/cancel. */
   id: string;
-  /** The harness kind ("pi" / "claude" / "cursor" / "codex") or the child thread's skill
-   *  ("review" — "thread" when it has none). */
+  /** The harness kind ("pi" / "claude" / "cursor" / "codex"), or "thread" for a child thread. */
   name: string;
   /** completed | failed | ran out of steps | needs-attention | waiting. */
   status: string;
@@ -323,7 +322,7 @@ export async function wakeChatChildIfDue(
     {
       kind: "thread",
       id: child.id,
-      name: child.skill ?? "thread",
+      name: "thread",
       status,
       ...(childLabel ? { childStatus: childLabel.label } : {}),
       // Wider than harness calls: for a review thread the final

@@ -40,13 +40,11 @@ describe("buildInstructions", () => {
     expect(withoutSandbox).not.toContain("Hand any code change beyond a few lines to a harness");
   });
 
-  it("appends the skill body last, unchanged from the prior inline shape", () => {
-    const withSkill = buildInstructions({
-      ...base,
-      skill: { id: "ship", title: "Ship", body: "Do the ship thing." },
-    });
-    expect(withSkill).toContain('# Skill: Ship\n\nThis thread runs the "ship" skill — follow it.\n\nDo the ship thing.');
-    expect(withSkill.endsWith("Do the ship thing.")).toBe(true);
+  it("has no bound-skill block (0088 dropped thread binding) and no mention of a review skill", () => {
+    const out = buildInstructions(base);
+    expect(out).not.toContain("# Skill:");
+    expect(out).not.toContain('"review" skill');
+    expect(out).toContain("start_thread with raw material and a review-shaped brief");
   });
 
   it("includes the project section only when a project is given", () => {
@@ -90,7 +88,7 @@ describe("buildInstructions", () => {
     expect(plain).not.toContain("ask_chad");
   });
 
-  it("renders {{owner}}/{{owner's}} placeholders for the current SWEATSHOP_OWNER_NAME, in every section and the skill body", () => {
+  it("renders {{owner}}/{{owner's}} placeholders for the current SWEATSHOP_OWNER_NAME, in every section and the skills appendix", () => {
     const saved = process.env.SWEATSHOP_OWNER_NAME;
     try {
       process.env.SWEATSHOP_OWNER_NAME = "Riley";
@@ -98,7 +96,7 @@ describe("buildInstructions", () => {
         hasSandbox: true,
         hosts: [{ name: "bee", address: "10.0.0.1", user: "chad", apiBase: null }],
         repoDocs: [],
-        skill: { id: "ship", title: "Ship", body: "Check with {{owner}} before {{owner's}} release." },
+        skillsCatalog: [{ id: "ship", description: "Check with {{owner}} before {{owner's}} release." }],
       });
       expect(out).toContain("Riley");
       expect(out).toContain("Check with Riley before Riley's release.");

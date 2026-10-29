@@ -484,6 +484,13 @@
       "when": 1793400000001,
       "tag": "0068_pr_watches",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1793400000002,
+      "tag": "0069_drop_skills",
+      "breakpoints": true
     }
   ]
 }

@@ -16,8 +16,7 @@ import { startThread } from "../lib/agent/tools/start-thread";
 import type { Outline } from "../lib/outline";
 
 /**
- * 0037 phase 3 — start_thread: the child conversation (parent, project,
- * skill), the 0013 sandbox choice (attach / own / none), the
+ * 0037 phase 3 — start_thread: the child conversation (parent, project), the 0013 sandbox choice (attach / own / none), the
  * pre-stamped wake marker, and the turn-start seam.
  */
 
@@ -86,27 +85,25 @@ afterAll(() => {
 });
 
 describe("startThread", () => {
-  it("creates a child on the parent's project, with the skill and parent recorded, and starts its turn", async () => {
+  it("creates a child on the parent's project, with the parent recorded, and starts its turn", async () => {
     const parent = parentChat("p_st", "attach");
     const started: { id: string; text: string }[] = [];
     const result = await startThread({
       conversationId: parent,
       prompt: "Review branch feature/x against main",
-      skill: "review",
       provider: new FakeProvider(),
       start: async (id, text) => {
         started.push({ id, text });
         return { runId: "wr_child" };
       },
     });
-    expect(result).toMatchObject({ ok: true, sandbox: "attached", skill: "review", runId: "wr_child" });
+    expect(result).toMatchObject({ ok: true, sandbox: "attached", runId: "wr_child" });
     if (!result.ok) return;
     expect(result.url).toBe(`/c/${result.id}`);
     expect(started).toEqual([{ id: result.id, text: "Review branch feature/x against main" }]);
     const child = getChatChild(db(), result.id);
     expect(child?.parentConversationId).toBe(parent);
     expect(getConversation(db(), result.id)?.projectId).toBe("p_st");
-    expect(getConversation(db(), result.id)?.skill).toBe("review");
     // The creation bump is not a settle: woken starts at updatedAt.
     expect(child?.wokenSettledAt).toBe(child?.updatedAt);
     // 0013 attach: same sandbox and directory as the (now bound) parent
@@ -168,16 +165,22 @@ describe("startThread", () => {
     if (result.ok) cleanup.push(result.id);
   });
 
-  it("rejects an unknown skill before creating anything", async () => {
-    const parent = parentChat("p_st", "badpb");
+  it("takes no skill: the tool schema has none and a child is a plain thread", async () => {
+    const { buildChatTools } = await import("../workflows/chat/tools");
+    const tools = buildChatTools("c_x", { hasSandbox: true, hasProject: true }) as unknown as Record<
+      string,
+      { inputSchema: { shape: Record<string, unknown> } }
+    >;
+    expect(Object.keys(tools.start_thread!.inputSchema.shape).sort()).toEqual(["fresh", "prompt"]);
+    const parent = parentChat("p_st", "noskill");
     const result = await startThread({
       conversationId: parent,
       prompt: "look",
-      skill: "nope",
+      provider: new FakeProvider(),
       start: async () => ({ runId: "wr_c5" }),
     });
-    expect(result).toMatchObject({ ok: false, code: "no-skill" });
-    expect(childrenOf(parent)).toEqual([]);
+    expect(result).not.toHaveProperty("skill");
+    if (result.ok) cleanup.push(result.id);
   });
 
   it("reports a start failure as a value (the child row stays, silent)", async () => {

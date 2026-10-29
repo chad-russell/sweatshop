@@ -32,7 +32,7 @@ import path from "node:path";
  * this module is bundled by Turbopack behind instrumentation, and a
  * dynamic `import(expression)` cannot be bundled, while
  * `require.resolve` stays a plain runtime call. The vendored path is
- * cwd-relative like `skills/` (lib/skill-files.ts) — the app process
+ * cwd-relative like `docs/agent/` — the app process
  * runs from the repo root.
  *
  * Production finding (2026-10-27 deploy): Turbopack compiles

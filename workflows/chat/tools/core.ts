@@ -329,17 +329,13 @@ export function coreTools(
 
     propose_prompt_change: tool({
       description:
-        "Propose a change to an app prompt section or the skill catalog. This can edit prompt/skill text, " +
-        `create a skill, or change a skill's description, thread binding, or reversible status. ${ownerName()} sees the ` +
+        "Propose a change to an app prompt section (base, harness_steering, or host_routing; skills are " +
+        `changed with save_skill). ${ownerName()} sees the ` +
         "complete change and must explicitly approve before it is written. This cannot change tools, approval " +
         "gates, command restrictions, or provider/model validation.",
       inputSchema: z.object({
-        kind: z.enum(["section", "skill"]),
-        key: z.string().describe("base|harness_steering|host_routing, or a skill id"),
-        body: z.string().max(64 * 1024).optional(),
-        description: z.string().max(500).optional().describe("skill only"),
-        thread: z.boolean().optional().describe("skill only"),
-        status: z.enum(["active", "disabled", "deleted"]).optional().describe("skill only"),
+        key: z.enum(["base", "harness_steering", "host_routing"]),
+        body: z.string().max(32 * 1024).describe("The section's complete new text"),
         note: z.string().trim().min(1).max(500).refine((value) => !/[\r\n]/.test(value), "note must be one line").describe("What changed and why"),
       }),
       execute: async (input, { toolCallId }) => {

@@ -163,11 +163,9 @@ export function childPill(s: ChildStatus): { tone: Tone; pill: string } {
   }
 }
 
-/** 0055 v7 PR2: a background child's work chip — `<phase> · <harness or
- *  skill>` (whichever applies) plus elapsed time, ticking while live,
- *  frozen once settled. `kind` is the harness name for a harness call;
- *  threads fall back to the skill, shown only while live (settled, the
- *  card's own subtitle already names it). */
+/** 0055 v7 PR2: a background child's work chip — `<phase> · <harness>`
+ *  plus elapsed time, ticking while live, frozen once settled. `kind` is
+ *  the harness name for a harness call (none for a thread). */
 export function ChildMeta({ status, kind }: { status: ChildStatus; kind?: string | null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -176,7 +174,7 @@ export function ChildMeta({ status, kind }: { status: ChildStatus; kind?: string
     return () => clearInterval(t);
   }, [status.live]);
   const end = status.live ? now : (status.settledAt ?? now);
-  const label = kind ?? (status.where && status.live ? status.where : null);
+  const label = kind ?? null;
   return (
     <span className="hidden shrink-0 items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[11px] text-muted-foreground sm:inline-flex">
       {status.phase && (
@@ -212,14 +210,13 @@ function MetaChip({ children }: { children: ReactNode }) {
 /** A started child thread (start_thread): the handle to poll/follow. */
 function threadStarted(
   output: unknown,
-): { id: string; url: string; sandbox: string; skill: string | null } | undefined {
+): { id: string; url: string; sandbox: string } | undefined {
   const o = objectOf(output);
   if (!o || o.ok !== true || typeof o.id !== "string") return undefined;
   return {
     id: o.id,
     url: typeof o.url === "string" ? o.url : `/c/${o.id}`,
     sandbox: typeof o.sandbox === "string" ? o.sandbox : "",
-    skill: typeof o.skill === "string" ? o.skill : null,
   };
 }
 
@@ -239,7 +236,6 @@ export function StartThreadCard({
   const started = threadStarted(output);
   const i = objectOf(input);
   const prompt = typeof i?.prompt === "string" ? i.prompt : undefined;
-  const skill = started?.skill ?? (typeof i?.skill === "string" ? i.skill : null);
   const live = useChildStatus(started?.id ?? null);
   const failedToStart = state === "error" || Boolean(failureOf(output));
   const sp = live ? childPill(live) : statePill(state, failedToStart);
@@ -248,10 +244,10 @@ export function StartThreadCard({
     <Card
       icon={GitForkIcon}
       title={state === "running" ? "Starting thread" : "Thread"}
-      subtitle={skill ?? (started ? "plain" : "…")}
+      subtitle={started ? "plain" : "…"}
       extra={
         <>
-          {live && <ChildMeta status={live} kind={skill} />}
+          {live && <ChildMeta status={live} />}
           {started ? <MetaChip>{started.sandbox === "attached" ? "this sandbox" : started.sandbox === "own" ? "own sandbox" : "no sandbox"}</MetaChip> : null}
         </>
       }

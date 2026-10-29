@@ -119,7 +119,6 @@ export function ChatSession({
   onAdopted,
   onAddressable,
   pageContext,
-  skill,
   className,
   ref,
 }: {
@@ -154,8 +153,6 @@ export function ChatSession({
   /** 0015: the page this chat is drawn on, read at send time — each send
    *  carries it as the turn's viewing note ("this"). Absent = no note. */
   pageContext?: () => ViewingContext | null;
-  /** 0039: the skill the creating send binds (null = plain chat). */
-  skill?: string | null;
   className?: string;
   ref?: Ref<ChatSessionController>;
 }) {
@@ -189,7 +186,6 @@ export function ChatSession({
     conversationId,
     projectId,
     pageContext,
-    skill,
     routeRef,
     choiceRef,
     pendingResumeRef,

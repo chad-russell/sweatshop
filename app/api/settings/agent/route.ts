@@ -13,12 +13,11 @@ import {
   SECTION_KEYS,
   type SectionKey,
 } from "@/db/prompt-settings";
-import { readGitSkillDefault } from "@/lib/skill-files";
 import { buildInstructions } from "@/workflows/chat/instructions";
 
 export const dynamic = "force-dynamic";
 
-type Target = { kind: "section"; key: SectionKey } | { kind: "skill"; id: string };
+type Target = { kind: "section"; key: SectionKey };
 
 /**
  * Only used to reconstruct a target from GET's three separate query
@@ -34,9 +33,6 @@ function targetOf(value: unknown): Target | null {
   if (v.kind === "section" && typeof v.key === "string" && (SECTION_KEYS as readonly string[]).includes(v.key)) {
     return { kind: "section", key: v.key as SectionKey };
   }
-  if (v.kind === "skill" && typeof v.id === "string" && /^[a-z][a-z0-9-]{0,40}$/.test(v.id)) {
-    return { kind: "skill", id: v.id };
-  }
   return null;
 }
 
@@ -49,7 +45,7 @@ function targetOf(value: unknown): Target | null {
  * reaching it is a server failure.
  */
 function response(result: { ok: boolean; code?: string; issues?: string[]; current?: unknown; version?: number }) {
-  return NextResponse.json(result, { status: result.ok ? 200 : result.code === "conflict" ? 409 : result.code === "no-default" ? 404 : 400 });
+  return NextResponse.json(result, { status: result.ok ? 200 : result.code === "conflict" ? 409 : 400 });
 }
 
 /** Assemble the same representative sandbox/host preview for saved and draft reads. */
@@ -79,9 +75,6 @@ export async function POST(request: Request) {
   }
   const parsed = parseTarget(target);
   if (!parsed.ok) return response(parsed);
-  if (parsed.target.kind !== "section") {
-    return NextResponse.json({ error: "Preview draft target must be a section" }, { status: 400 });
-  }
   if (typeof body !== "string" || new TextEncoder().encode(body).byteLength > PROMPT_SECTION_MAX_BYTES) {
     return NextResponse.json({ error: `Preview body must be a string of at most ${PROMPT_SECTION_MAX_BYTES} bytes` }, { status: 400 });
   }
@@ -96,7 +89,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const action = url.searchParams.get("action") ?? "list";
   if (action === "list") {
-    return NextResponse.json({ targets: listTargets(db(), { includeDeleted: url.searchParams.get("includeDeleted") === "true" }) });
+    return NextResponse.json({ targets: listTargets(db()) });
   }
   if (action === "preview") {
     try {
@@ -105,20 +98,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: err instanceof Error ? err.message : "failed to assemble preview" }, { status: 500 });
     }
   }
-  const target = targetOf({ kind: url.searchParams.get("kind"), key: url.searchParams.get("key"), id: url.searchParams.get("id") });
+  const target = targetOf({ kind: url.searchParams.get("kind"), key: url.searchParams.get("key") });
   if (!target) return NextResponse.json({ error: "Invalid target" }, { status: 400 });
   if (action === "default") {
-    if (target.kind === "section") return NextResponse.json({ body: GIT_DEFAULT_SECTIONS[target.key] });
-    // 0054 hardening: the shared parser (lib/skill-files.ts) both
-    // avoids a second, route-local frontmatter regex and re-validates
-    // the id (`SKILL_ID`) before ever building a path — traversal is
-    // refused the same way `db/prompt-settings.ts`'s own seeding is.
-    const def = readGitSkillDefault(target.id);
-    if (getTarget(db(), target)?.origin !== "git" || !def) {
-      return NextResponse.json({ error: "No shipped default" }, { status: 404 });
-    }
-    // Shipped metadata alongside the body, so a compare can show the
-    return NextResponse.json({ body: def.body, description: def.description, thread: def.thread, status: def.status });
+    return NextResponse.json({ body: GIT_DEFAULT_SECTIONS[target.key] });
   }
   if (action === "detail") return NextResponse.json({ current: getTarget(db(), target), versions: listVersions(db(), target) });
   if (action === "history") return NextResponse.json({ versions: listVersions(db(), target) });

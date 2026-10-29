@@ -23,8 +23,6 @@ export interface ChildStatus {
   startedAt: number;
   /** Unix ms of the last settle (null while it has never settled). */
   settledAt: number | null;
-  /** Where it is: a thread's skill. */
-  where: string | null;
   /** The outline step this worker was started to do. */
   phase: string | null;
   /** 0059: a child thread's own current status label, when it has one. */
@@ -45,7 +43,6 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       href: `/h/${call.kind}/${call.conversationId}/${call.id}`,
       startedAt: call.createdAt,
       settledAt: call.settledAt,
-      where: null,
       phase: call.step,
       statusLabel: null,
       error: clip(call.error),
@@ -71,7 +68,6 @@ export function childStatus(db: Db, id: string): ChildStatus | null {
       href: `/c/${id}`,
       startedAt: child.createdAt,
       settledAt: live ? null : child.updatedAt,
-      where: child.skill,
       phase: child.workStep,
       statusLabel: threadStatusLabel(db, id),
       error: null,

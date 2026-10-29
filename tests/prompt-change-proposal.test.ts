@@ -2,61 +2,42 @@ import { describe, expect, it } from "vitest";
 import { db } from "../db";
 import { loadPendingRequests } from "../db/attention";
 import { ensureConversation, recordPendingInput, resolvePendingInput } from "../db/chat";
-import { publishEdit } from "../db/prompt-settings";
+import { getTarget, publishEdit } from "../db/prompt-settings";
 import {
   applyApprovedPromptChangeStep,
   promptChangePreviewStep,
 } from "../workflows/chat/steps/prompt-change";
 
-let seq = 0;
-const skillId = () => `proposal-test-${++seq}`;
+/** 0054 agent prompt proposals — sections only since 0088 (skills use save_skill). */
 
 describe("0054 agent prompt proposals", () => {
   it("rejects invalid shapes before producing a proposal card", async () => {
-    await expect(promptChangePreviewStep({
-      kind: "section",
-      key: "base",
-      status: "deleted",
-      note: "invalid section metadata",
-    })).resolves.toMatchObject({ ok: false, code: "invalid" });
-
-    await expect(promptChangePreviewStep({
-      kind: "skill",
-      key: skillId(),
-      description: "no body on creation",
-      note: "invalid creation",
-    })).resolves.toMatchObject({ ok: false, code: "invalid" });
+    await expect(promptChangePreviewStep({ key: "nope", body: "x", note: "unknown section" })).resolves.toMatchObject({
+      ok: false,
+      code: "not-found",
+    });
+    await expect(
+      promptChangePreviewStep({ key: "base", body: "x".repeat(32 * 1024 + 1), note: "too big" }),
+    ).resolves.toMatchObject({ ok: false, code: "invalid" });
   });
 
-  it("snapshots the complete body diff and exact skill metadata for review", async () => {
-    const id = skillId();
+  it("snapshots the complete body diff for review", async () => {
     const body = `# Proposed\n\n${"full review text\n".repeat(200)}`;
-    const preview = await promptChangePreviewStep({
-      kind: "skill",
-      key: id,
-      body,
-      description: "proposal fixture",
-      thread: true,
-      status: "active",
-      note: "create the fixture skill",
-    });
+    const current = getTarget(db(), { kind: "section", key: "host_routing" })!;
+    const preview = await promptChangePreviewStep({ key: "host_routing", body, note: "rewrite it" });
     expect(preview).toMatchObject({
       ok: true,
-      expectedVersion: 0,
-      card: {
-        kind: "prompt_change",
-        currentVersion: 0,
-        patch: { body, description: "proposal fixture", thread: true, status: "active" },
-      },
+      expectedVersion: current.version,
+      card: { kind: "prompt_change", currentVersion: current.version, patch: { body } },
     });
     if (!preview.ok) throw new Error("expected valid preview");
     expect(preview.card.diff?.filter((line) => line.op === "add").map((line) => line.text).join("\n"))
       .toContain("full review text");
 
-    const conversationId = `c_prompt_proposal_${seq}`;
+    const conversationId = "c_prompt_proposal_1";
     ensureConversation(db(), conversationId);
     recordPendingInput(db(), {
-      id: `prompt_call_${seq}`,
+      id: "prompt_call_1",
       conversationId,
       kind: "approval",
       question: preview.summary,
@@ -66,29 +47,36 @@ describe("0054 agent prompt proposals", () => {
     expect(request?.toolName).toBe("propose_prompt_change");
     expect(request?.evidence).toBeNull();
     expect(request?.promptChange?.patch.body).toBe(body);
-    resolvePendingInput(db(), `prompt_call_${seq}`, { approved: false });
+    resolvePendingInput(db(), "prompt_call_1", { approved: false });
+  });
+
+  it("a save_skill card is labelled save_skill in the inbox", () => {
+    const conversationId = "c_prompt_proposal_skill";
+    ensureConversation(db(), conversationId);
+    recordPendingInput(db(), {
+      id: "prompt_call_skill",
+      conversationId,
+      kind: "approval",
+      question: "Create skill x",
+      card: { kind: "prompt_change", target: { kind: "skill", id: "x" }, title: "Create skill x", currentVersion: 0, patch: { body: "b" }, before: null },
+    });
+    expect(loadPendingRequests(db()).get(conversationId)?.[0]?.toolName).toBe("save_skill");
+    resolvePendingInput(db(), "prompt_call_skill", { approved: false });
   });
 
   it("applies once after approval and conflicts after a concurrent user edit", async () => {
-    const id = skillId();
-    const preview = await promptChangePreviewStep({
-      kind: "skill", key: id, body: "# Initial", note: "create it",
-    });
+    const preview = await promptChangePreviewStep({ key: "harness_steering", body: "agent steering", note: "tune it" });
     if (!preview.ok) throw new Error("expected valid preview");
-    expect(await applyApprovedPromptChangeStep(
-      preview.target, preview.patch, preview.expectedVersion, "create it",
-    )).toMatchObject({ ok: true, version: 1 });
+    // A concurrent owner edit lands between the proposal and the approval.
+    expect(publishEdit(db(), preview.target, { patch: { body: "owner won the race" }, expectedVersion: preview.expectedVersion }))
+      .toMatchObject({ ok: true });
+    expect(await applyApprovedPromptChangeStep(preview.target, preview.patch, preview.expectedVersion, "tune it"))
+      .toMatchObject({ ok: false, code: "conflict" });
 
-    const stale = await promptChangePreviewStep({
-      kind: "skill", key: id, status: "disabled", note: "retire it",
-    });
-    if (!stale.ok) throw new Error("expected valid preview");
-    expect(publishEdit(db(), stale.target, {
-      patch: { description: "user won the race" },
-      expectedVersion: stale.expectedVersion,
-    })).toMatchObject({ ok: true, version: 2 });
-    expect(await applyApprovedPromptChangeStep(
-      stale.target, stale.patch, stale.expectedVersion, "retire it",
-    )).toMatchObject({ ok: false, code: "conflict" });
+    const fresh = await promptChangePreviewStep({ key: "harness_steering", body: "agent steering", note: "tune it" });
+    if (!fresh.ok) throw new Error("expected valid preview");
+    expect(await applyApprovedPromptChangeStep(fresh.target, fresh.patch, fresh.expectedVersion, "tune it"))
+      .toMatchObject({ ok: true });
+    expect(getTarget(db(), fresh.target)).toMatchObject({ body: "agent steering", editedBy: "agent" });
   });
 });

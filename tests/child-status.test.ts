@@ -52,7 +52,6 @@ describe("childStatus", () => {
       kind: "thread",
       status: "running",
       live: true,
-      where: null, // no skill
       href: "/c/c_cs_child",
       settledAt: null,
     });

@@ -26,7 +26,7 @@ const SECTIONS = [
   { key: "harness_steering", name: "Harness steering", hint: "Included when the chat has a sandbox" },
   { key: "host_routing", name: "Host routing", hint: "Included when the project has hosts" },
 ] as const;
-const EMPTY: Row = { body: "", version: 0, description: "", thread: false, status: "active" };
+const EMPTY: Row = { body: "", version: 0 };
 const BOUNDARY = "This edits prompt text. Tool access, approvals (create_pr, exec, project create/delete, and agent-proposed changes), and provider/model validation are enforced in code and cannot be changed here.";
 function isDifferent(a: Default, b: Default) { return a.body !== b.body; }
 function Changes({ before, after }: { before: Default; after: Default }) {
@@ -53,7 +53,7 @@ export function AgentSettings() {
   const listSequence = useRef(0);
   const refreshList = useCallback(async () => {
     const token = ++listSequence.current;
-    try { const data = await listAgentTargets(false); if (token !== listSequence.current) return; setList(data.targets); const defaults = await Promise.all(data.targets.map(async (item): Promise<readonly [string, Default] | null> => {
+    try { const data = await listAgentTargets(); if (token !== listSequence.current) return; setList(data.targets); const defaults = await Promise.all(data.targets.map(async (item): Promise<readonly [string, Default] | null> => {
       if (item.kind !== "section") return null;
       try { return [item.key, await getAgentDefault(item)] as const; } catch { return null; }
     })); if (token === listSequence.current) setListDefaults(Object.fromEntries(defaults.filter((entry): entry is readonly [string, Default] => entry !== null))); }

@@ -76,10 +76,6 @@ export const conversations = sqliteTable(
     /** "chat" (0012's "run"/"stage" values went with the machine purge,
      *  0048 — no such rows remain; the column keeps its history). */
     kind: text("kind").notNull().default("chat"),
-    /** 0039: the thread skill this conversation runs (skills/<id>/SKILL.md,
-     *  null = a plain chat. Its body joins the turn instructions and
-     *  raises the turn's step budget. */
-    skill: text("skill"),
     /** 0064 PR2: active outline step this child was spawned to do. */
     workStep: text("work_step"),
     /** 0037 phase 3: the chat whose start_thread created this thread —
@@ -703,55 +699,6 @@ export const promptSectionVersions = sqliteTable(
 );
 
 export type PromptSectionRow = typeof promptSections.$inferSelect;
-
-/**
- * 0054: the skill catalog, DB-backed after first read (was fs-only,
- * 0039 — skills/<id>/SKILL.md stays the git-shipped default, read live
- * for seeding and reset). `origin` distinguishes a shipped skill (can
- * reset to its current git content) from a Chad/agent-created one (no
- * git default). `status` replaces a plain "enabled" boolean —
- * "active" | "disabled" | "deleted" — and, like description/thread/
- * body, is itself VERSIONED: disabling and deleting are both ordinary
- * writes, so both are undoable by restoring an earlier version. No row
- * is ever hard-deleted; "deleted" is a tombstone status, not a DELETE.
- */
-export const skills = sqliteTable("skills", {
-  id: text("id").primaryKey(),
-  /** "git" | "user". */
-  origin: text("origin").notNull(),
-  description: text("description").notNull(),
-  thread: integer("thread", { mode: "boolean" }).notNull().default(false),
-  /** "active" | "disabled" | "deleted". */
-  status: text("status").notNull().default("active"),
-  body: text("body").notNull(),
-  version: integer("version").notNull(),
-  /** "git" (the seed row only) | "user" | "agent". */
-  editedBy: text("edited_by").notNull(),
-  note: text("note"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
-export const skillVersions = sqliteTable(
-  "skill_versions",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    skillId: text("skill_id")
-      .notNull()
-      .references(() => skills.id),
-    version: integer("version").notNull(),
-    description: text("description").notNull(),
-    thread: integer("thread", { mode: "boolean" }).notNull(),
-    status: text("status").notNull(),
-    body: text("body").notNull(),
-    editedBy: text("edited_by").notNull(),
-    note: text("note"),
-    createdAt: integer("created_at").notNull(),
-  },
-  (table) => [uniqueIndex("skill_versions_skill_id_version_idx").on(table.skillId, table.version)],
-);
-
-export type SkillRow = typeof skills.$inferSelect;
 
 /**
  * 0016 previews: a long-running HTTP-serving process in a sandbox,

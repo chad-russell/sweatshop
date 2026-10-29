@@ -1,9 +1,7 @@
 "use client";
 
-import { BookOpen } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { AppHeader } from "@/components/app-header";
 import {
   ChatSession,
@@ -11,7 +9,7 @@ import {
   type FreshComposerMode,
 } from "@/components/chat-session";
 import { usePageContext } from "@/components/page-context";
-import { FreshTargetPicker, useSkills } from "@/components/fresh-target-picker";
+import { FreshTargetPicker } from "@/components/fresh-target-picker";
 import { PreviewPill } from "@/components/previews/preview-pill";
 import { WorkPill } from "@/components/work-pill";
 import { WorkChip } from "@/components/work-chip";
@@ -23,8 +21,7 @@ import type { ChatRoute } from "@/lib/providers/route";
 /**
  * The chat page frame (0010 Phase 4; split in 0015 Phase 3): the
  * AppHeader with the model and sandbox pickers, URL behaviour (adopting
- * `/c/<id>` on first send, ⌘⇧O new chat), and the fresh composer's
- * skill target (0039). The transcript, composer and transport
+ * `/c/<id>` on first send, ⌘⇧O new chat). The transcript, composer and transport
  * live in ChatSession, which this frame and the agent panel share.
  */
 
@@ -43,7 +40,6 @@ export function ChatSurface({
   initialRoute,
   conversationTitle,
   headerExtra,
-  initialSkillId,
   projectOptions,
   hasHosts,
   initialHostAutoApprove,
@@ -60,8 +56,6 @@ export function ChatSurface({
   initialRoute?: ChatRoute | null;
   conversationTitle?: string | null;
   headerExtra?: React.ReactNode;
-  /** 0039: preselect this skill (`?skill=`; project scope only). */
-  initialSkillId?: string | null;
   /** 0018: pickable chat-in-project targets for the fresh composer
    *  (the ?project= param seeds the initial scope). */
   projectOptions?: { id: string; name: string }[];
@@ -104,16 +98,12 @@ export function ChatSurface({
         : { kind: "other" },
   );
 
-  // ── 0039: the fresh composer's target — a chat, in a project, by a skill ──
-  const skills = useSkills();
-  const [pickedSkillId, setPickedSkillId] = useState<string | null>(initialSkillId ?? null);
-  const activeSkillId = !conversationId && activeProjectId ? pickedSkillId : null;
+  // ── the fresh composer's target — a chat, or a chat in a project ──
 
   /** 0018: pick (or clear) the composer's project scope; the URL
    *  follows so the scope is visible and shareable while fresh. */
   const pickProject = (id: string | null) => {
     setPickedProjectId(id);
-    setPickedSkillId(null);
     if (!conversationId) {
       window.history.replaceState(null, "", id ? `/?project=${id}` : "/");
     }
@@ -121,7 +111,6 @@ export function ChatSurface({
 
   const freshComposer = (): FreshComposerMode | undefined => {
     if (conversationId) return undefined;
-    const book = skills?.find((b) => b.id === activeSkillId) ?? null;
     const footer = (
       <FreshTargetPicker
         projects={projectOptions}
@@ -129,19 +118,10 @@ export function ChatSurface({
         onSelectProject={pickProject}
       />
     );
-    // The picker shows when there is anything to pick (projects and/or
-    // skills); the default composer stands otherwise.
-    if (!projectOptions?.length && !book) return undefined;
-    return {
-      emptyState: book ? (
-        <ConversationEmptyState
-          icon={<BookOpen className="size-6" />}
-          title={book.title}
-          description={book.description}
-        />
-      ) : undefined,
-      footer,
-    };
+    // The picker shows when there is a project to pick; the default
+    // composer stands otherwise.
+    if (!projectOptions?.length) return undefined;
+    return { footer };
   };
 
   // ── URL behaviour: adopt /c/<id>, new chat (⌘⇧O) ───────────────────────
@@ -192,7 +172,6 @@ export function ChatSurface({
       activeRunId={activeRunId}
       activeStreamCursor={activeStreamCursor}
       projectId={activeProjectId ?? undefined}
-      skill={activeSkillId}
       initialRoute={initialRoute}
       olderCursor={olderCursor}
       olderRemaining={olderRemaining}

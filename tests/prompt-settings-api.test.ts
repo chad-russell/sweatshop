@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readGitSkillDefault } from "../lib/skill-files";
 import { GET, POST, PUT } from "../app/api/settings/agent/route";
 
 /**
@@ -38,27 +37,23 @@ describe("PUT /api/settings/agent: malformed bodies never 500", () => {
   it("rejects a patch with an unknown field", async () => {
     const res = await put({
       action: "publish",
-      target: { kind: "skill", id: `apitest-${Date.now().toString(36)}` },
+      target: { kind: "section", key: "base" },
       patch: { body: "# Fixture", evilField: true },
-      expectedVersion: 0,
+      expectedVersion: 1,
     });
     expect(res.status).toBe(400);
     expect((await res.json()).issues?.join(" ")).toContain("evilField");
   });
 
-  it("rejects wrong-typed patch fields (body as a number, thread as a string, bogus status)", async () => {
-    const id = `apitest-${Date.now().toString(36)}-types`;
-    const r1 = await put({ action: "publish", target: { kind: "skill", id }, patch: { body: 123 }, expectedVersion: 0 });
+  it("rejects a wrong-typed body, and the removed skill target kind", async () => {
+    const r1 = await put({ action: "publish", target: { kind: "section", key: "base" }, patch: { body: 123 }, expectedVersion: 1 });
     expect(r1.status).toBe(400);
 
-    const r2 = await put({ action: "publish", target: { kind: "skill", id }, patch: { body: "# ok", thread: "yes" }, expectedVersion: 0 });
+    const r2 = await put({ action: "publish", target: { kind: "skill", id: "any-skill" }, patch: { body: "# ok" }, expectedVersion: 0 });
     expect(r2.status).toBe(400);
-
-    const r3 = await put({ action: "publish", target: { kind: "skill", id }, patch: { body: "# ok", status: "sleeping" }, expectedVersion: 0 });
-    expect(r3.status).toBe(400);
   });
 
-  it("rejects a section patch carrying skill-only fields", async () => {
+  it("rejects a section patch carrying non-body fields", async () => {
     const res = await put({ action: "publish", target: { kind: "section", key: "base" }, patch: { body: "x", status: "disabled" }, expectedVersion: 1 });
     expect(res.status).toBe(400);
   });
@@ -98,27 +93,15 @@ describe("PUT /api/settings/agent: malformed bodies never 500", () => {
   });
 });
 
-describe("GET /api/settings/agent: shared parser, shipped metadata, traversal safety", () => {
-  it("action=default for a shipped skill matches the shared git parser metadata", async () => {
-    const res = await get("action=default&kind=skill&id=review");
+describe("GET /api/settings/agent: defaults and the removed skill kind", () => {
+  it("action=default returns a section's shipped text", async () => {
+    const res = await get("action=default&kind=section&key=base");
     expect(res.status).toBe(200);
-    const body = await res.json();
-    const expected = readGitSkillDefault("review");
-    expect(body).toMatchObject({
-      body: expected?.body,
-      description: expected?.description,
-      thread: expected?.thread,
-      status: expected?.status,
-    });
+    expect(typeof (await res.json()).body).toBe("string");
   });
 
-  it("action=default 404s for a non-shipped id, never touches the filesystem outside skills/", async () => {
-    const res = await get(`action=default&kind=skill&id=${encodeURIComponent("not-a-real-skill")}`);
-    expect(res.status).toBe(404);
-  });
-
-  it("rejects a path-traversal-shaped skill id as an invalid target, before any file read", async () => {
-    const res = await get(`action=default&kind=skill&id=${encodeURIComponent("../../etc/passwd")}`);
+  it("a skill target is an invalid target (skills live in the S3 catalog)", async () => {
+    const res = await get("action=default&kind=skill&id=review");
     expect(res.status).toBe(400);
   });
 

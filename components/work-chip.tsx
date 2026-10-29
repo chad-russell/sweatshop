@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 function workLabel(status: ChildStatus): string {
   if (status.kind === "harness") return status.href.split("/")[2] ?? "harness";
-  return status.where ?? "thread";
+  return "thread";
 }
 
 function ChildWatcher({ id, onChange }: { id: string; onChange: (id: string, status: ChildStatus | null) => void }) {
