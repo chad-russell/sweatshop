@@ -17,6 +17,7 @@ import {
 import { AttentionDot } from "./attention-dot";
 import { useSidebar } from "./context";
 import { InlineName } from "./inline-name";
+import { CHEVRON_SLOT, HANDLE_SLOT, guideLeft, rowInset } from "./indent";
 import { MoveMenu } from "./move-menu";
 import { RowMenuTrigger } from "./row-menu-trigger";
 import { relativeTime, type FolderChoice, type SidebarTreeItem } from "./types";
@@ -27,11 +28,8 @@ export interface RowLocation extends SidebarLocation {
   choices: readonly FolderChoice[];
 }
 
-/** Pixels of left padding per nesting level (matches the folder tree). */
-const INDENT = 12;
-
 /**
- * One conversation in the folder tree or the Unfiled list: a draggable link
+ * One conversation in a group's list (after its folders) or a folder: a draggable link
  * with a hover menu (rename, move, archive, trash). Dragging only ever
  * *offers* targets in the same group (see use-drop-target). 0048: run rows
  * are retired; a live harness row still carries a status glyph and asks
@@ -102,25 +100,35 @@ export function ConversationRow({
         }}
         onDragEnd={() => setDrag(null)}
         className={cn(
-          "group/row relative flex items-center rounded-md transition-colors",
+          "group/row relative flex items-center gap-1.5 rounded-md transition-colors",
           active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/60",
         )}
-        style={{ paddingLeft: depth * INDENT }}
+        style={{ paddingLeft: rowInset(depth) }}
       >
-        {hasChildren && (
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-label={`${open ? "Collapse" : "Expand"} ${conversationLabel({ title: item.title })} and its threads`}
-            onClick={() => setThreadExpanded(item.id, !open)}
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/60 pointer-coarse:size-9"
-          >
-            <ChevronRight className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")} />
-          </button>
-        )}
+        {/* 0089: same grid as a folder row — handle slot (conversations
+            have no handle), then the chevron slot. A leaf's attention dot
+            sits in the chevron slot so the title always starts at the
+            icon column. The button overflows the slot with negative
+            margins to keep its hit area. */}
+        <span aria-hidden className={HANDLE_SLOT} />
+        <span className={CHEVRON_SLOT}>
+          {hasChildren ? (
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={`${open ? "Collapse" : "Expand"} ${conversationLabel({ title: item.title })} and its threads`}
+              onClick={() => setThreadExpanded(item.id, !open)}
+              className="-mx-1.5 inline-flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/60 pointer-coarse:-mx-3 pointer-coarse:size-9"
+            >
+              <ChevronRight className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")} />
+            </button>
+          ) : (
+            <AttentionDot unread={item.unread ? 1 : 0} needsYou={item.needsYou ? 1 : 0} />
+          )}
+        </span>
         <div className="min-w-0 flex-1">
           {renaming ? (
-            <div className="flex px-2 py-1">
+            <div className="flex py-1 pr-2">
               <InlineName
                 label="Conversation title"
                 initial={item.title ?? ""}
@@ -137,8 +145,7 @@ export function ConversationRow({
               draggable={false}
               title={item.step ? `${conversationLabel({ title: item.title })}\nStep: ${item.step}` : (conversationLabel({ title: item.title }))}
               className={cn(
-                "flex items-center justify-between gap-2 py-1.5 pointer-coarse:py-2.5",
-                hasChildren ? "pr-2" : "px-2",
+                "flex items-center justify-between gap-2 py-1.5 pr-2 pointer-coarse:py-2.5",
                 // Rows with an age already clear the "⋮" button (the age hides on hover but keeps
                 // its room). Rows without one reserve the button's room while it shows, so a
                 // truncated title's "…" stops short of it instead of running into it.
@@ -152,11 +159,9 @@ export function ConversationRow({
                   item.unread && !item.needsYou && "font-medium",
                 )}
               >
-                <AttentionDot
-                  unread={item.unread ? 1 : 0}
-                  needsYou={item.needsYou ? 1 : 0}
-                  className={hasChildren ? undefined : "-ml-1"}
-                />
+                {hasChildren && (
+                  <AttentionDot unread={item.unread ? 1 : 0} needsYou={item.needsYou ? 1 : 0} />
+                )}
                 <ChildGlyph item={item} />
                 <span className="min-w-0">
                   <span className="block truncate" title={item.id}>{conversationLabel({ title: item.title })}</span>
@@ -194,7 +199,7 @@ export function ConversationRow({
                 Rename
               </DropdownMenuItem>
               <MoveMenu
-                rootLabel="Unfiled"
+                rootLabel="Top level"
                 currentId={folderId}
                 choices={choices}
                 onPick={(id) => void actions.moveConversation(item.id, id)}
@@ -224,20 +229,21 @@ export function ConversationRow({
         )}
       </div>
       {open && (
-        // The guide line is DOM-nesting-driven, not depth-multiplied: each
-        // level's wrapper contributes one fixed indent (ml-3 to step right,
-        // pl-3 + border-l to draw the line beside it), and a grandchild's
-        // own wrapper nests inside this one — so depth resets to 1 here
-        // rather than accumulating depth+1 (that would double-count this
-        // wrapper's own offset on top of the child row's own padding).
-        <div className="ml-3 border-l border-sidebar-border/60 pl-3">
+        // 0089: children sit one level deeper on the same grid; the guide
+        // line is drawn at the parent's chevron-slot centre.
+        <div className="relative">
+          <span
+            aria-hidden
+            className="absolute inset-y-0 w-px bg-sidebar-border/60"
+            style={{ left: guideLeft(depth) }}
+          />
           {item.children.map((child) => (
             <ConversationRow
               key={child.id}
               item={child}
               projectId={projectId}
               folderId={folderId}
-              depth={1}
+              depth={depth + 1}
               choices={choices}
               showAge={false}
               locations={locations}

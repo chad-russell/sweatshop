@@ -24,12 +24,10 @@ function group(unfiled: SidebarItem[] = [], folders: FolderNode[] = [], projectI
 afterEach(() => vi.unstubAllGlobals());
 
 describe("sidebar defaults and preferences", () => {
-  it("keeps empty groups/Unfiled closed without saving an automatic choice", () => {
+  it("keeps empty groups closed without saving an automatic choice", () => {
     const { expanded } = parseSidebarPreferences(null, null);
     expect(sectionExpanded(expanded, "group:p1", false)).toBe(false);
-    expect(sectionExpanded(expanded, "unfiled:p1", false)).toBe(false);
     expect(sectionExpanded(expanded, "group:p1", true)).toBe(true);
-    expect(sectionExpanded(expanded, "unfiled:p1", true)).toBe(true);
     expect(expanded).toEqual({});
   });
 

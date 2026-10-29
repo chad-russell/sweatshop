@@ -65,7 +65,7 @@ export interface FolderNode {
 export interface SidebarGroup {
   project: { id: string; name: string } | null;
   folders: FolderNode[];
-  /** Conversations not filed in any folder (shown as "Unfiled"). */
+  /** Conversations not filed in any folder (listed after the group's folders). */
   unfiled: SidebarItem[];
   attention: AttentionCounts;
 }
