@@ -9,7 +9,8 @@ import { listSkills, listThreadSkills, readSkill } from "../lib/skills";
 import { getTarget, publishEdit, restoreVersion } from "../db/prompt-settings";
 import { CONTINUE_TEXT, MAX_CONTINUATIONS, continueAfterBudget, continuationsSinceHuman } from "../lib/chat/budget";
 import { POST as postChat } from "../app/api/x/chat/route";
-import { loadSkillStep, skillToolStep } from "../workflows/chat/steps/turn";
+import { loadSkillStep } from "../workflows/chat/steps/turn";
+import { skillToolStep } from "../workflows/chat/steps/skills";
 
 /**
  * 0039: skills (markdown runbooks under skills/<id>/SKILL.md; thread

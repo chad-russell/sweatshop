@@ -1,6 +1,6 @@
 /**
  * Always-on tools: ask_owner, create_pr, inspect, sandbox_exec, use_skill,
- * update_outline, accept_outline, system_docs, and note (0064).
+ * save_skill, update_outline, accept_outline, system_docs, and note (0064).
  */
 
 import { tool } from "ai";
@@ -32,6 +32,8 @@ import {
   systemDocsStep,
   updateOutlineStep,
   skillToolStep,
+  saveSkillApplyStep,
+  saveSkillPreviewStep,
 } from "../steps";
 
 /** 0064: a top-level step's runner — "auto" (unrestricted, today's
@@ -227,12 +229,51 @@ export function coreTools(
     }),
     use_skill: tool({
       description:
-        "List skills, or load one. With no id, returns every active runbook and marks thread-bindable skills. " +
-        "With an id, returns that active skill's body; each load is transcript history.",
+        "List skills, or load one. With no id, lists every skill (id, description, files). " +
+        "With an id, returns that skill's body plus a Files line; with id and file, returns that supporting file. " +
+        "Each load is transcript history.",
       inputSchema: z.object({
         id: z.string().min(1).optional().describe("Skill id to load; omit to list"),
+        file: z.string().min(1).optional().describe("Supporting file path within the skill (e.g. reference.md)"),
       }),
-      execute: ({ id }) => skillToolStep(conversationId, id),
+      execute: ({ id, file }) => skillToolStep(conversationId, id, file),
+    }),
+
+    save_skill: tool({
+      description:
+        "Create or replace a skill in the skills catalog. `body` is the whole SKILL.md including front matter " +
+        "(`---`, `description: <when to use it>`, optional `status: disabled`, `---`) then the runbook markdown; " +
+        "`files` are supporting files (POSIX-relative paths) that REPLACE the skill's current set. Limits: 16 files, " +
+        `64 KiB per file, 256 KiB per skill. ${ownerName()} approves every save — the card shows a diff for an edit ` +
+        "and the full content for a new skill; the skill is written only when they accept. Load the current version " +
+        "with use_skill first when editing.",
+      inputSchema: z.object({
+        id: z.string().describe("Skill id: lowercase letter first, then lowercase letters/digits/hyphens (≤41 chars)"),
+        body: z.string().describe("Full SKILL.md text, front matter with a description included"),
+        files: z
+          .array(z.object({ path: z.string(), content: z.string() }))
+          .max(15)
+          .optional()
+          .describe("Supporting files; the complete set the skill should have after this save"),
+        note: z.string().trim().max(500).optional().describe("What changed and why"),
+      }),
+      execute: async (input, { toolCallId }) => {
+        const preview = await saveSkillPreviewStep(input);
+        if (!preview.ok) return preview;
+        await pendingStep(conversationId, toolCallId, preview.summary, "approval", preview.card);
+        const answer = await chatApprovalHook.create({ token: toolCallId });
+        if (!(answer.kind === "approval" && answer.approved)) {
+          const comment = answer.kind === "approval" ? answer.comment?.trim() : undefined;
+          return {
+            ok: false,
+            code: comment ? ("changes-requested" as const) : ("denied" as const),
+            message: comment
+              ? `${ownerName()} sent the skill back with changes — nothing was saved. Address this, then call save_skill again: ${comment}`
+              : `${ownerName()} declined — nothing was saved`,
+          };
+        }
+        return saveSkillApplyStep(input);
+      },
     }),
 
     update_outline: tool({

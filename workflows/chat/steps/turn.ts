@@ -6,7 +6,6 @@
  */
 
 import { chatStore } from "../deps";
-import { renderOwnerPlaceholders } from "../../../lib/agent/owner";
 import type { ModelMessage, UserContent } from "ai";
 
 /**
@@ -139,32 +138,6 @@ export async function loadSkillStep(
   const id = conversation?.skill;
   const skill = id ? await readSkill(id) : null;
   return skill ? { id: skill.id, title: skill.title, body: skill.body } : null;
-}
-
-/** List skills, or load an active runbook into the transcript. */
-export async function skillToolStep(_conversationId: string, id?: string): Promise<unknown> {
-  "use step";
-  const [{ db }, { listActiveSkills, readSkill }, store] = await Promise.all([
-    chatStore(),
-    import("../../../lib/skills"),
-    import("../../../db/prompt-settings"),
-  ]);
-  const available = await listActiveSkills();
-  const catalog = available.map((s) => ({
-    id: s.id,
-    title: s.title,
-    description: s.description,
-    thread: s.thread,
-  }));
-  if (!id) return { ok: true, skills: catalog };
-  const target = store.getTarget(db, { kind: "skill", id });
-  if (!target || target.status !== "active") {
-    return { ok: false, code: "unknown-skill", message: `No active skill "${id}".`, skills: catalog };
-  }
-  const skill = await readSkill(id);
-  if (!skill) return { ok: false, code: "unknown-skill", message: `No active skill "${id}".`, skills: catalog };
-  const body = renderOwnerPlaceholders(skill.body);
-  return { ok: true, id: skill.id, skill: body };
 }
 
 /** 0054: the three editable instruction sections, resolved to their

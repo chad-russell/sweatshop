@@ -18,6 +18,7 @@ import {
   loadProjectContextStep,
   loadRepoDocsStep,
   loadSkillStep,
+  loadSkillsCatalogStep,
   loadTurnHistory,
   maybeTitleStep,
   persistTurn,
@@ -131,6 +132,8 @@ export async function chatTurn(input: ChatTurnInput) {
   // already in — this names it directly. Same gate as repoDocs: only a
   // project conversation can have a project at all.
   const project = input.hasProject === true ? await loadProjectContextStep(conversationId) : null;
+  // 0088: the skills appendix — empty when the store is unconfigured/down.
+  const skillsCatalog = await loadSkillsCatalogStep();
   const agent = new WorkflowAgent({
     model,
     instructions: buildInstructions({
@@ -138,6 +141,7 @@ export async function chatTurn(input: ChatTurnInput) {
       hosts: input.hosts ?? [],
       repoDocs,
       skill,
+      skillsCatalog,
       project,
       sections,
     }),

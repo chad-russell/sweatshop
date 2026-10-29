@@ -8,6 +8,7 @@ import { codexCredential } from "@/lib/harness-auth/codex";
 import type { ModelInfo } from "@/lib/providers/catalog";
 import { piProviderConfig } from "@/lib/providers/registry";
 import type { HarnessRoute } from "@/lib/providers/route";
+import type { HarnessSkills } from "@/lib/harness-skills";
 import { harnessBridgePort } from "@/lib/sandboxes/harness-bridge";
 
 /**
@@ -32,6 +33,10 @@ export interface BuildArgs {
   port?: number;
   /** Host tools (create_pr, …). */
   tools: ToolSet;
+  /** 0088: the skills catalog, mapped by `loadHarnessSkills` (callers are
+   *  async, this builder stays synchronous). Mounted on pi/claude/codex;
+   *  cursor's adapter has no skills surface. */
+  skills?: HarnessSkills;
   /** pi model sizing, when the caller knows it (catalog entry). */
   modelInfo?: ModelInfo;
   /** 0062: lifecycle taps. The workflow-harness UI stream drops each
@@ -74,7 +79,8 @@ export function buildHarnessAgent(args: BuildArgs) {
   return tapResults(buildAgent(args), args.onResult);
 }
 
-function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd, dir, port }: BuildArgs) {
+function buildAgent({ route, sessionId, tools, skills, modelInfo, onStepEnd, onEnd, dir, port }: BuildArgs) {
+  const mounted = skills && skills.length > 0 ? { skills } : {};
   const lifecycle = {
     ...(onStepEnd ? { onStepEnd: onStepEnd as never } : {}),
     ...(onEnd ? { onEnd: onEnd as never } : {}),
@@ -102,6 +108,7 @@ function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd, dir,
       // other's work. "." = the sandbox cwd, the workspace root.
       sandboxConfig: { workDir },
       tools,
+      ...mounted,
       ...lifecycle,
       stopWhen: isStepCount(1),
     });
@@ -167,6 +174,7 @@ function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd, dir,
       ...(credential.accountId ? { headers: { "ChatGPT-Account-ID": credential.accountId } } : {}),
       sandboxConfig: { workDir },
       tools,
+      ...mounted,
       ...lifecycle,
       stopWhen: isStepCount(1),
     });
@@ -192,6 +200,7 @@ function buildAgent({ route, sessionId, tools, modelInfo, onStepEnd, onEnd, dir,
     // "." = the sandbox cwd, the workspace root (shared across calls).
     sandboxConfig: { workDir },
     tools,
+    ...mounted,
     ...lifecycle,
     stopWhen: isStepCount(1),
   });

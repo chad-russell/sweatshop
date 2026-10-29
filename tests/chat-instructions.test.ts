@@ -4,6 +4,8 @@ import {
   buildInstructions,
   buildProjectSection,
   buildRepoDocsSection,
+  buildSkillsSection,
+  SKILLS_FALLBACK,
   GIT_DEFAULT_SECTIONS,
   type ProjectContext,
 } from "../workflows/chat/instructions";
@@ -236,5 +238,50 @@ describe("buildProjectSection", () => {
     const descMatch = /: (x+)…/.exec(section);
     expect(descMatch?.[1].length).toBe(500);
     expect(section).toContain("Test command: ");
+  });
+});
+
+describe("0088: the # Skills appendix", () => {
+  const base = { hasSandbox: true, hosts: [], repoDocs: [] as RepoDoc[] };
+  const catalog = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `s${i}`, description: `does ${i}` }));
+
+  it("lists one `id — description` line per skill", () => {
+    expect(buildSkillsSection([{ id: "a", description: "Does A" }, { id: "b", description: "Does B" }])).toBe(
+      "# Skills\n\na — Does A\nb — Does B",
+    );
+  });
+
+  it("renders nothing for an empty or omitted catalog", () => {
+    expect(buildSkillsSection([])).toBe("");
+    expect(buildInstructions(base)).not.toContain("# Skills");
+    expect(buildInstructions({ ...base, skillsCatalog: [] })).not.toContain("# Skills");
+  });
+
+  it("caps descriptions at ~200 chars and collapses whitespace", () => {
+    const line = buildSkillsSection([{ id: "a", description: `${"x".repeat(250)}\nmore` }]).split("\n").pop()!;
+    expect(line).toBe(`a — ${"x".repeat(200)}…`);
+  });
+
+  it("lists up to 20 skills, and falls back to the use_skill sentence beyond that", () => {
+    expect(buildSkillsSection(catalog(20)).split("\n").length).toBe(2 + 20);
+    expect(buildSkillsSection(catalog(21))).toBe(`# Skills\n\n${SKILLS_FALLBACK}`);
+    expect(SKILLS_FALLBACK).toBe("use_skill with no id lists every skill.");
+  });
+
+  it("renders owner placeholders in descriptions", () => {
+    process.env.SWEATSHOP_OWNER_NAME = "Pat";
+    try {
+      expect(buildSkillsSection([{ id: "a", description: "for {{owner}}" }])).toContain("a — for Pat");
+    } finally {
+      delete process.env.SWEATSHOP_OWNER_NAME;
+    }
+  });
+
+  it("is appended to the instructions, and the base paragraph describes file loads", () => {
+    const out = buildInstructions({ ...base, skillsCatalog: catalog(2) });
+    expect(out).toContain("# Skills\n\ns0 — does 0\ns1 — does 1");
+    expect(out).toContain(
+      "Skills are runbooks: the appendix lists what exists; use_skill({id}) loads one into transcript history, and use_skill({id, file}) loads a supporting file.",
+    );
   });
 });
