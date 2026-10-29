@@ -210,7 +210,9 @@ export function AskOwnerCard({ part }: { part: ToolUIPart }) {
   const contextBlock = !structured && card?.context && (
     <details className="mt-1.5 rounded-md border border-border bg-background px-2 py-1.5">
       <summary className="cursor-pointer text-xs text-muted-foreground">Why I&apos;m asking</summary>
-      <div className="mt-1.5 text-sm">{card.context}</div>
+      <div className="mt-1.5 text-sm">
+        <MessageResponse>{card.context}</MessageResponse>
+      </div>
     </details>
   );
 
