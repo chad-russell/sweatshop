@@ -1,6 +1,6 @@
 # 0089 — Sidebar: a Projects list, a Chats section, one indent rule
 
-Status: **proposed** — decisions from the owner in chat; awaiting approval.
+Status: **approved by the owner in chat.**
 
 Refines 0087. Supersedes 0007's per-group **Unfiled** sub-section.
 
