@@ -6,9 +6,9 @@ import type { Drag } from "./types";
 
 export interface DropTarget {
   projectId: string | null;
-  /** Destination folder; null = the group's top level (Unfiled / root). */
+  /** Destination folder; null = the group's top level (the group's own list / root). */
   folderId: string | null;
-  /** Restrict to one drag kind (Unfiled takes conversations only). */
+  /** Restrict to one drag kind (e.g. conversations only). */
   only?: Drag["kind"];
 }
 

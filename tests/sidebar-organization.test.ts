@@ -24,12 +24,10 @@ function group(unfiled: SidebarItem[] = [], folders: FolderNode[] = [], projectI
 afterEach(() => vi.unstubAllGlobals());
 
 describe("sidebar defaults and preferences", () => {
-  it("keeps empty groups/Unfiled closed without saving an automatic choice", () => {
+  it("keeps empty groups closed without saving an automatic choice", () => {
     const { expanded } = parseSidebarPreferences(null, null);
     expect(sectionExpanded(expanded, "group:p1", false)).toBe(false);
-    expect(sectionExpanded(expanded, "unfiled:p1", false)).toBe(false);
     expect(sectionExpanded(expanded, "group:p1", true)).toBe(true);
-    expect(sectionExpanded(expanded, "unfiled:p1", true)).toBe(true);
     expect(expanded).toEqual({});
   });
 
@@ -131,7 +129,7 @@ describe("container ordering", () => {
   it("scopes folder order to siblings and removes moved/deleted ids", () => {
     const groups = [group([], [folder("a", [], [folder("nested")]), folder("b")]), group([], [], null)];
     const scopes = sidebarOrderScopes(groups);
-    expect(scopes.groups).toEqual([groupId("p1"), groupId(null)]);
+    expect(scopes.groups).toEqual([groupId("p1")]); // Chats is pinned, not orderable.
     expect(scopes[folderOrderKey("p1", "a")]).toEqual(["nested"]);
     const source = folderOrderKey("p1", null);
     const dest = folderOrderKey("p1", "a");

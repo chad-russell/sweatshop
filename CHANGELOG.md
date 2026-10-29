@@ -10,6 +10,7 @@
 
 ## 2026-10-29
 
+- **Changed** Sidebar: projects are one draggable list, Chats is its own section below, and nesting lines up (no more Unfiled level).
 - **Fixed** Inbox card titles no longer get cut off at the top.
 - **Changed** Skills are now a bring-your-own catalog on S3-compatible storage, visible to every chat and mounted into pi, Claude and Codex runs; the agent can save skills with your one-click approval. Bound threads and the built-in runbooks are gone.
 

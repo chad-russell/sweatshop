@@ -4,7 +4,7 @@ import type { AttentionCounts, SidebarItem } from "./read-models/sidebar";
  * 0040 phase 2 — the sidebar's parent/child tree. Pure and framework-free
  * so it is unit-tested without React: nesting a `start_thread` child
  * under its parent is a property of whatever FLAT list is currently
- * visible (a folder's items, or a group's Unfiled list), never a global
+ * visible (a folder's items, or a group's own list), never a global
  * fact — a child whose parent sits in a different folder, project, or
  * shelf (trashed/archived) is simply not in that list, and shows at the
  * top level there, same as before this existed.

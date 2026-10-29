@@ -1,5 +1,5 @@
 /**
- * 0007: deterministic age buckets for the Unfiled list — local calendar days,
+ * 0007: deterministic age buckets for a group's own conversations — local calendar days,
  * not rolling 24h windows, so "Today" means since local midnight.
  */
 export type AgeBucket = "Today" | "Yesterday" | "This week" | "Older";

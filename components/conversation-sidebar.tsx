@@ -49,8 +49,9 @@ type View = "library" | "archive" | "trash";
  * Conversation navigation (0002–0004, 0007, 0008, 0040): search, the
  * PAGES (Inbox, Projects, then
  * Sandboxes and Previews — flat rows), and per group (project, or Chats)
- * a folder tree plus the Unfiled conversations split by age. Archive and
- * Trash are views behind the Conversations label's menu; the footer is
+ * a folder tree plus its own conversations split by age (0089: a PROJECTS
+ * list, then a fixed CHATS section). Archive and
+ * Trash are views behind the section heading's menu; the footer is
  * Settings and the theme button. Server-rendered by the layout from sqlite; every mutation
  * goes through the organization API and refreshes the layout. A
  * conversation started mid-page triggers a layout refresh from the
@@ -69,9 +70,13 @@ export function ConversationSidebar({
   const actions = useSidebarActions();
   useAttentionSync(inbox.signature);
   const { preferences, updatePreferences } = useSidebarPreferences();
-  const groups = useMemo(() => orderItems(data.groups, preferences.orders.groups,
-    (group) => groupId(group.project?.id ?? null)), [data.groups, preferences.orders.groups]);
-  const siblingIds = groups.map((group) => groupId(group.project?.id ?? null));
+  // Projects are user-orderable; Chats (no project) is fixed, always last.
+  const groups = useMemo(() => [
+    ...orderItems(data.groups.filter((group) => group.project), preferences.orders.groups,
+      (group) => groupId(group.project?.id ?? null)),
+    ...data.groups.filter((group) => !group.project),
+  ], [data.groups, preferences.orders.groups]);
+  const siblingIds = groups.filter((group) => group.project).map((group) => groupId(group.project?.id ?? null));
   useEffect(() => {
     const scopes = sidebarOrderScopes(data.groups);
     updatePreferences((current) => ({ ...current, orders: reconcileOrders(current.orders, scopes) }));
@@ -284,7 +289,7 @@ export function ConversationSidebar({
             {searching
               ? `${(results ?? []).length} match${(results ?? []).length === 1 ? "" : "es"}`
               : view === "library"
-                ? "Conversations"
+                ? preferences.view === "recent" ? "Recent" : "Projects"
                 : view === "archive"
                   ? "Archive"
                   : "Trash"}

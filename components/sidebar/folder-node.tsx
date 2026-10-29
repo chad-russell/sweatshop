@@ -19,6 +19,7 @@ import { RowMenuTrigger } from "./row-menu-trigger";
 import { subtreeIds, type FolderChoice, type FolderNode } from "./types";
 import { useDropTarget } from "./use-drop-target";
 import { folderOrderKey, orderItems, sectionExpanded } from "@/lib/sidebar-organization";
+import { CHEVRON_SLOT, HANDLE_SLOT, labelInset, rowInset } from "./indent";
 import { OrderHandle, OrderMenuItems, useContainerOrder } from "./container-order";
 
 /** Inline "new folder" row, shown where the folder will be created. */
@@ -33,7 +34,9 @@ export function NewFolderRow({
 }) {
   const { actions, setEditing } = useSidebar();
   return (
-    <div className="flex items-center gap-1.5 px-2 py-1" style={{ paddingLeft: 8 + depth * 12 }}>
+    <div className="flex items-center gap-1.5 py-1 pr-2" style={{ paddingLeft: rowInset(depth) }}>
+      <span aria-hidden className={HANDLE_SLOT} />
+      <span aria-hidden className={CHEVRON_SLOT} />
       <Folder className="size-3.5 shrink-0 text-sidebar-foreground/60" />
       <InlineName
         label="New folder name"
@@ -102,10 +105,11 @@ export function FolderNodeView({
           target.over && "bg-sidebar-accent ring-1 ring-sidebar-ring",
           target.dimmed && "opacity-40",
         )}
-        style={{ paddingLeft: depth * 12 }}
       >
-        <div className="flex items-center gap-1.5 px-2 py-1.5 pointer-coarse:py-2.5">
-          {!renaming && <OrderHandle label={node.name} drag={{ kind: "folder", id: node.id, projectId, parentId, subtree: subtreeIds(node) }} />}
+        <div className="flex items-center gap-1.5 py-1.5 pr-2 pointer-coarse:py-2.5" style={{ paddingLeft: rowInset(depth) }}>
+          <span className={HANDLE_SLOT}>
+            {!renaming && <OrderHandle label={node.name} drag={{ kind: "folder", id: node.id, projectId, parentId, subtree: subtreeIds(node) }} />}
+          </span>
           <button
             type="button"
             aria-expanded={open}
@@ -113,12 +117,14 @@ export function FolderNodeView({
             onClick={() => setExpanded(node.id, !open)}
             className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           >
-            <ChevronRight
-              className={cn(
-                "size-3 shrink-0 text-sidebar-foreground/60 transition-transform",
-                open && "rotate-90",
-              )}
-            />
+            <span className={CHEVRON_SLOT}>
+              <ChevronRight
+                className={cn(
+                  "size-3 shrink-0 text-sidebar-foreground/60 transition-transform",
+                  open && "rotate-90",
+                )}
+              />
+            </span>
             <Icon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
             {!renaming && <span className="min-w-0 truncate text-sm">{node.name}</span>}
             {/* Attention inside a collapsed folder would be invisible. */}
@@ -211,8 +217,8 @@ export function FolderNodeView({
           ))}
           {node.folders.length === 0 && node.items.length === 0 && !creatingChild && (
             <p
-              className="px-2 py-1 text-xs text-sidebar-foreground/40"
-              style={{ paddingLeft: 8 + (depth + 1) * 12 }}
+              className="py-1 pr-2 text-xs text-sidebar-foreground/40"
+              style={{ paddingLeft: labelInset(depth + 1) }}
             >
               Empty
             </p>
