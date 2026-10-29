@@ -2,6 +2,7 @@ import { AppHeader } from "@/components/app-header";
 import { ModelDefaults } from "@/components/settings/model-defaults";
 import { GitCredentials } from "@/components/settings/git-credentials";
 import { AgentSettings } from "@/components/settings/agent-settings";
+import { SkillsStatusCard } from "@/components/settings/skills-status-card";
 import { db } from "@/db";
 import { modelsView } from "@/lib/providers/catalog-view";
 import { ensureOpenRouterCatalog } from "@/lib/providers/openrouter";
@@ -19,6 +20,7 @@ export default async function SettingsPage() {
       <div className="p-4 md:p-6">
         <ModelDefaults initial={view} />
         <GitCredentials />
+        <SkillsStatusCard />
         <AgentSettings />
       </div>
     </div>

@@ -41,7 +41,7 @@ export interface MessageRowMetadata {
 }
 
 /** 0022: what woke a conversation (machine run or harness call; 0037:
- *  "budget" = a thread-skill turn hit its step budget and continues;
+ *  "budget" = LEGACY (0088 removed budget continuation; old chips still render);
  *  "thread" = a child chat started by start_thread settled; 0041:
  *  "plan" = Chad approved the plan under review; 0055: "mode" = the
  *  owner's send entered a mode — this row's TEXT is the mode's

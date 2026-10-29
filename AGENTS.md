@@ -166,18 +166,19 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   adapter's `run`) prepends `set -o pipefail` (`withPipefail`), so a
   pipeline like `npm run test 2>&1 | tail` reports npm's failure instead
   of `tail`'s 0. Streaming harness spawns are unaffected.
-- Child threads (0037 phase 3): `start_thread({prompt, skill?, fresh?})`
+- Child threads (0037 phase 3): `start_thread({prompt, fresh?})`
   — every chat tool — starts a fresh child chat with its own context on
   the parent's project, ATTACHED to the parent's sandbox by default
   (`fresh: true` provisions its own), running the prompt as its first
   turn. The child records `conversations.parent_conversation_id` and
   wakes the parent when it settles (`woken_settled_at` stamped at
   creation; settle = `updated_at` past it with no live turn;
-  `wakeParentStep` runs after the budget decision), carrying the child's
+  `wakeParentStep` runs at the turn's end), carrying the child's
   last REAL assistant report; a child with none is stamped woken
   silently. Children get the thread step budget (800, `resolveMaxSteps`)
-  even un-skilled (`hasParent`); the budget CONTINUATION is skill-only —
-  an un-skilled child that runs out reports once, never re-fires itself.
+  (`hasParent`); a child that runs out of budget reports once (the wake
+  says "ran out of steps"), never re-fires itself — no budget
+  continuation exists since 0088.
   0082: an attached child whose parent's binding sits at the bare work
   root (never `cd`'d into a repo) lands inside the repo instead when the
   project has exactly one (`childSandboxWorkDir`,
@@ -282,30 +283,29 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   (`cached_tokens`); both are subsets of total input. Costs include writes
   at the five-minute rate, reads at the read rate, and newly fetched Gloo
   prices include the guarded alias's 1.065 fee. Historical costs stay put.
-- Skills (0039, 0054, 0064): markdown runbooks in `skills/<id>/SKILL.md`
-  are shipped defaults (front matter `description`, `thread: true` for a
-  bindable runbook, `status: disabled` to ship pre-retired — ship uses
-  this). SQLite `skills` / `skill_versions` hold the active catalog;
-  `lib/skills.ts` reads it (lazy seed once from Git, no silent overwrite
-  on deploy; an unedited default is upgraded by a guarded path).
-  `/settings` edits or resets individual skills; agent
-  `propose_prompt_change` changes require approval. Status is
-  versioned: active, disabled, deleted (tombstone); existing bound
-  threads still read the current body even if disabled/deleted, but
-  only active thread skills can be newly bound. A thread runs one via
-  `conversations.skill` — chosen by the creating send (`?skill=<id>`;
-  unknown ids rejected before creating anything) or by
-  `start_thread` for a child. `use_skill` with no id lists the catalog;
-  `use_skill({id})` loads that active skill's body as the tool result,
-  any number of times, and never binds. A bound skill's body joins the
-  turn instructions and the step budget rises 100 → 800; a thread-skill
-  turn that EXHAUSTS continues in a new turn (runEvent `budget`,
-  bounded at 6 consecutive continuations with no human message between,
-  `lib/chat/budget.ts`). Catalog: `ticket` (planned work to a PR, run
-  through an outline — see Outline below), `review` (fresh context,
-  severity-ranked findings, changes nothing). `ship` is retired (a
-  seeded `disabled` version, restorable). Skills without `thread: true`
-  are reference material — never bindable.
+- Skills (0088 — supersedes 0039/0054's DB catalog and thread binding):
+  reference material in an S3-compatible bucket (rustfs), no DB tables,
+  no shipped defaults, no binding. `lib/skills/store.ts` is the only
+  module that imports `@aws-sdk/client-s3` (config: `SKILLS_S3_ENDPOINT`
+  / `REGION` / `BUCKET` / `ACCESS_KEY_ID` / `SECRET_ACCESS_KEY` /
+  `PREFIX`; absent = empty catalog, never an error). A skill is
+  `<id>/SKILL.md` (front matter `description`, `status: disabled` to
+  hide) + sibling files + `<id>/manifest.json`, written last — readers
+  skip a skill whose manifest is missing or inconsistent. Limits: id
+  `^[a-z][a-z0-9-]{0,40}$`, ≤16 files, ≤64 KiB each, ≤256 KiB per skill.
+  Listing cached 60 s, bodies LRU (32); store errors are values (empty
+  catalog + `status()` for the `/settings` read-only card). Surfaces:
+  the instructions appendix (`# Skills`, `id — description`, ≤20 lines,
+  else "use_skill with no id lists every skill."); `use_skill` (no id
+  lists, `{id}` body + Files line, `{id, file}` a supporting file);
+  harness mounting (`loadHarnessSkills`, `lib/harness-skills.ts` — pi /
+  claude / codex get every non-disabled skill as `HarnessV1Skill`s,
+  loaded fresh per call; cursor has no skills surface); and the
+  approval-gated `save_skill({id, body, files?, note?})` (the card is a
+  unified diff for an edit, full content for a new skill; PUTs files
+  then the manifest; no delete tool — disable via front matter).
+  `propose_prompt_change` is prompt sections only. Skills never bind to
+  a thread or join its instructions.
 - Outline (0064 — supersedes 0041's PLAN.md, 0055 modes and 0059
   status): the ONE plan/progress/phase mechanism. `update_outline`
   (every chat) rewrites the whole step tree in one call —
@@ -556,7 +556,7 @@ engineered, never vibe-coded. It replaces the prototype at `~/sweatshop`
   Harnesses hold no git write powers at all.
 - Machines (0009) — **deleted 2026-10-10 (0037 phase 5) and purged
   (0048)**: no machine tables, tools, views, or run branches remain.
-  The work surfaces now: a chat running a SKILL, the gated tools
+  The work surfaces now: the gated tools
   (`create_pr`, `exec`), and `start_thread` children — see those
   bullets. History and rationale: docs/0037, docs/0048.
 - Agent everywhere (0015): every chat has the project tools, gh/forgejo,

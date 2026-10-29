@@ -8,6 +8,10 @@
   Create the date heading if it's missing; don't backfill older dates.
 -->
 
+## 2026-10-29
+
+- **Changed** Skills are now a bring-your-own catalog on S3-compatible storage, visible to every chat and mounted into pi, Claude and Codex runs; the agent can save skills with your one-click approval. Bound threads and the built-in runbooks are gone.
+
 ## 2026-10-28
 
 - **Added** A quieter sidebar with collapsed empty sections, reorderable projects and folders, and a Recent view grouped by day and week.

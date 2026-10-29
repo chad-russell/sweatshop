@@ -454,6 +454,7 @@ async function resolveHarnessRunContext(
     { getConversation },
     { getModelInfo },
     { openConversationSandbox },
+    { loadHarnessSkills },
   ] = await Promise.all([
     import("../../lib/sandboxes/ai-sdk-adapter"),
     import("./harness-agent"),
@@ -461,6 +462,7 @@ async function resolveHarnessRunContext(
     import("../../db/chat"),
     import("../../db/providers"),
     import("../../lib/sandboxes/binding"),
+    import("../../lib/harness-skills"),
   ]);
   // The conversation's binding — bound on the call's first step if this
   // is the conversation's first sandboxed use (0013).
@@ -472,6 +474,9 @@ async function resolveHarnessRunContext(
     route,
     sessionId,
     tools: {},
+    // 0088: the skills catalog, loaded fresh per call (a saved edit
+    // reaches the next call); value-shaped — never throws.
+    skills: await loadHarnessSkills(),
     dir,
     port,
     ...(route.harness === "pi" ? { modelInfo: getModelInfo(db(), route.provider, route.model) } : {}),

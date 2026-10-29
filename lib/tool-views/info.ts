@@ -20,19 +20,22 @@ export function h1Of(markdown: string): string | undefined {
 
 export interface SkillListItem {
   id: string;
-  title: string;
   description: string;
 }
 
 export type SkillView =
   | { kind: "list"; skills: SkillListItem[] }
-  | { kind: "bound"; id: string; title: string; note?: string; body: string };
+  | { kind: "loaded"; id: string; title: string; body: string }
+  | { kind: "file"; id: string; file: string; content: string };
 
 export function skillView(output: unknown): SkillView | undefined {
   const o = objectOf(output);
   if (!o || o.ok !== true) return undefined;
   if (typeof o.skill === "string" && typeof o.id === "string") {
-    return { kind: "bound", id: o.id, title: h1Of(o.skill) ?? o.id, note: str(o.note), body: o.skill };
+    return { kind: "loaded", id: o.id, title: h1Of(o.skill) ?? o.id, body: o.skill };
+  }
+  if (typeof o.content === "string" && typeof o.id === "string" && typeof o.file === "string") {
+    return { kind: "file", id: o.id, file: o.file, content: o.content };
   }
   if (Array.isArray(o.skills)) return { kind: "list", skills: skillItems(o.skills) };
   return undefined;
@@ -45,7 +48,7 @@ export function skillItems(raw: unknown): SkillListItem[] {
     const s = objectOf(item);
     const id = str(s?.id);
     if (!s || !id) continue;
-    out.push({ id, title: str(s.title) ?? id, description: str(s.description) ?? "" });
+    out.push({ id, description: str(s.description) ?? "" });
   }
   return out;
 }

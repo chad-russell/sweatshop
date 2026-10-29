@@ -247,13 +247,12 @@ describe("sweepWakes", () => {
 /** 0037 phase 3 — a child chat with a settled turn (messages landed,
  *  no live run). `setConversationParent` pre-stamps woken = updatedAt,
  *  so the fixture bumps updatedAt past it the way a real turn does. */
-function settledChild(opts: { skill?: string; text?: string | null; parent?: string } = {}) {
+function settledChild(opts: { text?: string | null; parent?: string } = {}) {
   const parent = opts.parent ?? chatId();
   ensureConversation(tdb, parent, null);
   const child = `c_wkchild_${++seq}`;
   ensureConversation(tdb, child, null);
   setConversationParent(tdb, child, parent);
-  if (opts.skill) tdb.update(conversations).set({ skill: opts.skill }).where(eq(conversations.id, child)).run();
   if (opts.text !== null) {
     appendMessages(tdb, child, [
       {
@@ -272,19 +271,19 @@ function settledChild(opts: { skill?: string; text?: string | null; parent?: str
 }
 
 describe("child threads (0037 phase 3)", () => {
-  it("renders a thread settle with its skill and findings", () => {
+  it("renders a thread settle", () => {
     expect(
       renderWake({ kind: "thread", id: "c_1", name: "review", status: "completed", url: "/c/c_1" }),
     ).toBe("[review finished] — /c/c_1");
   });
 
   it("wakes the parent with the child's last message once per settle", async () => {
-    const { child, parent } = settledChild({ skill: "review" });
+    const { child, parent } = settledChild();
     const { deps, started } = seams();
     await expect(wakeChatChildIfDue(getChatChild(tdb, child)!, deps)).resolves.toBe("woke");
     expect(started).toHaveLength(1);
     expect(started[0]!.conversationId).toBe(parent);
-    expect(started[0]!.text).toContain("[review finished] — /c/" + child);
+    expect(started[0]!.text).toContain("[thread finished] — /c/" + child);
     expect(started[0]!.text).toContain("dialog caps at 512px");
     expect(started[0]!.meta).toEqual({ kind: "thread", id: child, status: "completed" });
     expect(getChatChild(tdb, child)!.wokenSettledAt).toBe(getChatChild(tdb, child)!.updatedAt);

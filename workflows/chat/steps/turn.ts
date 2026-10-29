@@ -1,12 +1,11 @@
 /**
- * Turn lifecycle: history load/persist, steer, skills, route, titles, usage. Split from the old single steps.ts - every function
+ * Turn lifecycle: history load/persist, steer, route, titles, usage. Split from the old single steps.ts - every function
  * keeps its "use step" directive; Node/sqlite imports stay lazy inside
  * each step body, and relative imports stay relative (the workflow
  * bundle has no "@/" alias).
  */
 
 import { chatStore } from "../deps";
-import { renderOwnerPlaceholders } from "../../../lib/agent/owner";
 import type { ModelMessage, UserContent } from "ai";
 
 /**
@@ -129,44 +128,6 @@ export async function finishTurnStream(
   await writable.close();
 }
 
-/** 0039: the thread's bound runbook (null = plain chat). */
-export async function loadSkillStep(
-  conversationId: string,
-): Promise<{ id: string; title: string; body: string } | null> {
-  "use step";
-  const [{ db, chat }, { readSkill }] = await Promise.all([chatStore(), import("../../../lib/skills")]);
-  const conversation = chat.getConversation(db, conversationId);
-  const id = conversation?.skill;
-  const skill = id ? await readSkill(id) : null;
-  return skill ? { id: skill.id, title: skill.title, body: skill.body } : null;
-}
-
-/** List skills, or load an active runbook into the transcript. */
-export async function skillToolStep(_conversationId: string, id?: string): Promise<unknown> {
-  "use step";
-  const [{ db }, { listActiveSkills, readSkill }, store] = await Promise.all([
-    chatStore(),
-    import("../../../lib/skills"),
-    import("../../../db/prompt-settings"),
-  ]);
-  const available = await listActiveSkills();
-  const catalog = available.map((s) => ({
-    id: s.id,
-    title: s.title,
-    description: s.description,
-    thread: s.thread,
-  }));
-  if (!id) return { ok: true, skills: catalog };
-  const target = store.getTarget(db, { kind: "skill", id });
-  if (!target || target.status !== "active") {
-    return { ok: false, code: "unknown-skill", message: `No active skill "${id}".`, skills: catalog };
-  }
-  const skill = await readSkill(id);
-  if (!skill) return { ok: false, code: "unknown-skill", message: `No active skill "${id}".`, skills: catalog };
-  const body = renderOwnerPlaceholders(skill.body);
-  return { ok: true, id: skill.id, skill: body };
-}
-
 /** 0054: the three editable instruction sections, resolved to their
  *  current (possibly Settings-edited) bodies — seeded from git on
  *  first touch. Shaped to drop straight into buildInstructions's
@@ -209,13 +170,6 @@ export async function loadProjectContextStep(
   "use step";
   const { loadProjectContext } = await import("../../../lib/agent/tools/project-context");
   return loadProjectContext(conversationId);
-}
-
-/** 0037/0039: continue a thread-skill turn that hit its step budget. */
-export async function continueAfterBudgetStep(conversationId: string): Promise<string> {
-  "use step";
-  const { continueAfterBudget } = await import("../../../lib/chat/budget");
-  return continueAfterBudget(conversationId);
 }
 
 /** 0010 Phase 4: record a pending human-input request (the ask_chad

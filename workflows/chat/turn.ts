@@ -11,13 +11,12 @@ import { buildInstructions } from "./instructions";
 import { buildTurnModel } from "./model";
 import { buildChatTools } from "./tools";
 import {
-  continueAfterBudgetStep,
   drainSteerStep,
   finishTurnStream,
   loadPromptSectionsStep,
   loadProjectContextStep,
   loadRepoDocsStep,
-  loadSkillStep,
+  loadSkillsCatalogStep,
   loadTurnHistory,
   maybeTitleStep,
   persistTurn,
@@ -44,16 +43,16 @@ import {
  */
 
 const MAX_STEPS = 100;
-/** 0037/0039: a thread-skill thread works unattended — harness-stage parity. */
-const THREAD_SKILL_MAX_STEPS = 800;
+/** 0037/0040: a start_thread child works unattended — harness-stage parity. */
+const THREAD_MAX_STEPS = 800;
 
 /** Pulled out of the workflow body so the budget choice is unit-testable
- *  without driving a turn: a skill or a start_thread child (0040 phase 3)
- *  gets the thread budget (800, or the test override), everyone else
- *  gets the plain 100 — never overridable (skillMaxSteps is test-only
- *  and only meaningful on the thread budget). */
-export function resolveMaxSteps(hasSkillOrParent: boolean, skillMaxSteps?: number): number {
-  return hasSkillOrParent ? (skillMaxSteps ?? THREAD_SKILL_MAX_STEPS) : MAX_STEPS;
+ *  without driving a turn: a start_thread child (0040 phase 3) gets the
+ *  thread budget (800, or the test override), everyone else gets the
+ *  plain 100 — never overridable (threadMaxSteps is test-only and only
+ *  meaningful on the thread budget). */
+export function resolveMaxSteps(hasParent: boolean, threadMaxSteps?: number): number {
+  return hasParent ? (threadMaxSteps ?? THREAD_MAX_STEPS) : MAX_STEPS;
 }
 
 export interface ChatTurnInput {
@@ -69,7 +68,7 @@ export interface ChatTurnInput {
   /** 0043: the project's host allow-list — non-empty adds the exec tool. */
   hosts?: { name: string; address: string; user: string; apiBase: string | null }[];
   /** 0040 phase 3: a start_thread child (parent_conversation_id set) —
-   *  gets the thread step budget (400) even with no skill, so a
+   *  gets the thread step budget (800), so a
    *  follow-up thread cannot run out at the plain-chat 50. */
   hasParent?: boolean;
   /** 0015: the page the send came from — "this" for the agent. */
@@ -77,8 +76,8 @@ export interface ChatTurnInput {
   /** 0022: this send is a wake (a child settled) — marks the user row
    *  so the transcript renders it as a chip, never Chad's own words. */
   runEvent?: import("../../db/chat").RunEventMeta;
-  /** Tests only: override the thread-skill step budget. */
-  skillMaxSteps?: number;
+  /** Tests only: override the thread step budget. */
+  threadMaxSteps?: number;
 }
 
 export async function chatTurn(input: ChatTurnInput) {
@@ -86,9 +85,6 @@ export async function chatTurn(input: ChatTurnInput) {
   const { conversationId, userText } = input;
 
   const history = await loadTurnHistory(conversationId);
-  // 0039: a thread running a skill gets its runbook in the instructions
-  // and the background budget.
-  const skill = await loadSkillStep(conversationId);
   // 0064: the [thread state] note is the derived outline (or, for a mode
   // Rendered NOW
   // so the same string is stamped onto this turn's user row AND injected
@@ -112,13 +108,11 @@ export async function chatTurn(input: ChatTurnInput) {
   const model = await buildTurnModel(resolved.route);
   const writable = getWritable<ModelCallStreamPart>();
   // 0054: the three editable instruction sections (Settings-edited or
-  // still the git default) — resolved once per turn, same as skill.
+  // still the git default) — resolved once per turn.
   const sections = await loadPromptSectionsStep();
-  // 0040 phase 3: a child thread gets the background budget too, even
-  // with no skill bound — the budget CONTINUATION below stays skill-only
-  // (an un-skilled child that runs out just reports it, never re-fires
-  // itself unattended).
-  const maxSteps = resolveMaxSteps(Boolean(skill) || Boolean(input.hasParent), input.skillMaxSteps);
+  // 0040 phase 3: a child thread gets the background budget (an
+  // exhausted child reports once, never re-fires itself unattended).
+  const maxSteps = resolveMaxSteps(Boolean(input.hasParent), input.threadMaxSteps);
   // Live testing showed none of pi/claude/cursor/codex, nor this agent, ever
   // read a project repo's AGENTS.md on their own — this appendix is the
   // top-level agent's fix (setupProjectWorkspace's work-root doc is the
@@ -131,13 +125,15 @@ export async function chatTurn(input: ChatTurnInput) {
   // already in — this names it directly. Same gate as repoDocs: only a
   // project conversation can have a project at all.
   const project = input.hasProject === true ? await loadProjectContextStep(conversationId) : null;
+  // 0088: the skills appendix — empty when the store is unconfigured/down.
+  const skillsCatalog = await loadSkillsCatalogStep();
   const agent = new WorkflowAgent({
     model,
     instructions: buildInstructions({
       hasSandbox: input.hasSandbox ?? true,
       hosts: input.hosts ?? [],
       repoDocs,
-      skill,
+      skillsCatalog,
       project,
       sections,
     }),
@@ -293,12 +289,8 @@ export async function chatTurn(input: ChatTurnInput) {
     }
   }
   if (turnError) throw turnError;
-  // 0037: a thread-skill turn that ran out of budget mid-work continues
-  // in a fresh turn (bounded — see lib/chat/budget.ts).
-  if (exhausted && skill) await continueAfterBudgetStep(conversationId);
-  // 0037 phase 3: a child thread reports its settle to its parent —
-  // after the budget decision, so a continuing child still reads as
-  // working. One select for every other conversation.
+  // 0037 phase 3: a child thread reports its settle to its parent. One
+  // select for every other conversation.
   await wakeParentStep(conversationId);
   // Generated titles (0007) — skipped under the scripted mock so tests
   // never wait on (or pay for) a real title call.

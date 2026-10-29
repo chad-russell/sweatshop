@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { describe, expect, it } from "vitest";
 import { db, openDb, type Db } from "../db";
-import { promptSections, promptSectionVersions, skillVersions, skills } from "../db/schema";
+import { promptSections, promptSectionVersions } from "../db/schema";
 import { GIT_DEFAULT_SECTIONS } from "../workflows/chat/instructions";
 import {
   applyApprovedChange,
@@ -21,264 +21,158 @@ import {
   PRE_0064_BASE,
   PRE_0064_PR3_BASE,
   PRE_0081_BASE,
-  PRE_0055_TICKET_BODY,
-  PRE_0059_TICKET_BODY,
-  PRE_0064_TICKET_BODY,
+  PRE_0088_BASE,
   PRE_PLACEHOLDER_CHAD_BASE,
   resetToGitDefault,
   restoreVersion,
-  SKILL_BODY_MAX_BYTES,
-  SKILL_DESCRIPTION_MAX_CHARS,
   type Target,
 } from "../db/prompt-settings";
 
 /**
- * 0054 store layer: seeding, the single write primitive's optimistic
- * concurrency, and tombstone (status) semantics. No model, no sandbox,
- * no workflow run — plain sqlite against the per-worker test db
- * (tests/setup.ts).
+ * 0054 store layer (sections only since 0088 moved skills to the S3
+ * catalog): seeding, the single write primitive's optimistic
+ * concurrency, and restore/reset. No model, no sandbox, no workflow run
+ * — plain sqlite against the per-worker test db (tests/setup.ts).
  */
 
-let seq = 0;
-const skillId = () => `pstest-${++seq}-${Date.now().toString(36)}`;
-const skillTarget = (id: string): Target => ({ kind: "skill", id });
+const base: Target = { kind: "section", key: "base" };
+const steering: Target = { kind: "section", key: "harness_steering" };
 
 describe("getTarget / listTargets: seeding", () => {
   it("seeds a section from the current git default on first read, idempotently", () => {
-    const target: Target = { kind: "section", key: "base" };
-    const first = getTarget(db(), target);
+    const first = getTarget(db(), base);
     expect(first).toMatchObject({ version: 1, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git" });
-    const second = getTarget(db(), target);
+    const second = getTarget(db(), base);
     expect(second?.version).toBe(1);
     expect(second?.body).toBe(first?.body);
   });
 
   it("seeds base as {{owner}}/{{owner's}} placeholder text, never an owner's literal name", () => {
-    const first = getTarget(db(), { kind: "section", key: "base" });
+    const first = getTarget(db(), base);
     expect(first?.body).toContain("{{owner}}");
     expect(first?.body).toContain("{{owner's}}");
     expect(first?.body).not.toContain("Chad");
   });
 
-  it("seeds a git-shipped skill (ship) but returns null for an unknown id", () => {
-    const ship = getTarget(db(), skillTarget("ship"));
-    expect(ship).toMatchObject({ version: 1, origin: "git", editedBy: "git", thread: true });
-    expect(ship?.body.startsWith("# Ship")).toBe(true);
-    expect(getTarget(db(), skillTarget(skillId()))).toBeNull();
+  it("listTargets lists exactly the three sections", () => {
+    const listed = listTargets(db());
+    expect(listed.map((t) => t.key)).toEqual(["base", "harness_steering", "host_routing"]);
+    expect(listed.every((t) => t.kind === "section")).toBe(true);
   });
 
-  it("listTargets includes all three sections and every seeded skill, excluding deleted by default", () => {
-    const id = skillId();
-    expect(
-      publishEdit(db(), skillTarget(id), { patch: { body: "# Fresh" }, expectedVersion: 0 }),
-    ).toMatchObject({ ok: true, version: 1 });
-    const visible = listTargets(db());
-    expect(visible.filter((t) => t.kind === "section")).toHaveLength(3);
-    expect(visible.some((t) => t.kind === "skill" && t.id === id)).toBe(true);
-
-    expect(
-      publishEdit(db(), skillTarget(id), { patch: { status: "deleted" }, expectedVersion: 1 }),
-    ).toMatchObject({ ok: true, version: 2 });
-    expect(listTargets(db()).some((t) => t.kind === "skill" && t.id === id)).toBe(false);
-    expect(listTargets(db(), { includeDeleted: true }).some((t) => t.kind === "skill" && t.id === id)).toBe(true);
+  it("a skill target is not a target anymore (0088)", () => {
+    expect(getTarget(db(), { kind: "skill", id: "ship" })).toBeNull();
+    expect(publishEdit(db(), { kind: "skill", id: "ship" }, { patch: { body: "x" }, expectedVersion: 0 })).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
   });
 });
 
 describe("publishEdit: validation and optimistic concurrency", () => {
-  it("rejects a section patch carrying skill-only fields", () => {
-    expect(
-      publishEdit(db(), { kind: "section", key: "base" }, { patch: { status: "disabled" }, expectedVersion: 1 }),
-    ).toMatchObject({ ok: false, code: "invalid" });
+  it("rejects a section patch carrying non-body fields", () => {
+    expect(publishEdit(db(), base, { patch: { status: "disabled" }, expectedVersion: 1 })).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
   });
 
   it("rejects an empty patch", () => {
-    expect(publishEdit(db(), skillTarget(skillId()), { patch: {}, expectedVersion: 0 })).toMatchObject({
-      ok: false,
-      code: "invalid",
-    });
+    expect(publishEdit(db(), base, { patch: {}, expectedVersion: 1 })).toMatchObject({ ok: false, code: "invalid" });
   });
 
-  it("rejects creating a skill with no body", () => {
+  it("rejects an oversized section body", () => {
     expect(
-      publishEdit(db(), skillTarget(skillId()), { patch: { description: "no body" }, expectedVersion: 0 }),
+      publishEdit(db(), base, { patch: { body: "x".repeat(PROMPT_SECTION_MAX_BYTES + 1) }, expectedVersion: 1 }),
     ).toMatchObject({ ok: false, code: "invalid" });
-  });
-
-  it("rejects an oversized section body, skill body, and skill description", () => {
-    expect(
-      publishEdit(db(), { kind: "section", key: "base" }, {
-        patch: { body: "x".repeat(PROMPT_SECTION_MAX_BYTES + 1) },
-        expectedVersion: 1,
-      }),
-    ).toMatchObject({ ok: false, code: "invalid" });
-    const id = skillId();
-    expect(
-      publishEdit(db(), skillTarget(id), { patch: { body: "x".repeat(SKILL_BODY_MAX_BYTES + 1) }, expectedVersion: 0 }),
-    ).toMatchObject({ ok: false, code: "invalid" });
-    expect(
-      publishEdit(db(), skillTarget(id), {
-        patch: { body: "# ok", description: "x".repeat(SKILL_DESCRIPTION_MAX_CHARS + 1) },
-        expectedVersion: 0,
-      }),
-    ).toMatchObject({ ok: false, code: "invalid" });
-  });
-
-  it("creates a skill at expectedVersion 0, then conflicts on a second create at the same id", () => {
-    const id = skillId();
-    const created = publishEdit(db(), skillTarget(id), { patch: { body: "# Once" }, expectedVersion: 0 });
-    expect(created).toMatchObject({ ok: true, version: 1 });
-    const collide = publishEdit(db(), skillTarget(id), { patch: { body: "# Twice" }, expectedVersion: 0 });
-    expect(collide.ok).toBe(false);
-    if (collide.ok) throw new Error("expected conflict");
-    expect(collide.code).toBe("conflict");
   });
 
   it("conflicts on a stale expectedVersion and reports the current row", () => {
-    const id = skillId();
-    publishEdit(db(), skillTarget(id), { patch: { body: "# v1" }, expectedVersion: 0 });
-    publishEdit(db(), skillTarget(id), { patch: { description: "v2" }, expectedVersion: 1 });
-    const stale = publishEdit(db(), skillTarget(id), { patch: { description: "stale" }, expectedVersion: 1 });
+    const target: Target = { kind: "section", key: "host_routing" };
+    getTarget(db(), target);
+    expect(publishEdit(db(), target, { patch: { body: "v2" }, expectedVersion: 1 })).toMatchObject({ ok: true, version: 2 });
+    const stale = publishEdit(db(), target, { patch: { body: "stale" }, expectedVersion: 1 });
     expect(stale.ok).toBe(false);
     if (stale.ok || stale.code !== "conflict") throw new Error("expected conflict");
-    expect(stale.current).toMatchObject({ version: 2, description: "v2" });
-  });
-
-  it("merges a partial patch over the live row's other fields", () => {
-    const id = skillId();
-    publishEdit(db(), skillTarget(id), {
-      patch: { body: "# Body", description: "desc", thread: true, status: "active" },
-      expectedVersion: 0,
-    });
-    const after = publishEdit(db(), skillTarget(id), { patch: { description: "new desc" }, expectedVersion: 1 });
-    expect(after).toMatchObject({ ok: true, version: 2 });
-    expect(getTarget(db(), skillTarget(id))).toMatchObject({
-      body: "# Body",
-      description: "new desc",
-      thread: true,
-      status: "active",
-    });
+    expect(stale.current).toMatchObject({ version: 2, body: "v2" });
   });
 });
 
-describe("tombstones: disable, delete, and restore are all reversible", () => {
-  it("walks disable -> delete -> restore back to the pre-delete active body", () => {
-    const id = skillId();
-    publishEdit(db(), skillTarget(id), { patch: { body: "# Original", description: "d", thread: true }, expectedVersion: 0 });
-    expect(publishEdit(db(), skillTarget(id), { patch: { status: "disabled" }, expectedVersion: 1 })).toMatchObject({
+describe("restoreVersion", () => {
+  it("writes a historic body forward as a new version", () => {
+    const target: Target = { kind: "section", key: "host_routing" };
+    const v1 = getTarget(db(), target)!;
+    const edited = publishEdit(db(), target, { patch: { body: "edited" }, expectedVersion: v1.version });
+    if (!edited.ok) throw new Error("expected ok");
+    expect(restoreVersion(db(), target, { version: v1.version, expectedVersion: edited.version })).toMatchObject({
       ok: true,
-      version: 2,
+      version: edited.version + 1,
     });
-    expect(listTargets(db()).find((t) => t.kind === "skill" && t.id === id)?.status).toBe("disabled");
-
-    expect(publishEdit(db(), skillTarget(id), { patch: { status: "deleted" }, expectedVersion: 2 })).toMatchObject({
-      ok: true,
-      version: 3,
-    });
-    expect(listTargets(db()).some((t) => t.kind === "skill" && t.id === id)).toBe(false);
-    // Tombstoned, never removed: the row and its history are still there.
-    expect(getTarget(db(), skillTarget(id))).toMatchObject({ status: "deleted", body: "# Original" });
-
-    // Restore the version from before the delete (v2, disabled) — undoes
-    // the delete but not the disable; v1 would undo both.
-    expect(restoreVersion(db(), skillTarget(id), { version: 1, expectedVersion: 3 })).toMatchObject({
-      ok: true,
-      version: 4,
-    });
-    const restored = getTarget(db(), skillTarget(id));
-    expect(restored).toMatchObject({ status: "active", body: "# Original", description: "d", thread: true });
-    expect(listTargets(db()).some((t) => t.kind === "skill" && t.id === id)).toBe(true);
+    expect(getTarget(db(), target)?.body).toBe(v1.body);
   });
 
-  it("restoreVersion rejects a version number that never existed", () => {
-    const id = skillId();
-    publishEdit(db(), skillTarget(id), { patch: { body: "# One" }, expectedVersion: 0 });
-    expect(restoreVersion(db(), skillTarget(id), { version: 7, expectedVersion: 1 })).toMatchObject({
-      ok: false,
-      code: "invalid",
-    });
+  it("rejects a version number that never existed", () => {
+    getTarget(db(), base);
+    expect(restoreVersion(db(), base, { version: 999, expectedVersion: 1 })).toMatchObject({ ok: false, code: "invalid" });
   });
 });
 
 describe("resetToGitDefault", () => {
   it("resets a section back to its current git default", () => {
-    const target: Target = { kind: "section", key: "harness_steering" };
-    getTarget(db(), target); // seed
-    const edited = publishEdit(db(), target, { patch: { body: "custom steering" }, expectedVersion: 1 });
+    getTarget(db(), steering); // seed
+    const edited = publishEdit(db(), steering, { patch: { body: "custom steering" }, expectedVersion: 1 });
     expect(edited).toMatchObject({ ok: true, version: 2 });
-    const reset = resetToGitDefault(db(), target, { expectedVersion: 2 });
+    const reset = resetToGitDefault(db(), steering, { expectedVersion: 2 });
     expect(reset).toMatchObject({ ok: true, version: 3 });
-    expect(getTarget(db(), target)?.body).toBe(GIT_DEFAULT_SECTIONS.harness_steering);
-  });
-
-  it("revives a tombstoned shipped skill to active with its shipped body", () => {
-    // "review" is shipped but untouched elsewhere in this file — seed,
-    // edit, delete, then reset should both revive and restore it.
-    const target = skillTarget("review");
-    const shipped = getTarget(db(), target);
-    expect(shipped?.origin).toBe("git");
-    const deleted = publishEdit(db(), target, { patch: { status: "deleted" }, expectedVersion: shipped!.version });
-    expect(deleted.ok).toBe(true);
-    if (!deleted.ok) throw new Error("expected ok");
-    const reset = resetToGitDefault(db(), target, { expectedVersion: deleted.version });
-    expect(reset).toMatchObject({ ok: true });
-    expect(getTarget(db(), target)).toMatchObject({ status: "active", body: shipped!.body, origin: "git" });
-  });
-
-  it("refuses to reset a user-created skill (no-default)", () => {
-    const id = skillId();
-    publishEdit(db(), skillTarget(id), { patch: { body: "# Mine" }, expectedVersion: 0 });
-    const result = resetToGitDefault(db(), skillTarget(id), { expectedVersion: 1 });
-    expect(result).toMatchObject({ ok: false, code: "no-default" });
+    expect(getTarget(db(), steering)?.body).toBe(GIT_DEFAULT_SECTIONS.harness_steering);
   });
 });
 
 describe("listVersions", () => {
-  it("returns a target's full history, newest first", () => {
-    const id = skillId();
-    publishEdit(db(), skillTarget(id), { patch: { body: "# v1" }, expectedVersion: 0 });
-    publishEdit(db(), skillTarget(id), { patch: { body: "# v2" }, expectedVersion: 1, note: "second" });
-    const versions = listVersions(db(), skillTarget(id));
-    expect(versions.map((v) => v.version)).toEqual([2, 1]);
-    expect(versions[0]).toMatchObject({ body: "# v2", note: "second", editedBy: "user" });
+  it("returns a section's full history, newest first", () => {
+    const target: Target = { kind: "section", key: "host_routing" };
+    const current = getTarget(db(), target)!;
+    publishEdit(db(), target, { patch: { body: "history-next" }, expectedVersion: current.version, note: "history" });
+    const versions = listVersions(db(), target);
+    expect(versions[0]).toMatchObject({ body: "history-next", note: "history", editedBy: "user" });
+    expect(versions[0]!.version).toBeGreaterThan(versions[1]!.version);
   });
 });
 
 describe("applyApprovedChange: the agent-proposal write path", () => {
   it("writes with editedBy agent and still enforces the same conflict rule as publishEdit", () => {
-    const id = skillId();
-    const created = applyApprovedChange(db(), skillTarget(id), { patch: { body: "# Agent" }, expectedVersion: 0 });
-    expect(created).toMatchObject({ ok: true, version: 1 });
-    expect(listVersions(db(), skillTarget(id))[0]).toMatchObject({ editedBy: "agent" });
-    const stale = applyApprovedChange(db(), skillTarget(id), { patch: { status: "disabled" }, expectedVersion: 0 });
+    const target: Target = { kind: "section", key: "host_routing" };
+    const current = getTarget(db(), target)!;
+    const applied = applyApprovedChange(db(), target, { patch: { body: "# Agent" }, expectedVersion: current.version });
+    expect(applied).toMatchObject({ ok: true });
+    expect(listVersions(db(), target)[0]).toMatchObject({ editedBy: "agent" });
+    const stale = applyApprovedChange(db(), target, { patch: { body: "stale" }, expectedVersion: current.version });
     expect(stale).toMatchObject({ ok: false, code: "conflict" });
   });
 });
 
-describe("runtime validation of arbitrary JSON (1): target/patch/expectedVersion/note/version", () => {
+describe("runtime validation of arbitrary JSON: target/patch/expectedVersion/note/version", () => {
   it("getTarget and listVersions treat a malformed target as absent, never throw", () => {
     expect(getTarget(db(), null)).toBeNull();
     expect(getTarget(db(), "base")).toBeNull();
     expect(getTarget(db(), { kind: "section" })).toBeNull();
     expect(getTarget(db(), { kind: "section", key: "nope" })).toBeNull();
     expect(getTarget(db(), { kind: "section", key: "base", extra: 1 })).toBeNull();
-    expect(getTarget(db(), { kind: "skill", key: "base" })).toBeNull(); // key, not id
-    expect(getTarget(db(), { kind: "bogus", id: "x" })).toBeNull();
+    expect(getTarget(db(), { kind: "bogus", key: "base" })).toBeNull();
     expect(listVersions(db(), null)).toEqual([]);
-    expect(listVersions(db(), { kind: "skill" })).toEqual([]);
+    expect(listVersions(db(), { kind: "skill", id: "x" })).toEqual([]);
   });
 
-  it("publishEdit rejects a non-object target, an unknown target field, and a field for the wrong kind", () => {
+  it("publishEdit rejects a non-object target, an unknown target field, and an unknown kind", () => {
     const cases: unknown[] = [
       null,
       "base",
       42,
       [],
       { kind: "section", key: "base", extra: "field" },
-      { kind: "skill", id: "ok-id", key: "base" }, // key only valid for section
-      { kind: "section", id: "nope" }, // id only valid for skill
+      { kind: "section", id: "nope" },
       { kind: "section", key: "not-a-real-key" },
-      { kind: "skill", id: "../traversal" },
-      { kind: "skill", id: "UpperCase" },
+      { kind: "skill", id: "ok-id" },
       { kind: "nonsense" },
     ];
     for (const target of cases) {
@@ -287,28 +181,16 @@ describe("runtime validation of arbitrary JSON (1): target/patch/expectedVersion
     }
   });
 
-  it("publishEdit rejects a non-object patch, an unknown patch field, and wrong-typed patch fields", () => {
-    const section: Target = { kind: "section", key: "base" };
-    getTarget(db(), section); // seed, version 1
-    for (const patch of [null, "x", 42, [], { bogusField: true }]) {
-      expect(publishEdit(db(), section, { patch, expectedVersion: 1 })).toMatchObject({ ok: false, code: "invalid" });
-    }
-    const id = skillId();
-    for (const patch of [
-      { body: 5 },
-      { body: "# ok", description: 5 },
-      { body: "# ok", thread: "yes" },
-      { body: "# ok", status: "sleeping" },
-      { body: "# ok", bogusField: true },
-    ]) {
-      expect(publishEdit(db(), skillTarget(id), { patch, expectedVersion: 0 })).toMatchObject({ ok: false, code: "invalid" });
+  it("publishEdit rejects a non-object patch, an unknown patch field, and a wrong-typed body", () => {
+    getTarget(db(), base); // seed, version 1
+    for (const patch of [null, "x", 42, [], { bogusField: true }, { body: 5 }, { body: "ok", bogusField: true }]) {
+      expect(publishEdit(db(), base, { patch, expectedVersion: 1 })).toMatchObject({ ok: false, code: "invalid" });
     }
   });
 
   it("publishEdit rejects a non-integer, negative, or out-of-range expectedVersion", () => {
-    const target: Target = { kind: "section", key: "base" };
     for (const expectedVersion of [1.5, -1, "1", null, undefined, NaN, Infinity, Number.MAX_SAFE_INTEGER + 2, {}]) {
-      expect(publishEdit(db(), target, { patch: { body: "x" }, expectedVersion })).toMatchObject({
+      expect(publishEdit(db(), base, { patch: { body: "x" }, expectedVersion })).toMatchObject({
         ok: false,
         code: "invalid",
       });
@@ -316,38 +198,32 @@ describe("runtime validation of arbitrary JSON (1): target/patch/expectedVersion
   });
 
   it("publishEdit rejects a non-string or oversized note", () => {
-    const target: Target = { kind: "section", key: "base" };
-    getTarget(db(), target);
+    getTarget(db(), base);
     for (const note of [42, {}, []]) {
-      expect(publishEdit(db(), target, { patch: { body: "x" }, expectedVersion: 1, note })).toMatchObject({
+      expect(publishEdit(db(), base, { patch: { body: "x" }, expectedVersion: 1, note })).toMatchObject({
         ok: false,
         code: "invalid",
       });
     }
     expect(
-      publishEdit(db(), target, { patch: { body: "x" }, expectedVersion: 1, note: "y".repeat(2001) }),
+      publishEdit(db(), base, { patch: { body: "x" }, expectedVersion: 1, note: "y".repeat(2001) }),
     ).toMatchObject({ ok: false, code: "invalid" });
   });
 
   it("restoreVersion rejects a non-positive-integer version and a malformed target", () => {
-    const id = skillId();
-    publishEdit(db(), skillTarget(id), { patch: { body: "# One" }, expectedVersion: 0 });
+    getTarget(db(), base);
     for (const version of [0, -1, 1.5, "1", null, undefined]) {
-      expect(restoreVersion(db(), skillTarget(id), { version, expectedVersion: 1 })).toMatchObject({
-        ok: false,
-        code: "invalid",
-      });
+      expect(restoreVersion(db(), base, { version, expectedVersion: 1 })).toMatchObject({ ok: false, code: "invalid" });
     }
-    expect(restoreVersion(db(), { kind: "skill", id: "UpperCase" }, { version: 1, expectedVersion: 0 })).toMatchObject({
+    expect(restoreVersion(db(), { kind: "skill", id: "x" }, { version: 1, expectedVersion: 0 })).toMatchObject({
       ok: false,
       code: "invalid",
     });
   });
 
   it("resetToGitDefault rejects a malformed expectedVersion and a malformed target", () => {
-    const target: Target = { kind: "section", key: "base" };
-    getTarget(db(), target);
-    expect(resetToGitDefault(db(), target, { expectedVersion: "1" })).toMatchObject({ ok: false, code: "invalid" });
+    getTarget(db(), base);
+    expect(resetToGitDefault(db(), base, { expectedVersion: "1" })).toMatchObject({ ok: false, code: "invalid" });
     expect(resetToGitDefault(db(), { kind: "section", key: "nope" }, { expectedVersion: 1 })).toMatchObject({
       ok: false,
       code: "invalid",
@@ -355,32 +231,12 @@ describe("runtime validation of arbitrary JSON (1): target/patch/expectedVersion
   });
 });
 
-describe("seeding is transactional (2): row + history never drift, even seeded mid-write", () => {
-  it("a never-before-read git-shipped skill seeds AND applies the edit in one writeVersion call", () => {
-    // No prior getTarget — writeVersion's own seeding (inside its
-    // transaction) must create v1 (the git seed) before applying v2
-    // (this edit), atomically, in a single call.
-    const target = skillTarget("ticket");
-    const result = publishEdit(db(), target, { patch: { description: "edited on first touch" }, expectedVersion: 1 });
-    expect(result).toMatchObject({ ok: true, version: 2 });
-    const history = listVersions(db(), target);
-    expect(history.map((v) => v.version)).toEqual([2, 1]);
-    expect(history[1]).toMatchObject({ editedBy: "git", version: 1 });
-    expect(history[0]).toMatchObject({ editedBy: "user", version: 2, description: "edited on first touch" });
-  });
-
-  it("seeding a section or a skill twice never duplicates (or drifts) the version-1 history row", () => {
-    const section: Target = { kind: "section", key: "host_routing" };
+describe("seeding is transactional: row + history never drift, even seeded mid-write", () => {
+  it("seeding a section twice never duplicates the version-1 history row", () => {
+    const section: Target = { kind: "section", key: "base" };
     getTarget(db(), section);
     getTarget(db(), section);
-    expect(listVersions(db(), section)).toHaveLength(1);
-
-    const skill = skillTarget("ship");
-    getTarget(db(), skill);
-    getTarget(db(), skill);
-    getTarget(db(), skill);
-    const history = listVersions(db(), skill);
-    expect(history.filter((v) => v.version === 1)).toHaveLength(1);
+    expect(listVersions(db(), section).filter((v) => v.version === 1)).toHaveLength(1);
   });
 });
 
@@ -500,146 +356,22 @@ describe("repairing a stale pre-placeholder base row", () => {
     expect(PRE_0081_BASE).not.toContain("put your reasoning in context");
   });
 
+  it("0088: a git row at the pre-skills-catalog base upgrades; an owner-edited copy never does", () => {
+    const conn = freshDb();
+    seedBaseDirectly(conn, PRE_0088_BASE, "git");
+    const repaired = getTarget(conn, { kind: "section", key: "base" });
+    expect(repaired).toMatchObject({ version: 2, body: GIT_DEFAULT_SECTIONS.base, editedBy: "git", note: "0088 skills catalog" });
+    expect(PRE_0088_BASE).toContain('start_thread with the "review" skill');
+    expect(repaired?.body).not.toContain('"review" skill');
+
+    const edited = freshDb();
+    seedBaseDirectly(edited, PRE_0088_BASE, "user");
+    expect(getTarget(edited, { kind: "section", key: "base" })).toMatchObject({ version: 1, body: PRE_0088_BASE, editedBy: "user" });
+  });
+
   it("0081: an owner-edited copy of that base is never upgraded", () => {
     const conn = freshDb();
     seedBaseDirectly(conn, PRE_0081_BASE, "user");
     expect(getTarget(conn, { kind: "section", key: "base" })).toMatchObject({ version: 1, body: PRE_0081_BASE, editedBy: "user" });
-  });
-});
-
-/**
- * 0055: ship's retirement and ticket's rewrite are both the same
- * idiom as the base repair above — an unedited git row upgrades, a
- * user/agent-edited one never does. Same isolated scratch db (these
- * mutate singleton rows too).
- */
-describe("0055: skill catalog repairs — ship retired, ticket upgraded, only when unedited", () => {
-  function freshDb(): Db {
-    const dir = mkdtempSync(path.join(tmpdir(), "sweatshop-skill-repair-"));
-    const dbPath = path.join(dir, "t.db");
-    const sqlite = new Database(dbPath);
-    sqlite.pragma("foreign_keys = OFF");
-    migrate(drizzle(sqlite), { migrationsFolder: path.join(process.cwd(), "drizzle") });
-    sqlite.close();
-    return openDb(dbPath);
-  }
-
-  function seedSkillDirectly(
-    conn: Db,
-    id: string,
-    input: { body: string; description?: string; thread?: boolean; status: "active" | "disabled"; editedBy: "git" | "user" | "agent" },
-  ) {
-    const now = Date.now();
-    const row = {
-      id,
-      origin: "git" as const,
-      description: input.description ?? "test",
-      thread: input.thread ?? true,
-      status: input.status,
-      body: input.body,
-      version: 1,
-      editedBy: input.editedBy,
-      note: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    conn.insert(skills).values(row).run();
-    conn.insert(skillVersions).values({ skillId: id, version: 1, description: row.description, thread: row.thread, status: row.status, body: row.body, editedBy: row.editedBy, note: null, createdAt: now }).run();
-  }
-
-  it("upgrades an unedited active ship seed to the shipped disabled default, as a new git version", () => {
-    const conn = freshDb();
-    // The exact pre-0055 ship body (unchanged by this PR) with its OLD
-    // (active) status — the shape seedSkillIfGitShipped could have
-    // written before ship's front matter gained `status: disabled`.
-    const shipBody = getTarget(conn, { kind: "skill", id: "ship" })!.body; // seeds it once, fresh (already disabled)
-    // Reset to simulate the pre-existing active row by hand: delete and
-    // reinsert at version 1, active, editedBy git.
-    conn.delete(skillVersions).run();
-    conn.delete(skills).run();
-    seedSkillDirectly(conn, "ship", { body: shipBody, status: "active", editedBy: "git" });
-
-    const repaired = getTarget(conn, { kind: "skill", id: "ship" });
-    expect(repaired).toMatchObject({ version: 2, status: "disabled", editedBy: "git", note: "retired by 0055" });
-  });
-
-  it("never re-enables a user-disabled or user-re-enabled ship row", () => {
-    const conn = freshDb();
-    const shipBody = getTarget(conn, { kind: "skill", id: "ship" })!.body;
-    conn.delete(skillVersions).run();
-    conn.delete(skills).run();
-    // A user explicitly re-activated it at some point — editedBy "user".
-    seedSkillDirectly(conn, "ship", { body: shipBody, status: "active", editedBy: "user" });
-    const untouched = getTarget(conn, { kind: "skill", id: "ship" });
-    expect(untouched).toMatchObject({ version: 1, status: "active", editedBy: "user" });
-  });
-
-  it("upgrades an unedited pre-0055 ticket seed to the new orchestrator body, as a new git version", () => {
-    const conn = freshDb();
-    conn.delete(skillVersions).run();
-    conn.delete(skills).run();
-    seedSkillDirectly(conn, "ticket", { body: PRE_0055_TICKET_BODY, status: "active", editedBy: "git" });
-
-    const repaired = getTarget(conn, { kind: "skill", id: "ticket" });
-    expect(repaired?.version).toBe(2);
-    expect(repaired?.editedBy).toBe("git");
-    expect(repaired?.note).toBe("0055 ticket mode");
-    expect(repaired?.body).toContain("update_outline({ propose: true })");
-    expect(repaired?.body).not.toBe(PRE_0055_TICKET_BODY);
-  });
-
-  it("0059: an unedited pre-status ticket seed upgrades to the current body", () => {
-    const conn = freshDb();
-    conn.delete(skillVersions).run();
-    conn.delete(skills).run();
-    seedSkillDirectly(conn, "ticket", { body: PRE_0059_TICKET_BODY, status: "active", editedBy: "git" });
-
-    const repaired = getTarget(conn, { kind: "skill", id: "ticket" });
-    expect(repaired?.version).toBe(2);
-    expect(repaired?.editedBy).toBe("git");
-    expect(repaired?.note).toBe("0059 thread status");
-    expect(repaired?.body).toContain("update_outline");
-    expect(repaired?.body).not.toContain("advance_phase");
-    expect(repaired?.body).not.toBe(PRE_0059_TICKET_BODY);
-  });
-
-  it("0064: upgrades the unedited phased ticket body to a plain outline runbook", () => {
-    const conn = freshDb();
-    conn.delete(skillVersions).run();
-    conn.delete(skills).run();
-    seedSkillDirectly(conn, "ticket", { body: PRE_0064_TICKET_BODY, status: "active", editedBy: "git" });
-    const repaired = getTarget(conn, { kind: "skill", id: "ticket" });
-    expect(repaired).toMatchObject({ version: 2, editedBy: "git", note: "0064 outline runbook" });
-    expect(repaired?.body).toContain("update_outline({ propose: true })");
-    expect(repaired?.body).not.toContain("## Phase:");
-    expect(repaired?.body).not.toContain("PLAN.md");
-  });
-
-  it("0064: preserves an owner-edited copy of the old ticket body", () => {
-    const conn = freshDb();
-    conn.delete(skillVersions).run();
-    conn.delete(skills).run();
-    seedSkillDirectly(conn, "ticket", { body: PRE_0064_TICKET_BODY, status: "active", editedBy: "user" });
-    expect(getTarget(conn, { kind: "skill", id: "ticket" })).toMatchObject({ version: 1, body: PRE_0064_TICKET_BODY });
-  });
-
-  it("never rewrites an edited ticket row, even one byte-for-byte equal to the old body", () => {
-    const conn = freshDb();
-    conn.delete(skillVersions).run();
-    conn.delete(skills).run();
-    seedSkillDirectly(conn, "ticket", { body: PRE_0055_TICKET_BODY, status: "active", editedBy: "agent" });
-    const untouched = getTarget(conn, { kind: "skill", id: "ticket" });
-    expect(untouched).toMatchObject({ version: 1, body: PRE_0055_TICKET_BODY, editedBy: "agent" });
-  });
-
-  it("is idempotent — reading ship or ticket twice after a repair never bumps the version again", () => {
-    const conn = freshDb();
-    const shipBody = getTarget(conn, { kind: "skill", id: "ship" })!.body;
-    conn.delete(skillVersions).run();
-    conn.delete(skills).run();
-    seedSkillDirectly(conn, "ship", { body: shipBody, status: "active", editedBy: "git" });
-    getTarget(conn, { kind: "skill", id: "ship" });
-    const second = getTarget(conn, { kind: "skill", id: "ship" });
-    expect(second?.version).toBe(2);
   });
 });

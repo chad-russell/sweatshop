@@ -1,7 +1,6 @@
 "use client";
 
 import { Check, ChevronsUpDown, FolderGit2, MessageSquare } from "lucide-react";
-import { useEffect, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,33 +9,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { listSkills, type SkillOption } from "@/lib/api/skills";
 
 /**
  * The fresh composer's target picker (0012 → 0037 phase 5 → 0055 PR2):
  * what a new chat is — a plain chat, or a chat in a project (0018). The
- * machine-run axis died with machines and the skill axis with modes
- * (0064 — a skill binds only via `?skill=` or `start_thread`), so this
- * picker is project scope only.
+ * machine-run axis died with machines and the skill axis with thread
+ * binding (0088), so this picker is project scope only.
  */
 
 /** 0018: a pickable chat-in-project target. */
 export interface ProjectOption {
   id: string;
   name: string;
-}
-
-/** The thread-skill catalog, fetched once. */
-export function useSkills(): SkillOption[] | null {
-  const [books, setBooks] = useState<SkillOption[] | null>(null);
-  useEffect(() => {
-    let live = true;
-    listSkills().then((skills) => live && setBooks(skills ?? []));
-    return () => {
-      live = false;
-    };
-  }, []);
-  return books;
 }
 
 export function FreshTargetPicker({

@@ -4,8 +4,7 @@ import path from "node:path";
 /**
  * 0085: the in-app changelog, parsed from the root `CHANGELOG.md` at
  * request time — no db table, no seeding. Synchronous `readFileSync`
- * against `process.cwd()`, same idiom as `lib/skill-files.ts`'s
- * git-shipped skill reads; the production deploy (0045) runs `next
+ * against `process.cwd()`; the production deploy (0045) runs `next
  * start` against the full checkout, so the root file is already there.
  *
  * The parser is tolerant on purpose (0085 decision 3): an untagged

@@ -224,14 +224,10 @@ in `harness_events`/messages, tools that manage secrets with value-blind
 shape and approval. Stretch: per-stage grants (least privilege); folding git
 credentials in.
 
-**2.3 Skills (doc 0026; the thread half shipped as 0039 — playbooks
-folded in: `skills/<id>/SKILL.md` with `thread: true`, `lib/skills.ts`,
-`use_skill`, `?skill=`).** `skills/` directory in the repo, a loader, grants to
-projects and machines, mounting a granted skill into the sandbox where the
-harness looks for skills (check each harness: pi, claude, cursor each have
-their own skill/rules convention), agent tools to read and (with a commit)
-edit them. Decide what ships in the repo first (design, systematic-debugging,
-refactor-checklist, forgejo-pr are the proven set).
+**2.3 Skills — done, redrawn by 0088 (doc 0026's original plan
+superseded).** A bring-your-own S3-backed catalog: instructions appendix,
+`use_skill` file reads, harness mounting, approval-gated `save_skill`; no
+DB catalog, no thread binding, no shipped runbooks.
 
 **2.4 Tool audit (doc 0027).** After 2.2 and 2.3 and 1.4 exist so the new
 entities are covered. Enumerate every mutating route/store function, mark which

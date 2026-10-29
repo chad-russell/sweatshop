@@ -11,14 +11,13 @@ import type { PendingResume } from "./use-resume";
  * at send time (never during render) and must see the current knobs —
  * the route/sandbox/pending-resume refs are owned by their own hooks
  * (useRoute, useSandboxChoice, usePendingResume); conversationId,
- * projectId, pageContext and skill are mirrored into refs here, synced
+ * projectId and pageContext are mirrored into refs here, synced
  * in an effect (post-render) the same way.
  */
 export function useChatTransport({
   conversationId,
   projectId,
   pageContext,
-  skill,
   routeRef,
   choiceRef,
   pendingResumeRef,
@@ -27,20 +26,16 @@ export function useChatTransport({
   projectId?: string;
   /** 0015: the page this chat is drawn on, read at send time. */
   pageContext?: () => ViewingContext | null;
-  /** 0039: the skill the creating send binds (null = plain chat). */
-  skill?: string | null;
   routeRef: MutableRefObject<{ touched: boolean; route: ChatRoute | null }>;
   choiceRef: MutableRefObject<string>;
   pendingResumeRef: MutableRefObject<PendingResume | null>;
 }) {
   const conversationRef = useRef({ conversationId, projectId: projectId ?? null });
   const pageContextRef = useRef(pageContext);
-  const skillRef = useRef(skill ?? null);
   useEffect(() => {
     conversationRef.current = { conversationId, projectId: projectId ?? null };
     pageContextRef.current = pageContext;
-    skillRef.current = skill ?? null;
-  }, [conversationId, projectId, pageContext, skill]);
+  }, [conversationId, projectId, pageContext]);
 
   // 0076: the run id of THIS tab's own in-flight send (from the send
   // response header) — a dropped mid-send connection reconnects to it
@@ -81,7 +76,6 @@ export function useChatTransport({
               // "auto" = the chat's own sandbox, the default.
               ...(choiceRef.current !== "auto" ? { sandbox: choiceRef.current } : {}),
               // 0037: creation-only server-side, like the sandbox choice.
-              ...(skillRef.current ? { skill: skillRef.current } : {}),
               ...(viewing ? { context: viewing } : {}),
               messages,
               trigger,

@@ -198,7 +198,7 @@ export const ChatMessageView = memo(function ChatMessageView({
             if (toolPart.type === "tool-create_pr") {
               return <PullRequestToolCard key={i} part={toolPart} />;
             }
-            if (toolPart.type === "tool-propose_prompt_change") {
+            if (toolPart.type === "tool-propose_prompt_change" || toolPart.type === "tool-save_skill") {
               return <PromptChangeApprovalCard key={i} part={toolPart} />;
             }
             // 0064: the outline card — also renders a legacy update_status

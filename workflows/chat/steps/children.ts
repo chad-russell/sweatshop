@@ -16,7 +16,7 @@ export async function cancelRunStep(runId: string): Promise<unknown> {
  *  sandbox by default) that wakes this conversation when it settles. */
 export async function startThreadStep(
   conversationId: string,
-  input: { prompt: string; skill?: string; fresh?: boolean },
+  input: { prompt: string; fresh?: boolean },
 ): Promise<unknown> {
   "use step";
   const { startThread } = await import("../../../lib/agent/tools/start-thread");
@@ -25,8 +25,7 @@ export async function startThreadStep(
 
 /** 0037 phase 3: at a turn's end — wake this thread's parent if this
  *  thread is a settled child (no-op for every other conversation; one
- *  select). Runs after the budget decision so a continuing child reads
- *  as still-working, and a bounded one still reports. */
+ *  select). */
 export async function wakeParentStep(conversationId: string): Promise<"woke" | "skipped" | "none"> {
   "use step";
   const { wakeChatChildByIdIfDue } = await import("../../../lib/chat/wake");

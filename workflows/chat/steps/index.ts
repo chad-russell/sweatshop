@@ -8,12 +8,9 @@ export {
   recordUserMessage,
   drainSteerStep,
   finishTurnStream,
-  loadSkillStep,
-  skillToolStep,
   loadPromptSectionsStep,
   loadRepoDocsStep,
   loadProjectContextStep,
-  continueAfterBudgetStep,
   pendingStep,
   maybeTitleStep,
   resolveTurnRouteStep,
@@ -68,3 +65,4 @@ export type { PromptChangeCard } from "./prompt-change";
 export { resolveAskOwnerCardStep } from "./ask-owner";
 
 export type { CreateProjectToolInput } from "./projects";
+export { loadSkillsCatalogStep, saveSkillApplyStep, saveSkillPreviewStep, skillToolStep } from "./skills";

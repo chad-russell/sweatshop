@@ -14,7 +14,6 @@ import {
   listMessageTexts,
   listMessageTextsPage,
   setActiveRun,
-  setConversationSkill,
   setConversationRoute,
 } from "@/db/chat";
 import { deriveChatContext, rowsToUIMessages } from "@/lib/chat-ui";
@@ -27,7 +26,6 @@ import { parseViewingContext } from "@/lib/page-context";
 import { attachConversation } from "@/lib/sandboxes/binding";
 import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-turn";
 import { answerPendingWithText } from "@/lib/chat/answer-pending";
-import { listThreadSkills } from "@/lib/skills";
 import { checkClaimable } from "@/db/attachments";
 import { MAX_IMAGES_PER_MESSAGE, parseAttachmentRef } from "@/lib/attachments";
 
@@ -60,8 +58,6 @@ export async function POST(request: Request) {
     sandbox?: string | null;
     /** 0015: the page the send came from (the agent panel's viewing note). */
     context?: unknown;
-    /** 0039, creation only: the skill this thread runs. */
-    skill?: unknown;
     messages?: { role: string; parts?: { type: string; text?: string; url?: string }[] }[];
   };
   const transportText = body.messages
@@ -148,15 +144,6 @@ export async function POST(request: Request) {
     }
   }
   const projectId = existing ? existing.projectId : ((body.projectId as string | undefined) ?? null);
-  // 0039: a skill is chosen by the creating send (use_skill covers
-  // later); unknown ids reject before anything is created. 0054: a new
-  // binding can only pick an ACTIVE thread skill — readSkill would also
-  // resolve a disabled/deleted one (that's its whole point for a thread
-  // already running one), which is wrong for a brand-new bind.
-  const skill = !existing && typeof body.skill === "string" && body.skill ? body.skill : null;
-  if (skill && !(await listThreadSkills()).some((s) => s.id === skill)) {
-    return NextResponse.json({ error: `no skill "${skill}"` }, { status: 400 });
-  }
   let pickedRoute: import("@/lib/providers/route").ChatRoute | null | undefined;
   if (body.route !== undefined) {
     if (body.route === null) {
@@ -174,7 +161,6 @@ export async function POST(request: Request) {
   }
   if (!existing) {
     ensureConversation(db(), body.conversationId, projectId);
-    if (skill) setConversationSkill(db(), body.conversationId, skill);
     if (body.sandbox === "none") {
       disableConversationSandbox(db(), body.conversationId);
     } else if (body.sandbox?.startsWith("attached:")) {

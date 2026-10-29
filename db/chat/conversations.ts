@@ -38,10 +38,8 @@ export function getConversation(
   route: ChatRoute | null;
   /** 0007: set while the conversation sits in Trash (0022: no wakes). */
   trashedAt: number | null;
-  /** 0039: the thread's skill id (null = plain chat). */
-  skill: string | null;
   /** 0037 phase 3: the start_thread parent, when this is a child (0040
-   *  phase 3: a child gets the thread step budget even with no skill). */
+   *  phase 3: a child gets the thread step budget). */
   parentConversationId: string | null;
 } | null {
   const row = db
@@ -50,19 +48,12 @@ export function getConversation(
       projectId: conversations.projectId,
       route: conversations.route,
       trashedAt: conversations.trashedAt,
-      skill: conversations.skill,
       parentConversationId: conversations.parentConversationId,
     })
     .from(conversations)
     .where(eq(conversations.id, id))
     .get();
   return row ? { ...row, route: parseStoredChatRoute(row.route) } : null;
-}
-
-/** 0039: set the thread's skill (the creation send, or start_thread for
- *  a child). 0059: use_skill of a non-mode does not call this. */
-export function setConversationSkill(db: Db, id: string, skill: string): void {
-  db.update(conversations).set({ skill }).where(eq(conversations.id, id)).run();
 }
 
 /** 0064 PR2: record the active outline step assigned to a child. */
@@ -103,7 +94,6 @@ export function setHostAutoApprove(db: Db, id: string, value: boolean): void {
 export interface ChatChild {
   id: string;
   parentConversationId: string | null;
-  skill: string | null;
   /** 0064 PR2: active outline step this child was spawned to do. */
   workStep: string | null;
   activeRunId: string | null;
@@ -116,7 +106,6 @@ export interface ChatChild {
 const chatChildColumns = {
   id: conversations.id,
   parentConversationId: conversations.parentConversationId,
-  skill: conversations.skill,
   workStep: conversations.workStep,
   activeRunId: conversations.activeRunId,
   trashedAt: conversations.trashedAt,

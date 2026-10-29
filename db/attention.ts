@@ -164,7 +164,9 @@ export function loadPendingRequests(
               : card.exec
                 ? "exec"
                 : card.promptChange
-                  ? "propose_prompt_change"
+                  ? card.promptChange.target.kind === "skill"
+                    ? "save_skill"
+                    : "propose_prompt_change"
                   : "ask_owner",
       // 0043: an exec ask renders its own block — no generic JSON dump.
       toolInput: isOutline || card.outline || card.exec || card.promptChange

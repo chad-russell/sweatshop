@@ -20,15 +20,21 @@ import {
 /** The information tools' card normalisers — pure and defensive, like tool-views/web. */
 
 describe("skillView", () => {
-  it("reads a bound skill, taking the title from its H1", () => {
-    expect(skillView({ ok: true, id: "ship", note: "Bound.", skill: "# Ship\n\nsteps" })).toEqual({
-      kind: "bound", id: "ship", title: "Ship", note: "Bound.", body: "# Ship\n\nsteps",
+  it("reads a loaded skill, taking the title from its H1", () => {
+    expect(skillView({ ok: true, id: "ship", skill: "# Ship\n\nsteps" })).toEqual({
+      kind: "loaded", id: "ship", title: "Ship", body: "# Ship\n\nsteps",
+    });
+  });
+
+  it("reads a supporting-file load", () => {
+    expect(skillView({ ok: true, id: "ship", file: "ref.md", content: "text" })).toEqual({
+      kind: "file", id: "ship", file: "ref.md", content: "text",
     });
   });
 
   it("reads the listing and ignores malformed rows", () => {
-    const v = skillView({ ok: true, skills: [{ id: "ship", title: "Ship", description: "d" }, { title: "no id" }, 3] });
-    expect(v).toEqual({ kind: "list", skills: [{ id: "ship", title: "Ship", description: "d" }] });
+    const v = skillView({ ok: true, skills: [{ id: "ship", description: "d" }, { title: "no id" }, 3] });
+    expect(v).toEqual({ kind: "list", skills: [{ id: "ship", description: "d" }] });
   });
 
   it("is undefined for failures and junk", () => {

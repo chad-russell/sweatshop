@@ -918,44 +918,35 @@ describe("0010 spike: chat turn workflow", () => {
   );
 
   it(
-    "skill: use_skill lists skills but never binds (0055)",
+    "skill: with no skills store configured, use_skill lists an empty catalog and the turn runs (0088)",
     { timeout: 30_000 },
     async () => {
+      // Workflow steps run in their own module graph, so a fake bucket
+      // can't be injected here (tests/skills-tools.test.ts covers the
+      // populated catalog); this proves an unconfigured store never
+      // breaks a turn and use_skill's result is value-shaped.
       process.env.SWEATSHOP_CHAT_MOCK = "skill";
-      const { getConversation } = await import("../db/chat");
       const id = conv("skill");
       await (await turn(id, "what skills exist?")).returnValue;
-      expect(getConversation(db(), id)?.skill).toBeNull();
       const history = serialized(id);
-      expect(history).toContain('"skills"');
-      expect(history).toContain("ticket");
+      expect(history).toContain('"ok":true,"skills":[]');
       expect(history).toContain("mock-skill-done");
     },
   );
 
   it(
-    "budget: a thread-skill turn that exhausts its steps continues in a wake turn (0037/0039)",
+    "budget: a child turn that exhausts its steps reports once and never re-fires itself (0088)",
     { timeout: 30_000 },
     async () => {
       process.env.SWEATSHOP_CHAT_MOCK = "loop";
-      const { setConversationSkill, listMessageTexts: rows } = await import("../db/chat");
+      const { getActiveRun, listMessageTexts: rows } = await import("../db/chat");
       const id = conv("budget");
-      setConversationSkill(db(), id, "ship");
-      const ret = await (await start(chatTurn, [{ conversationId: id, userText: "go", skillMaxSteps: 2 }])).returnValue;
+      const ret = await (
+        await start(chatTurn, [{ conversationId: id, userText: "go", hasParent: true, threadMaxSteps: 2 }])
+      ).returnValue;
       expect(ret.finishReason).toBe("tool-calls");
-      // The continuation is a NEW turn (it records its own chip row; the
-      // loop script would run it to 800 — the bound is unit-tested in
-      // skills.test.ts).
-      const budgetChips = () =>
-        rows(db(), id).filter((r) => r.role === "user" && r.metadata?.runEvent?.kind === "budget");
-      await waitFor(async () => budgetChips().length > 0, "the continuation turn's chip");
-      const chips = budgetChips();
-      expect(chips).toHaveLength(1);
-      expect(chips[0]?.text).toContain("[budget]");
-      const { getActiveRun } = await import("../db/chat");
-      const next = getActiveRun(db(), id);
-      expect(next).toBeTruthy();
-      if (next) await getRun(next).cancel();
+      expect(rows(db(), id).filter((r) => r.role === "user" && r.metadata?.runEvent?.kind === "budget")).toEqual([]);
+      expect(getActiveRun(db(), id)).toBeNull();
     },
   );
   it(
