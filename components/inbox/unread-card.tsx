@@ -39,7 +39,7 @@ export function UnreadCard({
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <Link
           href={conversationHref(thread)}
-          className="truncate text-sm font-medium after:absolute after:inset-0 hover:underline"
+          className="shrink-0 truncate text-sm font-medium after:absolute after:inset-0 hover:underline"
         >
           {thread.label}
         </Link>
