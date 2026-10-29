@@ -1,139 +1,144 @@
-# 0088 — Skills 2.3 completion: visible catalog, multi-file skills, harness mounting
+# 0088 — Skills: a dynamic, S3-backed catalog (2.3, redrawn)
 
-Status: **draft 2026-10-29 — awaiting approval before implementation.**
+Status: **draft 2, 2026-10-29 — redrawn after Chad's review of draft 1;
+awaiting approval before implementation.**
 
-## Why
+## Why (decisions, Chad 2026-10-29)
 
-Skills work (0039 thread skills, 0054 DB catalog + editing) but three gaps
-keep them underused, benchmarked against the Agent Skills convention the
-wider harness world converged on (Claude Code's SKILL.md standard; the
-AI SDK harness adapters now implement it natively):
+Draft 1 completed roadmap 2.3 as written (DB catalog, multi-file git
+skills, harness mounting). Chad redirected:
 
-1. **The model can't see the catalog.** Turn instructions say "use_skill
-   with no id lists them" — discovering a skill costs a tool round-trip,
-   and nothing ever matches a task to a skill's description. Claude-style
-   harnesses inject every skill's name+description up front (~100 tokens
-   each) so the model auto-invokes when relevant.
-2. **A skill is one flat file.** Long reference material must either
-   bloat the body (resent every turn for a thread skill) or not exist.
-   The Agent Skills convention is a directory: `SKILL.md` (concise, ≤500
-   lines) + supporting files loaded on demand.
-3. **Skills never reach the harnesses doing the actual editing.** A
-   `ticket` thread delegates implementation to pi/claude — the harness
-   gets the raw task, no runbook. The AI SDK now has a first-class
-   answer: `HarnessAgent` takes `skills` and materializes them into each
-   runtime's native skill directory (pi/codex `~/.agents/skills`,
-   claude `~/.claude/skills`), manifest-tracked, incremental. Cursor's
-   adapter has no skills support (nothing in its surface) — it is
-   skipped, and its harness-steering text stays unchanged.
+- The DB catalog (0054) goes **away entirely** — tables, Settings
+  editor, the skill kind of `propose_prompt_change`. Four curated
+  defaults that the model almost never uses didn't earn that machinery.
+- The shipped runbooks (`ticket`, `review`, `review-guide`, retired
+  `ship`) are **removed, fresh start** — rebuilt as needed later, and
+  sweatshop's own docs/instruction layer already follows progressive
+  disclosure (`system_docs`, instructions appendix). They are not
+  re-seeded anywhere.
+- Skills become a **dynamic catalog each user builds/brings**: an
+  S3-compatible store (rustfs, not minio) as source of truth. The app
+  runs on a server; no reliance on the repo checkout's filesystem.
+- The agent must be able to **edit any skill and add new ones** —
+  write path back to the store, not just reads.
 
-## What changes
+What survives from draft 1's research (unchanged by the pivot): the
+model-visible catalog (instructions appendix), progressive disclosure
+(`use_skill` file reads), and mounting into harness calls via the AI
+SDK's native `HarnessAgent` `skills` option (pi/codex materialize at
+`~/.agents/skills`, claude at `~/.claude/skills`; cursor's adapter has
+no skills surface — skipped). Wherever skills live, the app only ever
+reads them into memory; the adapters write files into sandboxes
+themselves, so the store choice is purely about source of truth and
+the write path.
 
-### 1. Catalog appendix in turn instructions
+## The store
 
-`buildInstructions` gains a `skills` appendix (after repo docs), built
-from `listActiveSkills()` at turn start (same lazy-read path as today):
+**Layout.** One bucket, one optional prefix. A skill is an object
+family: `<prefix>/<id>/SKILL.md` plus optional sibling files
+(`<id>/reference.md`, `<id>/examples/…`). The Agent Skills shape —
+front matter `name`, `description` (description is the model-facing
+trigger text), body markdown, supporting files loaded on demand.
 
-```
-# Skills
-- ticket — Take a ticket from an approved outline through implementation, review, fixup, and shipping.
-- review — Fresh-eyes review of a branch …
-…
-use_skill({id}) loads one into transcript history.
-```
+- `<id>` = first path segment; must match `^[a-z][a-z0-9-]{0,40}$`
+  (today's `SKILL_ID`), anything else is skipped at listing.
+- `thread: true` in front matter keeps its 0039 meaning: bindable as a
+  thread's way of working (budget 800 + bounded auto-continue).
+  `status: disabled` hides a skill without deleting it.
+- Limits: ≤16 files per skill, each ≤64 KiB, ≤256 KiB per skill.
 
-- One line per active skill: `id — description` (description capped at
-  ~200 chars), thread skills marked `*`. A thread running a bound skill
-  still lists the catalog (the model may need a second runbook).
-- `use_skill`'s own list mode stays — the appendix makes discovery free,
-  not redundant-free.
-- The base instructions' skills paragraph shrinks to point at the
-  appendix (the "use_skill with no id lists them" sentence goes — the
-  catalog is now in front of the model).
-- Cap the appendix (e.g. 20 skills) so a large user catalog can't bloat
-  every turn; beyond the cap, keep the list-call fallback sentence.
+**Client.** `@aws-sdk/client-s3` against the rustfs endpoint (SigV4,
+standard S3 API) — one new dependency, named here per AGENTS.md.
+Config is env, absent = empty catalog and no errors (bring-your-own is
+a valid state): `SKILLS_S3_ENDPOINT`, `SKILLS_S3_REGION`,
+`SKILLS_S3_BUCKET`, `SKILLS_S3_ACCESS_KEY_ID`,
+`SKILLS_S3_SECRET_ACCESS_KEY`, `SKILLS_S3_PREFIX`.
 
-### 2. Multi-file skills: `skill_files` table + git shape + `use_skill` file reads
+**Access layer** (`lib/skills/store.ts`, replacing `lib/skills.ts` +
+`lib/skill-files.ts`): a thin injectable client seam so tests fake the
+bucket, never the network. Listing (`ListObjectsV2` under the prefix,
+grouped by first segment) cached in memory 60 s; bodies cached LRU
+(bounded, 32 skills' worth). Store errors are values, never throws
+into a turn: an unreachable store reads as an empty catalog plus a
+status string for the Settings card.
 
-- **Storage:** new `skill_files` table (`skill_id`, `path`, `content`,
-  `version`, FK to `skills`), edited through the same versioned write
-  path (`propose_prompt_change` for the agent — a proposal diff includes
-  files; Settings UI gains a files editor). Path rules: POSIX-relative,
-  no `..`/absolute, ≤64 chars, ≤16 files per skill, each ≤64 KiB.
-- **Git shape:** `skills/<id>/` may hold files beside `SKILL.md`
-  (`reference.md`, `examples/…`). `lib/skill-files.ts` reads them; the
-  lazy seed and guarded upgrades version them together with the body.
-- **Thread binding:** unchanged — the BODY still joins instructions
-  (thread skills stay lean procedures; reference material stays in
-  files). The body should name its files so the model knows they exist:
-  a standard footer line appended at render time when files exist —
-  `Supporting files: reference.md, examples/… (use_skill({id, file}))`.
-- **`use_skill` grows `file`:** `use_skill({id: "review", file:
-  "reference.md"})` returns that file's content; `use_skill({id})`
-  returns the body plus a file list. Unknown file → value-shaped error
-  listing what exists. This is the chat thread's progressive
-  disclosure: reference material loads on demand, one tool call.
-- **Harness mounting maps files 1:1** through `HarnessV1Skill.files` —
-  the adapters write them next to `SKILL.md` in the native dir, so a
-  mounted skill is byte-identical for pi/claude/codex and the CLIs'
-  own on-demand loading works on them.
+**Read shape.** `listSkills()` (all non-disabled), `listThreadSkills()`
+(active + `thread: true`), `readSkill(id)` (SKILL.md parsed) and
+`readSkillFile(id, path)` (supporting file) — same names as today's
+callers already use, so turn instructions, `use_skill`, pickers and
+`start_thread` keep their seams.
 
-### 3. Mount the catalog into harness calls
+## Surfaces
 
-`buildHarnessAgent` gains `skills` from a new loader
-(`lib/harness-skills.ts`): every ACTIVE skill in the catalog (thread
-and reference alike), mapped to `HarnessV1Skill`:
+1. **Instructions appendix** (every chat): `# Skills` section, one
+   line per skill — `id — description` (description capped ~200 chars),
+   thread skills marked. Catalog ≤20 lines; a bigger catalog falls
+   back to today's "use_skill lists them" sentence. Discovery becomes
+   free; no tool round-trip to know a skill exists.
+2. **`use_skill` grows `file`**: `{id}` returns body + file list;
+   `{id, file: "reference.md"}` returns that file — the chat thread's
+   progressive disclosure. Unknown file → value-shaped error listing
+   what exists.
+3. **Harness mounting**: every harness call passes the catalog as
+   `HarnessV1Skill`s (`name`, `description`, body with `{{owner}}`
+   rendered, `files[]`). Loaded fresh per call — a saved edit reaches
+   the next call with no restart. Cursor: no adapter surface, skipped.
+4. **Settings**: the skills editor is deleted. A small read-only card
+   shows store status (configured/unconfigured, N skills, last sync
+   error if any).
+5. **Thread binding mechanics unchanged**: `conversations.skill`,
+   `?skill=`, `start_thread({skill})`, pickers all resolve ids against
+   the dynamic catalog. A thread bound to a since-removed id keeps its
+   budget bump, loses the body, and shows the bare id on its chip.
 
-- `name` = skill id, `description` = description, `content` = body with
-  the same `{{owner}}` rendering and the files-footer as `use_skill`.
-- `files` = the skill's files from `skill_files`.
-- Loaded per harness call (fresh catalog read per call — edits apply to
-  the next call without restart), passed via the existing
-  `HarnessAgent` `skills` option. The adapter's manifest means a
-  steady catalog writes nothing; an edit rewrites only changed files.
-- Owner placeholders ARE rendered into mounted bodies (a harness
-  reading "Chad" is correct; only the DB seed must stay owner-agnostic).
-- Where they land: pi/codex `~/.agents/skills`, claude
-  `~/.claude/skills` in the sandbox home — runtime-discovered, no
-  prompt changes. Cursor: skipped entirely (adapter lacks the surface).
-- **Cost guard:** mounted descriptions ride the harness's own startup
-  context; bodies load on the runtime's demand. No per-turn token cost
-  beyond what each CLI already spends on its skill listing.
+## The write path (agent edits and additions)
 
-### What deliberately does not change
+New tool **`save_skill`**: `{id, body, files?: [{path, content}[]],
+   note?}`. Description/thread/status live in the body's front matter —
+   SKILL.md is the single source; the tool parses and validates it
+   (id shape, file rules, limits) before anything is written.
 
-- Thread binding semantics, budget, auto-continue (0039) — untouched.
-- Skills remain global (no per-project grants — 2.3's grants idea stays
-  parked; mounting everything active is simpler and the catalog is
-  small and Chad-curated).
-- `start_thread({skill})`, `?skill=`, pickers — untouched.
-- The `.agents/skills` vendored dev-skill layer in this repo is dev
-  container only, unrelated (it vendors AI Elements/SDK docs for
-  harnesses working ON sweatshop; the mount writes into each project
-  sandbox's home, no collision — different directory roots).
-- No cron/scheduled skills (separate future work).
+- Writes are PUTs: each file, then `<id>/manifest.json`
+  ({files, sizes, updatedAt, author}) last — readers skip a skill
+  whose manifest is missing or names files that aren't there (a torn
+  multi-file write never half-loads).
+- **Approval-gated** (the existing `chatApprovalHook` pattern, like
+  `create_pr`): skills are prompt-level influence over every future
+  turn and mounted harness, so a write is one click, not silent.
+  Bucket **versioning on** (rustfs supports object versioning): the
+  approval card for an edit of an existing skill shows a unified
+  diff (old object version vs new body), and revert is a copy of the
+  prior version — cheap insurance without re-growing a version DB.
+- No delete tool in v1 (disable via `status: disabled` in front
+  matter; deletion is a store-side chore).
 
-## Storage / migration
+## Removals
 
-- `skill_files` table (migration 0090-ish, sequential number at write
-  time). No backfill needed — existing skills have no files.
-- `skills` rows unchanged; a version's files snapshot into
-  `skill_versions` only on edit (versions keep full undo: body + files).
+- `skills/` directory (ticket, review, review-guide, ship) — deleted.
+- `skills`/`skill_versions` tables (drop migration), `lib/skills.ts`,
+  `lib/skill-files.ts`, `db/prompt-settings.ts` skill paths, the
+  Settings skills editor UI, `propose_prompt_change`'s skill kind
+  (section edits stay), skills-lock seed references, AGENTS.md/ROADMAP
+  2.3 text updates.
+- `conversations.skill` column STAYS (binding survives; resolution
+  just points at the store).
 
 ## Verification
 
-- Unit: appendix rendering (active-only, cap, thread marker, empty
-  catalog renders nothing); `use_skill` file reads (known, unknown,
-  list-with-files); loader → `HarnessV1Skill` mapping (placeholders
-  rendered, footer, files mapping, disabled/deleted excluded).
-- Mock-model chat tests: instructions contain the appendix; harness
-  call start passes skills (asserted on the built agent, no podman).
-- Manual live: one pi call lists mounted skills in its own skill tool;
-  claude discovers them in `/skills`-equivalent; edit a skill body,
-  next call rewrites only that skill (manifest behavior).
+- Unit (fake client seam): listing/groups/front matter, id and limit
+  validation, thread filter, cache TTL, torn-manifest skip, store
+  error → empty catalog + status; `save_skill` validation, diff shape,
+  PUT order (manifest last); instructions appendix rendering (cap,
+  markers, empty catalog); `use_skill` file reads.
+- Mock-model chat tests: instructions carry the appendix; harness call
+  start receives mapped skills (assert on the built agent, no podman).
+- Live smoke (manual, against real rustfs): mount visible in a pi
+  session's own skill listing; edit a skill via `save_skill`, next
+  harness call sees the new body; kill the store, chats run with an
+  empty catalog and the Settings card shows why.
 
 ## Changelog
 
-User-visible: "Skills now reach pi, claude and codex inside sandboxes,
-the skill list is visible to every chat, and skills can carry extra
-reference files."
+"Skills are now a bring-your-own catalog on S3-compatible storage:
+visible to every chat and mounted into pi, claude and codex runs, with
+the agent able to propose edits and new skills (one-click approval)."
