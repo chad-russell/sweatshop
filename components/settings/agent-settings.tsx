@@ -120,7 +120,7 @@ export function AgentSettings() {
       }
     }
   };
-  return <section aria-labelledby="agent-settings-title" className="mt-10 space-y-5 border-t border-border pt-6">
+  return <section aria-labelledby="agent-settings-title" className="space-y-5">
     <h2 id="agent-settings-title" className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Agent settings</h2>
     <p className="text-sm text-muted-foreground">{BOUNDARY}</p>
     <div className="space-y-4">

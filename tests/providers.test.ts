@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
 import {
   catalogHas,
+  countStoredDefaults,
   getGlobalDefaults,
   getProjectModels,
   listProviderModels,
@@ -563,6 +564,15 @@ describe("store + checkRoute", () => {
   it("a malformed stored default is ignored, not fatal", () => {
     db().insert(settings).values({ key: "default_route.chat", value: "{bad", updatedAt: 0 }).run();
     expect(getGlobalDefaults(db()).chat).toEqual(deriveBuiltinDefaults(new Set(PROVIDER_IDS)).chat);
+  });
+
+  it("0090 §1: countStoredDefaults counts stored defaults only, never derived built-ins", () => {
+    expect(countStoredDefaults(db())).toBe(0);
+    setGlobalDefault(db(), "chat", { provider: "glm", model: "glm-5.3" });
+    setGlobalDefault(db(), "codex", { harness: "codex", model: "gpt-5.6-sol", effort: "medium" });
+    expect(countStoredDefaults(db())).toBe(2);
+    setGlobalDefault(db(), "chat", null);
+    expect(countStoredDefaults(db())).toBe(1);
   });
 
   it("project models round-trip, unknown list entries drop", () => {

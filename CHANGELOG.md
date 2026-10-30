@@ -8,6 +8,10 @@
   Create the date heading if it's missing; don't backfill older dates.
 -->
 
+## 2026-10-30
+
+- **Changed** Settings is now a hub: Models, Connections, Skills and Agent each get their own page, with live status summaries on the hub.
+
 ## 2026-10-29
 
 - **Changed** Sidebar: projects are one draggable list, Chats is its own section below, and nesting lines up (no more Unfiled level).

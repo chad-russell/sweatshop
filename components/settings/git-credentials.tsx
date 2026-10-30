@@ -126,7 +126,7 @@ export function GitCredentials() {
   );
 
   return (
-    <section className="mt-6 flex flex-col gap-2">
+    <section className="flex flex-col gap-2">
       <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Git credentials</h2>
       <ul className="divide-y divide-border rounded-lg border border-border">
         {rows?.length === 0 && <li className={`${LABEL} px-3 py-2.5`}>No credentials yet.</li>}
