@@ -4,7 +4,7 @@ import { status } from "@/lib/skills/store";
 export async function SkillsStatusCard() {
   const s = await status();
   return (
-    <section aria-labelledby="skills-status-title" className="mt-10 space-y-3 border-t border-border pt-6">
+    <section aria-labelledby="skills-status-title" className="space-y-3">
       <h2 id="skills-status-title" className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Skills</h2>
       <div className="space-y-1 rounded-lg border border-border p-4 text-sm">
         {s.configured ? (
