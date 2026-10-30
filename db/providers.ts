@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 import type { Db } from "./index";
 import { projects, providerModels, settings } from "./schema";
 import { staticModels, type ModelInfo, type ProviderId } from "../lib/providers/catalog";
@@ -89,6 +89,17 @@ export function setGlobalDefault<S extends Surface>(db: Db, surface: S, route: S
     .values({ key, value, updatedAt: now })
     .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: now } })
     .run();
+}
+
+/** 0090 §1: the settings index's cheap summary — how many surfaces have
+ * a stored default. Derived built-ins never touch the table, so this
+ * counts only defaults Chad actually picked. */
+export function countStoredDefaults(db: Db): number {
+  return db
+    .select({ key: settings.key })
+    .from(settings)
+    .where(like(settings.key, "default_route.%"))
+    .all().length;
 }
 
 // ---------------------------------------------------------------------------

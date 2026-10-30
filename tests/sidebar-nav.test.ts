@@ -17,6 +17,13 @@ describe("activeNavPage (0040)", () => {
     expect(activeNavPage("/changelog")).toBe("changelog"); // 0085
   });
 
+  it("lights Settings for every settings sub-route (0090 §1)", () => {
+    expect(activeNavPage("/settings/models")).toBe("settings");
+    expect(activeNavPage("/settings/connections")).toBe("settings");
+    expect(activeNavPage("/settings/skills")).toBe("settings");
+    expect(activeNavPage("/settings/agent")).toBe("settings");
+  });
+
   it("lights nothing on chats, runs, harness views or the new-chat page", () => {
     expect(activeNavPage("/")).toBeNull();
     expect(activeNavPage("/c/wrun_1")).toBeNull();
