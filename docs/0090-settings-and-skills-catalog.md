@@ -15,6 +15,10 @@ catalog (0088) is now live (dedicated rustfs sidecar on bee, cn
 "Not configured — set the SKILLS_S3_* environment variables…". The
 store deserves a catalog UI: searchable, inspectable, with lifecycle.
 
+Approved by Chad 2026-10-30 with one caveat: users must be able to
+DISCOVER skills, not just author them — "search public catalog(s) if
+possible; install is copying/downloading into our store." §7 is that.
+
 Two further inputs:
 
 - **T3 Code (pingdotgg/t3code, MIT)** — studied from source + docs:
@@ -34,10 +38,13 @@ Two further inputs:
   description IS the trigger text, (c) install = copy files into a
   store, (d) enable/disable as the soft lifecycle, delete as the hard
   one, (e) versioning/diff for trust ("what changed since I approved
-  this"). Claude Code additionally has a plugins/marketplace flow
-  (`/plugin`) — a store URL becomes a browsable catalog you install
-  from. Nothing here is hosted-multi-tenant: all are personal
-  catalogs.
+  this"). Claude Code's plugin marketplaces, awesomeskill.ai and
+  agenticskills.io all resolve to the SAME primitive underneath: a
+  git repo of skill folders (the flagship being anthropics/skills —
+  ~15 curated skills, mostly Apache-2.0). Discovery = list that
+  repo's folders + parse each SKILL.md's description; install =
+  copy the folder into your store. Nothing here is
+  hosted-multi-tenant: all are personal catalogs.
 
 ## Design
 
@@ -152,11 +159,8 @@ the UI adds is curation + trust, not authorship:
   (`ListObjectVersions`) → read any prior version → "restore"
   copies it back. This is 0088 §write path's promised revert,
   surfaced. Deferred until v1 proves out.
-- **Import** (v2, optional phase): paste/upload a SKILL.md (or zip
-  of `<id>/…`), validated by the same `validateSkillInput`, saved
-  via the same gateway — the "bring your own" bridge from the
-  ecosystem's skill folders. No marketplace, no fetching remote
-  URLs in v2 (supply-chain surface; revisit with Chad).
+- **Install from catalog** (§7): the primary on-ramp. Update check
+  rides the recorded source ref (below).
 
 ### 6. Agent handoff niceties
 
@@ -166,6 +170,45 @@ the UI adds is curation + trust, not authorship:
 - `use_skill`'s list result and the save-approval card gain the
   skill id as a link to the detail page (transcript cards already
   linkify ids elsewhere).
+
+### 7. Public catalogs — discovery + install
+
+A catalog source is a git repo of skill folders. The registry is a
+`settings`-table list, seeded with one source:
+`anthropics/skills` (path `skills/`). Chad can add any
+`owner/repo[/path]` later (VoltAgent's list, a work repo, a fork).
+
+- **Browse** (`GET /api/settings/skills/catalog`): GitHub git-trees
+  API (`/git/trees/<default-branch>?recursive=1`, one call) with the
+  app's existing `GITHUB_TOKEN`; group by folder, parse each
+  folder's SKILL.md front matter for name + description. Cached in
+  memory 10 min per source. Catalog rows: id, description, license
+  (repo LICENSE at install time), file count.
+- **Search**: one cmdk box with a segmented source filter: "Yours ·
+  anthropics/skills · + Add source". Searching a catalog you
+  haven't installed from lists matches with an Install button —
+  discovery is a first-class path, not a settings chore.
+- **Preview before install** (`GET
+  /api/settings/skills/catalog/<id>`): full SKILL.md + file list —
+  the same trust surface as a save_skill approval. Skills are
+  prompt-influence; you read before you mount.
+- **Install** (`POST /api/settings/skills/catalog/<id>`): fetch the
+  folder's files at the source's CURRENT head sha, validate
+  (id shape collisions get a `-2` suffix or a confirm-overwrite;
+  file/size limits enforced), write via the same `saveSkill`
+  gateway. The manifest gains an optional `source` field:
+  `{repo, ref (sha), path}` — provenance and the update check's
+  baseline. Front matter `name` is normalized to our id rules.
+- **Update check** (v2): for installed skills with a `source`,
+  compare the recorded sha to the source's head; "Update available"
+  chip → install overwrites (bucket versioning keeps history).
+- **Untrusted content**: catalog skill bodies are data — rendered,
+  never executed; install is a store write only. No auto-update
+  ever; no fetching beyond api.github.com with the stored token.
+
+The agent gets the same power via a tool (v2, `install_skill`,
+approval-gated like `save_skill`) so "find me a PDF skill" works
+from a chat too. Not in v1.
 
 ## Removals
 
@@ -182,8 +225,10 @@ the UI adds is curation + trust, not authorship:
    + empty states with copyable env lines. The biggest UX win.
 3. **Skills catalog**: `/settings/skills` list + detail + disable/
    enable + delete.
-4. **Lifecycle extras** (optional, separate PRs): version history +
-  restore; import; `?prompt=` prefill + id links.
+4. **Discovery**: public catalog browse/search/preview/install
+   (§7) + `?prompt=` prefill + id links.
+5. **Lifecycle extras** (optional, separate PRs): version history +
+   restore; update checks; `install_skill` agent tool.
 
 Each phase branches `glen/…`, passes the gate, and carries
 before/after screenshots (AGENTS.md).
@@ -196,7 +241,9 @@ before/after screenshots (AGENTS.md).
   first this time — inverse of the write order); index summaries.
 - Mock-model chat tests unchanged (no instruction-path edits).
 - Manual: live settings against bee's sidecar (search, disable →
-  harness mount drops it, delete → gone, test buttons green).
+  harness mount drops it, delete → gone, test buttons green);
+  install `anthropics/skills` `pdf` end-to-end (preview → install →
+  appears in catalog → mounted into a pi call).
 
 ## Changelog
 
