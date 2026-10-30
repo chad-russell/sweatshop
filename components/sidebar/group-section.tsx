@@ -19,6 +19,13 @@ import { OrderHandle, OrderMenuItems, useContainerOrder } from "./container-orde
 
 const HEADING =
   "text-[11px] font-medium tracking-wide text-sidebar-foreground/60 uppercase";
+const ACTION =
+  "inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 hover:text-sidebar-foreground";
+/** Hover-revealed header actions. In the Chats label they sit in the row; in a
+ *  project header they overlay its right edge, so the name only gives up their
+ *  room while they show (as conversation rows do with their "⋮"). */
+const ACTIONS_REVEAL =
+  "flex items-center gap-1 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 group-has-[[data-state=open]]/head:opacity-100 pointer-coarse:opacity-100";
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -101,7 +108,7 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
         setExpanded(groupKey, true);
         setEditing({ kind: "new-folder", projectId, parentId: null });
       }}
-      className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
+      className={ACTION}
     >
       <FolderPlus className="size-3.5" />
     </button>
@@ -114,6 +121,8 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
           {...headerProps}
           className={cn(
             "group/head relative flex items-center justify-between gap-1 rounded-md py-1 pr-2 transition-colors",
+            // Make room for the overlaid actions only while they show.
+            "focus-within:pr-20 hover:pr-20 has-[[data-state=open]]:pr-20 pointer-coarse:pr-32",
             header.over && "bg-sidebar-accent ring-1 ring-sidebar-ring",
             header.dimmed && !(reorderable && reorder.indicator) && "opacity-40",
           )}
@@ -150,26 +159,27 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
               <AttentionDot unread={group.attention.unread} needsYou={group.attention.needsYou} />
             )}
           </div>
-          <Link
-            href={`/?project=${group.project.id}`}
-            aria-label={`New chat in ${group.project.name}`}
-            title="New chat"
-            className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-focus-within/head:opacity-100 group-hover/head:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
-          >
-            <MessageSquarePlus className="size-3.5" />
-          </Link>
-          {addFolder}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button type="button" aria-label={`Actions for ${label} group`}
-                className="inline-flex size-5 pointer-coarse:size-9 shrink-0 items-center justify-center rounded text-sidebar-foreground/60 opacity-0 transition-opacity group-hover/head:opacity-100 group-focus-within/head:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100">
-                <Ellipsis className="size-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
-              <OrderMenuItems {...order} />
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className={cn(ACTIONS_REVEAL, "absolute inset-y-0 right-2")}>
+            <Link
+              href={`/?project=${group.project.id}`}
+              aria-label={`New chat in ${group.project.name}`}
+              title="New chat"
+              className={ACTION}
+            >
+              <MessageSquarePlus className="size-3.5" />
+            </Link>
+            {addFolder}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" aria-label={`Actions for ${label} group`} className={ACTION}>
+                  <Ellipsis className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40">
+                <OrderMenuItems {...order} />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       ) : (
         // Chats: a plain section label (like PROJECTS), still the unfile
@@ -186,7 +196,7 @@ export function GroupSection({ group, siblingIds }: { group: SidebarGroup; sibli
             Chats
             <span className="font-mono text-[10px] text-sidebar-foreground/40 normal-case">{total}</span>
           </span>
-          {addFolder}
+          <div className={ACTIONS_REVEAL}>{addFolder}</div>
         </div>
       )}
 
