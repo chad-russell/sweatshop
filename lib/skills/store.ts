@@ -31,6 +31,8 @@ export interface S3Gateway {
   /** Object text, or null when the key does not exist. */
   get(key: string): Promise<string | null>;
   put(key: string, body: string): Promise<void>;
+  /** 0090 §5: remove an object's current version (bucket versioning keeps history). */
+  delete(key: string): Promise<void>;
 }
 
 export interface SkillFile {
@@ -44,6 +46,8 @@ export interface SkillSummary {
   /** Supporting files (SKILL.md excluded), sorted. */
   files: string[];
   updatedAt: string;
+  /** Present only on listAllSkills rows — listSkills omits disabled entirely. */
+  disabled?: boolean;
 }
 
 export interface Skill extends SkillSummary {
@@ -53,6 +57,8 @@ export interface Skill extends SkillSummary {
   raw: string;
   fileContents: SkillFile[];
   disabled: boolean;
+  /** Manifest provenance, carried through lifecycle rewrites. */
+  author?: string;
 }
 
 export interface SaveSkillInput {
@@ -63,7 +69,9 @@ export interface SaveSkillInput {
   author?: string;
 }
 
-export type StoreResult<T> = ({ ok: true } & T) | { ok: false; code: "invalid" | "unconfigured" | "store-error"; message: string };
+export type StoreResult<T> =
+  | ({ ok: true } & T)
+  | { ok: false; code: "invalid" | "unconfigured" | "store-error" | "unknown-skill"; message: string };
 
 export interface StoreStatus {
   configured: boolean;
@@ -201,6 +209,10 @@ function s3Gateway(config: S3Config): S3Gateway {
         new sdk.PutObjectCommand({ Bucket: config.bucket, Key: key, Body: body, ContentType: key.endsWith(".json") ? "application/json" : "text/markdown; charset=utf-8" }),
       );
     },
+    async delete(key) {
+      const { sdk, client } = await clientPromise;
+      await client.send(new sdk.DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
+    },
   };
 }
 
@@ -317,6 +329,17 @@ export async function listSkills(): Promise<SkillSummary[]> {
     .map(({ id, description, files, updatedAt }) => ({ id, description, files, updatedAt }));
 }
 
+/** 0090 §4: the catalog listing — disabled skills included and flagged;
+ * callers (the Settings page) decide what showing them means. The
+ * harness mount + instructions paths keep listSkills. */
+export async function listAllSkills(): Promise<SkillSummary[]> {
+  const current = await currentListing();
+  if (!current) return [];
+  return [...current.entries.values()]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map(({ id, description, files, updatedAt, disabled }) => ({ id, description, files, updatedAt, disabled }));
+}
+
 /** One skill with its files (disabled included — callers decide). Null when unknown, torn, or the store is down. */
 export async function readSkill(id: string): Promise<Skill | null> {
   if (!SKILL_ID.test(id)) return null;
@@ -347,6 +370,7 @@ export async function readSkill(id: string): Promise<Skill | null> {
       raw,
       disabled: parsed.disabled,
       fileContents: entry.files.map((path) => ({ path, content: content.get(path)! })),
+      ...(entry.manifest.author ? { author: entry.manifest.author } : {}),
     };
     lru.delete(id);
     lru.set(id, skill);
@@ -391,6 +415,77 @@ export async function saveSkill(input: SaveSkillInput): Promise<StoreResult<{ id
     lru.delete(input.id);
   }
   return { ok: true, id: input.id, files: files.map((file) => file.path) };
+}
+
+// ---- lifecycle (0090 §5) ---------------------------------------------------
+
+/** Flip ONLY the front-matter status line in `raw`: add `status:
+ * disabled` under the description when disabling, remove the line when
+ * enabling. Everything else stays byte-for-byte. */
+function withStatusLine(raw: string, disabled: boolean): string {
+  const front = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n)/.exec(raw);
+  if (!front) return disabled ? `---\nstatus: disabled\n---\n${raw}` : raw;
+  const [, header, newline] = front;
+  const hasLine = /^status:[ \t]*disabled[ \t]*$/m.test(header);
+  if (disabled === hasLine) return raw; // already there — nothing to write
+  const next = disabled
+    ? /^description:.*$/m.test(header)
+      ? header.replace(/(^description:.*$)/m, "$1\nstatus: disabled")
+      : `${header}\nstatus: disabled`
+    : header.replace(/^status:[ \t]*disabled[ \t]*$\r?\n?/m, "").replace(/\n$/, "");
+  // Function replacement: header content must not hit `$`-patterns.
+  return raw.replace(front[0], () => `---\n${next}\n---${newline}`);
+}
+
+/** Disable/enable a skill (0090 §5) — the owner acting directly, the
+ * same authority save_skill's approval grants. Reuses the saveSkill
+ * write path (files, manifest LAST, cache invalidation) unchanged. */
+export async function setSkillDisabled(id: string, disabled: boolean): Promise<StoreResult<{ id: string }>> {
+  if (!SKILL_ID.test(id)) return { ok: false, code: "invalid", message: "skill id must match ^[a-z][a-z0-9-]{0,40}$" };
+  const b = backend();
+  if (!b) return { ok: false, code: "unconfigured", message: "The skills store is not configured (SKILLS_S3_* env)." };
+  const skill = await readSkill(id);
+  if (!skill) {
+    return lastError
+      ? { ok: false, code: "store-error", message: `Could not read the store: ${lastError}` }
+      : { ok: false, code: "unknown-skill", message: `No skill "${id}" in the store.` };
+  }
+  const raw = withStatusLine(skill.raw, disabled);
+  if (raw === skill.raw) return { ok: true, id };
+  return saveSkill({
+    id,
+    body: raw,
+    files: skill.fileContents,
+    ...(skill.author ? { author: skill.author } : {}),
+  });
+}
+
+/** Remove a skill's object family (0090 §5) — manifest FIRST (the
+ * inverse of the write order: a torn delete never half-loads, readers
+ * already skip a skill whose manifest is missing), then every file the
+ * manifest names. Bucket versioning keeps the history. */
+export async function deleteSkill(id: string): Promise<StoreResult<{ id: string }>> {
+  if (!SKILL_ID.test(id)) return { ok: false, code: "invalid", message: "skill id must match ^[a-z][a-z0-9-]{0,40}$" };
+  const b = backend();
+  if (!b) return { ok: false, code: "unconfigured", message: "The skills store is not configured (SKILLS_S3_* env)." };
+  const current = await currentListing();
+  const entry = current?.entries.get(id);
+  if (!current || !entry) {
+    return current?.error || lastError
+      ? { ok: false, code: "store-error", message: `Could not read the store: ${lastError}` }
+      : { ok: false, code: "unknown-skill", message: `No skill "${id}" in the store.` };
+  }
+  try {
+    await b.gateway.delete(`${b.prefix}${id}/${MANIFEST_FILE}`);
+    for (const file of entry.manifest.files) await b.gateway.delete(`${b.prefix}${id}/${file}`);
+  } catch (err) {
+    lastError = message(err);
+    return { ok: false, code: "store-error", message: `Could not delete the skill: ${lastError}` };
+  } finally {
+    listing = null;
+    lru.delete(id);
+  }
+  return { ok: true, id };
 }
 
 /** Settings card: configured?, how many skills, why the last sync failed. */
