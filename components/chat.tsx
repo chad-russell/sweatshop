@@ -37,6 +37,7 @@ export function ChatSurface({
   activeStreamCursor,
   projectId,
   projectName,
+  initialPrompt,
   initialRoute,
   conversationTitle,
   headerExtra,
@@ -53,6 +54,9 @@ export function ChatSurface({
   activeStreamCursor?: number | null;
   projectId?: string;
   projectName?: string;
+  /** 0090 §6: the ?prompt= handoff — one-shot initial composer text,
+   *  fresh chats only; never auto-sent. */
+  initialPrompt?: string;
   initialRoute?: ChatRoute | null;
   conversationTitle?: string | null;
   headerExtra?: React.ReactNode;
@@ -172,6 +176,7 @@ export function ChatSurface({
       activeRunId={activeRunId}
       activeStreamCursor={activeStreamCursor}
       projectId={activeProjectId ?? undefined}
+      initialPrompt={initialPrompt}
       initialRoute={initialRoute}
       olderCursor={olderCursor}
       olderRemaining={olderRemaining}

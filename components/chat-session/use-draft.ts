@@ -48,6 +48,15 @@ export function useDraft({
     el.value = text;
     window.localStorage.setItem(draftKey, text);
   };
+  /** 0090 §6: a one-shot initial text (?prompt= handoff) — applied only
+   *  when the composer is still empty, so a saved draft always wins.
+   *  Initial input, never auto-sent. */
+  const seedDraft = (text: string) => {
+    const el = textareaRef.current;
+    if (!el || !text || el.value !== "") return;
+    el.value = text;
+    window.localStorage.setItem(draftKey, text);
+  };
 
-  return { textareaRef, handleDraftChange, clearDraft, restoreText };
+  return { textareaRef, handleDraftChange, clearDraft, restoreText, seedDraft };
 }
