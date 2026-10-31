@@ -322,3 +322,24 @@ describe("skills lifecycle (0090 §4/§5)", () => {
     expect(await listAllSkills()).toEqual([]);
   });
 });
+
+describe("skill source provenance (0090 §7)", () => {
+  it("saveSkill writes source into the manifest; readSkill exposes it", async () => {
+    const source = { repo: "anthropics/skills", ref: "abc123def456", path: "skills/pdf" };
+    await saveSkill({ id: "pdf", body: skillMd("Make PDFs"), author: "catalog", source });
+    const manifest = JSON.parse(bucket.objects.get("pdf/manifest.json")!);
+    expect(manifest.source).toEqual(source);
+    expect(await readSkill("pdf")).toMatchObject({ id: "pdf", source });
+  });
+
+  it("agent saves carry no source; the lifecycle toggle preserves one", async () => {
+    await saveSkill({ id: "agent-made", body: skillMd("Homegrown") });
+    expect(JSON.parse(bucket.objects.get("agent-made/manifest.json")!).source).toBeUndefined();
+    const source = { repo: "anthropics/skills", ref: "abc123", path: "skills/pdf" };
+    await saveSkill({ id: "pdf", body: skillMd("Make PDFs"), source });
+    await setSkillDisabled("pdf", true);
+    const after = await readSkill("pdf");
+    expect(after?.disabled).toBe(true);
+    expect(after?.source).toEqual(source);
+  });
+});

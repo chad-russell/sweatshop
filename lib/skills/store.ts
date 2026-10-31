@@ -59,6 +59,8 @@ export interface Skill extends SkillSummary {
   disabled: boolean;
   /** Manifest provenance, carried through lifecycle rewrites. */
   author?: string;
+  /** 0090 §7: the catalog install this skill came from (repo, pinned ref, folder path). */
+  source?: { repo: string; ref: string; path: string };
 }
 
 export interface SaveSkillInput {
@@ -67,6 +69,8 @@ export interface SaveSkillInput {
   body: string;
   files?: SkillFile[];
   author?: string;
+  /** 0090 §7: provenance when the skill was installed from a public catalog. */
+  source?: { repo: string; ref: string; path: string };
 }
 
 export type StoreResult<T> =
@@ -135,6 +139,7 @@ const manifestSchema = z.object({
   sizes: z.record(z.string(), z.number()),
   updatedAt: z.string(),
   author: z.string().optional(),
+  source: z.object({ repo: z.string(), ref: z.string(), path: z.string() }).optional(),
 });
 type Manifest = z.infer<typeof manifestSchema>;
 
@@ -371,6 +376,7 @@ export async function readSkill(id: string): Promise<Skill | null> {
       disabled: parsed.disabled,
       fileContents: entry.files.map((path) => ({ path, content: content.get(path)! })),
       ...(entry.manifest.author ? { author: entry.manifest.author } : {}),
+      ...(entry.manifest.source ? { source: entry.manifest.source } : {}),
     };
     lru.delete(id);
     lru.set(id, skill);
@@ -403,6 +409,7 @@ export async function saveSkill(input: SaveSkillInput): Promise<StoreResult<{ id
     sizes: Object.fromEntries(all.map((file) => [file.path, bytes(file.content)])),
     updatedAt: new Date().toISOString(),
     ...(input.author ? { author: input.author } : {}),
+    ...(input.source ? { source: input.source } : {}),
   };
   try {
     for (const file of all) await b.gateway.put(`${b.prefix}${input.id}/${file.path}`, file.content);
@@ -457,6 +464,7 @@ export async function setSkillDisabled(id: string, disabled: boolean): Promise<S
     body: raw,
     files: skill.fileContents,
     ...(skill.author ? { author: skill.author } : {}),
+    ...(skill.source ? { source: skill.source } : {}),
   });
 }
 

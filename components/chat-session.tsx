@@ -109,6 +109,7 @@ export function ChatSession({
   activeRunId,
   activeStreamCursor,
   projectId,
+  initialPrompt,
   initialRoute,
   olderCursor: initialOlderCursor,
   olderRemaining: initialOlderRemaining,
@@ -128,6 +129,9 @@ export function ChatSession({
   /** 0077: the live run's resume cursor (init-only, paired with activeRunId). */
   activeStreamCursor?: number | null;
   projectId?: string;
+  /** 0090 §6: the ?prompt= handoff — one-shot initial composer text
+   *  for a fresh chat, never auto-sent. */
+  initialPrompt?: string;
   /** 0021: the stored conversation route (init-only). */
   initialRoute?: ChatRoute | null;
   /** 0075: the hydrated tail window's older-page cursor and remaining
@@ -301,12 +305,21 @@ export function ChatSession({
   }, [messages]);
 
   const fresh = !adopted && messages.length === 0;
-  const { textareaRef, handleDraftChange, clearDraft, restoreText } = useDraft({
+  const { textareaRef, handleDraftChange, clearDraft, restoreText, seedDraft } = useDraft({
     adopted,
     conversationId,
     projectId,
     frameId,
   });
+
+  // 0090 §6: a ?prompt= handoff seeds the FRESH composer once, after the
+  // draft restore has run — an existing draft wins; never auto-sent.
+  const seededPrompt = useRef(false);
+  useEffect(() => {
+    if (seededPrompt.current || !initialPrompt || !fresh) return;
+    seededPrompt.current = true;
+    seedDraft(initialPrompt);
+  }, [fresh, initialPrompt, seedDraft]);
 
   // ── The frame's fresh-composer takeover (page frame: machine target) ──
   const state: ChatSessionState = {
