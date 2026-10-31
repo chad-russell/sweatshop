@@ -5,9 +5,9 @@ import { PageContextRegistration } from "@/components/page-context";
 import { db } from "@/db";
 import { countStoredDefaults } from "@/db/providers";
 import { listTargets } from "@/db/prompt-settings";
-import { listGitCredentialViews } from "@/lib/git-hosts/credential-admin";
 import { modelsView } from "@/lib/providers/catalog-view";
 import { SURFACES } from "@/lib/providers/route";
+import { buildConnectors } from "@/lib/settings/connectors";
 import { status as skillsStatus } from "@/lib/skills/store";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,7 @@ const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 export default async function SettingsPage() {
   const view = modelsView(db());
   const skills = await skillsStatus();
+  const connectors = await buildConnectors(db());
   const areas: { href: string; icon: LucideIcon; title: string; description: string; status: string }[] = [
     {
       href: "/settings/models",
@@ -37,8 +38,8 @@ export default async function SettingsPage() {
       href: "/settings/connections",
       icon: Plug,
       title: "Connections",
-      description: "Git credentials for sandbox clones, pushes, and PRs.",
-      status: count(listGitCredentialViews(db()).length, "git credential"),
+      description: "Every account the app uses — test each one live.",
+      status: `${connectors.filter((c) => c.ok).length}/${connectors.length} connected`,
     },
     {
       href: "/settings/skills",
