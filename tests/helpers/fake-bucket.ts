@@ -4,9 +4,12 @@ import type { S3Gateway } from "../../lib/skills/store";
 export class FakeBucket implements S3Gateway {
   objects = new Map<string, string>();
   puts: string[] = [];
+  /** Every delete, in call order — tests assert manifest-first ordering. */
+  deletes: string[] = [];
   lists = 0;
   failList: Error | null = null;
   failPutAfter: number | null = null;
+  failDeleteOn: string | null = null;
 
   async list(prefix: string) {
     this.lists += 1;
@@ -24,6 +27,12 @@ export class FakeBucket implements S3Gateway {
     if (this.failPutAfter !== null && this.puts.length >= this.failPutAfter) throw new Error("put failed");
     this.puts.push(key);
     this.objects.set(key, body);
+  }
+
+  async delete(key: string) {
+    if (this.failDeleteOn !== null && key.endsWith(this.failDeleteOn)) throw new Error("delete failed");
+    this.deletes.push(key);
+    this.objects.delete(key);
   }
 
   /** Seed a consistent skill (manifest written last, sizes matching). */

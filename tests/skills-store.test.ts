@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __setGatewayForTests,
+  deleteSkill,
+  listAllSkills,
   listSkills,
   parseSkillMarkdown,
   pingStore,
   readSkill,
   readSkillFile,
   saveSkill,
+  setSkillDisabled,
   status,
   validateSkillInput,
 } from "../lib/skills/store";
@@ -250,5 +253,72 @@ describe("pingStore (0090 §2)", () => {
     bucket.failList = new Error("fetch boom");
     await expect(pingStore()).resolves.toEqual({ ok: false, detail: "fetch boom" });
     expect((await status()).lastError).toBe("fetch boom");
+  });
+});
+
+describe("skills lifecycle (0090 §4/§5)", () => {
+  it("listAllSkills includes disabled skills flagged; listSkills keeps excluding them", async () => {
+    bucket.seed("pdf", skillMd("Make PDFs"));
+    bucket.seed("old", skillMd("Legacy", "# Old\n\nKept.", "status: disabled\n"));
+    expect(await listAllSkills()).toEqual([
+      { id: "old", description: "Legacy", files: [], updatedAt: "2026-10-29T00:00:00.000Z", disabled: true },
+      { id: "pdf", description: "Make PDFs", files: [], updatedAt: "2026-10-29T00:00:00.000Z", disabled: false },
+    ]);
+    expect((await listSkills()).map((s) => s.id)).toEqual(["pdf"]);
+  });
+
+  it("disabling adds the status line under the description and touches nothing else", async () => {
+    const body = "# Runbook\n\nStep 1 has a `$&` in it and trailing lines\n\n\n";
+    await saveSkill({ id: "pdf", body: `---\ndescription: Make PDFs\n---\n${body}`, files: [{ path: "ref.md", content: "keep" }], author: "agent" });
+    const res = await setSkillDisabled("pdf", true);
+    expect(res).toMatchObject({ ok: true, id: "pdf" });
+    const after = await readSkill("pdf");
+    expect(after?.disabled).toBe(true);
+    expect(after?.body).toBe(body.trimEnd());
+    expect(after?.fileContents).toEqual([{ path: "ref.md", content: "keep" }]);
+    expect(after?.author).toBe("agent");
+    expect(after?.raw).toBe(`---\ndescription: Make PDFs\nstatus: disabled\n---\n${body}`);
+  });
+
+  it("enabling removes the line, body byte-for-byte preserved", async () => {
+    const raw = "---\ndescription: Make PDFs\nstatus: disabled\n---\n# Runbook\n\nDo it.\n";
+    bucket.seed("pdf", raw);
+    expect(await setSkillDisabled("pdf", false)).toMatchObject({ ok: true });
+    const after = await readSkill("pdf");
+    expect(after?.disabled).toBe(false);
+    expect(after?.raw).toBe("---\ndescription: Make PDFs\n---\n# Runbook\n\nDo it.\n");
+  });
+
+  it("an already-correct status is a no-op success — nothing written", async () => {
+    bucket.seed("pdf", skillMd("Make PDFs"));
+    const puts = bucket.puts.length;
+    expect(await setSkillDisabled("pdf", false)).toEqual({ ok: true, id: "pdf" });
+    expect(bucket.puts.length).toBe(puts);
+  });
+
+  it("unknown ids and an unconfigured store are values", async () => {
+    expect(await setSkillDisabled("nope", true)).toMatchObject({ ok: false, code: "unknown-skill" });
+    expect(await deleteSkill("nope")).toMatchObject({ ok: false, code: "unknown-skill" });
+    expect(await setSkillDisabled("Bad", true)).toMatchObject({ ok: false, code: "invalid" });
+    __setGatewayForTests(null);
+    expect(await setSkillDisabled("pdf", true)).toMatchObject({ ok: false, code: "unconfigured" });
+    expect(await deleteSkill("pdf")).toMatchObject({ ok: false, code: "unconfigured" });
+  });
+
+  it("delete removes the manifest FIRST, then the files — a torn delete never half-loads", async () => {
+    bucket.seed("pdf", skillMd("Make PDFs"), { "ref.md": "r", "img.txt": "i" });
+    expect(await deleteSkill("pdf")).toEqual({ ok: true, id: "pdf" });
+    expect(bucket.deletes[0]).toBe("pdf/manifest.json");
+    expect([...bucket.deletes.slice(1)].sort()).toEqual(["pdf/SKILL.md", "pdf/img.txt", "pdf/ref.md"]);
+    expect(await readSkill("pdf")).toBeNull();
+    expect(await listAllSkills()).toEqual([]);
+  });
+
+  it("a delete failing after the manifest is a store-error, and the skill never half-loads", async () => {
+    bucket.seed("pdf", skillMd("Make PDFs"), { "ref.md": "r" });
+    bucket.failDeleteOn = "ref.md";
+    expect(await deleteSkill("pdf")).toMatchObject({ ok: false, code: "store-error" });
+    expect(bucket.objects.has("pdf/manifest.json")).toBe(false); // gone FIRST
+    expect(await listAllSkills()).toEqual([]);
   });
 });
