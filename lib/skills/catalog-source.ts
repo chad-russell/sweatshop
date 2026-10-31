@@ -215,12 +215,13 @@ export function __resetCatalogCacheForTests(): void {
   treeCache.clear();
   listCache.clear();
   searchCache.clear();
+  branchCache.clear();
 }
 
 async function loadTree(def: SourceDef, fetchImpl: FetchImpl): Promise<TreeCache | { error: string }> {
   const cached = treeCache.get(def.id);
   if (cached && Date.now() - cached.at < LIST_TTL_MS) return cached;
-  const headers = { accept: "application/vnd.github+json", ...(githubToken() ? { authorization: `Bearer ${githubToken()}` } : {}) };
+  const headers = githubHeaders();
   const repo = await fetchJson<{ default_branch: string }>(`https://api.github.com/repos/${def.owner}/${def.repo}`, headers, fetchImpl);
   if (!repo.ok) return { error: repo.message };
   const sha = repo.value.default_branch;
@@ -296,8 +297,97 @@ export async function listCatalog(
   return result;
 }
 
-// ---- one skill: preview + install ------------------------------------------
+// ---- one skill: preview + install (0090 §7 + 0091 §1) -----------------------
 
+/** owner/repo — the search-origin install target. */
+export const REPO_SHAPE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+/** Where a preview/install comes from: a curated SOURCES entry, or a
+ * SkillsMP search hit pointing at any public repo folder. */
+export type SkillOrigin =
+  | { origin: "source"; source: string }
+  | { origin: "search"; repo: string; path: string };
+
+export type ParsedOrigin = { ok: true; value: SkillOrigin } | { ok: false; message: string };
+
+/** Route-side parsing of the origin params/body — shape errors only;
+ * anything about the remote is a value from the call itself. */
+export function parseSkillOrigin(input: { origin?: unknown; source?: unknown; repo?: unknown; path?: unknown }): ParsedOrigin {
+  if (input.origin === undefined || input.origin === "source") {
+    const sourceId = typeof input.source === "string" && input.source ? input.source : "anthropics";
+    if (!sourceById(sourceId)) return { ok: false, message: `unknown catalog source "${sourceId}"` };
+    return { ok: true, value: { origin: "source", source: sourceId } };
+  }
+  if (input.origin === "search") {
+    if (typeof input.repo !== "string" || !REPO_SHAPE.test(input.repo)) {
+      return { ok: false, message: "origin=search requires repo as owner/repo" };
+    }
+    if (typeof input.path !== "string" || !validFilePath(input.path)) {
+      return { ok: false, message: "origin=search requires a valid repo-relative folder path" };
+    }
+    return { ok: true, value: { origin: "search", repo: input.repo, path: input.path } };
+  }
+  return { ok: false, message: `unknown origin "${String(input.origin)}"` };
+}
+
+/** Metadata limits checked BEFORE any content fetch. */
+function limitIssue(skillMdSize: number, files: { path: string; size: number }[]): string | null {
+  const supporting = files.filter((f) => f.path !== "SKILL.md" && f.path !== "manifest.json" && validFilePath(f.path));
+  if (supporting.length + 1 > MAX_FILES) return `catalog skill has ${supporting.length + 1} files (max ${MAX_FILES})`;
+  const total = skillMdSize + supporting.reduce((sum, f) => sum + f.size, 0);
+  if (skillMdSize > MAX_FILE_BYTES || supporting.some((f) => f.size > MAX_FILE_BYTES)) {
+    return `catalog skill has a file above ${MAX_FILE_BYTES / 1024} KiB`;
+  }
+  if (total > MAX_SKILL_BYTES) return `catalog skill exceeds ${MAX_SKILL_BYTES / 1024} KiB in total`;
+  return null;
+}
+
+/** Read one repo folder's files at a pinned ref — the shared core the
+ * SOURCES browse path and search-origin installs both ride. The skill
+ * id IS the folder's last path segment. */
+async function readRepoFolder(
+  {
+    owner,
+    repo,
+    ref,
+    folderPath,
+    skillMdSize,
+    files,
+  }: {
+    owner: string;
+    repo: string;
+    ref: string;
+    folderPath: string;
+    skillMdSize: number;
+    files: { path: string; size: number }[];
+  },
+  fetchImpl: FetchImpl,
+): Promise<CatalogRead> {
+  const issue = limitIssue(skillMdSize, files);
+  if (issue) return { ok: false, code: "invalid", message: issue };
+  const supporting = files.filter((f) => f.path !== "SKILL.md" && f.path !== "manifest.json" && validFilePath(f.path));
+  const base = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${folderPath}`;
+  const reads = await Promise.all([
+    fetchText(`${base}/SKILL.md`, fetchImpl),
+    ...supporting.map((f) => fetchText(`${base}/${f.path}`, fetchImpl)),
+  ]);
+  const texts: string[] = [];
+  for (const read of reads) {
+    if (!read.ok) return { ok: false, code: "catalog-error", message: read.message };
+    texts.push(read.text);
+  }
+  return {
+    ok: true,
+    skill: {
+      id: folderPath.slice(folderPath.lastIndexOf("/") + 1),
+      raw: texts[0],
+      files: supporting.map((f, i) => ({ path: f.path, content: texts[i + 1] })),
+      sha: ref,
+    },
+  };
+}
+
+/** The SOURCES path: folder lookup inside a cached source tree. */
 async function readCatalogSkill(
   sourceId: string,
   skillId: string,
@@ -310,40 +400,64 @@ async function readCatalogSkill(
   if ("error" in tree) return { ok: false, code: "catalog-error", message: tree.error };
   const folder = tree.folders.find((f) => f.id === skillId);
   if (!folder) return { ok: false, code: "unknown-skill", message: `No skill "${skillId}" in ${def.label}.` };
+  return readRepoFolder(
+    { owner: def.owner, repo: def.repo, ref: tree.sha, folderPath: folder.folderPath, skillMdSize: folder.skillMdSize, files: folder.files },
+    fetchImpl,
+  );
+}
 
-  // Limits checked against tree metadata BEFORE any content fetch.
-  const supporting = folder.files.filter((file) => file.path !== "SKILL.md" && file.path !== "manifest.json" && validFilePath(file.path));
-  if (supporting.length + 1 > MAX_FILES) {
-    return { ok: false, code: "invalid", message: `catalog skill has ${supporting.length + 1} files (max ${MAX_FILES})` };
-  }
-  const skillMdSize = folder.skillMdSize;
-  const total = skillMdSize + supporting.reduce((sum, file) => sum + file.size, 0);
-  if (skillMdSize > MAX_FILE_BYTES || supporting.some((file) => file.size > MAX_FILE_BYTES)) {
-    return { ok: false, code: "invalid", message: `catalog skill has a file above ${MAX_FILE_BYTES / 1024} KiB` };
-  }
-  if (total > MAX_SKILL_BYTES) {
-    return { ok: false, code: "invalid", message: `catalog skill exceeds ${MAX_SKILL_BYTES / 1024} KiB in total` };
-  }
+const branchCache = new Map<string, { at: number; branch: string }>();
 
-  const base = `https://raw.githubusercontent.com/${def.owner}/${def.repo}/${tree.sha}/${folder.folderPath}`;
-  const reads = await Promise.all([
-    fetchText(`${base}/SKILL.md`, fetchImpl),
-    ...supporting.map((file) => fetchText(`${base}/${file.path}`, fetchImpl)),
-  ]);
-  const texts: string[] = [];
-  for (const read of reads) {
-    if (!read.ok) return { ok: false, code: "catalog-error", message: read.message };
-    texts.push(read.text);
-  }
-  return {
-    ok: true,
-    skill: {
-      id: skillId,
-      raw: texts[0],
-      files: supporting.map((file, i) => ({ path: file.path, content: texts[i + 1] })),
-      sha: tree.sha,
-    },
-  };
+function githubHeaders(): Record<string, string> {
+  const token = githubToken();
+  return { accept: "application/vnd.github+json", ...(token ? { authorization: `Bearer ${token}` } : {}) };
+}
+
+async function defaultBranch(
+  owner: string,
+  repo: string,
+  fetchImpl: FetchImpl,
+): Promise<{ ok: true; branch: string } | { ok: false; message: string }> {
+  const key = `${owner}/${repo}`;
+  const cached = branchCache.get(key);
+  if (cached && Date.now() - cached.at < LIST_TTL_MS) return { ok: true, branch: cached.branch };
+  const res = await fetchJson<{ default_branch: string }>(`https://api.github.com/repos/${owner}/${repo}`, githubHeaders(), fetchImpl);
+  if (!res.ok) return { ok: false, message: res.message };
+  branchCache.set(key, { at: Date.now(), branch: res.value.default_branch });
+  return { ok: true, branch: res.value.default_branch };
+}
+
+/** The search path: resolve the repo's default branch, pin its CURRENT
+ * head sha (a branch NAME is not immutable — installs record the sha),
+ * then read the tree AT that sha so preview and install see one
+ * coherent snapshot. */
+async function readSearchSkill(repo: string, folderPath: string, fetchImpl: FetchImpl): Promise<CatalogRead> {
+  if (!REPO_SHAPE.test(repo)) return { ok: false, code: "invalid", message: `invalid repo "${repo}" (expected owner/repo)` };
+  if (!validFilePath(folderPath)) return { ok: false, code: "invalid", message: `invalid path "${folderPath}"` };
+  const id = folderPath.slice(folderPath.lastIndexOf("/") + 1);
+  if (!SKILL_ID.test(id)) return { ok: false, code: "invalid", message: "skill id must match ^[a-z][a-z0-9-]{0,40}$" };
+  const [owner, repoName] = repo.split("/") as [string, string];
+  const branch = await defaultBranch(owner, repoName, fetchImpl);
+  if (!branch.ok) return { ok: false, code: "catalog-error", message: branch.message };
+  const head = await fetchJson<{ sha: string }>(
+    `https://api.github.com/repos/${owner}/${repoName}/commits/${encodeURIComponent(branch.branch)}`,
+    githubHeaders(),
+    fetchImpl,
+  );
+  if (!head.ok) return { ok: false, code: "catalog-error", message: head.message };
+  const sha = head.value.sha;
+  const tree = await fetchJson<{ tree: { path: string; type: string; size?: number }[] }>(
+    `https://api.github.com/repos/${owner}/${repoName}/git/trees/${encodeURIComponent(sha)}?recursive=1`,
+    githubHeaders(),
+    fetchImpl,
+  );
+  if (!tree.ok) return { ok: false, code: "catalog-error", message: tree.message };
+  const files = tree.value.tree
+    .filter((entry) => entry.type === "blob" && entry.path.startsWith(`${folderPath}/`))
+    .map((entry) => ({ path: entry.path.slice(folderPath.length + 1), size: entry.size ?? 0 }));
+  const skillMd = files.find((f) => f.path === "SKILL.md");
+  if (!skillMd) return { ok: false, code: "unknown-skill", message: `No SKILL.md at ${repo}/${folderPath}.` };
+  return readRepoFolder({ owner, repo: repoName, ref: sha, folderPath, skillMdSize: skillMd.size, files }, fetchImpl);
 }
 
 /** The preview surface: every file, contents included. */
@@ -355,6 +469,15 @@ export async function previewCatalogSkill(
   return readCatalogSkill(sourceId, skillId, opts?.fetchImpl ?? fetch);
 }
 
+/** Search-origin preview — any public repo folder (0091 §1). */
+export async function previewSearchSkill(
+  repo: string,
+  path: string,
+  opts?: { fetchImpl?: FetchImpl },
+): Promise<CatalogRead> {
+  return readSearchSkill(repo, path, opts?.fetchImpl ?? fetch);
+}
+
 /** Strip the front matter's `name:` line — our id IS the folder; keep
  * description and any status. */
 function normalizeFrontMatter(raw: string): string {
@@ -364,7 +487,27 @@ function normalizeFrontMatter(raw: string): string {
   return raw.replace(front[0], () => `---\n${header}\n---\n`);
 }
 
-/** Read at the pinned sha, validate, write into the store with source
+/** Validate and write one read into the store with provenance — the
+ * shared install tail. */
+async function writeInstall(
+  skillId: string,
+  read: CatalogSkill,
+  source: { repo: string; ref: string; path: string },
+  author: string,
+): Promise<InstallResult> {
+  const body = normalizeFrontMatter(read.raw);
+  const issues = validateSkillInput({ id: skillId, body, files: read.files });
+  if (issues.length > 0) return { ok: false, code: "invalid", message: issues.join("; ") };
+  return saveSkill({ id: skillId, body, files: read.files, author, source });
+}
+
+const idExists = (skillId: string): InstallResult => ({
+  ok: false,
+  code: "id-exists",
+  message: `A local skill "${skillId}" already exists. Disable or rename it (ask the agent) before installing.`,
+});
+
+/** Read at the pinned ref, validate, write into the store with source
  * provenance. A colliding local id is an honest error — rename or
  * disable it via the agent first. */
 export async function installCatalogSkill(
@@ -374,23 +517,24 @@ export async function installCatalogSkill(
 ): Promise<InstallResult> {
   const def = source(sourceId);
   if (!def) return { ok: false, code: "catalog-error", message: `unknown catalog source "${sourceId}"` };
-  if (await readSkill(skillId)) {
-    return {
-      ok: false,
-      code: "id-exists",
-      message: `A local skill "${skillId}" already exists. Disable or rename it (ask the agent) before installing.`,
-    };
-  }
+  if (await readSkill(skillId)) return idExists(skillId);
   const read = await readCatalogSkill(sourceId, skillId, opts?.fetchImpl ?? fetch);
   if (!read.ok) return read;
-  const body = normalizeFrontMatter(read.skill.raw);
-  const issues = validateSkillInput({ id: skillId, body, files: read.skill.files });
-  if (issues.length > 0) return { ok: false, code: "invalid", message: issues.join("; ") };
-  return saveSkill({
-    id: skillId,
-    body,
-    files: read.skill.files,
-    author: opts?.author ?? "catalog",
-    source: { repo: `${def.owner}/${def.repo}`, ref: read.skill.sha, path: `${def.path}/${skillId}` },
-  });
+  return writeInstall(skillId, read.skill, { repo: `${def.owner}/${def.repo}`, ref: read.skill.sha, path: `${def.path}/${skillId}` }, opts?.author ?? "catalog");
+}
+
+/** Search-origin install (0091 §1): the id is the folder's name; the
+ * ref pinned is the repo's CURRENT head sha at install time; the
+ * default author marks the SkillsMP directory as the discovery path. */
+export async function installSearchSkill(
+  repo: string,
+  path: string,
+  opts?: { author?: string; fetchImpl?: FetchImpl },
+): Promise<InstallResult> {
+  const id = path.slice(path.lastIndexOf("/") + 1);
+  if (!SKILL_ID.test(id)) return { ok: false, code: "invalid", message: "skill id must match ^[a-z][a-z0-9-]{0,40}$" };
+  if (await readSkill(id)) return idExists(id);
+  const read = await readSearchSkill(repo, path, opts?.fetchImpl ?? fetch);
+  if (!read.ok) return read;
+  return writeInstall(id, read.skill, { repo, ref: read.skill.sha, path }, opts?.author ?? "skillsmp");
 }
