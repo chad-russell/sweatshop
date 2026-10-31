@@ -1,9 +1,18 @@
-# sweatshop deploy pipeline (0045) — merge to main ships.
+# sweatshop deploy pipeline (0045 → 0091) — merge to main ships.
 #
 # checks — the repo gate (typecheck/lint/test) in a throwaway container
 # on the bees nix-host runner (jobs run as crussell). NEVER via ./dev:
 # its node_modules volume is shared with the LIVE service on bee, and a
 # CI npm ci would clobber the running app's dependencies.
+#
+# image — merge to main only (PRs never build images; the GitHub CI
+# gates PRs and Forgejo is a pull mirror, so no PR events arrive here):
+# build the serving Containerfile and push it to the bees zot registry
+# as sweatshop/app:<sha7> (immutable record) + :main (what the quadlet
+# runs). Rootless podman build via sudo, matching the checks job —
+# image-era deploys are pull + restart (0091 step 3), and this job is
+# the bridge: images accumulate harmlessly while ci-deploy.sh still
+# serves, so the cutover (cn PR) flips the quadlet to :main any time.
 #
 # deploy — push-to-main and dispatch only (PRs never deploy): drift-check
 # bee's deploy checkout, then run scripts/ci-deploy.sh inside the
@@ -73,8 +82,45 @@ jobs:
               && npm run lint \
               && npm run test'
 
+  image:
+    # Bridge to image-era serving (0091): build + push on every merge.
+    # Needs nothing from `checks` (the GitHub CI is the merge gate;
+    # building here too would just burn bees runner time), so the two
+    # run in parallel after a merge.
+    runs-on: nix-host
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        run: |
+          set -eu
+          export GIT_TERMINAL_PROMPT=0
+          git init -q .
+          git remote add origin "https://${GITHUB_ACTOR:-x-access-token}:${{ secrets.GITHUB_TOKEN }}@git.crussell.io/chad/sweatshop.git"
+          git fetch --depth 1 origin "+${GITHUB_REF}:"
+          git checkout --detach FETCH_HEAD
+
+      - name: Build serving image
+        run: |
+          set -eu
+          /run/wrappers/bin/sudo -n podman build \
+            -t sweatshop-ci:${GITHUB_SHA::7} \
+            -f Containerfile .
+
+      - name: Tag + push to zot (merge to main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -eu
+          /run/wrappers/bin/sudo -n podman tag sweatshop-ci:${GITHUB_SHA::7} 10.10.0.6:5000/sweatshop/app:${GITHUB_SHA::7}
+          /run/wrappers/bin/sudo -n podman tag sweatshop-ci:${GITHUB_SHA::7} 10.10.0.6:5000/sweatshop/app:main
+          /run/wrappers/bin/sudo -n podman push --tls-verify=false 10.10.0.6:5000/sweatshop/app:${GITHUB_SHA::7}
+          /run/wrappers/bin/sudo -n podman push --tls-verify=false 10.10.0.6:5000/sweatshop/app:main
+
+      - name: Clean up local build image
+        if: always()
+        run: /run/wrappers/bin/sudo -n podman rmi sweatshop-ci:${GITHUB_SHA::7} >/dev/null 2>&1 || true
+
   deploy:
-    needs: checks
+    needs: [checks, image]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: nix-host
     timeout-minutes: 30
