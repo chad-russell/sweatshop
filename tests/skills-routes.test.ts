@@ -53,6 +53,28 @@ describe("PUT /api/settings/skills/[id]/status (0090 §5)", () => {
       await expect(res.json()).resolves.toMatchObject({ error: expect.any(String) });
     }
   });
+
+  it("0091 §2: sets an invoke mode, alone or beside disabled (disabled applies first)", async () => {
+    bucket.seed("pdf", skillMd("Make PDFs"));
+    const mode = await PUT(putRequest({ invoke: "manual" }), params("pdf"));
+    expect(mode.status).toBe(200);
+    expect((await readSkill("pdf"))?.invoke).toBe("manual");
+
+    const both = await PUT(putRequest({ disabled: true, invoke: "tool" }), params("pdf"));
+    expect(both.status).toBe(200);
+    const after = await readSkill("pdf");
+    expect(after?.disabled).toBe(true);
+    expect(after?.invoke).toBe("tool");
+  });
+
+  it("0091 §2: a bad invoke value (or an empty body) is a 400", async () => {
+    bucket.seed("pdf", skillMd("Make PDFs"));
+    for (const body of [{ invoke: "always" }, { invoke: 7 }, { disabled: "yes", invoke: "tool" }]) {
+      const res = await PUT(putRequest(body), params("pdf"));
+      expect(res.status).toBe(400);
+    }
+    expect((await readSkill("pdf"))?.invoke).toBe("auto");
+  });
 });
 
 describe("DELETE /api/settings/skills/[id] (0090 §5)", () => {

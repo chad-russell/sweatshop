@@ -7,7 +7,9 @@ import { listSkills, readSkill } from "./skills/store";
  * pi/codex materialize it at `~/.agents/skills`, claude at
  * `~/.claude/skills`. Loaded fresh per call so a saved edit reaches the
  * next call; value-shaped on store errors (an empty array, logged) so a
- * dead store never blocks a harness call start.
+ * dead store never blocks a harness call start. 0091 §2: manual skills
+ * never mount (listSkills already drops them; the re-read guard keeps
+ * it true even if a listing races a mode flip).
  */
 
 export type HarnessSkills = readonly HarnessAgentSkill[];
@@ -17,7 +19,7 @@ export async function loadHarnessSkills(): Promise<HarnessSkills> {
     const listed = await listSkills();
     const skills = await Promise.all(listed.map((entry) => readSkill(entry.id)));
     return skills.flatMap((skill) =>
-      skill && !skill.disabled
+      skill && !skill.disabled && skill.invoke !== "manual"
         ? [
             {
               name: skill.id,

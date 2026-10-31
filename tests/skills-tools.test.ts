@@ -38,10 +38,26 @@ async function untilHook(call: Promise<unknown>) {
 }
 
 describe("use_skill", () => {
-  it("lists skills with descriptions and files", async () => {
+  it("lists skills with descriptions, invoke modes, and files", async () => {
     bucket.seed("a", skillMd("Does A"), { "ref.md": "r" });
+    bucket.seed("scraper", skillMd("Scrapes", "# Scrape.", "invoke: tool\n"));
+    bucket.seed("secret", skillMd("Secret", "# Shh.", "invoke: manual\n"));
     const res = (await tool("use_skill")({}, { toolCallId: "t1" })) as { skills: unknown[] };
-    expect(res).toEqual({ ok: true, skills: [{ id: "a", description: "Does A", files: ["ref.md"] }] });
+    // 0091 §2: manual skills are never listed; tool rows are marked.
+    expect(res).toEqual({
+      ok: true,
+      skills: [
+        { id: "a", description: "Does A", invoke: "auto", files: ["ref.md"] },
+        { id: "scraper", description: "Scrapes", invoke: "tool", files: [] },
+      ],
+    });
+  });
+
+  it("0091 §2: a manual skill is unread by list but an explicit id still loads it", async () => {
+    bucket.seed("secret", skillMd("Only on purpose", "# Shh."));
+    const byId = (await tool("use_skill")({ id: "secret" }, { toolCallId: "t1" })) as { ok: boolean; skill: string };
+    expect(byId.ok).toBe(true);
+    expect(byId.skill).toContain("# Shh.");
   });
 
   it("loads the body plus a Files line when the skill has files", async () => {
@@ -126,9 +142,13 @@ describe("loadHarnessSkills", () => {
     try {
       bucket.seed("ship", skillMd("Ship for {{owner}}", "# Ship\n\nAsk {{owner}}."), { "ref.md": "r" });
       bucket.seed("off", skillMd("Hidden", "# x", "status: disabled\n"));
+      bucket.seed("hands", skillMd("Manual", "# x", "invoke: manual\n"));
+      bucket.seed("wired", skillMd("Wired", "# x", "invoke: tool\n"));
       const skills = await loadHarnessSkills();
+      // 0091 §2: manual never mounts; tool does.
       expect(skills).toEqual([
         { name: "ship", description: "Ship for Pat", content: "# Ship\n\nAsk Pat.", files: [{ path: "ref.md", content: "r" }] },
+        { name: "wired", description: "Wired", content: "# x", files: [] },
       ]);
     } finally {
       delete process.env.SWEATSHOP_OWNER_NAME;

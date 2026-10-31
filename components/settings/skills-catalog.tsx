@@ -114,6 +114,11 @@ export function SkillsCatalog({ skills }: { skills: SkillSummary[] }) {
                           disabled
                         </span>
                       )}
+                      {(skill.invoke === "tool" || skill.invoke === "manual") && (
+                        <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {skill.invoke}
+                        </span>
+                      )}
                       <span className="min-w-0 flex-1 truncate text-muted-foreground">{skill.description}</span>
                       <span className={LABEL}>
                         {skill.files.length} file{skill.files.length === 1 ? "" : "s"}

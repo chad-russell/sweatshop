@@ -13,6 +13,13 @@ import { z } from "zod";
  */
 
 export const SKILL_ID = /^[a-z][a-z0-9-]{0,40}$/;
+
+/** 0091 §2: how a skill may be invoked — auto (appendix + use_skill),
+ * tool (harness mounts + a compact appendix line, no full listing),
+ * manual (explicit attach or use_skill by id only). */
+export type InvokeMode = "auto" | "tool" | "manual";
+export const INVOKE_MODES = ["auto", "tool", "manual"] as const;
+const INVOKE_LINE = /^invoke:[ \t]*(auto|tool|manual)[ \t]*$/m;
 export const MAX_FILES = 16;
 export const MAX_FILE_BYTES = 64 * 1024;
 export const MAX_SKILL_BYTES = 256 * 1024;
@@ -48,6 +55,8 @@ export interface SkillSummary {
   updatedAt: string;
   /** Present only on listAllSkills rows — listSkills omits disabled entirely. */
   disabled?: boolean;
+  /** 0091 §2: always set on store rows; auto when the front matter says nothing. */
+  invoke?: InvokeMode;
 }
 
 export interface Skill extends SkillSummary {
@@ -57,6 +66,7 @@ export interface Skill extends SkillSummary {
   raw: string;
   fileContents: SkillFile[];
   disabled: boolean;
+  invoke: InvokeMode;
   /** Manifest provenance, carried through lifecycle rewrites. */
   author?: string;
   /** 0090 §7: the catalog install this skill came from (repo, pinned ref, folder path). */
@@ -88,6 +98,8 @@ export interface StoreStatus {
 export interface ParsedSkillMarkdown {
   description: string;
   disabled: boolean;
+  /** 0091 §2: any value outside the three reads as the default, auto. */
+  invoke: InvokeMode;
   body: string;
 }
 
@@ -97,7 +109,8 @@ export function parseSkillMarkdown(text: string): ParsedSkillMarkdown {
   const header = front?.[1] ?? "";
   const description = /^description:\s*(.+)$/m.exec(header)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2") ?? "";
   const disabled = /^status:\s*disabled\s*$/m.test(header);
-  return { description, disabled, body };
+  const invoke = INVOKE_LINE.exec(header)?.[1] as InvokeMode | undefined;
+  return { description, disabled, invoke: invoke ?? "auto", body };
 }
 
 const bytes = (value: string) => new TextEncoder().encode(value).byteLength;
@@ -113,6 +126,11 @@ export function validateSkillInput(input: SaveSkillInput): string[] {
   const issues: string[] = [];
   if (!SKILL_ID.test(input.id)) issues.push("skill id must match ^[a-z][a-z0-9-]{0,40}$");
   const parsed = parseSkillMarkdown(input.body);
+  const header = /^---\r?\n([\s\S]*?)\r?\n---/.exec(input.body)?.[1] ?? "";
+  const invokeRaw = /^invoke:[ \t]*(.*?)[ \t]*$/m.exec(header)?.[1];
+  if (invokeRaw !== undefined && !(INVOKE_MODES as readonly string[]).includes(invokeRaw)) {
+    issues.push(`invoke must be one of auto, tool, manual (got "${invokeRaw}")`);
+  }
   if (!parsed.description) issues.push("SKILL.md front matter needs a non-empty `description:` line");
   else if (parsed.description.length > MAX_DESCRIPTION_CHARS) issues.push(`description exceeds ${MAX_DESCRIPTION_CHARS} characters`);
   if (!parsed.body) issues.push("SKILL.md has no body");
@@ -296,6 +314,7 @@ async function loadListing(b: { gateway: S3Gateway; prefix: string }): Promise<L
           id,
           description: parsed.description,
           disabled: parsed.disabled,
+          invoke: parsed.invoke,
           files: manifest.files.filter((path) => path !== SKILL_FILE).sort(),
           updatedAt: manifest.updatedAt,
           manifest,
@@ -324,14 +343,16 @@ async function currentListing(): Promise<Listing | null> {
 
 // ---- reads ---------------------------------------------------------------
 
-/** Every non-disabled skill, sorted by id. Empty when unconfigured or the store is down. */
+/** The active catalog — auto + tool skills (0091 §2: manual never rides
+ * the appendix or a harness mount), disabled excluded. Empty when
+ * unconfigured or the store is down. */
 export async function listSkills(): Promise<SkillSummary[]> {
   const current = await currentListing();
   if (!current) return [];
   return [...current.entries.values()]
-    .filter((entry) => !entry.disabled)
+    .filter((entry) => !entry.disabled && entry.invoke !== "manual")
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map(({ id, description, files, updatedAt }) => ({ id, description, files, updatedAt }));
+    .map(({ id, description, files, updatedAt, invoke }) => ({ id, description, files, updatedAt, invoke }));
 }
 
 /** 0090 §4: the catalog listing — disabled skills included and flagged;
@@ -342,7 +363,7 @@ export async function listAllSkills(): Promise<SkillSummary[]> {
   if (!current) return [];
   return [...current.entries.values()]
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map(({ id, description, files, updatedAt, disabled }) => ({ id, description, files, updatedAt, disabled }));
+    .map(({ id, description, files, updatedAt, disabled, invoke }) => ({ id, description, files, updatedAt, disabled, invoke }));
 }
 
 /** One skill with its files (disabled included — callers decide). Null when unknown, torn, or the store is down. */
@@ -374,6 +395,7 @@ export async function readSkill(id: string): Promise<Skill | null> {
       body: parsed.body,
       raw,
       disabled: parsed.disabled,
+      invoke: parsed.invoke,
       fileContents: entry.files.map((path) => ({ path, content: content.get(path)! })),
       ...(entry.manifest.author ? { author: entry.manifest.author } : {}),
       ...(entry.manifest.source ? { source: entry.manifest.source } : {}),
@@ -442,6 +464,52 @@ function withStatusLine(raw: string, disabled: boolean): string {
     : header.replace(/^status:[ \t]*disabled[ \t]*$\r?\n?/m, "").replace(/\n$/, "");
   // Function replacement: header content must not hit `$`-patterns.
   return raw.replace(front[0], () => `---\n${next}\n---${newline}`);
+}
+
+/** Flip ONLY the front-matter invoke line in `raw` (0091 §2): `auto`
+ * removes the line entirely (it is the default), tool/manual set it
+ * under the description. Everything else stays byte-for-byte. */
+function withInvokeLine(raw: string, mode: InvokeMode): string {
+  const front = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n)/.exec(raw);
+  if (!front) return mode === "auto" ? raw : `---\ninvoke: ${mode}\n---\n${raw}`;
+  const [, header, newline] = front;
+  const current = INVOKE_LINE.exec(header)?.[1] as InvokeMode | undefined;
+  const target = mode === "auto" ? null : mode;
+  if ((current ?? "auto") === (target ?? "auto")) return raw; // already correct — nothing to write
+  const next =
+    target === null
+      ? header.replace(/^invoke:[ \t]*(?:auto|tool|manual)[ \t]*$\r?\n?/m, "").replace(/\n$/, "")
+      : current
+        ? header.replace(/^invoke:[ \t]*(?:auto|tool|manual)[ \t]*$/m, `invoke: ${target}`)
+        : /^description:.*$/m.test(header)
+          ? header.replace(/(^description:.*$)/m, `$1\ninvoke: ${target}`)
+          : `${header}\ninvoke: ${target}`;
+  // Function replacement: header content must not hit `$`-patterns.
+  return raw.replace(front[0], () => `---\n${next}\n---${newline}`);
+}
+
+/** Set a skill's invocation mode (0091 §2) — the owner acting directly,
+ * the same authority save_skill's approval grants. Same surgery pattern
+ * and write path as setSkillDisabled. */
+export async function setSkillInvokeMode(id: string, mode: InvokeMode): Promise<StoreResult<{ id: string }>> {
+  if (!SKILL_ID.test(id)) return { ok: false, code: "invalid", message: "skill id must match ^[a-z][a-z0-9-]{0,40}$" };
+  const b = backend();
+  if (!b) return { ok: false, code: "unconfigured", message: "The skills store is not configured (SKILLS_S3_* env)." };
+  const skill = await readSkill(id);
+  if (!skill) {
+    return lastError
+      ? { ok: false, code: "store-error", message: `Could not read the store: ${lastError}` }
+      : { ok: false, code: "unknown-skill", message: `No skill "${id}" in the store.` };
+  }
+  const raw = withInvokeLine(skill.raw, mode);
+  if (raw === skill.raw) return { ok: true, id };
+  return saveSkill({
+    id,
+    body: raw,
+    files: skill.fileContents,
+    ...(skill.author ? { author: skill.author } : {}),
+    ...(skill.source ? { source: skill.source } : {}),
+  });
 }
 
 /** Disable/enable a skill (0090 §5) — the owner acting directly, the

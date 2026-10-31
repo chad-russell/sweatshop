@@ -229,7 +229,7 @@ export function coreTools(
     }),
     use_skill: tool({
       description:
-        "List skills, or load one. With no id, lists every skill (id, description, files). " +
+        "List skills, or load one. With no id, lists every active skill (id, description, invoke mode, files). " +
         "With an id, returns that skill's body plus a Files line; with id and file, returns that supporting file. " +
         "Each load is transcript history.",
       inputSchema: z.object({
@@ -242,7 +242,7 @@ export function coreTools(
     save_skill: tool({
       description:
         "Create or replace a skill in the skills catalog. `body` is the whole SKILL.md including front matter " +
-        "(`---`, `description: <when to use it>`, optional `status: disabled`, `---`) then the runbook markdown; " +
+        "(`---`, `description: <when to use it>`, optional `status: disabled`, optional `invoke: auto | tool | manual` (default auto), `---`) then the runbook markdown; " +
         "`files` are supporting files (POSIX-relative paths) that REPLACE the skill's current set. Limits: 16 files, " +
         `64 KiB per file, 256 KiB per skill. ${ownerName()} approves every save — the card shows a diff for an edit ` +
         "and the full content for a new skill; the skill is written only when they accept. Load the current version " +

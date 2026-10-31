@@ -1,6 +1,7 @@
 /** 0090 §4/§5: the skills catalog's mutation endpoints. */
 
 import type { CatalogEntry, CatalogList, CatalogSearch, SearchResult, SkillOrigin } from "@/lib/skills/catalog-source";
+import type { InvokeMode } from "@/lib/skills/store";
 import { apiFetch, jsonInit } from "./core";
 
 export type { CatalogEntry };
@@ -12,18 +13,25 @@ export interface SkillMutationResult {
   id?: string;
 }
 
-export async function setSkillDisabledRequest(
+/** 0091 §2: one client fn for the status endpoint's two fields —
+ * `disabled` and `invoke` are both optional, at least one required
+ * server-side; thin wrappers below keep call sites explicit. */
+async function setSkillStatusRequest(
   id: string,
-  disabled: boolean,
+  body: { disabled?: boolean; invoke?: InvokeMode },
 ): Promise<SkillMutationResult | { error: string }> {
   const res = await apiFetch<SkillMutationResult>(
     `/api/settings/skills/${encodeURIComponent(id)}/status`,
-    jsonInit("PUT", { disabled }),
+    jsonInit("PUT", body),
   );
   if (res.ok && res.body) return res.body;
   const error = (res.body as { error?: string } | null)?.error;
   return { error: error ?? `update failed (${res.status})` };
 }
+
+export const setSkillDisabledRequest = (id: string, disabled: boolean) => setSkillStatusRequest(id, { disabled });
+
+export const setSkillInvokeModeRequest = (id: string, invoke: InvokeMode) => setSkillStatusRequest(id, { invoke });
 
 export async function deleteSkillRequest(id: string): Promise<SkillMutationResult | { error: string }> {
   const res = await apiFetch<SkillMutationResult>(`/api/settings/skills/${encodeURIComponent(id)}`, {
