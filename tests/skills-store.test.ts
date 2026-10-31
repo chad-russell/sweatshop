@@ -6,6 +6,7 @@ import {
   listSkills,
   parseSkillMarkdown,
   pingStore,
+  setSkillInvokeMode,
   readSkill,
   readSkillFile,
   saveSkill,
@@ -39,12 +40,22 @@ describe("parseSkillMarkdown", () => {
     expect(parseSkillMarkdown('---\ndescription: "Ship PRs"\nstatus: disabled\n---\n# Ship\n\nGo.\n')).toEqual({
       description: "Ship PRs",
       disabled: true,
+      invoke: "auto",
       body: "# Ship\n\nGo.",
     });
   });
 
   it("a file with no front matter has no description and is its own body", () => {
-    expect(parseSkillMarkdown("# Bare")).toEqual({ description: "", disabled: false, body: "# Bare" });
+    expect(parseSkillMarkdown("# Bare")).toEqual({ description: "", disabled: false, invoke: "auto", body: "# Bare" });
+  });
+
+  it("0091 §2: invoke reads auto, tool, manual; anything else falls back to auto", () => {
+    const md = (line: string) => parseSkillMarkdown(`---\ndescription: Doc\n${line}\n---\nBody`);
+    expect(md("invoke: auto").invoke).toBe("auto");
+    expect(md("invoke: tool").invoke).toBe("tool");
+    expect(md("invoke: manual").invoke).toBe("manual");
+    expect(md("invoke: always").invoke).toBe("auto");
+    expect(md("invoke:tool").invoke).toBe("tool");
   });
 });
 
@@ -261,8 +272,8 @@ describe("skills lifecycle (0090 §4/§5)", () => {
     bucket.seed("pdf", skillMd("Make PDFs"));
     bucket.seed("old", skillMd("Legacy", "# Old\n\nKept.", "status: disabled\n"));
     expect(await listAllSkills()).toEqual([
-      { id: "old", description: "Legacy", files: [], updatedAt: "2026-10-29T00:00:00.000Z", disabled: true },
-      { id: "pdf", description: "Make PDFs", files: [], updatedAt: "2026-10-29T00:00:00.000Z", disabled: false },
+      { id: "old", description: "Legacy", files: [], updatedAt: "2026-10-29T00:00:00.000Z", disabled: true, invoke: "auto" },
+      { id: "pdf", description: "Make PDFs", files: [], updatedAt: "2026-10-29T00:00:00.000Z", disabled: false, invoke: "auto" },
     ]);
     expect((await listSkills()).map((s) => s.id)).toEqual(["pdf"]);
   });
@@ -341,5 +352,63 @@ describe("skill source provenance (0090 §7)", () => {
     const after = await readSkill("pdf");
     expect(after?.disabled).toBe(true);
     expect(after?.source).toEqual(source);
+  });
+});
+
+describe("invoke modes (0091 §2)", () => {
+  it("listSkills keeps auto and tool, drops manual and disabled; rows carry invoke", async () => {
+    bucket.seed("pdf", skillMd("Make PDFs"));
+    bucket.seed("scrape", skillMd("Scraping", "# Scrape.\n\nNow.", "invoke: tool\n"));
+    bucket.seed("deploy", skillMd("Deploy", "# Deploy.\n\nNow.", "invoke: manual\n"));
+    bucket.seed("old", skillMd("Legacy", "# Old.", "status: disabled\n"));
+    const skills = await listSkills();
+    expect(skills.map((s) => s.id)).toEqual(["pdf", "scrape"]);
+    expect(skills.map((s) => s.invoke)).toEqual(["auto", "tool"]);
+    const all = await listAllSkills();
+    expect(all.find((s) => s.id === "deploy")).toMatchObject({ invoke: "manual", disabled: false });
+  });
+
+  it("setting tool adds the invoke line under the description, byte-exact otherwise", async () => {
+    const body = "# Runbook\n\nStep 1 has a `$&` and keeps lines\n\n\n";
+    await saveSkill({ id: "pdf", body: `---\ndescription: Make PDFs\n---\n${body}`, files: [{ path: "ref.md", content: "keep" }], author: "agent" });
+    expect(await setSkillInvokeMode("pdf", "tool")).toMatchObject({ ok: true, id: "pdf" });
+    const after = await readSkill("pdf");
+    expect(after?.invoke).toBe("tool");
+    expect(after?.body).toBe(body.trimEnd());
+    expect(after?.fileContents).toEqual([{ path: "ref.md", content: "keep" }]);
+    expect(after?.author).toBe("agent");
+    expect(after?.raw).toBe(`---\ndescription: Make PDFs\ninvoke: tool\n---\n${body}`);
+  });
+
+  it("switching tool to manual replaces the line; manual to auto removes it", async () => {
+    bucket.seed("pdf", "---\ndescription: Doc\ninvoke: tool\n---\n# Body\n");
+    expect(await setSkillInvokeMode("pdf", "manual")).toMatchObject({ ok: true });
+    expect((await readSkill("pdf"))?.raw).toBe("---\ndescription: Doc\ninvoke: manual\n---\n# Body\n");
+    expect(await setSkillInvokeMode("pdf", "auto")).toMatchObject({ ok: true });
+    expect((await readSkill("pdf"))?.raw).toBe("---\ndescription: Doc\n---\n# Body\n");
+    expect((await readSkill("pdf"))?.invoke).toBe("auto");
+  });
+
+  it("an already-correct mode is a no-op success — nothing written", async () => {
+    bucket.seed("pdf", skillMd("Doc", "# Body.", "invoke: manual\n"));
+    const puts = bucket.puts.length;
+    expect(await setSkillInvokeMode("pdf", "manual")).toEqual({ ok: true, id: "pdf" });
+    expect(bucket.puts.length).toBe(puts);
+  });
+
+  it("unknown ids, bad ids, and an unconfigured store are values", async () => {
+    bucket.seed("pdf", skillMd("Doc"));
+    expect(await setSkillInvokeMode("nope", "tool")).toMatchObject({ ok: false, code: "unknown-skill" });
+    expect(await setSkillInvokeMode("Bad", "tool")).toMatchObject({ ok: false, code: "invalid" });
+    __setGatewayForTests(null);
+    expect(await setSkillInvokeMode("pdf", "tool")).toMatchObject({ ok: false, code: "unconfigured" });
+  });
+
+  it("validateSkillInput rejects an invoke value outside the three", () => {
+    const input = (extra: string) => ({ id: "pdf", body: `---\ndescription: Doc\n${extra}\n---\nBody` });
+    expect(validateSkillInput(input("invoke: always"))).toContainEqual('invoke must be one of auto, tool, manual (got "always")');
+    expect(validateSkillInput(input("invoke: tool"))).toEqual([]);
+    expect(validateSkillInput(input("invoke: manual"))).toEqual([]);
+    expect(validateSkillInput(input("invoke: auto"))).toEqual([]);
   });
 });
