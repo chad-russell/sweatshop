@@ -3,6 +3,7 @@ import {
   __setGatewayForTests,
   listSkills,
   parseSkillMarkdown,
+  pingStore,
   readSkill,
   readSkillFile,
   saveSkill,
@@ -228,5 +229,26 @@ describe("saveSkill", () => {
     expect(res).toMatchObject({ ok: false, code: "store-error" });
     expect(bucket.objects.has("torn/manifest.json")).toBe(false);
     expect(await listSkills()).toEqual([]);
+  });
+});
+
+describe("pingStore (0090 §2)", () => {
+  it("is a live list, not the cached listing — a warm cache still hits the bucket", async () => {
+    bucket.seed("warm", skillMd("cached"));
+    await status(); // warm the 60 s listing cache
+    const before = bucket.lists;
+    expect(await pingStore()).toEqual({ ok: true, detail: "connected" });
+    expect(bucket.lists).toBeGreaterThan(before);
+  });
+
+  it("reports an unconfigured store without touching anything", async () => {
+    __setGatewayForTests(null);
+    expect(await pingStore()).toEqual({ ok: false, detail: "not configured (SKILLS_S3_* env)" });
+  });
+
+  it("a failing list is a value, and lands in lastError for the status card", async () => {
+    bucket.failList = new Error("fetch boom");
+    await expect(pingStore()).resolves.toEqual({ ok: false, detail: "fetch boom" });
+    expect((await status()).lastError).toBe("fetch boom");
   });
 });
