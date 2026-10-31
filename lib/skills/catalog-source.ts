@@ -76,7 +76,7 @@ function githubToken(): string | undefined {
 async function fetchJson<T>(url: string, headers: Record<string, string>, fetchImpl: FetchImpl): Promise<{ ok: true; value: T } | { ok: false; message: string }> {
   try {
     const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (!res.ok) return { ok: false, message: `GitHub ${res.status} for ${url}` };
+    if (!res.ok) return { ok: false, message: `${res.status} for ${url}` };
     return { ok: true, value: (await res.json()) as T };
   } catch (err) {
     return { ok: false, message: message(err) };
@@ -115,6 +115,82 @@ export function catalogDescription(raw: string): string {
   return text.length > 500 ? text.slice(0, 499).trimEnd() + "…" : text;
 }
 
+// ---- federated search (0091 §1) ---------------------------------------------
+
+/** One SkillsMP row mapped to an install target. SkillsMP is a
+ * directory, never a content source — content still comes from GitHub
+ * at a pinned sha. */
+export interface SearchResult {
+  /** The skill folder's name — the install id. */
+  id: string;
+  name: string;
+  author: string;
+  description: string;
+  stars: number;
+  repo: string;
+  path: string;
+  ref: string;
+}
+
+export type CatalogSearch =
+  | { ok: true; results: SearchResult[] }
+  | { ok: false; message: string };
+
+const SEARCH_TTL_MS = 5 * 60_000;
+const searchCache = new Map<string, { at: number; result: CatalogSearch }>();
+
+interface SkillsMpEnvelope {
+  data?: { skills?: Record<string, unknown>[] };
+}
+
+/** github.com/<owner>/<repo>/(tree|blob)/<ref>/<path> — the path points
+ * at the skill folder itself (SKILL.md-suffixed links tolerated). */
+const GITHUB_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/(?:tree|blob)\/([^/]+)\/(.+)$/;
+
+function searchResultFromRow(row: Record<string, unknown>): SearchResult | null {
+  const m = typeof row.githubUrl === "string" ? GITHUB_URL.exec(row.githubUrl) : null;
+  if (!m) return null;
+  const [, owner, repo, ref, rawPath] = m;
+  const path = rawPath.replace(/\/+$/, "").replace(/\/SKILL\.md$/, "");
+  const id = path.slice(path.lastIndexOf("/") + 1);
+  if (!SKILL_ID.test(id)) return null;
+  return {
+    id,
+    name: typeof row.name === "string" && row.name ? row.name : id,
+    author: typeof row.author === "string" ? row.author : "",
+    description: typeof row.description === "string" ? row.description : "",
+    stars: typeof row.stars === "number" ? row.stars : 0,
+    repo: `${owner}/${repo}`,
+    path,
+    ref,
+  };
+}
+
+/** SkillsMP search across the public skill banks — pages 1-2 in
+ * parallel (40 rows), githubUrl parsed into owner/repo/ref/path,
+ * unparseable rows skipped, cached 5 min per query. No custom
+ * User-Agent: the API 403s browser-shaped requests. */
+export async function searchCatalogs(query: string, opts?: { fetchImpl?: FetchImpl }): Promise<CatalogSearch> {
+  const q = query.trim();
+  if (!q) return { ok: false, message: "empty query" };
+  const cacheKey = q.toLowerCase();
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < SEARCH_TTL_MS) return cached.result;
+  const fetchImpl = opts?.fetchImpl ?? fetch;
+  const url = (page: number) => `https://skillsmp.com/api/v1/skills/search?q=${encodeURIComponent(q)}&page=${page}`;
+  const [p1, p2] = await Promise.all([1, 2].map((page) => fetchJson<SkillsMpEnvelope>(url(page), {}, fetchImpl)));
+  if (!p1.ok && !p2.ok) return { ok: false, message: p1.message };
+  const rows = [...(p1.ok ? p1.value.data?.skills ?? [] : []), ...(p2.ok ? p2.value.data?.skills ?? [] : [])];
+  const byTarget = new Map<string, SearchResult>();
+  for (const row of rows) {
+    const result = searchResultFromRow(row);
+    if (result && !byTarget.has(`${result.repo}|${result.path}`)) byTarget.set(`${result.repo}|${result.path}`, result);
+  }
+  const result: CatalogSearch = { ok: true, results: [...byTarget.values()] };
+  searchCache.set(cacheKey, { at: Date.now(), result });
+  return result;
+}
+
 // ---- the tree (one call, cached) ------------------------------------------
 
 interface TreeFolder {
@@ -138,6 +214,7 @@ const listCache = new Map<string, { at: number; result: CatalogList }>();
 export function __resetCatalogCacheForTests(): void {
   treeCache.clear();
   listCache.clear();
+  searchCache.clear();
 }
 
 async function loadTree(def: SourceDef, fetchImpl: FetchImpl): Promise<TreeCache | { error: string }> {

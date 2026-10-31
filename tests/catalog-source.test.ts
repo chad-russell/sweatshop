@@ -7,6 +7,7 @@ import {
   installCatalogSkill,
   listCatalog,
   previewCatalogSkill,
+  searchCatalogs,
   type CatalogSourceId,
 } from "../lib/skills/catalog-source";
 import { __setGatewayForTests, readSkill } from "../lib/skills/store";
@@ -247,5 +248,85 @@ describe("catalogDescription (folded YAML, live anthropics shapes)", () => {
     const out = catalogDescription(raw);
     expect(out.length).toBe(500);
     expect(out.endsWith("…")).toBe(true);
+  });
+});
+
+describe("searchCatalogs (0091 §1)", () => {
+  const row = (over: Record<string, unknown>) => ({
+    name: "Nano PDF",
+    author: "openclaw",
+    description: "Tiny PDF tool",
+    stars: 42,
+    ...over,
+  });
+  const page = (skills: Record<string, unknown>[]) =>
+    new Response(JSON.stringify({ success: true, data: { skills } }), { status: 200 });
+  let calls: string[] = [];
+  const skillsmp = (p1: Record<string, unknown>[], p2?: Record<string, unknown>[], failPage2 = false) =>
+    async (url: string): Promise<Response> => {
+      calls.push(url);
+      if (url.includes("page=1")) return page(p1);
+      if (url.includes("page=2")) {
+        if (failPage2) return new Response("boom", { status: 503 });
+        return page(p2 ?? []);
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+
+  beforeEach(() => {
+    calls = [];
+  });
+
+  it("merges two pages, parses githubUrl into owner/repo/ref/path", async () => {
+    const res = await searchCatalogs("pdf", {
+      fetchImpl: skillsmp(
+        [
+          row({ githubUrl: "https://github.com/openclaw/openclaw/tree/main/skills/nano-pdf" }),
+          row({ githubUrl: "https://github.com/mattpocock/skills/tree/v1/docs/pdf-tools" }),
+        ],
+        [row({ name: "Other PDF", githubUrl: "https://github.com/openclaw/openclaw/blob/main/skills/pdf-merge" })],
+      ),
+    });
+    expect(res.ok && res.results).toEqual([
+      { id: "nano-pdf", name: "Nano PDF", author: "openclaw", description: "Tiny PDF tool", stars: 42, repo: "openclaw/openclaw", path: "skills/nano-pdf", ref: "main" },
+      { id: "pdf-tools", name: "Nano PDF", author: "openclaw", description: "Tiny PDF tool", stars: 42, repo: "mattpocock/skills", path: "docs/pdf-tools", ref: "v1" },
+      { id: "pdf-merge", name: "Other PDF", author: "openclaw", description: "Tiny PDF tool", stars: 42, repo: "openclaw/openclaw", path: "skills/pdf-merge", ref: "main" },
+    ]);
+  });
+
+  it("skips unmatched githubUrls and invalid folder ids; dedupes repo+path", async () => {
+    const res = await searchCatalogs("pdf", {
+      fetchImpl: skillsmp([
+        row({ githubUrl: "https://github.com/openclaw/openclaw" }), // repo root
+        row({ githubUrl: "https://gitlab.com/x/y/tree/main/skills/pdf" }), // not github
+        row({ githubUrl: "https://github.com/a/b/tree/main/skills/My.Skill" }), // bad id
+        row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf/SKILL.md" }), // file link
+        row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf/" }), // trailing slash, dup target
+      ]),
+    });
+    expect(res.ok && res.results).toEqual([
+      { id: "pdf", name: "Nano PDF", author: "openclaw", description: "Tiny PDF tool", stars: 42, repo: "a/b", path: "skills/pdf", ref: "main" },
+    ]);
+  });
+
+  it("caches per query for 5 minutes — a second call makes no fetches; case-insensitive key", async () => {
+    await searchCatalogs("PDF ", { fetchImpl: skillsmp([row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf" })]) });
+    const before = calls.length;
+    await searchCatalogs("pdf", { fetchImpl: skillsmp([row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf" })]) });
+    expect(calls.length).toBe(before);
+  });
+
+  it("one failed page keeps the other's rows; both failing is a value", async () => {
+    const partial = await searchCatalogs("pdf", {
+      fetchImpl: skillsmp([row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf" })], [], true),
+    });
+    expect(partial.ok && partial.results.length).toBe(1);
+
+    const dead = async () => new Response("down", { status: 503 });
+    await expect(searchCatalogs("gone", { fetchImpl: dead })).resolves.toMatchObject({ ok: false, message: expect.stringContaining("503") });
+  });
+
+  it("an empty query is a value", async () => {
+    await expect(searchCatalogs("   ")).resolves.toMatchObject({ ok: false, message: "empty query" });
   });
 });
