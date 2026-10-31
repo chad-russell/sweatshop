@@ -314,6 +314,7 @@ export type ParsedOrigin = { ok: true; value: SkillOrigin } | { ok: false; messa
  * anything about the remote is a value from the call itself. */
 export function parseSkillOrigin(input: { origin?: unknown; source?: unknown; repo?: unknown; path?: unknown }): ParsedOrigin {
   if (input.origin === undefined || input.origin === "source") {
+    if (input.source !== undefined && typeof input.source !== "string") return { ok: false, message: "source must be a string" };
     const sourceId = typeof input.source === "string" && input.source ? input.source : "anthropics";
     if (!sourceById(sourceId)) return { ok: false, message: `unknown catalog source "${sourceId}"` };
     return { ok: true, value: { origin: "source", source: sourceId } };

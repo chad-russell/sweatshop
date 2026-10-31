@@ -163,7 +163,7 @@ function CatalogPanel({ source, localIds }: { source: (typeof SOURCES)[number]; 
     setPreview(null);
     setPreviewError(null);
     setInstallError(null);
-    const res = await previewCatalogRequest(id, source.id);
+    const res = await previewCatalogRequest(id, { origin: "source", source: source.id });
     if ("error" in res) setPreviewError(res.error);
     else if (!res.ok) setPreviewError(res.message);
     else setPreview(res.skill);
@@ -173,7 +173,7 @@ function CatalogPanel({ source, localIds }: { source: (typeof SOURCES)[number]; 
     setInstalling(id);
     setInstallError(null);
     try {
-      const res = await installCatalogRequest(id, source.id);
+      const res = await installCatalogRequest(id, { origin: "source", source: source.id });
       if ("error" in res) setInstallError(res.error);
       else if (!res.ok) setInstallError(res.message ?? "install failed");
       else {
