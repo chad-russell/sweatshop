@@ -36,9 +36,12 @@ export async function skillToolStep(_conversationId: string, id?: string, file?:
     import("../../../lib/agent/owner"),
   ]);
   const listed = await listSkills();
+  // 0091 §2: rows carry invoke so the model sees modes (manual skills
+  // are not listed — but an explicit id read still reaches them below).
   const catalog = listed.map((s) => ({
     id: s.id,
     description: renderOwnerPlaceholders(s.description),
+    invoke: s.invoke === "tool" ? ("tool" as const) : ("auto" as const),
     files: s.files,
   }));
   if (!id) return { ok: true, skills: catalog };
