@@ -40,7 +40,9 @@ export async function loadTurnHistory(
  * persisted-history length — stable for a given run (replay-safe), never
  * colliding across turns (history only grows). 0015: the send's viewing
  * context rides as row metadata (the note is rebuilt from it each turn);
- * 0055: so does the turn's thread-state (mode + phase), same treatment.
+ * 0055: so does the turn's thread-state (mode + phase), same treatment;
+ * 0091 §3: so do the send's attached skills — ids for the chips, the
+ * rendered section for byte-stable replay.
  * These are independent facts about the same row, so they merge into
  * ONE metadata object — a second `{ metadata: {...} }` spread would
  * silently clobber the first instead of adding to it.
@@ -55,6 +57,11 @@ export async function recordUserMessage(
   attachmentIds?: string[],
   /** 0055: the mode/phase this turn ran in, when moded. */
   threadState?: import("../../../db/chat").MessageRowMetadata["threadState"],
+  /** 0091 §3: the skill ids attached to this send (chips + facts). */
+  attachedSkills?: string[],
+  /** 0091 §3: the rendered `# Attached skills` section the model sees
+   * this turn — stamped here so later turns replay it verbatim. */
+  attachedSkillsNote?: string,
 ): Promise<UserContent> {
   "use step";
   const { db, chat } = await chatStore();
@@ -79,6 +86,8 @@ export async function recordUserMessage(
   if (viewing) metadata.viewing = viewing;
   if (runEvent) metadata.runEvent = runEvent;
   if (threadState) metadata.threadState = threadState;
+  if (attachedSkills && attachedSkills.length > 0) metadata.attachedSkills = attachedSkills;
+  if (attachedSkillsNote) metadata.attachedSkillsNote = attachedSkillsNote;
   chat.appendMessages(db, conversationId, [
     {
       id: `t_${conversationId}_${seq}`,

@@ -65,4 +65,4 @@ export type { PromptChangeCard } from "./prompt-change";
 export { resolveAskOwnerCardStep } from "./ask-owner";
 
 export type { CreateProjectToolInput } from "./projects";
-export { loadSkillsCatalogStep, saveSkillApplyStep, saveSkillPreviewStep, skillToolStep } from "./skills";
+export { loadAttachedSkillsStep, renderAttachedSkillsNote, loadSkillsCatalogStep, saveSkillApplyStep, saveSkillPreviewStep, skillToolStep } from "./skills";

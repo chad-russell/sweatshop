@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DELETE } from "../app/api/settings/skills/[id]/route";
+import { GET as getAttachables } from "../app/api/settings/skills/attachables/route";
 import { PUT } from "../app/api/settings/skills/[id]/status/route";
 import { __setGatewayForTests, listAllSkills, readSkill } from "../lib/skills/store";
 import { FakeBucket, skillMd } from "./helpers/fake-bucket";
@@ -90,5 +91,29 @@ describe("DELETE /api/settings/skills/[id] (0090 §5)", () => {
     const res = await DELETE(deleteRequest(), params("nope"));
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ ok: false, code: "unknown-skill" });
+  });
+});
+
+describe("GET /api/settings/skills/attachables (0091 §3)", () => {
+  it("lists manual first, then tool, then auto; disabled excluded", async () => {
+    bucket.seed("aaa", skillMd("Auto one"));
+    bucket.seed("zzz", skillMd("Manual one", "# x", "invoke: manual\n"));
+    bucket.seed("mid", skillMd("Tool one", "# x", "invoke: tool\n"));
+    bucket.seed("off", skillMd("Hidden", "# x", "status: disabled\n"));
+    const res = await getAttachables();
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      ok: true,
+      skills: [
+        { id: "zzz", description: "Manual one", invoke: "manual" },
+        { id: "mid", description: "Tool one", invoke: "tool" },
+        { id: "aaa", description: "Auto one", invoke: "auto" },
+      ],
+    });
+  });
+
+  it("an empty store is an empty list, never an error", async () => {
+    const res = await getAttachables();
+    await expect(res.json()).resolves.toEqual({ ok: true, skills: [] });
   });
 });

@@ -8,6 +8,10 @@
 
 export type CatalogSourceId = "anthropics" | "superpowers" | "openclaw";
 
+/** 0091 §3: how many skills one send may attach. Client-safe here so
+ * the composer's cap and the route's validation share one number. */
+export const MAX_ATTACHED_SKILLS = 4;
+
 export interface SourceDef {
   id: CatalogSourceId;
   owner: string;

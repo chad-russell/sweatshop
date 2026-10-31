@@ -10,6 +10,8 @@
 
 ## 2026-10-31
 
+- **Added** Attach a skill to any message: the composer's + menu now has "Add skill…" — pick up to 4 and their full runbooks ride that one message (chips show in the transcript too).
+
 - **Added** Control how the agent uses each skill: Auto (listed, loads on demand), Tool (hidden from chat, mounted into harness runs), or Manual (only when you attach it) — set per skill on its page.
 
 - **Added** Find skills anywhere: the Skills page searches the public skill banks (SkillsMP) — preview, then install straight into your store. obra/superpowers and openclaw joined anthropics as browsable sources.

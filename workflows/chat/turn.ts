@@ -16,6 +16,7 @@ import {
   loadPromptSectionsStep,
   loadProjectContextStep,
   loadRepoDocsStep,
+  loadAttachedSkillsStep,
   loadSkillsCatalogStep,
   loadTurnHistory,
   maybeTitleStep,
@@ -60,6 +61,9 @@ export interface ChatTurnInput {
   userText: string;
   /** 0042: ids of uploaded images riding this send (claimed on record). */
   attachments?: string[];
+  /** 0091 §3: skill ids attached to this send — full bodies inlined as
+   * a `# Attached skills` user message, excluded from the appendix. */
+  attachedSkills?: string[];
   /** 0013: the conversation has a sandbox binding (pending or bound);
    *  false omits the sandboxed tools. */
   hasSandbox?: boolean;
@@ -92,6 +96,12 @@ export async function chatTurn(input: ChatTurnInput) {
   // byte-identical, and listTurnMessages replays the stored text.
   const derived = deriveOutline(history);
   const stateNote = renderThreadStateNote(derived);
+  // 0091 §3: attached skills' full bodies, inlined ahead of the send —
+  // rendered ONCE here and replayed verbatim from the row's metadata on
+  // every later turn (byte-stable history; the store may change under us).
+  const attached = input.attachedSkills
+    ? await loadAttachedSkillsStep(input.attachedSkills)
+    : { note: null, attached: [] };
   const userContent = await recordUserMessage(
     conversationId,
     userText,
@@ -100,6 +110,8 @@ export async function chatTurn(input: ChatTurnInput) {
     input.runEvent,
     input.attachments,
     stateNote ?? undefined,
+    attached.attached,
+    attached.note ?? undefined,
   );
 
   // 0021: resolved per turn (a picker change or a /settings swap takes
@@ -126,7 +138,8 @@ export async function chatTurn(input: ChatTurnInput) {
   // project conversation can have a project at all.
   const project = input.hasProject === true ? await loadProjectContextStep(conversationId) : null;
   // 0088: the skills appendix — empty when the store is unconfigured/down.
-  const skillsCatalog = await loadSkillsCatalogStep();
+  // 0091 §3: this send's attached skills are excluded (already inlined).
+  const skillsCatalog = await loadSkillsCatalogStep(attached.attached);
   const agent = new WorkflowAgent({
     model,
     instructions: buildInstructions({
@@ -163,6 +176,7 @@ export async function chatTurn(input: ChatTurnInput) {
     ...history,
     ...(input.viewing ? [{ role: "user" as const, content: viewingNote(input.viewing) }] : []),
     ...(stateNote ? [{ role: "user" as const, content: stateNote }] : []),
+    ...(attached.note ? [{ role: "user" as const, content: attached.note }] : []),
     { role: "user", content: userContent },
   ];
   let finishReason: string = "stop";
@@ -179,7 +193,7 @@ export async function chatTurn(input: ChatTurnInput) {
   let lastSliceUsage: UsageCounts | null = null;
   // skip = everything already persisted (loaded history + this turn's
   // user message) plus the injected notes, which sit right before it.
-  const skip = history.length + (input.viewing ? 1 : 0) + (stateNote ? 1 : 0) + 1;
+  const skip = history.length + (input.viewing ? 1 : 0) + (stateNote ? 1 : 0) + (attached.note ? 1 : 0) + 1;
   // 0082: the repetition guard's turn-scoped state. Plain local state,
   // not a step: it is purely DERIVED from `messages`, which itself only
   // ever holds step-returned, replay-stable data — recomputing it from

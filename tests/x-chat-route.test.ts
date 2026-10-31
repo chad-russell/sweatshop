@@ -224,13 +224,13 @@ describe("POST /api/x/chat stream shape (0076 followup to #19)", () => {
   }
 
   /** A transport send (`messages`, no explicit `text`) — wantsStream. */
-  const sendStream = (conversationId: string, text: string) =>
+  const sendStream = (conversationId: string, text: string, metadata?: unknown) =>
     postChat(
       new Request("http://x/api/x/chat", {
         method: "POST",
         body: JSON.stringify({
           conversationId,
-          messages: [{ role: "user", parts: [{ type: "text", text }] }],
+          messages: [{ role: "user", parts: [{ type: "text", text }], ...(metadata !== undefined ? { metadata } : {}) }],
         }),
       }),
     );
@@ -278,5 +278,60 @@ describe("POST /api/x/chat stream shape (0076 followup to #19)", () => {
     expect(parts.map((p) => p.type)).toContain("text-delta");
     expect(parts.find((p) => p.type === "text-delta")?.delta).toBe("fresh-turn-text");
     expect(parts.at(-1)?.type).toBe("finish");
+  });
+});
+
+describe("POST /api/x/chat attached skills (0091 §3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    startChatTurnMock.mockResolvedValue({ runId: "run_attach_1" });
+    getReadableMock.mockReturnValue(
+      new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    );
+  });
+
+  const sendWith = (attachedSkills: unknown) => {
+    ensureConversation(db(), "c_attach_route");
+    return postChat(
+      new Request("http://x/api/x/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          conversationId: "c_attach_route",
+          messages: [{ role: "user", parts: [{ type: "text", text: "go" }], metadata: { attachedSkills } }],
+        }),
+      }),
+    );
+  };
+
+  it("threads valid ids to startChatTurn as the 6th argument", async () => {
+    const res = await sendWith(["pdf", "deploy"]);
+    expect(res.status).toBe(200);
+    expect(startChatTurnMock).toHaveBeenCalledWith(
+      "c_attach_route",
+      "go",
+      undefined,
+      undefined,
+      [],
+      ["pdf", "deploy"],
+    );
+  });
+
+  it("an absent field sends undefined — no attach", async () => {
+    await sendWith(undefined);
+    expect(startChatTurnMock).toHaveBeenCalled();
+    expect(startChatTurnMock.mock.calls[0][5]).toBeUndefined();
+  });
+
+  it("rejects non-arrays, bad ids, and more than 4 with 400", async () => {
+    for (const bad of ["pdf", [7], ["PDF"], ["a", "b", "c", "d", "e"]]) {
+      const res = await sendWith(bad);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain("attachedSkills");
+    }
+    expect(startChatTurnMock).not.toHaveBeenCalled();
   });
 });

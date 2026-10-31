@@ -4,6 +4,7 @@ import { ensureConversation, getPendingInputCard, listPendingInputs } from "../d
 import { loadHarnessSkills } from "../lib/harness-skills";
 import { __setGatewayForTests } from "../lib/skills/store";
 import { buildChatTools } from "../workflows/chat/tools";
+import { loadAttachedSkillsStep, loadSkillsCatalogStep, renderAttachedSkillsNote } from "../workflows/chat/steps/skills";
 import { FakeBucket, skillMd } from "./helpers/fake-bucket";
 
 /**
@@ -160,5 +161,40 @@ describe("loadHarnessSkills", () => {
     expect(await loadHarnessSkills()).toEqual([]);
     __setGatewayForTests(null);
     expect(await loadHarnessSkills()).toEqual([]);
+  });
+});
+
+describe("attached skills (0091 §3)", () => {
+  it("renderAttachedSkillsNote inlines each id, description, and body", () => {
+    expect(
+      renderAttachedSkillsNote([{ id: "pdf", description: "Make PDFs", body: "# Run\n\nDo it." }]),
+    ).toBe("# Attached skills\n\n## pdf\n\nMake PDFs\n\n# Run\n\nDo it.");
+  });
+
+  it("loadAttachedSkillsStep drops unknown, disabled, and duplicate ids silently", async () => {
+    process.env.SWEATSHOP_OWNER_NAME = "Pat";
+    try {
+      bucket.seed("pdf", skillMd("Make PDFs for {{owner}}", "# Run.\n\nAsk {{owner}}."));
+      bucket.seed("off", skillMd("Hidden", "# x", "status: disabled\n"));
+      const res = await loadAttachedSkillsStep(["pdf", "nope", "off", "pdf"]);
+      expect(res.attached).toEqual(["pdf"]);
+      expect(res.note).toContain("## pdf");
+      expect(res.note).toContain("Make PDFs for Pat");
+      expect(res.note).toContain("Ask Pat.");
+      expect(res.note).not.toContain("nope");
+    } finally {
+      delete process.env.SWEATSHOP_OWNER_NAME;
+    }
+  });
+
+  it("an empty or fully-dropped set renders no note; the catalog step excludes attached ids", async () => {
+    bucket.seed("pdf", skillMd("Make PDFs"));
+    bucket.seed("a", skillMd("Does A"));
+    expect(await loadAttachedSkillsStep([])).toEqual({ note: null, attached: [] });
+    expect(await loadAttachedSkillsStep(["gone"])).toEqual({ note: null, attached: [] });
+    const catalog = await loadSkillsCatalogStep(["pdf"]);
+    expect(catalog.map((s) => s.id)).toEqual(["a"]);
+    const full = await loadSkillsCatalogStep();
+    expect(full.map((s) => s.id)).toEqual(["a", "pdf"]);
   });
 });

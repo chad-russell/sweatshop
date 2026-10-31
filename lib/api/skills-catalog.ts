@@ -91,3 +91,20 @@ export async function installCatalogRequest(id: string, origin: SkillOrigin = DE
   if (res.ok && res.body) return res.body;
   return { error: (res.body as { error?: string } | null)?.error ?? `install failed (${res.status})` };
 }
+
+/** 0091 §3: the composer picker's attachable list — manual/tool first,
+ * then auto; disabled excluded. A down store reads as empty. */
+export interface AttachableSkill {
+  id: string;
+  description: string;
+  invoke: InvokeMode;
+}
+
+export async function fetchAttachableSkills(): Promise<AttachableSkill[] | { error: string }> {
+  const res = await apiFetch<{ ok: boolean; skills?: AttachableSkill[]; error?: string }>(
+    "/api/settings/skills/attachables",
+  );
+  if (res.ok && res.body?.skills) return res.body.skills;
+  const error = (res.body as { error?: string } | null)?.error;
+  return { error: error ?? `could not load skills (${res.status})` };
+}

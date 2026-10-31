@@ -33,6 +33,15 @@ export interface MessageRowMetadata {
    *  prefix holds instead of invalidating every turn) without
    *  re-deriving the outline (lib/outline.ts `renderThreadStateNote`). */
   threadState?: string;
+  /** 0091 §3: on a turn's user row — the skill ids attached to that
+   * send (transcript chips). The ids are facts about the row; the
+   * RENDERED section below is what the model saw, replayed verbatim. */
+  attachedSkills?: string[];
+  /** 0091 §3: the rendered `# Attached skills` section this turn's
+   * model input carried, stored pre-rendered (like threadState) so
+   * listTurnMessages replays it byte-identical — the skill bodies may
+   * change in the store later, but history must not. */
+  attachedSkillsNote?: string;
   /** 0040 phase 3: on the turn's LAST assistant row — the turn ended by
    *  hitting its step budget, not by the model choosing to stop (so that
    *  row's text is often just a dangling `[tool …]` placeholder). Durable
@@ -120,8 +129,9 @@ export function listModelMessages(db: Db, conversationId: string): ModelMessage[
 
 /**
  * The turn's model input (0015): the persisted history with each user
- * message's viewing note, then its thread-state note (0055), injected
- * as user-role messages right before it — so a later turn still knows
+ * message's viewing note, then its thread-state note (0055), then its
+ * attached-skills section (0091 §3), injected as user-role messages
+ * right before it — so a later turn still knows
  * what "this" was and what mode/phase that turn ran in. (The agent
  * forbids system messages in `messages`.) Both notes live as row
  * metadata, never as text; this is the only place they become
@@ -141,6 +151,7 @@ export function listTurnMessages(db: Db, conversationId: string): ModelMessage[]
     const metadata = row.metadata ? (JSON.parse(row.metadata) as MessageRowMetadata) : undefined;
     if (metadata?.viewing) out.push({ role: "user", content: viewingNote(metadata.viewing) });
     if (metadata?.threadState) out.push({ role: "user", content: metadata.threadState });
+    if (metadata?.attachedSkillsNote) out.push({ role: "user", content: metadata.attachedSkillsNote });
     out.push(JSON.parse(row.modelMessage!) as ModelMessage);
   }
   return out;

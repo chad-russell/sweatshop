@@ -1,11 +1,12 @@
 "use client";
 
 import type { FileUIPart } from "ai";
-import { PlusIcon, XIcon } from "lucide-react";
+import { BookOpenIcon, PlusIcon, XIcon } from "lucide-react";
 import {
   PromptInputActionAddAttachments,
   PromptInputActionMenu,
   PromptInputActionMenuContent,
+  PromptInputActionMenuItem,
   PromptInputActionMenuTrigger,
   PromptInputHeader,
   usePromptInputAttachments,
@@ -33,13 +34,14 @@ export function attachmentErrorMessage(code: "max_files" | "max_file_size" | "ac
 }
 
 /** The `+` button: a menu with "Add photos" (the OS offers camera and
- *  library on a phone). Disabled while a turn runs — images cannot steer. */
-export function ComposerAddButton({ disabled }: { disabled?: boolean }) {
+ *  library on a phone) and 0091 §3's "Add skill…". Disabled while a
+ *  turn runs — images and skills cannot steer. */
+export function ComposerAddButton({ disabled, onAddSkill }: { disabled?: boolean; onAddSkill?: () => void }) {
   return (
     <PromptInputActionMenu>
       <PromptInputActionMenuTrigger
-        aria-label="Add photos"
-        title={disabled ? "Wait for the turn to finish to add images" : "Add photos"}
+        aria-label="Add photos or skills"
+        title={disabled ? "Wait for the turn to finish to add images or skills" : "Add photos or skills"}
         disabled={disabled}
         className="rounded-full pointer-coarse:size-10"
       >
@@ -47,6 +49,12 @@ export function ComposerAddButton({ disabled }: { disabled?: boolean }) {
       </PromptInputActionMenuTrigger>
       <PromptInputActionMenuContent className="max-w-[calc(100vw-1rem)]">
         <PromptInputActionAddAttachments label="Add photos" />
+        {onAddSkill && (
+          <PromptInputActionMenuItem onSelect={onAddSkill}>
+            <BookOpenIcon className="size-4" aria-hidden />
+            Add skill…
+          </PromptInputActionMenuItem>
+        )}
       </PromptInputActionMenuContent>
     </PromptInputActionMenu>
   );

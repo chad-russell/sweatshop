@@ -1,3 +1,4 @@
+import { renderOwnerPlaceholders } from "../../../lib/agent/owner";
 import { diffLines } from "../../../lib/text-diff";
 import type { PromptChangeCard } from "./prompt-change";
 
@@ -17,15 +18,57 @@ export interface SkillSaveInput {
 
 /** The turn's `# Skills` appendix source — empty when unconfigured or down.
  *  0091 §2: rows carry `invoke`; listSkills already drops manual and
- *  disabled skills, so the appendix only ever sees auto + tool rows. */
-export async function loadSkillsCatalogStep(): Promise<{ id: string; description: string; invoke: "auto" | "tool" }[]> {
+ *  disabled skills, so the appendix only ever sees auto + tool rows.
+ *  0091 §3: ids attached to THIS send are excluded — their full bodies
+ *  are already inlined in the turn's `# Attached skills` message, so
+ *  the appendix must not double-list them. */
+export async function loadSkillsCatalogStep(
+  exclude?: readonly string[],
+): Promise<{ id: string; description: string; invoke: "auto" | "tool" }[]> {
   "use step";
   const { listSkills } = await import("../../../lib/skills/store");
   try {
-    return (await listSkills()).map(({ id, description, invoke }) => ({ id, description, invoke: invoke === "tool" ? "tool" : "auto" }));
+    const dropped = new Set(exclude ?? []);
+    return (await listSkills())
+      .filter(({ id }) => !dropped.has(id))
+      .map(({ id, description, invoke }) => ({ id, description, invoke: invoke === "tool" ? "tool" : "auto" }));
   } catch {
     return [];
   }
+}
+
+/** 0091 §3: render the attached skills as one `# Attached skills`
+ * section — attach is explicit intent, so the model gets the whole
+ * runbook inlined (no use_skill round-trip), each under its id and
+ * description. Pure: the step below reads, this renders. */
+export function renderAttachedSkillsNote(
+  skills: readonly { id: string; description: string; body: string }[],
+): string {
+  return [
+    "# Attached skills",
+    ...skills.map(({ id, description, body }) => `## ${id}\n\n${description}\n\n${renderOwnerPlaceholders(body)}`),
+  ].join("\n\n");
+}
+
+/** 0091 §3: read the send's attached skills. Unknown, disabled, or
+ * duplicate ids drop silently (a value, never a turn failure); the
+ * rendered section (or null when nothing attaches) rides the user row's
+ * metadata and is replayed verbatim on every later turn. */
+export async function loadAttachedSkillsStep(
+  ids: readonly string[],
+): Promise<{ note: string | null; attached: string[] }> {
+  "use step";
+  const { readSkill } = await import("../../../lib/skills/store");
+  const seen = new Set<string>();
+  const loaded: { id: string; description: string; body: string }[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const skill = await readSkill(id);
+    if (!skill || skill.disabled) continue;
+    loaded.push({ id: skill.id, description: renderOwnerPlaceholders(skill.description), body: skill.body });
+  }
+  return { note: loaded.length > 0 ? renderAttachedSkillsNote(loaded) : null, attached: loaded.map((s) => s.id) };
 }
 
 /** List skills, load a skill body, or load one of its supporting files. */

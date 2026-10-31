@@ -13,7 +13,7 @@ import type { LanguageModel } from "ai";
  * state resets between slices. (Real models are stateless the same way.)
  * SWEATSHOP_CHAT_MOCK ("plain" | "approve" | "question" |
  * "structured-question" | "steer" | "hang" | "create-pr" | "viewing" |
- * "thread-state" | "skill" | "loop" | "repeat" | "accept-plan" |
+ * "thread-state" | "skill" | "attach" | "loop" | "repeat" | "accept-plan" |
  * "outline-propose" | "enter-mode" | "cache") is read at call time so a
  * test file can switch scripts between turns.
  *
@@ -299,6 +299,19 @@ export function scriptedChatModel(): LanguageModel {
           }
         }
         return result(textPart(`mock-images:${seen.join("|")}`));
+      }
+
+      // 0091 §3: report how many `# Attached skills` sections the model
+      // was shown (this turn's + replayed history ones) and whether the
+      // skill "pdf" is still LISTED in the appendix instructions —
+      // attached ids must not double-list.
+      if (script === "attach") {
+        const sections = options.prompt.filter(
+          (m) => m.role === "user" && messageText(m).startsWith("# Attached skills"),
+        ).length;
+        // The appendix lives in the system message inside the prompt.
+        const listed = options.prompt.some((m) => messageText(m).includes("pdf — Make PDFs"));
+        return result(textPart(`mock-attach:${sections}:${listed ? "listed" : "omitted"}`));
       }
 
       // plain: reply with the user-message count — proves the turn loaded

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Eye } from "lucide-react";
+import { BookOpen, Check, Copy, Eye } from "lucide-react";
 import {
   Fragment,
   memo,
@@ -95,6 +95,24 @@ function ViewingChip({ viewing }: { viewing: ViewingContext }) {
   );
 }
 
+/** 0091 §3: the skills attached to that send — one mono chip per id,
+ * beside the viewing chip (the attachment is a fact about the row). */
+function AttachedSkillsChips({ ids }: { ids: readonly string[] }) {
+  return (
+    <span className="mb-1 inline-flex max-w-full flex-wrap items-center gap-1 self-start">
+      {ids.map((id) => (
+        <span
+          key={id}
+          className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
+        >
+          <BookOpen className="size-3 shrink-0" aria-hidden />
+          skill: {id}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** The "[run finished]" chip on a wake message (0022) — marks the user
  * row as machine-delivered, never Chad's own words. */
 function RunEventChip({ runEvent }: { runEvent: { kind: string; id: string; status: string } }) {
@@ -150,6 +168,7 @@ export const ChatMessageView = memo(function ChatMessageView({
   const runEvent = (
     message.metadata as { runEvent?: { kind: string; id: string; status: string } } | undefined
   )?.runEvent;
+  const attachedSkills = (message.metadata as { attachedSkills?: string[] } | undefined)?.attachedSkills;
   // The outline-edit row's text is the hidden machine payload — never
   // offered as copyable text.
   const copyable = runEvent?.kind !== "outline-edit" ? text : "";
@@ -286,6 +305,7 @@ export const ChatMessageView = memo(function ChatMessageView({
   return (
     <Message from={message.role}>
       {viewing && message.role === "user" && <ViewingChip viewing={viewing} />}
+      {attachedSkills && attachedSkills.length > 0 && message.role === "user" && <AttachedSkillsChips ids={attachedSkills} />}
       {runEvent && message.role === "user" && <RunEventChip runEvent={runEvent} />}
       <MessageContent>
         <MessageImages parts={message.parts} />
