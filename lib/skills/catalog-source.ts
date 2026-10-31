@@ -103,6 +103,28 @@ async function fetchText(url: string, fetchImpl: FetchImpl): Promise<{ ok: true;
   }
 }
 
+
+/** Public catalogs use full YAML (folded `>`/`|-` scalars, multi-line
+ * blocks) while our own store writes single-line descriptions. Parse the
+ * common shapes for DISPLAY: a folded/block scalar joins its indented
+ * continuation lines; a plain scalar keeps today's single line. */
+export function catalogDescription(raw: string): string {
+  const parsed = parseSkillMarkdown(raw);
+  if (parsed.description && parsed.description !== ">" && parsed.description !== "|") return parsed.description;
+  const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw);
+  const header = front?.[1] ?? "";
+  const m = /^description:\s*(>|\|)(-)?\s*\r?\n((?:[ \t]+.*(?:\r?\n|$))+)/m.exec(header);
+  if (!m) return parsed.description;
+  const joiner = m[1] === ">" ? " " : "\n";
+  const text = m[3]
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "")
+    .map((line) => line.trim())
+    .join(joiner)
+    .trim();
+  return text.length > 500 ? text.slice(0, 499).trimEnd() + "…" : text;
+}
+
 // ---- the tree (one call, cached) ------------------------------------------
 
 interface TreeFolder {
@@ -193,7 +215,7 @@ export async function listCatalog(
   for (const [i, folder] of listed.entries()) {
     const raw = raws[i];
     if (!raw.ok) continue; // unreadable SKILL.md → not a skill we can offer
-    const description = parseSkillMarkdown(raw.text).description;
+    const description = catalogDescription(raw.text);
     if (!description) continue;
     skills.push({
       id: folder.id,

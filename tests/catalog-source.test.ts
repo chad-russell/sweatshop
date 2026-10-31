@@ -3,6 +3,7 @@ import { db } from "../db";
 import { gitCredentials } from "../db/schema";
 import {
   __resetCatalogCacheForTests,
+  catalogDescription,
   installCatalogSkill,
   listCatalog,
   previewCatalogSkill,
@@ -193,5 +194,25 @@ describe("preview + install (0090 §7)", () => {
 
   it("an unknown source is a value", async () => {
     await expect(listCatalog("nope", { fetchImpl: github([]) })).resolves.toMatchObject({ ok: false, message: expect.stringContaining("unknown catalog source") });
+  });
+});
+
+describe("catalogDescription (folded YAML, live anthropics shapes)", () => {
+  it("joins a folded > scalar's continuation lines", () => {
+    const raw = "---\nname: x\ndescription: >\n  Stop and check this skill before finishing any reply.\n  Trigger on: how do I questions.\n---\n\nbody\n";
+    expect(catalogDescription(raw)).toBe(
+      "Stop and check this skill before finishing any reply. Trigger on: how do I questions.",
+    );
+  });
+
+  it("keeps a plain single-line description untouched", () => {
+    expect(catalogDescription("---\ndescription: plain line\n---\nbody")).toBe("plain line");
+  });
+
+  it("caps at 500 chars with an ellipsis", () => {
+    const raw = `---\ndescription: >\n  ${"x".repeat(600)}\n---\nbody`;
+    const out = catalogDescription(raw);
+    expect(out.length).toBe(500);
+    expect(out.endsWith("…")).toBe(true);
   });
 });
