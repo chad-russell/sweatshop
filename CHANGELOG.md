@@ -10,6 +10,8 @@
 
 ## 2026-10-30
 
+- **Added** Browse and install public skills: the Skills page gains an anthropics/skills tab — preview a skill before it touches your store, install with one click, and see where each installed skill came from.
+
 - **Added** Skills get a real catalog page under Settings → Skills: search your skills, read one rendered (with its files), and disable or delete it — the agent still writes, you curate.
 
 - **Added** Settings → Connections now shows every account the app uses (providers, harness logins, git hosts, the skills store) as cards with a live Test button and one-click next actions.
