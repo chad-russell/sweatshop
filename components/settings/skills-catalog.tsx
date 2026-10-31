@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { LocalTime } from "@/components/local-time";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
@@ -15,10 +15,13 @@ import {
 } from "@/components/ui/dialog";
 import { LABEL, MONO } from "@/components/form-styles";
 import { parseSkillMarkdown, type SkillSummary } from "@/lib/skills/store";
+import { SOURCES } from "@/lib/skills/sources";
+import type { SkillOrigin, SearchResult } from "@/lib/skills/catalog-source";
 import {
   installCatalogRequest,
   listCatalogRequest,
   previewCatalogRequest,
+  searchCatalogRequest,
   type CatalogEntry,
   type CatalogPreview,
 } from "@/lib/api/skills-catalog";
@@ -26,21 +29,28 @@ import {
 const INPUT = "h-8 w-full rounded-lg border border-border bg-background px-2 text-sm";
 const SEGMENT =
   "h-8 rounded-lg border border-border px-3 text-sm data-[active=true]:bg-secondary data-[active=true]:text-secondary-foreground text-muted-foreground";
-/** v1's single source label — static here so lib/skills/catalog-source
- * (a server module) never lands in the client bundle. */
-const SOURCE_LABEL = "anthropics/skills";
 
 const kb = (n: number) => (n < 1024 ? `${n} B` : `${Math.round(n / 1024)} KiB`);
 
+/** What the shared preview dialog is currently showing. */
+interface PreviewTarget {
+  origin: SkillOrigin;
+  id: string;
+  /** Where it comes from — the dialog's description line. */
+  label: string;
+}
+
 /**
- * 0090 §4/§7: the catalog — the owner's skills and public sources in one
- * place. "Yours" is the local list (0090 §4); a source tab (v1:
- * anthropics/skills) lists the repo's skills, previews before install
- * (the same trust surface as a save_skill approval), and installs with
- * provenance. Untrusted bodies are data — rendered, never executed.
+ * 0090 §4/§7 + 0091 §1: the catalog — the owner's skills and public
+ * discovery in one place. "Yours" is the local list (0090 §4); "Find
+ * skills" is SEARCH-first — SkillsMP queries the public banks, the
+ * curated SOURCES stay browsable below it. Every install previews first
+ * (the same trust surface as a save_skill approval) and writes with
+ * provenance; SkillsMP itself is never a content source. Untrusted
+ * bodies are data — rendered, never executed.
  */
 export function SkillsCatalog({ skills }: { skills: SkillSummary[] }) {
-  const [tab, setTab] = useState<"yours" | "source">("yours");
+  const [tab, setTab] = useState<"yours" | "find">("yours");
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const shown = q
@@ -56,16 +66,8 @@ export function SkillsCatalog({ skills }: { skills: SkillSummary[] }) {
         <Button size="sm" variant="ghost" className={SEGMENT} data-active={tab === "yours"} role="tab" aria-selected={tab === "yours"} onClick={() => setTab("yours")}>
           Yours
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className={SEGMENT}
-          data-active={tab === "source"}
-          role="tab"
-          aria-selected={tab === "source"}
-          onClick={() => setTab("source")}
-        >
-          {SOURCE_LABEL}
+        <Button size="sm" variant="ghost" className={SEGMENT} data-active={tab === "find"} role="tab" aria-selected={tab === "find"} onClick={() => setTab("find")}>
+          Find skills
         </Button>
       </div>
 
@@ -75,7 +77,11 @@ export function SkillsCatalog({ skills }: { skills: SkillSummary[] }) {
             <p>Skills are agent runbooks saved in your skills store.</p>
             <p className="mt-1 text-muted-foreground">
               Ask any chat: <Link className="underline underline-offset-4" href="/?prompt=Write%20a%20skill%20for%20">write a skill for …</Link>{" "}
-              — you approve every save — or browse {SOURCE_LABEL} above.
+              — you approve every save — or{" "}
+              <button type="button" className="underline underline-offset-4" onClick={() => setTab("find")}>
+                find one in the public catalog
+              </button>
+              .
             </p>
           </div>
         ) : (
@@ -121,60 +127,77 @@ export function SkillsCatalog({ skills }: { skills: SkillSummary[] }) {
           </>
         )
       ) : (
-        <CatalogPanel localIds={new Set(skills.map((s) => s.id))} />
+        <FindPanel localIds={new Set(skills.map((s) => s.id))} />
       )}
     </section>
   );
 }
 
-/** One public source's skills: list, preview dialog, install (0090 §7). */
-function CatalogPanel({ localIds }: { localIds: Set<string> }) {
+/** Search-first discovery: SkillsMP results on top, curated sources
+ * browsable below — one shared preview dialog and install path. */
+function FindPanel({ localIds }: { localIds: Set<string> }) {
   const router = useRouter();
-  const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
-  const [truncated, setTruncated] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<CatalogPreview | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // SkillsMP search state.
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  // Curated-source browse state.
+  const [sourceId, setSourceId] = useState<string>(SOURCES[0].id);
+  const browseSource = SOURCES.find((s) => s.id === sourceId) ?? SOURCES[0];
+
+  // Shared install + preview state.
   const [installing, setInstalling] = useState<string | null>(null);
   const [installed, setInstalled] = useState<string[]>([]);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
+  const [preview, setPreview] = useState<CatalogPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let live = true;
-    void listCatalogRequest()
-      .then((res) => {
-        if (!live) return;
-        if ("error" in res || !res.ok) setError("error" in res ? res.error : res.message);
-        else {
-          setEntries(res.skills);
-          setTruncated(res.truncated);
-        }
-      })
-      .catch(() => live && setError("could not reach the server"));
-    return () => {
-      live = false;
-    };
-  }, []);
+  const isInstalled = (id: string) => localIds.has(id) || installed.includes(id);
 
-  const openPreview = async (id: string) => {
+  const runSearch = async (event: FormEvent) => {
+    event.preventDefault();
+    const q = query.trim();
+    if (!q || searching) return;
+    setSearching(true);
+    setSearchError(null);
+    setResults(null);
+    try {
+      const res = await searchCatalogRequest(q);
+      if ("error" in res) setSearchError(res.error);
+      else if (!res.ok) setSearchError(res.message);
+      else setResults(res.results);
+    } catch {
+      setSearchError("could not reach the server");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const openPreview = async (target: PreviewTarget) => {
+    setPreviewTarget(target);
     setPreview(null);
     setPreviewError(null);
     setInstallError(null);
-    const res = await previewCatalogRequest(id);
+    const res = await previewCatalogRequest(target.id, target.origin);
     if ("error" in res) setPreviewError(res.error);
     else if (!res.ok) setPreviewError(res.message);
     else setPreview(res.skill);
   };
 
-  const install = async (id: string) => {
-    setInstalling(id);
+  const install = async (target: PreviewTarget) => {
+    setInstalling(target.id);
     setInstallError(null);
     try {
-      const res = await installCatalogRequest(id);
+      const res = await installCatalogRequest(target.id, target.origin);
       if ("error" in res) setInstallError(res.error);
       else if (!res.ok) setInstallError(res.message ?? "install failed");
       else {
-        setInstalled((prev) => [...prev, id]);
+        setInstalled((prev) => [...prev, target.id]);
+        setPreviewTarget(null);
         router.refresh(); // "Yours" gains the skill
       }
     } catch {
@@ -184,38 +207,99 @@ function CatalogPanel({ localIds }: { localIds: Set<string> }) {
     }
   };
 
-  if (error) return <p role="alert" className="rounded-lg border border-border p-4 text-sm text-destructive">{error}</p>;
-  if (entries === null) return <p className={LABEL}>Loading the catalog…</p>;
-  if (entries.length === 0) {
-    return <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">No skills found in this source.</p>;
-  }
-
   return (
-    <>
-      {truncated && <p className={LABEL}>Showing the first {entries.length} skills — the source holds more.</p>}
-      <ul className="divide-y divide-border rounded-lg border border-border">
-        {entries.map((entry) => {
-          const isInstalled = localIds.has(entry.id) || installed.includes(entry.id);
-          return (
-            <li key={entry.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
-              <button type="button" className={`${MONO} font-medium underline-offset-4 hover:underline`} onClick={() => void openPreview(entry.id)}>
-                {entry.id}
-              </button>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.description}</span>
-              <span className={LABEL}>
-                {entry.fileCount} file{entry.fileCount === 1 ? "" : "s"} · {kb(entry.sizeBytes)}
-              </span>
-              {isInstalled ? (
-                <span className={LABEL}>installed</span>
-              ) : (
-                <Button size="sm" variant="outline" disabled={installing !== null} onClick={() => void install(entry.id)}>
-                  {installing === entry.id ? "Installing…" : "Install"}
-                </Button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+    <div className="flex flex-col gap-3">
+      <form className="flex gap-2" onSubmit={runSearch}>
+        <input
+          aria-label="Search public skill banks"
+          className={INPUT}
+          placeholder="Search the public skill banks…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <Button type="submit" size="sm" variant="outline" disabled={searching || !query.trim()}>
+          {searching ? "Searching…" : "Search"}
+        </Button>
+      </form>
+      {searchError && <p role="alert" className="text-sm text-destructive">{searchError}</p>}
+      {results !== null &&
+        (results.length === 0 ? (
+          <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+            No skills found for &quot;{query.trim()}&quot;.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border rounded-lg border border-border" aria-label="Search results">
+            {results.map((result) => (
+              <li key={`${result.repo}|${result.path}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
+                <button
+                  type="button"
+                  className={`${MONO} font-medium underline-offset-4 hover:underline`}
+                  onClick={() =>
+                    void openPreview({
+                      origin: { origin: "search", repo: result.repo, path: result.path },
+                      id: result.id,
+                      label: `${result.repo} · ${result.path}`,
+                    })
+                  }
+                >
+                  {result.name}
+                </button>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                  {result.author ? `${result.author} — ` : ""}
+                  {result.description}
+                </span>
+                <span className={LABEL}>★ {result.stars}</span>
+                {isInstalled(result.id) ? (
+                  <span className={LABEL}>installed</span>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={installing !== null}
+                    onClick={() =>
+                      void install({
+                        origin: { origin: "search", repo: result.repo, path: result.path },
+                        id: result.id,
+                        label: `${result.repo} · ${result.path}`,
+                      })
+                    }
+                  >
+                    {installing === result.id ? "Installing…" : "Install"}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ))}
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <span className={LABEL}>or browse</span>
+        {SOURCES.map((s) => (
+          <Button
+            key={s.id}
+            size="sm"
+            variant="ghost"
+            className={SEGMENT}
+            data-active={sourceId === s.id}
+            aria-pressed={sourceId === s.id}
+            onClick={() => setSourceId(s.id)}
+          >
+            {s.label}
+          </Button>
+        ))}
+      </div>
+      <CatalogPanel
+        key={browseSource.id}
+        source={browseSource}
+        installing={installing}
+        isInstalled={isInstalled}
+        onPreview={(id) =>
+          void openPreview({ origin: { origin: "source", source: browseSource.id }, id, label: browseSource.label })
+        }
+        onInstall={(id) =>
+          void install({ origin: { origin: "source", source: browseSource.id }, id, label: browseSource.label })
+        }
+      />
       {installError && (
         <p role="alert" className="text-sm text-destructive">
           {installError}
@@ -223,23 +307,20 @@ function CatalogPanel({ localIds }: { localIds: Set<string> }) {
       )}
 
       <Dialog
-        open={preview !== null || previewError !== null}
+        open={previewTarget !== null}
         onOpenChange={(open) => {
-          if (!open) {
-            setPreview(null);
-            setPreviewError(null);
-          }
+          if (!open) setPreviewTarget(null);
         }}
       >
         <DialogContent className="max-h-(--radix-dialog-content-max-height) overflow-y-auto">
           {previewError ? (
             <p role="alert" className="text-sm text-destructive">{previewError}</p>
-          ) : preview ? (
+          ) : preview && previewTarget ? (
             <>
               <DialogHeader>
                 <DialogTitle className={MONO}>{preview.id}</DialogTitle>
                 <DialogDescription>
-                  {SOURCE_LABEL} · pinned {preview.sha.slice(0, 7)}
+                  {previewTarget.label} · pinned {preview.sha.slice(0, 7)}
                 </DialogDescription>
               </DialogHeader>
               <MessageResponse className="text-sm">{parseSkillMarkdown(preview.raw).body}</MessageResponse>
@@ -252,14 +333,10 @@ function CatalogPanel({ localIds }: { localIds: Set<string> }) {
                   ))}
                 </ul>
               )}
-              {localIds.has(preview.id) || installed.includes(preview.id) ? (
+              {isInstalled(preview.id) ? (
                 <p className={LABEL}>Installed — find it under Yours.</p>
               ) : (
-                <Button
-                  size="sm"
-                  disabled={installing !== null}
-                  onClick={() => void install(preview.id).then(() => setPreview(null))}
-                >
+                <Button size="sm" disabled={installing !== null} onClick={() => void install(previewTarget)}>
                   {installing === preview.id ? "Installing…" : "Install"}
                 </Button>
               )}
@@ -269,6 +346,75 @@ function CatalogPanel({ localIds }: { localIds: Set<string> }) {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/** One curated source's skills — the browse list under the search box
+ * (0090 §7); preview and install ride FindPanel's shared paths. */
+function CatalogPanel({
+  source,
+  installing,
+  isInstalled,
+  onPreview,
+  onInstall,
+}: {
+  source: (typeof SOURCES)[number];
+  installing: string | null;
+  isInstalled: (id: string) => boolean;
+  onPreview: (id: string) => void;
+  onInstall: (id: string) => void;
+}) {
+  const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void listCatalogRequest(source.id)
+      .then((res) => {
+        if (!live) return;
+        if ("error" in res || !res.ok) setError("error" in res ? res.error : res.message);
+        else {
+          setEntries(res.skills);
+          setTruncated(res.truncated);
+        }
+      })
+      .catch(() => live && setError("could not reach the server"));
+    return () => {
+      live = false;
+    };
+  }, [source.id]);
+
+  if (error) return <p role="alert" className="rounded-lg border border-border p-4 text-sm text-destructive">{error}</p>;
+  if (entries === null) return <p className={LABEL}>Loading {source.label}…</p>;
+  if (entries.length === 0) {
+    return <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">No skills found in {source.label}.</p>;
+  }
+
+  return (
+    <>
+      {truncated && <p className={LABEL}>Showing the first {entries.length} skills — the source holds more.</p>}
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {entries.map((entry) => (
+          <li key={entry.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
+            <button type="button" className={`${MONO} font-medium underline-offset-4 hover:underline`} onClick={() => onPreview(entry.id)}>
+              {entry.id}
+            </button>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.description}</span>
+            <span className={LABEL}>
+              {entry.fileCount} file{entry.fileCount === 1 ? "" : "s"} · {kb(entry.sizeBytes)}
+            </span>
+            {isInstalled(entry.id) ? (
+              <span className={LABEL}>installed</span>
+            ) : (
+              <Button size="sm" variant="outline" disabled={installing !== null} onClick={() => onInstall(entry.id)}>
+                {installing === entry.id ? "Installing…" : "Install"}
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
     </>
   );
 }

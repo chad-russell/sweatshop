@@ -7,6 +7,9 @@ import {
   installCatalogSkill,
   listCatalog,
   previewCatalogSkill,
+  previewSearchSkill,
+  installSearchSkill,
+  searchCatalogs,
   type CatalogSourceId,
 } from "../lib/skills/catalog-source";
 import { __setGatewayForTests, readSkill } from "../lib/skills/store";
@@ -68,6 +71,17 @@ const BASE_TREE: Blob[] = [
   blob("skills/Bad_Name/SKILL.md"), // id must match SKILL_ID
 ];
 
+describe("SOURCES (0091 §1)", () => {
+  it("holds the three curated repos with verified paths", async () => {
+    const { SOURCES } = await import("../lib/skills/sources");
+    expect(SOURCES.map((s) => [s.id, `${s.owner}/${s.repo}`, s.path, s.label])).toEqual([
+      ["anthropics", "anthropics/skills", "skills", "anthropics/skills"],
+      ["superpowers", "obra/superpowers", "skills", "obra/superpowers"],
+      ["openclaw", "openclaw/openclaw", "skills", "openclaw/openclaw"],
+    ]);
+  });
+});
+
 describe("listCatalog (0090 §7)", () => {
   it("groups the tree into skill folders — SKILL.md required, ids filtered, description parsed from raw", async () => {
     const fetchImpl = github(BASE_TREE, { "skills/pdf/SKILL.md": raw("Make PDFs") });
@@ -76,6 +90,28 @@ describe("listCatalog (0090 §7)", () => {
       ok: true,
       truncated: false,
       skills: [{ id: "pdf", description: "Make PDFs", fileCount: 2, sizeBytes: 100 }],
+    });
+  });
+
+  it("browses a newly added source the same way — per-source cache", async () => {
+    const fetchImpl = async (url: string): Promise<Response> => {
+      if (url === "https://api.github.com/repos/obra/superpowers") {
+        return new Response(JSON.stringify({ default_branch: "main" }), { status: 200 });
+      }
+      if (url.startsWith("https://api.github.com/repos/obra/superpowers/git/trees/")) {
+        return new Response(
+          JSON.stringify({ tree: [blob("skills/brainstorm/SKILL.md", 50), blob("skills/.agents/SKILL.md", 10)] }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/skills/brainstorm/SKILL.md")) return new Response(raw("Brainstorm better"), { status: 200 });
+      return new Response("nf", { status: 404 });
+    };
+    const res = await listCatalog("superpowers", { fetchImpl });
+    expect(res).toEqual({
+      ok: true,
+      truncated: false,
+      skills: [{ id: "brainstorm", description: "Brainstorm better", fileCount: 1, sizeBytes: 50 }],
     });
   });
 
@@ -214,5 +250,161 @@ describe("catalogDescription (folded YAML, live anthropics shapes)", () => {
     const out = catalogDescription(raw);
     expect(out.length).toBe(500);
     expect(out.endsWith("…")).toBe(true);
+  });
+});
+
+describe("searchCatalogs (0091 §1)", () => {
+  const row = (over: Record<string, unknown>) => ({
+    name: "Nano PDF",
+    author: "openclaw",
+    description: "Tiny PDF tool",
+    stars: 42,
+    ...over,
+  });
+  const page = (skills: Record<string, unknown>[]) =>
+    new Response(JSON.stringify({ success: true, data: { skills } }), { status: 200 });
+  let calls: string[] = [];
+  const skillsmp = (p1: Record<string, unknown>[], p2?: Record<string, unknown>[], failPage2 = false) =>
+    async (url: string): Promise<Response> => {
+      calls.push(url);
+      if (url.includes("page=1")) return page(p1);
+      if (url.includes("page=2")) {
+        if (failPage2) return new Response("boom", { status: 503 });
+        return page(p2 ?? []);
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+
+  beforeEach(() => {
+    calls = [];
+  });
+
+  it("merges two pages, parses githubUrl into owner/repo/ref/path", async () => {
+    const res = await searchCatalogs("pdf", {
+      fetchImpl: skillsmp(
+        [
+          row({ githubUrl: "https://github.com/openclaw/openclaw/tree/main/skills/nano-pdf" }),
+          row({ githubUrl: "https://github.com/mattpocock/skills/tree/v1/docs/pdf-tools" }),
+        ],
+        [row({ name: "Other PDF", githubUrl: "https://github.com/openclaw/openclaw/blob/main/skills/pdf-merge" })],
+      ),
+    });
+    expect(res.ok && res.results).toEqual([
+      { id: "nano-pdf", name: "Nano PDF", author: "openclaw", description: "Tiny PDF tool", stars: 42, repo: "openclaw/openclaw", path: "skills/nano-pdf", ref: "main" },
+      { id: "pdf-tools", name: "Nano PDF", author: "openclaw", description: "Tiny PDF tool", stars: 42, repo: "mattpocock/skills", path: "docs/pdf-tools", ref: "v1" },
+      { id: "pdf-merge", name: "Other PDF", author: "openclaw", description: "Tiny PDF tool", stars: 42, repo: "openclaw/openclaw", path: "skills/pdf-merge", ref: "main" },
+    ]);
+  });
+
+  it("skips unmatched githubUrls and invalid folder ids; dedupes repo+path", async () => {
+    const res = await searchCatalogs("pdf", {
+      fetchImpl: skillsmp([
+        row({ githubUrl: "https://github.com/openclaw/openclaw" }), // repo root
+        row({ githubUrl: "https://gitlab.com/x/y/tree/main/skills/pdf" }), // not github
+        row({ githubUrl: "https://github.com/a/b/tree/main/skills/My.Skill" }), // bad id
+        row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf/SKILL.md" }), // file link
+        row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf/" }), // trailing slash, dup target
+      ]),
+    });
+    expect(res.ok && res.results).toEqual([
+      { id: "pdf", name: "Nano PDF", author: "openclaw", description: "Tiny PDF tool", stars: 42, repo: "a/b", path: "skills/pdf", ref: "main" },
+    ]);
+  });
+
+  it("caches per query for 5 minutes — a second call makes no fetches; case-insensitive key", async () => {
+    await searchCatalogs("PDF ", { fetchImpl: skillsmp([row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf" })]) });
+    const before = calls.length;
+    await searchCatalogs("pdf", { fetchImpl: skillsmp([row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf" })]) });
+    expect(calls.length).toBe(before);
+  });
+
+  it("one failed page keeps the other's rows; both failing is a value", async () => {
+    const partial = await searchCatalogs("pdf", {
+      fetchImpl: skillsmp([row({ githubUrl: "https://github.com/a/b/tree/main/skills/pdf" })], [], true),
+    });
+    expect(partial.ok && partial.results.length).toBe(1);
+
+    const dead = async () => new Response("down", { status: 503 });
+    await expect(searchCatalogs("gone", { fetchImpl: dead })).resolves.toMatchObject({ ok: false, message: expect.stringContaining("503") });
+  });
+
+  it("an empty query is a value", async () => {
+    await expect(searchCatalogs("   ")).resolves.toMatchObject({ ok: false, message: "empty query" });
+  });
+});
+
+describe("search-origin preview + install (0091 §1)", () => {
+  const SHA = "abc123def4567890abcd";
+  /** openclaw/openclaw at a pinned head sha — the search-origin target. */
+  const fetchImpl = async (url: string): Promise<Response> => {
+    if (url === "https://api.github.com/repos/openclaw/openclaw") {
+      return new Response(JSON.stringify({ default_branch: "main" }), { status: 200 });
+    }
+    if (url === "https://api.github.com/repos/openclaw/openclaw/commits/main") {
+      return new Response(JSON.stringify({ sha: SHA }), { status: 200 });
+    }
+    if (url.startsWith(`https://api.github.com/repos/openclaw/openclaw/git/trees/${SHA}`)) {
+      return new Response(
+        JSON.stringify({ tree: [blob("skills/nano-pdf/SKILL.md", 30), blob("skills/nano-pdf/guide.md", 20), blob("skills/other/SKILL.md", 10)] }),
+        { status: 200 },
+      );
+    }
+    if (url === `https://raw.githubusercontent.com/openclaw/openclaw/${SHA}/skills/nano-pdf/SKILL.md`) {
+      return new Response(raw("Nano PDFs"), { status: 200 });
+    }
+    if (url === `https://raw.githubusercontent.com/openclaw/openclaw/${SHA}/skills/nano-pdf/guide.md`) {
+      return new Response("the guide", { status: 200 });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  it("previews at the repo's CURRENT head sha — never the branch name", async () => {
+    const res = await previewSearchSkill("openclaw/openclaw", "skills/nano-pdf", { fetchImpl });
+    expect(res).toEqual({
+      ok: true,
+      skill: { id: "nano-pdf", raw: raw("Nano PDFs"), files: [{ path: "guide.md", content: "the guide" }], sha: SHA },
+    });
+  });
+
+  it("installs with provenance pinned to the sha, author skillsmp, name: stripped", async () => {
+    const res = await installSearchSkill("openclaw/openclaw", "skills/nano-pdf", { fetchImpl });
+    expect(res).toMatchObject({ ok: true, id: "nano-pdf", files: ["guide.md"] });
+    const skill = await readSkill("nano-pdf");
+    expect(skill?.raw).toBe('---\nauthor: anthropic\ndescription: Nano PDFs\n---\n# Do it\n');
+    expect(skill?.author).toBe("skillsmp");
+    expect(skill?.source).toEqual({ repo: "openclaw/openclaw", ref: SHA, path: "skills/nano-pdf" });
+  });
+
+  it("a colliding local id is an honest error; bad shapes and missing SKILL.md are values", async () => {
+    bucket.seed("nano-pdf", skillMd("Local nano-pdf"));
+    await expect(installSearchSkill("openclaw/openclaw", "skills/nano-pdf", { fetchImpl })).resolves.toMatchObject({ ok: false, code: "id-exists" });
+
+    await expect(previewSearchSkill("openclaw", "skills/x", { fetchImpl })).resolves.toMatchObject({ ok: false, code: "invalid", message: expect.stringContaining("owner/repo") });
+    await expect(previewSearchSkill("openclaw/openclaw", "../etc", { fetchImpl })).resolves.toMatchObject({ ok: false, code: "invalid" });
+    await expect(previewSearchSkill("openclaw/openclaw", "skills/no-skill-md", { fetchImpl })).resolves.toMatchObject({
+      ok: false,
+      code: "unknown-skill",
+      message: expect.stringContaining("No SKILL.md"),
+    });
+  });
+});
+
+describe("parseSkillOrigin (0091 §1)", () => {
+  it("defaults to the anthropics source; accepts the other sources", async () => {
+    const { parseSkillOrigin } = await import("../lib/skills/catalog-source");
+    expect(parseSkillOrigin({})).toEqual({ ok: true, value: { origin: "source", source: "anthropics" } });
+    expect(parseSkillOrigin({ source: "superpowers" })).toEqual({ ok: true, value: { origin: "source", source: "superpowers" } });
+    expect(parseSkillOrigin({ source: "nope" })).toEqual({ ok: false, message: 'unknown catalog source "nope"' });
+  });
+
+  it("origin=search requires repo and path shapes", async () => {
+    const { parseSkillOrigin } = await import("../lib/skills/catalog-source");
+    expect(parseSkillOrigin({ origin: "search", repo: "openclaw/openclaw", path: "skills/nano-pdf" })).toEqual({
+      ok: true,
+      value: { origin: "search", repo: "openclaw/openclaw", path: "skills/nano-pdf" },
+    });
+    expect(parseSkillOrigin({ origin: "search", path: "skills/nano-pdf" })).toEqual({ ok: false, message: expect.stringContaining("repo") });
+    expect(parseSkillOrigin({ origin: "search", repo: "openclaw/openclaw" })).toEqual({ ok: false, message: expect.stringContaining("path") });
+    expect(parseSkillOrigin({ origin: "weird" })).toEqual({ ok: false, message: expect.stringContaining("origin") });
   });
 });
