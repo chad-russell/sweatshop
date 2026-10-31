@@ -65,7 +65,7 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
             </ul>
           </section>
         )}
-        <SkillActions id={skill.id} disabled={skill.disabled} />
+        <SkillActions id={skill.id} disabled={skill.disabled} invoke={skill.invoke} />
       </div>
     </div>
   );

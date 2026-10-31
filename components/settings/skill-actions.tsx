@@ -11,15 +11,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { deleteSkillRequest, setSkillDisabledRequest, type SkillMutationResult } from "@/lib/api/skills-catalog";
+import type { InvokeMode } from "@/lib/skills/store";
+import { deleteSkillRequest, setSkillDisabledRequest, setSkillInvokeModeRequest, type SkillMutationResult } from "@/lib/api/skills-catalog";
+
+/** 0091 §2: the three invocation modes as segmented-control entries. */
+const INVOKE_CHOICES: readonly { mode: InvokeMode; label: string; hint: string }[] = [
+  { mode: "auto", label: "Auto", hint: "listed in every chat; the agent loads it on demand" },
+  { mode: "tool", label: "Tool", hint: "hidden from chat listings; mounted into harnesses" },
+  { mode: "manual", label: "Manual", hint: "only joins when you attach it to a prompt" },
+];
 
 /**
- * 0090 §5: the curator's actions — the agent stays the author
- * (save_skill, approval-gated); this is the owner disabling, enabling or
- * deleting directly. Both mutations end in router.refresh() (delete
- * leaves the page) so the server data is the state.
+ * 0090 §5 / 0091 §2: the curator's actions — the agent stays the author
+ * (save_skill, approval-gated); this is the owner disabling, enabling,
+ * deleting, or changing the invocation mode directly. Every mutation
+ * ends in router.refresh() (delete leaves the page) so the server data
+ * is the state.
  */
-export function SkillActions({ id, disabled }: { id: string; disabled: boolean }) {
+export function SkillActions({ id, disabled, invoke }: { id: string; disabled: boolean; invoke: InvokeMode }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -50,6 +59,20 @@ export function SkillActions({ id, disabled }: { id: string; disabled: boolean }
     }
   };
 
+  const setMode = async (mode: InvokeMode) => {
+    if (mode === invoke) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await setSkillInvokeModeRequest(id, mode);
+      if (applied(res, "update")) router.refresh();
+    } catch {
+      setError("could not reach the server");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const remove = async () => {
     setBusy(true);
     setError(null);
@@ -66,6 +89,24 @@ export function SkillActions({ id, disabled }: { id: string; disabled: boolean }
 
   return (
     <div className="flex flex-col items-start gap-2">
+      <div className="flex gap-2" role="radiogroup" aria-label="Invocation mode">
+        {INVOKE_CHOICES.map(({ mode, label, hint }) => (
+          <Button
+            key={mode}
+            size="sm"
+            variant="ghost"
+            title={hint}
+            aria-checked={invoke === mode}
+            role="radio"
+            className="h-8 rounded-lg border border-border px-3 text-sm text-muted-foreground data-[on=true]:bg-secondary data-[on=true]:text-secondary-foreground"
+            data-on={invoke === mode}
+            disabled={busy}
+            onClick={() => void setMode(mode)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void toggle()}>
           {busy ? "Working…" : disabled ? "Enable" : "Disable"}
