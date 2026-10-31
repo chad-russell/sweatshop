@@ -34,6 +34,9 @@ import { OutlineTray } from "@/components/outline-tray";
 import type { ChatRoute } from "@/lib/providers/route";
 import type { ViewingContext } from "@/lib/page-context";
 import { cancelChat, steerChat, uploadAttachment } from "@/lib/api/chat";
+import { fetchAttachableSkills, type AttachableSkill } from "@/lib/api/skills-catalog";
+import { AttachedSkillChips, SkillPicker } from "@/components/skill-picker";
+import { MAX_ATTACHED_SKILLS } from "@/lib/skills/sources";
 import { CHAT_STREAM_THROTTLE_MS } from "@/lib/chat-stream-throttle";
 import { useMarkSeen } from "@/lib/use-mark-seen";
 import { cn } from "@/lib/utils";
@@ -351,6 +354,35 @@ export function ChatSession({
 
   // 0042: images upload first (each becomes an attachment id), then the
   // send carries them as file parts pointing at the serving route.
+  // 0091 §3: skills attached to the NEXT send — ids, not files, so they
+  // live here (per-send state, cleared once the send lands), never in
+  // PromptInput's attachment state. The picker's list is fetched on
+  // open (cheap and fresh), never on mount.
+  const [attachedSkills, setAttachedSkills] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [attachables, setAttachables] = useState<readonly AttachableSkill[]>([]);
+  const [attachablesLoading, setAttachablesLoading] = useState(false);
+  useEffect(() => {
+    if (!pickerOpen) return;
+    let live = true;
+    setAttachablesLoading(true);
+    void fetchAttachableSkills().then((res) => {
+      if (!live) return;
+      if (Array.isArray(res)) setAttachables(res);
+      setAttachablesLoading(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, [pickerOpen]);
+  const toggleAttached = (id: string) =>
+    setAttachedSkills((current) =>
+      current.includes(id)
+        ? current.filter((skill) => skill !== id)
+        : current.length < MAX_ATTACHED_SKILLS
+          ? [...current, id]
+          : current,
+    );
   const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   // A refusal notice is a passing remark, not state: it clears itself.
@@ -384,6 +416,13 @@ export function ChatSession({
       restoreText(text);
       throw new Error("images while busy");
     }
+    if (attachedSkills.length > 0 && isBusy) {
+      // 0091 §3: attached skills shape the turn's instructions — a
+      // steered send (text-only) can't carry them either.
+      setComposerNotice("Skills can't be added while a turn is running — wait for it to finish.");
+      restoreText(text);
+      throw new Error("skills while busy");
+    }
     let files: FileUIPart[] = [];
     if (images.length > 0) {
       setUploading(true);
@@ -405,10 +444,17 @@ export function ChatSession({
     }
     // The optimistic user message carries the viewing context as
     // metadata, so the chip shows live (a reload reads the row's).
+    // 0091 §3: attached skill ids ride the same metadata — the route
+    // reads them from the send's message, the row persists them.
     const viewing = pageContext?.() ?? null;
+    const metadata = {
+      ...(viewing ? { viewing } : {}),
+      ...(attachedSkills.length > 0 ? { attachedSkills } : {}),
+    };
     void chat.sendMessage(
-      sendPayload(text, files, viewing ? { viewing } : undefined),
+      sendPayload(text, files, Object.keys(metadata).length > 0 ? metadata : undefined),
     );
+    setAttachedSkills([]);
   };
 
   const handleStop = async () => {
@@ -521,6 +567,7 @@ export function ChatSession({
           onError={(err) => setComposerNotice(attachmentErrorMessage(err.code))}
         >
           <ComposerAttachments dimmed={uploading} />
+          <AttachedSkillChips ids={attachedSkills} onRemove={(id) => setAttachedSkills((current) => current.filter((skill) => skill !== id))} />
           <PromptInputTextarea
             ref={textareaRef}
             onChange={handleDraftChange}
@@ -533,7 +580,7 @@ export function ChatSession({
           />
           <PromptInputFooter>
             <PromptInputTools className="flex-1 overflow-hidden">
-              <ComposerAddButton disabled={isBusy} />
+              <ComposerAddButton disabled={isBusy} onAddSkill={() => setPickerOpen(true)} />
               {fresh ? freshMode?.footer : null}
               {composerTools?.(state)}
             </PromptInputTools>
@@ -546,6 +593,14 @@ export function ChatSession({
             </PromptInputSubmit>
           </PromptInputFooter>
         </PromptInput>
+        <SkillPicker
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          skills={attachables}
+          loading={attachablesLoading}
+          attached={attachedSkills}
+          onToggle={toggleAttached}
+        />
         {composerNotice && (
           <p role="alert" className="pt-2 text-sm text-destructive">
             {composerNotice}
