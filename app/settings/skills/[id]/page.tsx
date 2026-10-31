@@ -39,6 +39,11 @@ export default async function SkillDetailPage({ params }: { params: Promise<{ id
             </span>
           </div>
           <p className="text-sm text-muted-foreground">{skill.description}</p>
+          {skill.source && (
+            <p className={`${MONO} text-xs text-muted-foreground`}>
+              from {skill.source.repo} · {skill.source.path} · pinned {skill.source.ref.slice(0, 7)}
+            </p>
+          )}
         </header>
         <MessageResponse className="text-sm">{skill.body}</MessageResponse>
         {skill.files.length > 0 && (
