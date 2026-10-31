@@ -32,6 +32,8 @@ export async function startChatTurn(
   runEvent?: RunEventMeta,
   /** 0042: uploaded image ids riding this send. */
   attachments?: string[],
+  /** 0091 §3: skill ids attached to this send (validated by the route). */
+  attachedSkills?: string[],
 ): Promise<{ runId: string }> {
   const conversation = getConversation(db(), conversationId);
   if (!conversation) throw new Error(`no conversation ${conversationId}`);
@@ -49,6 +51,7 @@ export async function startChatTurn(
       conversationId,
       userText: text,
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      ...(attachedSkills && attachedSkills.length > 0 ? { attachedSkills } : {}),
       hasSandbox: getConversationBinding(db(), conversationId)?.kind !== "none",
       hasProject: !!conversation.projectId,
       // 0040 phase 3: a start_thread child gets the thread step budget

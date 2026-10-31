@@ -28,6 +28,8 @@ import { ACTIVE_RUN_STATUSES as ACTIVE, startChatTurn } from "@/lib/chat/start-t
 import { answerPendingWithText } from "@/lib/chat/answer-pending";
 import { checkClaimable } from "@/db/attachments";
 import { MAX_IMAGES_PER_MESSAGE, parseAttachmentRef } from "@/lib/attachments";
+import { SKILL_ID } from "@/lib/skills/store";
+import { MAX_ATTACHED_SKILLS } from "@/lib/skills/sources";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +60,7 @@ export async function POST(request: Request) {
     sandbox?: string | null;
     /** 0015: the page the send came from (the agent panel's viewing note). */
     context?: unknown;
-    messages?: { role: string; parts?: { type: string; text?: string; url?: string }[] }[];
+    messages?: { role: string; parts?: { type: string; text?: string; url?: string }[]; metadata?: unknown }[];
   };
   const transportText = body.messages
     ?.filter((m) => m.role === "user")
@@ -73,6 +75,25 @@ export async function POST(request: Request) {
     const id = part.url.split("/").pop() ?? "";
     return [parseAttachmentRef(`attachment:${id}`) ?? `invalid:${id}`];
   });
+  // 0091 §3: attached skill ids ride the send message's metadata (the
+  // same place the optimistic chip reads); malformed = a 400 like any
+  // other bad send input, unknown ids drop silently later in the turn.
+  const lastUserMessage = body.messages?.filter((m) => m.role === "user").at(-1);
+  const rawAttached = (lastUserMessage?.metadata as { attachedSkills?: unknown } | undefined)?.attachedSkills;
+  let attachedSkills: string[] | undefined;
+  if (rawAttached !== undefined) {
+    if (
+      !Array.isArray(rawAttached) ||
+      rawAttached.length > MAX_ATTACHED_SKILLS ||
+      !rawAttached.every((id): id is string => typeof id === "string" && SKILL_ID.test(id))
+    ) {
+      return NextResponse.json(
+        { error: `attachedSkills must be an array of up to ${MAX_ATTACHED_SKILLS} skill ids` },
+        { status: 400 },
+      );
+    }
+    attachedSkills = rawAttached;
+  }
   // WorkflowChatTransport callers (`messages` present) need the turn's UI
   // stream plus an `x-workflow-run-id` header; plain fetch callers (steer)
   // get JSON.
@@ -211,6 +232,9 @@ export async function POST(request: Request) {
     parseViewingContext(body.context) ?? undefined,
     undefined,
     attachmentIds,
+    // 0091 §3: a steered send never reaches here (the client refuses
+    // attach while a turn runs; the queue path above ignores them).
+    attachedSkills,
   );
   return respond(run.runId, false);
 }

@@ -86,6 +86,8 @@ export function rowsToUIMessages(rows: StoredRow[]): UIMessage[] {  const out: U
     ...(row.metadata?.viewing ? { viewing: row.metadata.viewing } : {}),
     // 0022: a wake row's chip ("[pi finished]" is not Chad's words).
     ...(row.metadata?.runEvent ? { runEvent: row.metadata.runEvent } : {}),
+    // 0091 §3: the send's attached skills (chips, like viewing).
+    ...(row.metadata?.attachedSkills ? { attachedSkills: row.metadata.attachedSkills } : {}),
   });
 
   for (const row of rows) {
