@@ -403,3 +403,18 @@ export async function status(): Promise<StoreStatus> {
     ...(lastError ? { lastError } : {}),
   };
 }
+
+/** 0090 §2: the connector [Test] — one LIVE list against the bucket,
+ * value-shaped, never throwing. Deliberately not the cached listing: a
+ * test that echoed the cache could not see the outage it asks about. */
+export async function pingStore(): Promise<{ ok: boolean; detail: string }> {
+  const b = backend();
+  if (!b) return { ok: false, detail: "not configured (SKILLS_S3_* env)" };
+  try {
+    await b.gateway.list(b.prefix);
+    return { ok: true, detail: "connected" };
+  } catch (err) {
+    lastError = message(err);
+    return { ok: false, detail: message(err) };
+  }
+}

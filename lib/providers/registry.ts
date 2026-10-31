@@ -33,6 +33,19 @@ export function providerKey(provider: ProviderId): string | undefined {
   return value && value.trim() ? value : undefined;
 }
 
+/** 0090 §2: the URL a connector [Test] fetches — a raw models-list
+ * request against the provider's OpenAI-compatible surface. */
+export function providerModelsUrl(provider: ProviderId): string {
+  switch (provider) {
+    case "glm":
+      return `${GLM_OPENAI_BASE}/models`;
+    case "gloo":
+      return `${GLOO_BASE}/models`;
+    case "openrouter":
+      return `${OPENROUTER_BASE}/models`;
+  }
+}
+
 /** Providers whose key is present — the only ones pickers offer. */
 export function availableProviders(): Set<ProviderId> {
   return new Set(PROVIDER_IDS.filter((p) => providerKey(p)));

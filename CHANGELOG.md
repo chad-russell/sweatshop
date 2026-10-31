@@ -10,6 +10,8 @@
 
 ## 2026-10-30
 
+- **Added** Settings → Connections now shows every account the app uses (providers, harness logins, git hosts, the skills store) as cards with a live Test button and one-click next actions.
+
 - **Changed** Settings is now a hub: Models, Connections, Skills and Agent each get their own page, with live status summaries on the hub.
 
 ## 2026-10-29
