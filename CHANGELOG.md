@@ -10,6 +10,8 @@
 
 ## 2026-10-30
 
+- **Added** Skills get a real catalog page under Settings → Skills: search your skills, read one rendered (with its files), and disable or delete it — the agent still writes, you curate.
+
 - **Added** Settings → Connections now shows every account the app uses (providers, harness logins, git hosts, the skills store) as cards with a live Test button and one-click next actions.
 
 - **Changed** Settings is now a hub: Models, Connections, Skills and Agent each get their own page, with live status summaries on the hub.
