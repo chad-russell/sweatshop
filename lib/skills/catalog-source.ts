@@ -12,38 +12,28 @@ import {
   validFilePath,
   type StoreResult,
 } from "@/lib/skills/store";
+import { sourceById, type CatalogSourceId, type SourceDef } from "@/lib/skills/sources";
 
 /**
- * 0090 §7: public catalog discovery — a catalog source is a git repo of
- * skill folders, browsed with the GitHub git-trees API (ONE call,
- * recursive) with descriptions fetched from raw.githubusercontent.com at
- * the PINNED sha (immutable, so a preview and its install always read
+ * 0090 §7 + 0091 §1: public catalog discovery — a catalog source is a
+ * git repo of skill folders, browsed with the GitHub git-trees API (ONE
+ * call, recursive) with descriptions fetched from raw.githubusercontent
+ * at the PINNED sha (immutable, so a preview and its install always read
  * the same bytes). Everything is value-shaped and never throws; the
  * assembled listing is cached 10 minutes per source. Untrusted content
  * is data only — rendered, never executed; install is a store write.
+ *
+ * The sources themselves live in lib/skills/sources.ts (client-safe).
  */
 
-export type CatalogSourceId = "anthropics";
-
-interface SourceDef {
-  id: CatalogSourceId;
-  owner: string;
-  repo: string;
-  /** The repo-relative folder holding the skill folders. */
-  path: string;
-  label: string;
-}
-
-export const SOURCES: readonly SourceDef[] = [
-  { id: "anthropics", owner: "anthropics", repo: "skills", path: "skills", label: "anthropics/skills" },
-];
+export type { CatalogSourceId, SourceDef };
 
 const LIST_TTL_MS = 10 * 60_000;
 /** v1 cap: descriptions cost one raw fetch each; past this the list truncates. */
 const MAX_LISTED = 30;
 const TIMEOUT_MS = 10_000;
 
-const source = (id: string): SourceDef | undefined => SOURCES.find((s) => s.id === id);
+const source = sourceById;
 
 export interface CatalogEntry {
   id: string;

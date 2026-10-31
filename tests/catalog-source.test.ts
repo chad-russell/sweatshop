@@ -68,6 +68,17 @@ const BASE_TREE: Blob[] = [
   blob("skills/Bad_Name/SKILL.md"), // id must match SKILL_ID
 ];
 
+describe("SOURCES (0091 §1)", () => {
+  it("holds the three curated repos with verified paths", async () => {
+    const { SOURCES } = await import("../lib/skills/sources");
+    expect(SOURCES.map((s) => [s.id, `${s.owner}/${s.repo}`, s.path, s.label])).toEqual([
+      ["anthropics", "anthropics/skills", "skills", "anthropics/skills"],
+      ["superpowers", "obra/superpowers", "skills", "obra/superpowers"],
+      ["openclaw", "openclaw/openclaw", "skills", "openclaw/openclaw"],
+    ]);
+  });
+});
+
 describe("listCatalog (0090 §7)", () => {
   it("groups the tree into skill folders — SKILL.md required, ids filtered, description parsed from raw", async () => {
     const fetchImpl = github(BASE_TREE, { "skills/pdf/SKILL.md": raw("Make PDFs") });
@@ -76,6 +87,28 @@ describe("listCatalog (0090 §7)", () => {
       ok: true,
       truncated: false,
       skills: [{ id: "pdf", description: "Make PDFs", fileCount: 2, sizeBytes: 100 }],
+    });
+  });
+
+  it("browses a newly added source the same way — per-source cache", async () => {
+    const fetchImpl = async (url: string): Promise<Response> => {
+      if (url === "https://api.github.com/repos/obra/superpowers") {
+        return new Response(JSON.stringify({ default_branch: "main" }), { status: 200 });
+      }
+      if (url.startsWith("https://api.github.com/repos/obra/superpowers/git/trees/")) {
+        return new Response(
+          JSON.stringify({ tree: [blob("skills/brainstorm/SKILL.md", 50), blob("skills/.agents/SKILL.md", 10)] }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/skills/brainstorm/SKILL.md")) return new Response(raw("Brainstorm better"), { status: 200 });
+      return new Response("nf", { status: 404 });
+    };
+    const res = await listCatalog("superpowers", { fetchImpl });
+    expect(res).toEqual({
+      ok: true,
+      truncated: false,
+      skills: [{ id: "brainstorm", description: "Brainstorm better", fileCount: 1, sizeBytes: 50 }],
     });
   });
 
