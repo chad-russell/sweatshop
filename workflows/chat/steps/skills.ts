@@ -15,12 +15,14 @@ export interface SkillSaveInput {
   note?: string;
 }
 
-/** The turn's `# Skills` appendix source — empty when unconfigured or down. */
-export async function loadSkillsCatalogStep(): Promise<{ id: string; description: string }[]> {
+/** The turn's `# Skills` appendix source — empty when unconfigured or down.
+ *  0091 §2: rows carry `invoke`; listSkills already drops manual and
+ *  disabled skills, so the appendix only ever sees auto + tool rows. */
+export async function loadSkillsCatalogStep(): Promise<{ id: string; description: string; invoke: "auto" | "tool" }[]> {
   "use step";
   const { listSkills } = await import("../../../lib/skills/store");
   try {
-    return (await listSkills()).map(({ id, description }) => ({ id, description }));
+    return (await listSkills()).map(({ id, description, invoke }) => ({ id, description, invoke: invoke === "tool" ? "tool" : "auto" }));
   } catch {
     return [];
   }

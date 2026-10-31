@@ -266,6 +266,29 @@ describe("0088: the # Skills appendix", () => {
     expect(SKILLS_FALLBACK).toBe("use_skill with no id lists every skill.");
   });
 
+  it("0091 §2: tool rows move to a compact # Tool skills block after the listings", () => {
+    expect(
+      buildSkillsSection([
+        { id: "pdf", description: "document tooling", invoke: "tool" },
+        { id: "a", description: "Does A" },
+      ]),
+    ).toBe("# Skills\n\na — Does A\n\n# Tool skills\n\ntool: pdf — document tooling (mounted in harnesses)");
+  });
+
+  it("0091 §2: a catalog of only tool rows renders only the tool block; descriptions cap at 80", () => {
+    const long = "y".repeat(120);
+    expect(buildSkillsSection([{ id: "scrape", description: long, invoke: "tool" }])).toBe(
+      `# Tool skills\n\ntool: scrape — ${"y".repeat(80)}… (mounted in harnesses)`,
+    );
+  });
+
+  it("0091 §2: tool rows count toward the 20-skill cap (combined)", () => {
+    expect(buildSkillsSection([...catalog(19), { id: "t", description: "tool skill", invoke: "tool" }])).toContain("# Tool skills");
+    expect(buildSkillsSection([...catalog(20), { id: "t", description: "tool skill", invoke: "tool" }])).toBe(
+      `# Skills\n\n${SKILLS_FALLBACK}`,
+    );
+  });
+
   it("renders owner placeholders in descriptions", () => {
     process.env.SWEATSHOP_OWNER_NAME = "Pat";
     try {

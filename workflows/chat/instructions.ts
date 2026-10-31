@@ -1,4 +1,5 @@
 import { renderOwnerPlaceholders } from "../../lib/agent/owner";
+import type { InvokeMode } from "../../lib/skills/store";
 import { capRepoDoc, REPO_DOC_TOTAL_CAP, type RepoDoc } from "../../lib/agent/repo-docs";
 
 /**
@@ -63,8 +64,10 @@ export interface BuildInstructionsInput {
   hosts: readonly { name: string; address: string; user: string; apiBase: string | null }[];
   repoDocs: readonly RepoDoc[];
   /** 0088: the skills catalog for the `# Skills` appendix — omitted or
-   *  empty (unconfigured/unreachable store) renders nothing. */
-  skillsCatalog?: readonly { id: string; description: string }[];
+   *  empty (unconfigured/unreachable store) renders nothing. 0091 §2:
+   *  rows carry `invoke`; tool-mode rows land in a compact
+   *  `# Tool skills` block after the full listings. */
+  skillsCatalog?: readonly { id: string; description: string; invoke?: InvokeMode }[];
   /** The project this chat is bound to, if any — named explicitly so the
    *  model never has to call list_projects to find "the relevant
    *  project" it is already in. Null/omitted = plain chat (unchanged
@@ -148,18 +151,33 @@ export function buildRepoDocsSection(docs: readonly RepoDoc[]): string {
 
 const SKILLS_LISTED_MAX = 20;
 const SKILL_DESCRIPTION_CAP = 200;
+const SKILL_TOOL_DESCRIPTION_CAP = 80;
 export const SKILLS_FALLBACK = "use_skill with no id lists every skill.";
 
 /** 0088: `# Skills` — one `id — description` line per skill; a catalog
- *  past SKILLS_LISTED_MAX falls back to a pointer at `use_skill`. */
-export function buildSkillsSection(catalog: readonly { id: string; description: string }[]): string {
+ *  past SKILLS_LISTED_MAX falls back to a pointer at `use_skill`.
+ *  0091 §2: tool-mode rows move to a compact `# Tool skills` block
+ *  AFTER it (`tool: id — short description (mounted in harnesses)` —
+ *  the capability is announced without its full description competing
+ *  for context); manual rows never reach here at all. The cap and its
+ *  fallback count auto + tool rows COMBINED — one catalog, one budget. */
+export function buildSkillsSection(catalog: readonly { id: string; description: string; invoke?: InvokeMode }[]): string {
   if (catalog.length === 0) return "";
   if (catalog.length > SKILLS_LISTED_MAX) return `# Skills\n\n${SKILLS_FALLBACK}`;
-  const lines = catalog.map(({ id, description }) => {
-    const text = renderOwnerPlaceholders(description).replace(/\s+/g, " ").trim();
-    return `${id} — ${text.length > SKILL_DESCRIPTION_CAP ? `${text.slice(0, SKILL_DESCRIPTION_CAP)}…` : text}`;
-  });
-  return `# Skills\n\n${lines.join("\n")}`;
+  const clean = (text: string) => renderOwnerPlaceholders(text).replace(/\s+/g, " ").trim();
+  const cap = (text: string, limit: number) => (text.length > limit ? `${text.slice(0, limit)}…` : text);
+  const auto = catalog.filter(({ invoke }) => (invoke ?? "auto") === "auto");
+  const tool = catalog.filter(({ invoke }) => invoke === "tool");
+  const blocks: string[] = [];
+  if (auto.length > 0) {
+    blocks.push(`# Skills\n\n${auto.map(({ id, description }) => `${id} — ${cap(clean(description), SKILL_DESCRIPTION_CAP)}`).join("\n")}`);
+  }
+  if (tool.length > 0) {
+    blocks.push(
+      `# Tool skills\n\n${tool.map(({ id, description }) => `tool: ${id} — ${cap(clean(description), SKILL_TOOL_DESCRIPTION_CAP)} (mounted in harnesses)`).join("\n")}`,
+    );
+  }
+  return blocks.join("\n\n");
 }
 
 /** Build the turn's full instructions (pure — no sandbox or db access).
