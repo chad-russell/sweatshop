@@ -72,5 +72,7 @@ USER root
 WORKDIR /workspace
 USER sandbox
 
-# Keep the container alive; commands enter via docker exec.
+# Keep the container alive; commands enter via docker exec. Not PID 1:
+# lib/sandboxes/provision.ts runs containers with --init, so the engine's
+# init reaps the orphans those exec'd commands leave behind.
 CMD ["sleep", "infinity"]

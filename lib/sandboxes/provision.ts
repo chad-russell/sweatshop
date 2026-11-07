@@ -22,7 +22,24 @@ export const DEFAULT_SANDBOX_IMAGE = process.env.SWEATSHOP_SANDBOX_IMAGE || "loc
  * composes these; `ref` is the container name. 0013: `image` is the
  * project's `image_ref` (default above). */
 export async function createContainer(name: string, image: string = DEFAULT_SANDBOX_IMAGE): Promise<void> {
-  await exec("docker", ["run", "-d", "--name", name, image]);
+  await exec("docker", createContainerArgs(name, image));
+}
+
+/**
+ * `docker run` argv for a sandbox. `--init` puts the engine's tiny init
+ * (tini under Docker, catatonit under podman) in as PID 1, running the
+ * image's CMD (`sleep infinity`) as its child. RCA: with `sleep` as PID 1
+ * nothing reaped orphans, and every `docker exec` command starts under
+ * PID 1 — so the background jobs, `sh -c` wrappers, test servers and
+ * browser helpers it left behind piled up as zombies (4,300+ in one long
+ * session), slowing every process spawn until timing-sensitive tests
+ * timed out. The init also forwards SIGTERM, so `docker stop` (idle
+ * reaping) exits at once instead of waiting out the kill timeout. Applies
+ * to newly created containers; existing ones keep their PID 1 until
+ * recreated.
+ */
+export function createContainerArgs(name: string, image: string = DEFAULT_SANDBOX_IMAGE): string[] {
+  return ["run", "-d", "--init", "--name", name, image];
 }
 
 /** Stop a container, preserving its state (idle reaping). */
