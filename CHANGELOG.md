@@ -8,6 +8,10 @@
   Create the date heading if it's missing; don't backfill older dates.
 -->
 
+## 2026-11-07
+
+- **Fixed** Sandboxes no longer slow down over long sessions: leftover finished processes are now cleaned up instead of piling up.
+
 ## 2026-10-30
 
 - **Added** Browse and install public skills: the Skills page gains an anthropics/skills tab — preview a skill before it touches your store, install with one click, and see where each installed skill came from.
